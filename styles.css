@@ -1,0 +1,12 @@
+/* Sets all the text color to red! */
+
+div.obsidian-rest-api-settings div.api-key-display {
+    font-size: 0.8em;
+    margin-bottom: 20px;
+}
+div.obsidian-rest-api-settings div.api-key-display div {
+    padding: 10px 20px;
+    background-color: var(--background-modifier-cover);
+    font-family: monospace;
+    user-select: all;
+}

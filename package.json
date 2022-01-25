@@ -1,0 +1,31 @@
+{
+	"name": "obsidian-rest-api",
+	"version": "1.0.1",
+	"description": "Get, change or otherwise interact with your notes in Obsidian via a REST API.",
+	"main": "main.js",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"version": "node version-bump.mjs && git add manifest.json versions.json"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "MIT",
+	"devDependencies": {
+		"@types/express": "^4.17.13",
+		"@types/node": "^16.11.6",
+		"@types/uuid": "^8.3.4",
+		"@typescript-eslint/eslint-plugin": "^5.2.0",
+		"@typescript-eslint/parser": "^5.2.0",
+		"builtin-modules": "^3.2.0",
+		"esbuild": "0.13.12",
+		"obsidian": "^0.12.17",
+		"tslib": "2.3.1",
+		"typescript": "4.4.4"
+	},
+	"dependencies": {
+		"express": "^4.17.2",
+		"hash.js": "^1.1.7",
+		"uuid": "^8.3.2"
+	}
+}
