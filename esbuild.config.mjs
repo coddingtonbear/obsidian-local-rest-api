@@ -17,6 +17,7 @@ esbuild.build({
 	},
 	entryPoints: ['src/main.ts'],
 	bundle: true,
+	platform: 'node',
 	external: [
 		'obsidian',
 		'electron',
@@ -44,7 +45,7 @@ esbuild.build({
 		...builtins],
 	format: 'cjs',
 	watch: !prod,
-	target: 'es2016',
+	target: 'es6',
 	logLevel: "info",
 	sourcemap: prod ? false : 'inline',
 	treeShaking: true,

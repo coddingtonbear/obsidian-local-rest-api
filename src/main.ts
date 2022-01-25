@@ -1,7 +1,7 @@
 import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
 import { v4 as uuidv4 } from 'uuid';
 import * as hash from 'hash.js'
-import * as express from 'express'
+import express from 'express'
 import * as http from 'http'
 
 // Remember to rename these classes and interfaces!
@@ -17,7 +17,7 @@ const DEFAULT_SETTINGS: Settings = {
 
 export default class MyPlugin extends Plugin {
   settings: Settings;
-  server: http.Server | null = null;
+  server: http.Server | null = null; 
 
   async onload() {
     await this.loadSettings();
@@ -38,10 +38,14 @@ export default class MyPlugin extends Plugin {
 
     const app = express()
     this.server = app.listen(this.settings.port)
+
+	  console.log(`REST API listening on ${this.settings.port}`)
   }
 
   onunload() {
-
+    if(this.server) {
+      this.server.close()
+    }
   }
 
   async loadSettings() {
