@@ -87,12 +87,11 @@ export default class RequestHandler {
     res.sendStatus(202);
   }
 
-  async vaultPost(req: express.Request, res: express.Response): Promise<void> {
+  async vaultPatch(req: express.Request, res: express.Response): Promise<void> {
     const headingBoundary = req.get("Heading-Boundary") || "::"
     const heading = (req.get("Heading") || "").split(headingBoundary).filter(Boolean)
     const insert = req.get("Heading-Insert") !== undefined
-    let path = req.params[0];
-    let content = ""
+    const path = req.params[0];
 
     if (typeof req.body != "string") {
       res.statusCode = 400;
@@ -103,59 +102,80 @@ export default class RequestHandler {
       return;
     }
 
-    if (heading.length) {
-      if (!path || path.endsWith("/")) {
-        res.statusCode = 400;
-        res.json({
-          error: "Cannot set 'Heading' while creating new file.",
-        });
-        return;
-      }
-      const file = this.app.vault.getAbstractFileByPath(path);
-      if (!(file instanceof TFile)) {
-        res.sendStatus(404);
-        return;
-      }
-      const cache = this.app.metadataCache.getFileCache(file);
-      const position = findHeadingBoundary(cache, heading)
-
-      if(!position) {
-        res.statusCode = 400;
-        res.json({
-          error: `No heading found matching path '${heading.join("::")}'.`,
-        });
-        return;
-      }
-
-      const fileContents = await this.app.vault.read(file)
-      const fileLines = fileContents.split("\n")
-
-      console.log(position)
-
-      fileLines.splice(insert === false ? (position.end?.line ?? fileLines.length) : position.start.line + 1, 0, req.body)
-
-      content = fileLines.join("\n")
-    } else {
-      if (path && !path.endsWith("/")) {
-        res.statusCode = 400;
-        res.json({
-          error: "No 'Heading' header specified as insertion target for file.",
-        });
-        return;
-      }
-      const pathExists = await this.app.vault.adapter.exists(path)
-      if(!pathExists) {
-        res.sendStatus(404);
-        return;
-      }
-
-      const moment = (window as any).moment(Date.now());
-      path = `${path}${moment.format("YYYYMMddTHHmmss")}.md`;
-      content = req.body
+    if (!heading.length) {
+      res.statusCode = 400;
+      res.json({
+        error: "No 'Heading' header specified as insertion target for file.",
+      });
+      return;
     }
-    res.statusCode = 203
+    if (!path || path.endsWith("/")) {
+      res.statusCode = 400;
+      res.json({
+        error: "Cannot set 'Heading' while creating new file.",
+      });
+      return;
+    }
+
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) {
+      res.sendStatus(404);
+      return;
+    }
+    const cache = this.app.metadataCache.getFileCache(file);
+    const position = findHeadingBoundary(cache, heading)
+
+    if(!position) {
+      res.statusCode = 400;
+      res.json({
+        error: `No heading found matching path '${heading.join("::")}'.`,
+      });
+      return;
+    }
+
+    const fileContents = await this.app.vault.read(file)
+    const fileLines = fileContents.split("\n")
+
+    fileLines.splice(insert === false ? (position.end?.line ?? fileLines.length) : position.start.line + 1, 0, req.body)
+
+    const content = fileLines.join("\n")
+
+    await this.app.vault.adapter.write(path, content);
+
+    res.statusCode = 200;
     res.send(content)
-    return;
+  }
+
+  async vaultPost(req: express.Request, res: express.Response): Promise<void> {
+    let path = req.params[0];
+
+    if (typeof req.body != "string") {
+      res.statusCode = 400;
+      res.json({
+        error:
+          "Incoming content did not come with a bytes or text content encoding.  Be sure to set a Content-type header matching application/* or text/*.",
+      });
+      return;
+    }
+
+    if (path && !path.endsWith("/")) {
+      res.statusCode = 400;
+      res.json({
+        error: "Path must be a directory.",
+      });
+      return;
+    }
+    const pathExists = await this.app.vault.adapter.exists(path)
+    if(!pathExists) {
+      res.sendStatus(404);
+      return;
+    }
+
+    const moment = (window as any).moment(Date.now());
+    path = `${path}${moment.format("YYYYMMDDTHHmmss")}.md`;
+
+    await this.app.vault.adapter.write(path, req.body);
+    res.sendStatus(202);
   }
 
   setupRouter() {
@@ -167,6 +187,7 @@ export default class RequestHandler {
       .route("/vault/*")
       .get(this.vaultGet.bind(this))
       .put(this.vaultPut.bind(this))
+      .patch(this.vaultPatch.bind(this))
       .post(this.vaultPost.bind(this));
 
     this.api.get("/", this.root);

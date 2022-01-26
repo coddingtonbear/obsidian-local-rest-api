@@ -13,7 +13,7 @@ Returns the content of the file at the specified path in your open vault if the 
 
 Updates content of the file at the specified path with the content of your request body.
 
-#### `POST`
+#### `PATCH`
 
 Inserts the content of your request body into the file at the specified path under the heading specified in your request's `Heading` header.
 
@@ -41,4 +41,4 @@ Returns a directory listing in the following format:
 
 #### `POST`
 
-Creates a new file in the specified directory having a name matching the current timestamp in the following format `YYYYMMddTHHmmss.md` using your request's body.
+Creates a new file in the specified directory having a name matching the current timestamp in the following format `YYYYMMDDTHHmmss.md` using your request's body.
