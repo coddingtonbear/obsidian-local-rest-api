@@ -1,4 +1,6 @@
-import { Loc } from "obsidian";
+import type { Moment } from "moment";
+import { Loc, TFile } from "obsidian";
+import { IPeriodicNoteSettings } from "obsidian-daily-notes-interface";
 
 export interface Settings {
   apiKey?: string;
@@ -13,4 +15,12 @@ export interface Settings {
 export interface HeadingBoundary {
   start: Loc
   end?: Loc
+}
+
+export interface PeriodicNoteInterface {
+  settings: IPeriodicNoteSettings
+  loaded: boolean
+  create: (date: Moment) => Promise<TFile>
+  get: (date: Moment, all: Record<string, TFile>) => TFile
+  getAll: () => Record<string, TFile>
 }

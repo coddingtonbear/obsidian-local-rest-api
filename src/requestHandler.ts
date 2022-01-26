@@ -1,11 +1,12 @@
 import { App, TFile } from "obsidian";
+import periodicNotes from "obsidian-daily-notes-interface";
 
 import express from "express";
 import cors from "cors";
 import mime from "mime";
 import bodyParser from "body-parser";
 
-import { Settings } from "./types";
+import { Settings, PeriodicNoteInterface } from "./types";
 import { findHeadingBoundary } from "./utils";
 
 export default class RequestHandler {
@@ -206,6 +207,118 @@ export default class RequestHandler {
     res.sendStatus(202)
   }
 
+  getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
+    return {
+      daily: {
+        settings: periodicNotes.getDailyNoteSettings(),
+        loaded: periodicNotes.appHasDailyNotesPluginLoaded(),
+        create: periodicNotes.createDailyNote,
+        get: periodicNotes.getDailyNote,
+        getAll: periodicNotes.getAllDailyNotes
+      },
+      weekly: {
+        settings: periodicNotes.getWeeklyNoteSettings(),
+        loaded: periodicNotes.appHasWeeklyNotesPluginLoaded(),
+        create: periodicNotes.createWeeklyNote,
+        get: periodicNotes.getWeeklyNote,
+        getAll: periodicNotes.getAllWeeklyNotes
+      },
+      monthly: {
+        settings: periodicNotes.getMonthlyNoteSettings(),
+        loaded: periodicNotes.appHasMonthlyNotesPluginLoaded(),
+        create: periodicNotes.createMonthlyNote,
+        get: periodicNotes.getMonthlyNote,
+        getAll: periodicNotes.getAllMonthlyNotes
+      },
+      quarterly: {
+        settings: periodicNotes.getQuarterlyNoteSettings(),
+        loaded: periodicNotes.appHasQuarterlyNotesPluginLoaded(),
+        create: periodicNotes.createQuarterlyNote,
+        get: periodicNotes.getQuarterlyNote,
+        getAll: periodicNotes.getAllQuarterlyNotes
+      },
+      yearly: {
+        settings: periodicNotes.getYearlyNoteSettings(),
+        loaded: periodicNotes.appHasYearlyNotesPluginLoaded(),
+        create: periodicNotes.createYearlyNote,
+        get: periodicNotes.getYearlyNote,
+        getAll: periodicNotes.getAllYearlyNotes
+      },
+    }
+  }
+
+  periodicGetInterfaceOrError(period: string): PeriodicNoteInterface {
+    const periodic = this.getPeriodicNoteInterface()
+    if(!periodic[period]) {
+      throw new Error(`Period ${period} does not exist.`)
+    }
+    if(!periodic[period].loaded) {
+      throw new Error(`Period ${period} is not enabled.`)
+    }
+
+    return periodic[period]
+  }
+
+  async periodicGet(req: express.Request, res: express.Response): Promise<void> {
+    const periodName = req.params.period
+    let period: PeriodicNoteInterface
+    try {
+      period = this.periodicGetInterfaceOrError(periodName)
+    } catch(e) {
+      res.statusCode = 404
+      res.json({
+        error: e,
+      });
+      return
+    }
+
+    const now = (window as any).moment(Date.now());
+    const all = period.getAll()
+
+    const file = period.get(now, all)
+
+    if(!file) {
+      res.statusCode = 404
+      res.json({
+        error: `Periodic note of type ${periodName} does not exist for the current moment.  You can create one by POST-ing.`,
+      });
+    }
+
+    res.statusCode = 307
+    res.set("Location", `/vault/${file.path}`)
+    res.send("")
+  }
+
+  async periodicPost(req: express.Request, res: express.Response): Promise<void> {
+    const periodName = req.params.period
+    let period: PeriodicNoteInterface
+    try {
+      period = this.periodicGetInterfaceOrError(periodName)
+    } catch(e) {
+      res.statusCode = 404
+      res.json({
+        error: e,
+      });
+      return
+    }
+
+    const now = (window as any).moment(Date.now());
+
+    const file = await period.create(now)
+
+    if(!file) {
+      res.statusCode = 400
+      res.json({
+        error: "Could not create new periodic note; does it already exist?"
+      })
+      return
+    }
+
+    res.statusCode = 307
+    res.set("Location", `/vault/${file.path}`)
+    res.send("")
+  }
+
   async authenticationMiddleware(req: express.Request, res: express.Response, next: express.NextFunction): Promise<void> {
     const authorizationHeader = req.get('Authorization')
 
@@ -230,6 +343,11 @@ export default class RequestHandler {
       .patch(this.vaultPatch.bind(this))
       .post(this.vaultPost.bind(this))
       .delete(this.vaultDelete.bind(this));
+
+    this.api
+      .route("/periodic/:period/")
+      .get(this.periodicGet.bind(this))
+      .post(this.periodicPost.bind(this))
 
     this.api.get("/", this.root);
   }
