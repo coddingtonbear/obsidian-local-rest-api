@@ -1,21 +1,10 @@
 import { App, Plugin, PluginSettingTab, Setting } from "obsidian";
-import express from "express";
 import * as https from "https";
 import forge, { pki } from "node-forge";
 
-import setupServer from './server'
+import RequestHandler from './requestHandler'
+import {Settings} from './types'
 
-// Remember to rename these classes and interfaces!
-
-interface Settings {
-  apiKey?: string;
-  crypto?: {
-    cert: string;
-    privateKey: string;
-    publicKey: string;
-  };
-  port: number;
-}
 
 const DEFAULT_SETTINGS: Settings = {
   port: 27124,
@@ -23,13 +12,15 @@ const DEFAULT_SETTINGS: Settings = {
 
 export default class MyPlugin extends Plugin {
   settings: Settings;
-  server: https.Server | null = null;
-  expressApp: express.Express;
+  httpsServer: https.Server | null = null;
+  requestHandler: RequestHandler
 
   async onload() {
     await this.loadSettings();
-    this.expressApp = express()
-    setupServer(this.expressApp)
+    this.requestHandler = new RequestHandler(this.app, this.settings)
+    this.requestHandler.setupRouter()
+
+    this.app
 
     if (!this.settings.apiKey) {
       this.settings.apiKey = forge.md.sha256
@@ -65,21 +56,21 @@ export default class MyPlugin extends Plugin {
   }
 
   refreshServerState() {
-    if (this.server) {
-      this.server.close();
+    if (this.httpsServer) {
+      this.httpsServer.close();
     }
-    this.server = https.createServer(
+    this.httpsServer = https.createServer(
       { key: this.settings.crypto.privateKey, cert: this.settings.crypto.cert },
-      this.expressApp
+      this.requestHandler.api
     );
-    this.server.listen(this.settings.port);
+    this.httpsServer.listen(this.settings.port);
 
     console.log(`REST API listening on ${this.settings.port}`);
   }
 
   onunload() {
-    if (this.server) {
-      this.server.close();
+    if (this.httpsServer) {
+      this.httpsServer.close();
     }
   }
 
