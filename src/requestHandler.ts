@@ -178,8 +178,20 @@ export default class RequestHandler {
     res.sendStatus(202);
   }
 
+  async authenticationMiddleware(req: express.Request, res: express.Response, next: express.NextFunction): Promise<void> {
+    const authorizationHeader = req.get('Authorization')
+
+    if(authorizationHeader !== `Token ${this.settings.apiKey}`) {
+      res.sendStatus(401)
+      return
+    } 
+
+    next()
+  }
+
   setupRouter() {
     this.api.use(cors());
+    this.api.use(this.authenticationMiddleware.bind(this))
     this.api.use(bodyParser.text({ type: "text/*" }));
     this.api.use(bodyParser.raw({ type: "application/*" }));
 
