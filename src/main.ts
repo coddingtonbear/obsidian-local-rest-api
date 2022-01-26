@@ -10,7 +10,7 @@ const DEFAULT_SETTINGS: Settings = {
   port: 27124,
 };
 
-export default class MyPlugin extends Plugin {
+export default class LocalRestApi extends Plugin {
   settings: Settings;
   httpsServer: https.Server | null = null;
   requestHandler: RequestHandler
@@ -84,9 +84,9 @@ export default class MyPlugin extends Plugin {
 }
 
 class SampleSettingTab extends PluginSettingTab {
-  plugin: MyPlugin;
+  plugin: LocalRestApi;
 
-  constructor(app: App, plugin: MyPlugin) {
+  constructor(app: App, plugin: LocalRestApi) {
     super(app, plugin);
     this.plugin = plugin;
   }
@@ -95,7 +95,7 @@ class SampleSettingTab extends PluginSettingTab {
     const { containerEl } = this;
 
     containerEl.empty();
-    containerEl.classList.add("obsidian-rest-api-settings");
+    containerEl.classList.add("obsidian-local-rest-api-settings");
 
     const apiKeyDiv = containerEl.createEl("div");
     apiKeyDiv.classList.add("api-key-display");
@@ -104,9 +104,9 @@ class SampleSettingTab extends PluginSettingTab {
     apiKeyDiv.createEl("p", {
       text: "This must be passed in all requests via an authorization header.",
     });
-    apiKeyDiv.createEl("div", { text: this.plugin.settings.apiKey });
+    apiKeyDiv.createEl("pre", { text: this.plugin.settings.apiKey });
     apiKeyDiv.createEl("p", { text: "Example header: " });
-    apiKeyDiv.createEl("div", {
+    apiKeyDiv.createEl("pre", {
       text: `Authorization: Token ${this.plugin.settings.apiKey}`,
     });
 

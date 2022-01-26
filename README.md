@@ -1,5 +1,4 @@
-# REST API for Obsidian
-
+# Local REST API for Obsidian
 
 ## Endpoints
 
