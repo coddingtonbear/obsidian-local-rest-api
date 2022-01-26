@@ -19,7 +19,7 @@ Inserts the content of your request body into the file at the specified path und
 There are a handful of headings you can use for controlling exactly where your content is inserted:
 
 * `Heading`: **Required** Name of the heading at which you would like your content inserted.  Can be restricted to matching heading names having specified parents by separating headings with `::` (e.g. "Some Section::Overview" to target the heading named "Overview" below "Some Section"), otherwise accepts the first matching heading name.
-* `Heading-Insert`: *Default: Unset* If set, insert content immediately below the heading you specify using `Heading`, otherwise inserts content immediately before the next heading.
+* `Content-Insertion-Position`: *Default: 'end'* Controls where content is inserted under the specified heading.  If set to 'beginning', content will be inserted immediately after the specified heading.  If set to 'end', content will be inserted immediately before the next heading.
 * `Heading-Boundary`: *Default: `::`* Instead of using `::` as the heading delimiter, you can specify your own delimiter.  This is useful if `::` happens to appear within your headings.
 
 #### `DELETE`

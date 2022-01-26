@@ -90,9 +90,22 @@ export default class RequestHandler {
   async vaultPatch(req: express.Request, res: express.Response): Promise<void> {
     const headingBoundary = req.get("Heading-Boundary") || "::"
     const heading = (req.get("Heading") || "").split(headingBoundary).filter(Boolean)
-    const insert = req.get("Heading-Insert") !== undefined
+    const contentPosition = req.get("Content-Insertion-Position")
+    let insert = false
     const path = req.params[0];
 
+    if (contentPosition === 'beginning') {
+      insert = true
+    } else if (contentPosition === 'end') {
+      insert = false
+    } else {
+      res.statusCode = 400;
+      res.json({
+        error:
+          `Unexpected 'Content-Insertion-Position' header value: '${contentPosition}'.`
+      });
+      return;
+    }
     if (typeof req.body != "string") {
       res.statusCode = 400;
       res.json({
