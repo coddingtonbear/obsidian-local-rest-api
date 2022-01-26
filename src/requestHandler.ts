@@ -112,7 +112,7 @@ export default class RequestHandler {
     if (!path || path.endsWith("/")) {
       res.statusCode = 400;
       res.json({
-        error: "Cannot set 'Heading' while creating new file.",
+        error: "PATCH can be used only for modifying an existing file.",
       });
       return;
     }
@@ -178,6 +178,21 @@ export default class RequestHandler {
     res.sendStatus(202);
   }
 
+  async vaultDelete(req: express.Request, res: express.Response): Promise<void> {
+    const path = req.params[0];
+
+    if (!path || path.endsWith("/")) {
+      res.statusCode = 400;
+      res.json({
+        error: "PATCH can be used only for modifying an existing file.",
+      });
+      return;
+    }
+
+    await this.app.vault.adapter.remove(path)
+    res.sendStatus(202)
+  }
+
   async authenticationMiddleware(req: express.Request, res: express.Response, next: express.NextFunction): Promise<void> {
     const authorizationHeader = req.get('Authorization')
 
@@ -200,7 +215,8 @@ export default class RequestHandler {
       .get(this.vaultGet.bind(this))
       .put(this.vaultPut.bind(this))
       .patch(this.vaultPatch.bind(this))
-      .post(this.vaultPost.bind(this));
+      .post(this.vaultPost.bind(this))
+      .delete(this.vaultDelete.bind(this));
 
     this.api.get("/", this.root);
   }

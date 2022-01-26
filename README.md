@@ -22,6 +22,10 @@ There are a handful of headings you can use for controlling exactly where your c
 * `Heading-Insert`: *Default: Unset* If set, insert content immediately below the heading you specify using `Heading`, otherwise inserts content immediately before the next heading.
 * `Heading-Boundary`: *Default: `::`* Instead of using `::` as the heading delimiter, you can specify your own delimiter.  This is useful if `::` happens to appear within your headings.
 
+#### `DELETE`
+
+Deletes the file at the specified path.
+
 ### `/vault/PATH/TO/DIRECTORY/`
 
 #### `GET`
