@@ -213,6 +213,12 @@ export default class RequestHandler {
       return;
     }
 
+    const pathExists = await this.app.vault.adapter.exists(path);
+    if (!pathExists) {
+      res.sendStatus(404);
+      return;
+    }
+
     await this.app.vault.adapter.remove(path);
     res.sendStatus(202);
   }

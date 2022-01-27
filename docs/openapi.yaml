@@ -7,7 +7,7 @@ servers:
     description: "OK"
     variables:
       port:
-        default: '24227'
+        default: '27124'
 components:
   securitySchemes:
     apiKeyAuth:
