@@ -2,7 +2,7 @@
 
 ## Endpoints
 
-### Vault Files: `/vault/PATH/TO/FILE.md`
+### Vault Files: `/vault/{pathToFile}`
 
 #### `GET`
 
@@ -26,7 +26,7 @@ There are a handful of headings you can use for controlling exactly where your c
 
 Deletes the file at the specified path.
 
-### Vault Directories: `/vault/PATH/TO/DIRECTORY/`
+### Vault Directories: `/vault/{pathToDirectory}`
 
 #### `GET`
 
@@ -47,7 +47,7 @@ Returns a directory listing in the following format:
 Creates a new file in the specified directory having a name matching the current timestamp in the following format `YYYYMMDDTHHmmss.md` using your request's body.
 
 
-### Periodic Notes: `/periodic/(daily|weekly|monthly|quarterly|yearly)/`
+### Periodic Notes: `/periodic/{daily|weekly|monthly|quarterly|yearly}/`
 
 #### `GET`
 
