@@ -180,23 +180,32 @@ export default class RequestHandler {
     }
 
     if (path && !path.endsWith("/")) {
-      res.statusCode = 400;
-      res.json({
-        error: "Path must be a directory.",
-      });
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (!(file instanceof TFile)) {
+        res.sendStatus(404);
+        return;
+      }
+
+      const fileContents = await this.app.vault.read(file);
+
+      await this.app.vault.adapter.write(path, fileContents + req.body);
+
+      res.sendStatus(200);
+      return;
+    } else {
+      const pathExists = await this.app.vault.adapter.exists(path);
+      if (!pathExists) {
+        res.sendStatus(404);
+        return;
+      }
+
+      const moment = (window as any).moment(Date.now());
+      path = `${path}${moment.format("YYYYMMDDTHHmmss")}.md`;
+
+      await this.app.vault.adapter.write(path, req.body);
+      res.sendStatus(202);
       return;
     }
-    const pathExists = await this.app.vault.adapter.exists(path);
-    if (!pathExists) {
-      res.sendStatus(404);
-      return;
-    }
-
-    const moment = (window as any).moment(Date.now());
-    path = `${path}${moment.format("YYYYMMDDTHHmmss")}.md`;
-
-    await this.app.vault.adapter.write(path, req.body);
-    res.sendStatus(202);
   }
 
   async vaultDelete(

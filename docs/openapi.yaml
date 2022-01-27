@@ -93,6 +93,43 @@ paths:
         '400':
           description: |
             Incoming file could not be processed.  Make sure you have specified a reasonable file name, and make sure you have set a reasonable 'Content-Type' header; if you are uploading a note, 'text/markdown' is likely the right choice.
+    post:
+      tags: ["Vault Files"]
+      summary: |
+        Append content to an existing note.
+      description: |
+        Appends content to the end of an existing note.  If you would like to insert text relative to a particular heading instead of appending to the end of the file, see 'patch'.
+      parameters:
+      - name: filename
+        in: path
+        description: |
+          Path to the file to alter (relative to your vault root).  Note: this particular interactive tool does not support path parameters, so you will only be able to fetch root-level files via this interface.  The API, though, will allow you to access files at any depth in your vault.
+        required: true
+        schema:
+          type: string
+          format: path
+      requestBody:
+        description: Content you would like to append.
+        required: true
+        content:
+          'text/markdown':
+            schema:
+              type: string
+              example: |
+                # This is my document
+
+                something else here
+      responses:
+        '200':
+          description: Success
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Does not exist
     patch:
       tags: ["Vault Files"]
       summary: |
