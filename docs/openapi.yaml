@@ -274,7 +274,7 @@ paths:
           - monthly
           - quarterly
           - yearly
-          default: end
+          default: daily
       responses:
         '307':
           description: Your daily note for this period does exist.  Please redirect to the specified URL.

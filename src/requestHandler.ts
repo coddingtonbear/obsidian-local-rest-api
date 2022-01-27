@@ -286,7 +286,7 @@ export default class RequestHandler {
     } catch (e) {
       res.statusCode = 404;
       res.json({
-        error: e,
+        error: e.message,
       });
       return;
     }
