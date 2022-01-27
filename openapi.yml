@@ -1,0 +1,370 @@
+openapi: '3.0.2'
+info:
+  title: Local REST API for Obsidian
+  version: '1.0'
+servers:
+  - url: https://127.0.0.1:{port}
+    description: "OK"
+    variables:
+      port:
+        default: '24227'
+components:
+  securitySchemes:
+    apiKeyAuth:
+      description: |
+        Find your API Key in your Obsidian settings
+        in the "Local REST API" section under "Plugins".
+      type: http
+      scheme: bearer
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Message describing the error.
+security:
+- apiKeyAuth: []
+paths:
+  /vault/{filename}:
+    get:
+      tags: ["Vault Files"]
+      summary: |
+        Return the content of a single file in your vault.
+      description: |
+        Returns the content of the file at the specified path in your vault should the file exist.
+      parameters:
+      - name: filename
+        in: path
+        description: Path to the file to return (relative to your vault root).
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            text/markdown:
+              schema:
+                type: string
+                example: |
+                  # This is my document
+
+                  something else here
+            '*/*':
+              schema:
+                type: string
+        '404':
+          description: File does not exist
+    put:
+      tags: ["Vault Files"]
+      summary: |
+        Update the content of a single file in your vault.
+      description: |
+        Updates the content of the file at the specified path in your vault.
+      requestBody:
+        description: Content of the file you would like to upload.
+        required: true
+        content:
+          'text/markdown':
+            schema:
+              type: string
+              example: |
+                # This is my document
+
+                something else here
+          '*/*':
+            schema:
+              type: string
+      parameters:
+      - name: filename
+        in: path
+        description: Path to the file to update (relative to your vault root).
+        required: true
+        schema:
+          type: string
+      responses:
+        '202':
+          description: Success
+        '400':
+          description: |
+            Incoming file could not be processed.  Make sure you have specified a reasonable file name, and make sure you have set a reasonable 'Content-Type' header; if you are uploading a note, 'text/markdown' is likely the right choice.
+    patch:
+      tags: ["Vault Files"]
+      summary: |
+        Insert content into an existing note relative to a heading within that document.
+      description: |
+        Inserts content into an existing note relative to a heading within your note.
+      parameters:
+      - name: filename
+        in: path
+        description: Path to the file to alter (relative to your vault root).
+        required: true
+        schema:
+          type: string
+      - name: Heading
+        in: header
+        description: |
+          Name of heading relative to which you would like your content inserted.  May be a sequence of nested headers delimited by "::".
+        required: true
+        schema:
+          type: string
+      - name: Content-Insertion-Position
+        in: header
+        description: |
+          Position at which you would like your content inserted; valid options are 
+        schema:
+          type: string
+          enum:
+          - end
+          - beginning
+          default: end
+      - name: Heading-Boundary
+        in: header
+        description: |
+          Set the nested header delimiter to a different value. This is useful if "::" exists in one of the headers you are attempting to use.
+        schema:
+          type: string
+          default: "::"
+      requestBody:
+        description: Content you would like to insert.
+        required: true
+        content:
+          'text/markdown':
+            schema:
+              type: string
+              example: |
+                # This is my document
+
+                something else here
+      responses:
+        '200':
+          description: Success
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Does not exist
+    delete:
+      tags: ["Vault Files"]
+      summary: |
+        Return the content of a single file in your vault.
+      description: |
+        Returns the content of the file at the specified path in your vault should the file exist.
+      parameters:
+      - name: filename
+        in: path
+        description: Path to the file to delete (relative to your vault root).
+        required: true
+        schema:
+          type: string
+      responses:
+        '202':
+          description: Success
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: File does not exist.
+  /vault/{pathToDirectory}/:
+    get:
+      tags: ["Vault Directories"]
+      summary: |
+        List files that exist in the specified directory.
+      parameters:
+      - name: pathToDirectory
+        in: path
+        description: Path to list files from (relative to your vault root).
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  files:
+                    type: array
+                    items:
+                      type: string
+              example:
+                files:
+                - "mydocument.md"
+                - "somedirectory/"
+        '404':
+          description: File does not exist
+    post:
+      tags: ["Vault Directories"]
+      summary: |
+        Create a new unique file in the specified directory.
+      description: |
+        Create a new unique file in the specified directory.  Will be named matching the current timestamp in the following format: `YYYYMMDDHHmmss.md` using your request's body as content.
+      parameters:
+      - name: pathToDirectory
+        in: path
+        description: Path to list files from (relative to your vault root).
+        required: true
+        schema:
+          type: string
+      requestBody:
+        description: Content of the file you would like to upload.
+        required: true
+        content:
+          'text/markdown':
+            schema:
+              type: string
+              example: |
+                # This is my document
+
+                something else here
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  files:
+                    type: array
+                    items:
+                      type: string
+              example:
+                files:
+                - "mydocument.md"
+                - "somedirectory/"
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Directory Does Not Exist
+  /periodic/{period}/:
+    get:
+      tags: ["Periodic Notes"]
+      summary: |
+        Get current periodic note for the specified period.
+      parameters:
+      - name: period
+        in: path
+        description: The name of the period for which you would like to grab the current note.
+        required: true
+        schema:
+          type: string
+          enum:
+          - daily
+          - weekly
+          - monthly
+          - quarterly
+          - yearly
+          default: end
+      responses:
+        '307':
+          description: Your daily note for this period does exist.  Please redirect to the specified URL.
+          headers:
+            Location:
+              description: URL at which your current daily note can be found.
+              schema:
+                type: string
+                format: uri
+        '404':
+          description: Your daily note for this period does not exist or periodic notes of the relevant type are not available.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags: ["Periodic Notes"]
+      summary: |
+        Create a new periodic note for the specified period.
+      parameters:
+      - name: period
+        in: path
+        description: The name of the period for which you would like to grab the current note.
+        required: true
+        schema:
+          type: string
+          enum:
+          - daily
+          - weekly
+          - monthly
+          - quarterly
+          - yearly
+          default: end
+      responses:
+        '307':
+          description: Your daily note for this period was created.  Please redirect to the specified URL.
+          headers:
+            Location:
+              description: URL at which your current daily note can be found.
+              schema:
+                type: string
+                format: uri
+        '400':
+          description: Your periodic note could not be created.  Perhaps it already exists?
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Your daily note for this period does not exist or periodic notes of the relevant type are not available.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /commands/:
+    get:
+      tags: ["Commands"]
+      summary: |
+        Get a list of available commands.
+      responses:
+        '200':
+          description: A list of available commands.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  commands:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+              example:
+                commands:
+                - id: global-search:open
+                  name: "Search: Search in all files"
+                - id: graph:open
+                  name: "Graph view: Open graph view"
+  /commands/{commandId}/:
+    post:
+      tags: ["Commands"]
+      summary: |
+        Execute a command.
+      parameters:
+      - name: commandId
+        in: path
+        description: The id of the command to execute
+        required: true
+        schema:
+          type: string
+      responses:
+        '202':
+          description: Success
+        '404':
+          description: The command you specified does not exist.

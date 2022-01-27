@@ -106,7 +106,7 @@ class SampleSettingTab extends PluginSettingTab {
     apiKeyDiv.createEl("pre", { text: this.plugin.settings.apiKey });
     apiKeyDiv.createEl("p", { text: "Example header: " });
     apiKeyDiv.createEl("pre", {
-      text: `Authorization: Token ${this.plugin.settings.apiKey}`,
+      text: `Authorization: Bearer ${this.plugin.settings.apiKey}`,
     });
 
     new Setting(containerEl).setName("Server Port").addText((cb) =>

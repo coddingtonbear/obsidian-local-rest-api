@@ -72,7 +72,7 @@ export default class RequestHandler {
     const path = req.params[0];
 
     if (!path || path.endsWith("/")) {
-      res.sendStatus(404);
+      res.sendStatus(400);
     }
 
     if (typeof req.body != "string") {
@@ -208,7 +208,7 @@ export default class RequestHandler {
     if (!path || path.endsWith("/")) {
       res.statusCode = 400;
       res.json({
-        error: "PATCH can be used only for modifying an existing file.",
+        error: "DELETE can only be used to delete files.",
       });
       return;
     }
@@ -377,7 +377,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const authorizationHeader = req.get("Authorization");
 
-    if (authorizationHeader !== `Token ${this.settings.apiKey}`) {
+    if (authorizationHeader !== `Bearer ${this.settings.apiKey}`) {
       res.sendStatus(401);
       return;
     }
