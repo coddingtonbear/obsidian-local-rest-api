@@ -89,21 +89,22 @@ export default class RequestHandler {
   }
 
   async vaultPatch(req: express.Request, res: express.Response): Promise<void> {
-    const headingBoundary = req.get("Heading-Boundary") || "::"
-    const heading = (req.get("Heading") || "").split(headingBoundary).filter(Boolean)
-    const contentPosition = req.get("Content-Insertion-Position")
-    let insert = false
+    const headingBoundary = req.get("Heading-Boundary") || "::";
+    const heading = (req.get("Heading") || "")
+      .split(headingBoundary)
+      .filter(Boolean);
+    const contentPosition = req.get("Content-Insertion-Position");
+    let insert = false;
     const path = req.params[0];
 
-    if (contentPosition === 'beginning') {
-      insert = true
-    } else if (contentPosition === 'end') {
-      insert = false
+    if (contentPosition === "beginning") {
+      insert = true;
+    } else if (contentPosition === "end") {
+      insert = false;
     } else {
       res.statusCode = 400;
       res.json({
-        error:
-          `Unexpected 'Content-Insertion-Position' header value: '${contentPosition}'.`
+        error: `Unexpected 'Content-Insertion-Position' header value: '${contentPosition}'.`,
       });
       return;
     }
@@ -137,9 +138,9 @@ export default class RequestHandler {
       return;
     }
     const cache = this.app.metadataCache.getFileCache(file);
-    const position = findHeadingBoundary(cache, heading)
+    const position = findHeadingBoundary(cache, heading);
 
-    if(!position) {
+    if (!position) {
       res.statusCode = 400;
       res.json({
         error: `No heading found matching path '${heading.join("::")}'.`,
@@ -147,17 +148,23 @@ export default class RequestHandler {
       return;
     }
 
-    const fileContents = await this.app.vault.read(file)
-    const fileLines = fileContents.split("\n")
+    const fileContents = await this.app.vault.read(file);
+    const fileLines = fileContents.split("\n");
 
-    fileLines.splice(insert === false ? (position.end?.line ?? fileLines.length) : position.start.line + 1, 0, req.body)
+    fileLines.splice(
+      insert === false
+        ? position.end?.line ?? fileLines.length
+        : position.start.line + 1,
+      0,
+      req.body
+    );
 
-    const content = fileLines.join("\n")
+    const content = fileLines.join("\n");
 
     await this.app.vault.adapter.write(path, content);
 
     res.statusCode = 200;
-    res.send(content)
+    res.send(content);
   }
 
   async vaultPost(req: express.Request, res: express.Response): Promise<void> {
@@ -179,8 +186,8 @@ export default class RequestHandler {
       });
       return;
     }
-    const pathExists = await this.app.vault.adapter.exists(path)
-    if(!pathExists) {
+    const pathExists = await this.app.vault.adapter.exists(path);
+    if (!pathExists) {
       res.sendStatus(404);
       return;
     }
@@ -192,7 +199,10 @@ export default class RequestHandler {
     res.sendStatus(202);
   }
 
-  async vaultDelete(req: express.Request, res: express.Response): Promise<void> {
+  async vaultDelete(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
     const path = req.params[0];
 
     if (!path || path.endsWith("/")) {
@@ -203,8 +213,8 @@ export default class RequestHandler {
       return;
     }
 
-    await this.app.vault.adapter.remove(path)
-    res.sendStatus(202)
+    await this.app.vault.adapter.remove(path);
+    res.sendStatus(202);
   }
 
   getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
@@ -214,125 +224,135 @@ export default class RequestHandler {
         loaded: periodicNotes.appHasDailyNotesPluginLoaded(),
         create: periodicNotes.createDailyNote,
         get: periodicNotes.getDailyNote,
-        getAll: periodicNotes.getAllDailyNotes
+        getAll: periodicNotes.getAllDailyNotes,
       },
       weekly: {
         settings: periodicNotes.getWeeklyNoteSettings(),
         loaded: periodicNotes.appHasWeeklyNotesPluginLoaded(),
         create: periodicNotes.createWeeklyNote,
         get: periodicNotes.getWeeklyNote,
-        getAll: periodicNotes.getAllWeeklyNotes
+        getAll: periodicNotes.getAllWeeklyNotes,
       },
       monthly: {
         settings: periodicNotes.getMonthlyNoteSettings(),
         loaded: periodicNotes.appHasMonthlyNotesPluginLoaded(),
         create: periodicNotes.createMonthlyNote,
         get: periodicNotes.getMonthlyNote,
-        getAll: periodicNotes.getAllMonthlyNotes
+        getAll: periodicNotes.getAllMonthlyNotes,
       },
       quarterly: {
         settings: periodicNotes.getQuarterlyNoteSettings(),
         loaded: periodicNotes.appHasQuarterlyNotesPluginLoaded(),
         create: periodicNotes.createQuarterlyNote,
         get: periodicNotes.getQuarterlyNote,
-        getAll: periodicNotes.getAllQuarterlyNotes
+        getAll: periodicNotes.getAllQuarterlyNotes,
       },
       yearly: {
         settings: periodicNotes.getYearlyNoteSettings(),
         loaded: periodicNotes.appHasYearlyNotesPluginLoaded(),
         create: periodicNotes.createYearlyNote,
         get: periodicNotes.getYearlyNote,
-        getAll: periodicNotes.getAllYearlyNotes
+        getAll: periodicNotes.getAllYearlyNotes,
       },
-    }
+    };
   }
 
   periodicGetInterfaceOrError(period: string): PeriodicNoteInterface {
-    const periodic = this.getPeriodicNoteInterface()
-    if(!periodic[period]) {
-      throw new Error(`Period ${period} does not exist.`)
+    const periodic = this.getPeriodicNoteInterface();
+    if (!periodic[period]) {
+      throw new Error(`Period ${period} does not exist.`);
     }
-    if(!periodic[period].loaded) {
-      throw new Error(`Period ${period} is not enabled.`)
+    if (!periodic[period].loaded) {
+      throw new Error(`Period ${period} is not enabled.`);
     }
 
-    return periodic[period]
+    return periodic[period];
   }
 
-  async periodicGet(req: express.Request, res: express.Response): Promise<void> {
-    const periodName = req.params.period
-    let period: PeriodicNoteInterface
+  async periodicGet(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const periodName = req.params.period;
+    let period: PeriodicNoteInterface;
     try {
-      period = this.periodicGetInterfaceOrError(periodName)
-    } catch(e) {
-      res.statusCode = 404
+      period = this.periodicGetInterfaceOrError(periodName);
+    } catch (e) {
+      res.statusCode = 404;
       res.json({
         error: e,
       });
-      return
+      return;
     }
 
     const now = (window as any).moment(Date.now());
-    const all = period.getAll()
+    const all = period.getAll();
 
-    const file = period.get(now, all)
+    const file = period.get(now, all);
 
-    if(!file) {
-      res.statusCode = 404
+    if (!file) {
+      res.statusCode = 404;
       res.json({
         error: `Periodic note of type ${periodName} does not exist for the current moment.  You can create one by POST-ing.`,
       });
     }
 
-    res.statusCode = 307
-    res.set("Location", `/vault/${file.path}`)
-    res.send("")
+    res.statusCode = 307;
+    res.set("Location", `/vault/${file.path}`);
+    res.send("");
   }
 
-  async periodicPost(req: express.Request, res: express.Response): Promise<void> {
-    const periodName = req.params.period
-    let period: PeriodicNoteInterface
+  async periodicPost(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const periodName = req.params.period;
+    let period: PeriodicNoteInterface;
     try {
-      period = this.periodicGetInterfaceOrError(periodName)
-    } catch(e) {
-      res.statusCode = 404
+      period = this.periodicGetInterfaceOrError(periodName);
+    } catch (e) {
+      res.statusCode = 404;
       res.json({
         error: e,
       });
-      return
+      return;
     }
 
     const now = (window as any).moment(Date.now());
 
-    const file = await period.create(now)
+    const file = await period.create(now);
 
-    if(!file) {
-      res.statusCode = 400
+    if (!file) {
+      res.statusCode = 400;
       res.json({
-        error: "Could not create new periodic note; does it already exist?"
-      })
-      return
+        error: "Could not create new periodic note; does it already exist?",
+      });
+      return;
     }
 
-    res.statusCode = 307
-    res.set("Location", `/vault/${file.path}`)
-    res.send("")
+    res.statusCode = 307;
+    res.set("Location", `/vault/${file.path}`);
+    res.send("");
   }
 
-  async authenticationMiddleware(req: express.Request, res: express.Response, next: express.NextFunction): Promise<void> {
-    const authorizationHeader = req.get('Authorization')
+  async authenticationMiddleware(
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ): Promise<void> {
+    const authorizationHeader = req.get("Authorization");
 
-    if(authorizationHeader !== `Token ${this.settings.apiKey}`) {
-      res.sendStatus(401)
-      return
-    } 
+    if (authorizationHeader !== `Token ${this.settings.apiKey}`) {
+      res.sendStatus(401);
+      return;
+    }
 
-    next()
+    next();
   }
 
   setupRouter() {
     this.api.use(cors());
-    this.api.use(this.authenticationMiddleware.bind(this))
+    this.api.use(this.authenticationMiddleware.bind(this));
     this.api.use(bodyParser.text({ type: "text/*" }));
     this.api.use(bodyParser.raw({ type: "application/*" }));
 
@@ -347,7 +367,7 @@ export default class RequestHandler {
     this.api
       .route("/periodic/:period/")
       .get(this.periodicGet.bind(this))
-      .post(this.periodicPost.bind(this))
+      .post(this.periodicPost.bind(this));
 
     this.api.get("/", this.root);
   }

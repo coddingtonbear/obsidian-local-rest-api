@@ -13,14 +13,14 @@ export interface Settings {
 }
 
 export interface HeadingBoundary {
-  start: Loc
-  end?: Loc
+  start: Loc;
+  end?: Loc;
 }
 
 export interface PeriodicNoteInterface {
-  settings: IPeriodicNoteSettings
-  loaded: boolean
-  create: (date: Moment) => Promise<TFile>
-  get: (date: Moment, all: Record<string, TFile>) => TFile
-  getAll: () => Record<string, TFile>
+  settings: IPeriodicNoteSettings;
+  loaded: boolean;
+  create: (date: Moment) => Promise<TFile>;
+  get: (date: Moment, all: Record<string, TFile>) => TFile;
+  getAll: () => Record<string, TFile>;
 }

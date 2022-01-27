@@ -2,9 +2,8 @@ import { App, Plugin, PluginSettingTab, Setting } from "obsidian";
 import * as https from "https";
 import forge, { pki } from "node-forge";
 
-import RequestHandler from './requestHandler'
-import {Settings} from './types'
-
+import RequestHandler from "./requestHandler";
+import { Settings } from "./types";
 
 const DEFAULT_SETTINGS: Settings = {
   port: 27124,
@@ -13,14 +12,14 @@ const DEFAULT_SETTINGS: Settings = {
 export default class LocalRestApi extends Plugin {
   settings: Settings;
   httpsServer: https.Server | null = null;
-  requestHandler: RequestHandler
+  requestHandler: RequestHandler;
 
   async onload() {
     await this.loadSettings();
-    this.requestHandler = new RequestHandler(this.app, this.settings)
-    this.requestHandler.setupRouter()
+    this.requestHandler = new RequestHandler(this.app, this.settings);
+    this.requestHandler.setupRouter();
 
-    this.app
+    this.app;
 
     if (!this.settings.apiKey) {
       this.settings.apiKey = forge.md.sha256
