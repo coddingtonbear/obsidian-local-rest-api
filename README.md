@@ -12,3 +12,7 @@ This plugin provides a secure HTTPS interface gated behind api key authenticatio
 - Execute commands and list what commands are available.
 
 Hopefully you find this as useful as I do!
+
+## Credits
+
+This was inspired by [Vinzent03](https://github.com/Vinzent03)'s [advanced-uri plugin](https://github.com/Vinzent03/obsidian-advanced-uri) with hopes of expanding the automation options beyond the limitations of custom URL schemes.
