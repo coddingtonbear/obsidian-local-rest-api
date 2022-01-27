@@ -3,14 +3,14 @@ import * as https from "https";
 import forge, { pki } from "node-forge";
 
 import RequestHandler from "./requestHandler";
-import { Settings } from "./types";
+import { LocalRestApiSettings } from "./types";
 
-const DEFAULT_SETTINGS: Settings = {
+const DEFAULT_SETTINGS: LocalRestApiSettings = {
   port: 27124,
 };
 
 export default class LocalRestApi extends Plugin {
-  settings: Settings;
+  settings: LocalRestApiSettings;
   httpsServer: https.Server | null = null;
   requestHandler: RequestHandler;
 

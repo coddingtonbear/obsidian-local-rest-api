@@ -6,15 +6,15 @@ import cors from "cors";
 import mime from "mime";
 import bodyParser from "body-parser";
 
-import { Settings, PeriodicNoteInterface } from "./types";
+import { LocalRestApiSettings, PeriodicNoteInterface } from "./types";
 import { findHeadingBoundary } from "./utils";
 
 export default class RequestHandler {
   app: App;
   api: express.Express;
-  settings: Settings;
+  settings: LocalRestApiSettings;
 
-  constructor(app: App, settings: Settings) {
+  constructor(app: App, settings: LocalRestApiSettings) {
     this.app = app;
     this.api = express();
     this.settings = settings;

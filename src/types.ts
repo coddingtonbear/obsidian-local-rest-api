@@ -2,7 +2,7 @@ import type { Moment } from "moment";
 import { Loc, TFile } from "obsidian";
 import { IPeriodicNoteSettings } from "obsidian-daily-notes-interface";
 
-export interface Settings {
+export interface LocalRestApiSettings {
   apiKey?: string;
   crypto?: {
     cert: string;
