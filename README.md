@@ -6,7 +6,7 @@ Have you ever needed to automate interacting with your notes?  This plugin gives
 
 This plugin provides a secure HTTPS interface gated behind api key authentication that allows you to:
 
-- Read, create, update or delete existing notes.  There's even a `PATCH` HTTP method for inserting content into your section.
+- Read, create, update or delete existing notes.  There's even a `PATCH` HTTP method for inserting content into a particular section of a note.
 - List notes stored in your vault.
 - Create and fetch periodic notes.
 - Execute commands and list what commands are available.
