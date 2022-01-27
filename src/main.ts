@@ -109,6 +109,11 @@ class SampleSettingTab extends PluginSettingTab {
       text: `Authorization: Bearer ${this.plugin.settings.apiKey}`,
     });
 
+    apiKeyDiv.createEl("a", {
+      href: "https://coddingtonbear.github.io/obsidian-local-rest-api/",
+      text: "See more information and examples in our interactive OpenAPI documentation.",
+    });
+
     new Setting(containerEl).setName("Server Port").addText((cb) =>
       cb
         .onChange((value) => {
