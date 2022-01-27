@@ -62,7 +62,7 @@ export default class LocalRestApi extends Plugin {
       { key: this.settings.crypto.privateKey, cert: this.settings.crypto.cert },
       this.requestHandler.api
     );
-    this.httpsServer.listen(this.settings.port);
+    this.httpsServer.listen(this.settings.port, "127.0.0.1");
 
     console.log(`REST API listening on ${this.settings.port}`);
   }
