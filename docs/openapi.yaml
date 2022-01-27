@@ -40,6 +40,7 @@ paths:
         required: true
         schema:
           type: string
+          format: path
       responses:
         '200':
           description: Success
@@ -83,6 +84,7 @@ paths:
         required: true
         schema:
           type: string
+          format: path
       responses:
         '202':
           description: Success
@@ -102,6 +104,7 @@ paths:
         required: true
         schema:
           type: string
+          format: path
       - name: Heading
         in: header
         description: |
@@ -161,6 +164,7 @@ paths:
         required: true
         schema:
           type: string
+          format: path
       responses:
         '202':
           description: Success
@@ -184,6 +188,7 @@ paths:
         required: true
         schema:
           type: string
+          format: path
       responses:
         '200':
           description: Success
@@ -215,6 +220,7 @@ paths:
         required: true
         schema:
           type: string
+          format: path
       requestBody:
         description: Content of the file you would like to upload.
         required: true
