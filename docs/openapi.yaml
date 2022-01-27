@@ -157,9 +157,7 @@ paths:
     delete:
       tags: ["Vault Files"]
       summary: |
-        Return the content of a single file in your vault.
-      description: |
-        Returns the content of the file at the specified path in your vault should the file exist.
+        Delete a particular file in your vault.
       parameters:
       - name: filename
         in: path
