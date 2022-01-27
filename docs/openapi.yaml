@@ -36,7 +36,8 @@ paths:
       parameters:
       - name: filename
         in: path
-        description: Path to the file to return (relative to your vault root).
+        description: |
+          Path to the file to return (relative to your vault root).  Note: this particular interactive tool does not support path parameters, so you will only be able to fetch root-level files via this interface.  The API, though, will allow you to access files at any depth in your vault.
         required: true
         schema:
           type: string
@@ -80,7 +81,8 @@ paths:
       parameters:
       - name: filename
         in: path
-        description: Path to the file to update (relative to your vault root).
+        description: |
+          Path to the file to update (relative to your vault root).  Note: this particular interactive tool does not support path parameters, so you will only be able to fetch root-level files via this interface.  The API, though, will allow you to access files at any depth in your vault.
         required: true
         schema:
           type: string
@@ -100,7 +102,8 @@ paths:
       parameters:
       - name: filename
         in: path
-        description: Path to the file to alter (relative to your vault root).
+        description: |
+          Path to the file to alter (relative to your vault root).  Note: this particular interactive tool does not support path parameters, so you will only be able to fetch root-level files via this interface.  The API, though, will allow you to access files at any depth in your vault.
         required: true
         schema:
           type: string
@@ -160,7 +163,8 @@ paths:
       parameters:
       - name: filename
         in: path
-        description: Path to the file to delete (relative to your vault root).
+        description: |
+          Path to the file to delete (relative to your vault root).  Note: this particular interactive tool does not support path parameters, so you will only be able to fetch root-level files via this interface.  The API, though, will allow you to access files at any depth in your vault.
         required: true
         schema:
           type: string
@@ -184,7 +188,8 @@ paths:
       parameters:
       - name: pathToDirectory
         in: path
-        description: Path to list files from (relative to your vault root).
+        description: |
+          Path to list files from (relative to your vault root).  Note: this particular interactive tool does not support path parameters, so you will only be able to access root-level directories via this interface.  The API, though, will allow you to access directories at any depth in your vault.
         required: true
         schema:
           type: string
@@ -216,7 +221,8 @@ paths:
       parameters:
       - name: pathToDirectory
         in: path
-        description: Path to list files from (relative to your vault root).
+        description: |
+          Path in which to place this new file (relative to your vault root).  Note: this particular interactive tool does not support path parameters, so you will only be able to access root-level directories via this interface.  The API, though, will allow you to access directories at any depth in your vault.
         required: true
         schema:
           type: string
