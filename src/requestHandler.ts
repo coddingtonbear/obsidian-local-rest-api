@@ -1,4 +1,4 @@
-import { App, TFile } from "obsidian";
+import { App, Command, TFile } from "obsidian";
 import periodicNotes from "obsidian-daily-notes-interface";
 
 import express from "express";
@@ -335,6 +335,41 @@ export default class RequestHandler {
     res.send("");
   }
 
+  async commandGet(req: express.Request, res: express.Response): Promise<void> {
+    const commands: Command[] = [];
+    for (const commandName in this.app.commands.commands) {
+      commands.push({
+        id: commandName,
+        name: this.app.commands.commands[commandName].name,
+      });
+    }
+
+    const commandResponse = {
+      commands: commands,
+    };
+
+    res.json(commandResponse);
+  }
+
+  async commandPost(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const cmd = this.app.commands.commands[req.params.commandId];
+
+    if (!cmd) {
+      res.sendStatus(404);
+    }
+
+    try {
+      this.app.commands.executeCommandById(req.params.commandId);
+    } catch (e) {
+      res.sendStatus(500);
+    }
+
+    res.sendStatus(202);
+  }
+
   async authenticationMiddleware(
     req: express.Request,
     res: express.Response,
@@ -368,6 +403,9 @@ export default class RequestHandler {
       .route("/periodic/:period/")
       .get(this.periodicGet.bind(this))
       .post(this.periodicPost.bind(this));
+
+    this.api.route("/commands/").get(this.commandGet.bind(this));
+    this.api.route("/commands/:commandId/").post(this.commandPost.bind(this));
 
     this.api.get("/", this.root);
   }

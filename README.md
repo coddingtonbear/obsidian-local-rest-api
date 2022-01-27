@@ -56,3 +56,33 @@ Redirects to the current periodic note for the specified period.
 #### `POST`
 
 Creates a new periodic note for the specified period.
+
+### List Commands: `/commands/`
+
+#### `GET`
+
+Returns a list of all available commands.
+
+Example response:
+
+```json
+{
+  "commands": [
+    {
+      "id": "global-search:open",
+      "name": "Search: Search in all files"
+    },
+    {
+      "id": "graph:open",
+      "name": "Graph view: Open graph view"
+    }
+    // And so on...
+  ]
+}
+```
+
+### Execute Command: `/commands/{commandId}/`
+
+#### `POST`
+
+Executes the specified command.  This particular endpoint requires that you provide the ID of a command; if you do not know the ID of the command you would like to execute, see the `/commands/` endpoint above.
