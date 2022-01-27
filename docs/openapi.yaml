@@ -185,7 +185,6 @@ paths:
       - name: pathToDirectory
         in: path
         description: Path to list files from (relative to your vault root).
-        required: true
         schema:
           type: string
           format: path
@@ -217,7 +216,6 @@ paths:
       - name: pathToDirectory
         in: path
         description: Path to list files from (relative to your vault root).
-        required: true
         schema:
           type: string
           format: path
