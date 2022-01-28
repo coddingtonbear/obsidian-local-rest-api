@@ -1,14 +1,14 @@
 /* Sets all the text color to red! */
 
 div.obsidian-local-rest-api-settings div.api-key-display {
-    font-size: 0.8em;
-    margin-bottom: 20px;
+  margin-bottom: 20px;
 }
 div.obsidian-local-rest-api-settings div.api-key-display pre {
-    padding: 10px 20px;
-    background-color: var(--background-modifier-cover);
-    font-family: monospace;
-    user-select: all;
+  font-size: 0.8em;
+  padding: 10px 20px;
+  background-color: var(--background-modifier-cover);
+  font-family: monospace;
+  user-select: all;
 }
 
 div.obsidian-local-rest-api-settings textarea {
