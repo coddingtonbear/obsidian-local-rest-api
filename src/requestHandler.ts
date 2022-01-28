@@ -8,6 +8,7 @@ import bodyParser from "body-parser";
 
 import { LocalRestApiSettings, PeriodicNoteInterface } from "./types";
 import { findHeadingBoundary } from "./utils";
+import { CERT_NAME } from "./constants";
 
 export default class RequestHandler {
   app: App;
@@ -385,12 +386,29 @@ export default class RequestHandler {
     res.sendStatus(202);
   }
 
+  async certificateGet(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    res.set(
+      "Content-type",
+      `application/octet-stream; filename="${CERT_NAME}"`
+    );
+    res.statusCode = 200;
+    res.send(this.settings.crypto.cert);
+  }
+
   async authenticationMiddleware(
     req: express.Request,
     res: express.Response,
     next: express.NextFunction
   ): Promise<void> {
     const authorizationHeader = req.get("Authorization");
+
+    if (req.path === `/${CERT_NAME}` || req.path === "/") {
+      next();
+      return;
+    }
 
     if (authorizationHeader !== `Bearer ${this.settings.apiKey}`) {
       res.sendStatus(401);
@@ -421,6 +439,8 @@ export default class RequestHandler {
 
     this.api.route("/commands/").get(this.commandGet.bind(this));
     this.api.route("/commands/:commandId/").post(this.commandPost.bind(this));
+
+    this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
 
     this.api.get("/", this.root);
   }
