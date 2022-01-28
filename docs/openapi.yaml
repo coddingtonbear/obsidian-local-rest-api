@@ -136,6 +136,26 @@ paths:
         Insert content into an existing note relative to a heading within that document.
       description: |
         Inserts content into an existing note relative to a heading within your note.
+
+        This is useful if you have a document having multiple headings, and you would like to insert content below one of those headings.  For example, if you had the following document:
+
+        ```markdown
+        # An important subject
+
+        ## Details
+
+        # Another important subject
+
+        ## Details
+        ```
+
+        You could insert content below "Another important subject" by providing `Another important subject` in your `Heading` header.
+
+        By default, this will find the first heading matching the name you specify.  If your heading appears more than once in a document, you can control which heading is used by indicating parent headings with the `::` delimiter. 
+
+        For example, if you would like your content to be inserted after the heading "Details" below "Another important subject" in the above document, you could provide the value `Another important subject::Details` in your `Heading` header.
+
+        If on the off chance the string "::" occurs in your headers, you can override the delimiter used for separating headers from one another via the `Heading-Boundary` header.
       parameters:
       - name: filename
         in: path
@@ -155,7 +175,7 @@ paths:
       - name: Content-Insertion-Position
         in: header
         description: |
-          Position at which you would like your content inserted; valid options are 
+          Position at which you would like your content inserted; valid options are "end" or "beginning".
         schema:
           type: string
           enum:
