@@ -173,7 +173,7 @@ class SampleSettingTab extends PluginSettingTab {
       text: "download this certificate",
     });
     importCert.createEl("span", {
-      text: " to use it for validating your connection's security by adding it as a trusted certificate in the browser or tool you are using for interacting with this API.",
+      text: " to use it for validating your connection's security by adding it as a trusted certificate authority in the browser or tool you are using for interacting with this API.",
     });
 
     new Setting(containerEl).setName("Server Port").addText((cb) =>
