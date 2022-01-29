@@ -29,6 +29,10 @@ components:
         error:
           type: string
           description: Message describing the error.
+        errorCode:
+          type: number
+          description: |
+            A 5-digit error code uniquely identifying this particular type of error.
 security:
 - apiKeyAuth: []
 paths:
@@ -96,9 +100,20 @@ paths:
       responses:
         '202':
           description: Success
+        '405':
+          description: |
+            Your path references a directory instead of a file; this request method is valid only for updating files.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '400':
           description: |
             Incoming file could not be processed.  Make sure you have specified a reasonable file name, and make sure you have set a reasonable 'Content-Type' header; if you are uploading a note, 'text/markdown' is likely the right choice.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       tags: ["Vault Files"]
       summary: |
@@ -136,6 +151,17 @@ paths:
                 $ref: '#/components/schemas/Error'
         '404':
           description: Does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '405':
+          description: |
+            Your path references a directory instead of a file; this request method is valid only for updating files.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     patch:
       tags: ["Vault Files"]
       summary: |
@@ -210,13 +236,24 @@ paths:
         '200':
           description: Success
         '400':
-          description: Bad Request
+          description: Bad Request; see response message for details.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
           description: Does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '405':
+          description: |
+            Your path references a directory instead of a file; this request method is valid only for updating files.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags: ["Vault Files"]
       summary: |
@@ -233,14 +270,19 @@ paths:
       responses:
         '202':
           description: Success
-        '400':
-          description: Bad Request
+        '404':
+          description: File does not exist.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '404':
-          description: File does not exist.
+        '405':
+          description: |
+            Your path references a directory instead of a file; this request method is valid only for updating files.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /vault/:
     get:
       tags: ["Vault Directories"]
@@ -267,7 +309,11 @@ paths:
                 - "mydocument.md"
                 - "somedirectory/"
         '404':
-          description: File does not exist
+          description: Directory does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /vault/{pathToDirectory}/:
     get:
       tags: ["Vault Directories"]
@@ -301,57 +347,11 @@ paths:
                 - "mydocument.md"
                 - "somedirectory/"
         '404':
-          description: File does not exist
-    post:
-      tags: ["Vault Directories"]
-      summary: |
-        Create a new unique file in the specified directory.
-      description: |
-        Create a new unique file in the specified directory.  Will be named matching the current timestamp in the following format: `YYYYMMDDHHmmss.md` using your request's body as content.
-      parameters:
-      - name: pathToDirectory
-        in: path
-        description: |
-          Path in which to place this new file (relative to your vault root).
-        required: true
-        schema:
-          type: string
-          format: path
-      requestBody:
-        description: Content of the file you would like to upload.
-        required: true
-        content:
-          'text/markdown':
-            schema:
-              type: string
-              example: |
-                # This is my document
-
-                something else here
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  files:
-                    type: array
-                    items:
-                      type: string
-              example:
-                files:
-                - "mydocument.md"
-                - "somedirectory/"
-        '400':
-          description: Bad Request
+          description: Directory does not exist
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '404':
-          description: Directory Does Not Exist
   /periodic/{period}/:
     get:
       tags: ["Periodic Notes"]
@@ -380,6 +380,12 @@ paths:
               schema:
                 type: string
                 format: uri
+        '400':
+          description: Bad request; see response for details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           description: Your daily note for this period does not exist or periodic notes of the relevant type are not available.
           content:
@@ -414,7 +420,7 @@ paths:
                 type: string
                 format: uri
         '400':
-          description: Your periodic note could not be created.  Perhaps it already exists?
+          description: Bad request; see response for details.
           content:
             application/json:
               schema:
@@ -470,3 +476,7 @@ paths:
           description: Success
         '404':
           description: The command you specified does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'

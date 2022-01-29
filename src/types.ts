@@ -2,6 +2,18 @@ import type { Moment } from "moment";
 import { Loc, TFile } from "obsidian";
 import { IPeriodicNoteSettings } from "obsidian-daily-notes-interface";
 
+export enum ErrorCode {
+  TextOrByteContentEncodingRequired = 40010,
+  InvalidContentInsertionPositionValue = 40050,
+  MissingHeadingHeader = 40051,
+  InvalidHeadingHeader = 40052,
+  PeriodIsNotEnabled = 40060,
+  ApiKeyAuthorizationRequired = 40101,
+  PeriodDoesNotExist = 40460,
+  PeriodicNoteDoesNotExist = 40461,
+  RequestMethodValidOnlyForFiles = 40510,
+}
+
 export interface LocalRestApiSettings {
   apiKey?: string;
   crypto?: {
@@ -84,4 +96,15 @@ declare module "obsidian" {
   interface View {
     file: TFile;
   }
+}
+
+export interface ErrorResponseDescriptor {
+  statusCode?: number;
+  message?: string;
+  errorCode?: ErrorCode;
+}
+
+export interface ErrorResponse {
+  error: string;
+  errorCode?: number;
 }

@@ -2,13 +2,20 @@ import { App, Command, TFile } from "obsidian";
 import periodicNotes from "obsidian-daily-notes-interface";
 
 import express from "express";
+import http from "http";
 import cors from "cors";
 import mime from "mime";
 import bodyParser from "body-parser";
 
-import { LocalRestApiSettings, PeriodicNoteInterface } from "./types";
+import {
+  ErrorCode,
+  ErrorResponse,
+  ErrorResponseDescriptor,
+  LocalRestApiSettings,
+  PeriodicNoteInterface,
+} from "./types";
 import { findHeadingBoundary } from "./utils";
-import { CERT_NAME } from "./constants";
+import { CERT_NAME, ERROR_CODE_MESSAGES } from "./constants";
 
 export default class RequestHandler {
   app: App;
@@ -19,6 +26,62 @@ export default class RequestHandler {
     this.app = app;
     this.api = express();
     this.settings = settings;
+  }
+
+  async authenticationMiddleware(
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ): Promise<void> {
+    const authorizationHeader = req.get("Authorization");
+
+    if (req.path === `/${CERT_NAME}` || req.path === "/") {
+      next();
+      return;
+    }
+
+    if (authorizationHeader !== `Bearer ${this.settings.apiKey}`) {
+      this.returnErrorResponse(res, {
+        errorCode: ErrorCode.ApiKeyAuthorizationRequired,
+      });
+      return;
+    }
+
+    next();
+  }
+
+  getErrorMessage({
+    statusCode = 400,
+    message,
+    errorCode,
+  }: ErrorResponseDescriptor): string {
+    if (message) {
+      return message;
+    } else if (errorCode) {
+      return ERROR_CODE_MESSAGES[errorCode];
+    }
+    return http.STATUS_CODES[statusCode];
+  }
+
+  getStatusCode({ statusCode, errorCode }: ErrorResponseDescriptor): number {
+    if (statusCode) {
+      return statusCode;
+    }
+    return errorCode / 100;
+  }
+
+  returnErrorResponse(
+    res: express.Response,
+    { statusCode, message, errorCode }: ErrorResponseDescriptor
+  ): void {
+    const response: ErrorResponse = {
+      error: this.getErrorMessage({ statusCode, message, errorCode }),
+      errorCode: errorCode ?? statusCode * 100,
+    };
+
+    res.statusCode = this.getStatusCode({ statusCode, errorCode });
+
+    res.json(response);
   }
 
   root(req: express.Request, res: express.Response): void {
@@ -64,7 +127,10 @@ export default class RequestHandler {
         });
         res.send(content);
       } else {
-        res.sendStatus(404);
+        this.returnErrorResponse(res, {
+          statusCode: 404,
+        });
+        return;
       }
     }
   }
@@ -73,14 +139,15 @@ export default class RequestHandler {
     const path = req.params[0];
 
     if (!path || path.endsWith("/")) {
-      res.sendStatus(400);
+      this.returnErrorResponse(res, {
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
+      });
+      return;
     }
 
     if (typeof req.body != "string") {
-      res.statusCode = 400;
-      res.json({
-        error:
-          "Incoming content did not come with a bytes or text content encoding.  Be sure to set a Content-type header matching application/* or text/*.",
+      this.returnErrorResponse(res, {
+        errorCode: ErrorCode.TextOrByteContentEncodingRequired,
       });
       return;
     }
@@ -103,48 +170,44 @@ export default class RequestHandler {
     } else if (contentPosition === "end") {
       insert = false;
     } else {
-      res.statusCode = 400;
-      res.json({
-        error: `Unexpected 'Content-Insertion-Position' header value: '${contentPosition}'.`,
+      this.returnErrorResponse(res, {
+        errorCode: ErrorCode.InvalidContentInsertionPositionValue,
       });
       return;
     }
     if (typeof req.body != "string") {
-      res.statusCode = 400;
-      res.json({
-        error:
-          "Incoming content did not come with a bytes or text content encoding.  Be sure to set a Content-type header matching application/* or text/*.",
+      this.returnErrorResponse(res, {
+        errorCode: ErrorCode.TextOrByteContentEncodingRequired,
       });
       return;
     }
 
     if (!heading.length) {
-      res.statusCode = 400;
-      res.json({
-        error: "No 'Heading' header specified as insertion target for file.",
+      this.returnErrorResponse(res, {
+        errorCode: ErrorCode.MissingHeadingHeader,
       });
       return;
     }
     if (!path || path.endsWith("/")) {
-      res.statusCode = 400;
-      res.json({
-        error: "PATCH can be used only for modifying an existing file.",
+      this.returnErrorResponse(res, {
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
       });
       return;
     }
 
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) {
-      res.sendStatus(404);
+      this.returnErrorResponse(res, {
+        statusCode: 404,
+      });
       return;
     }
     const cache = this.app.metadataCache.getFileCache(file);
     const position = findHeadingBoundary(cache, heading);
 
     if (!position) {
-      res.statusCode = 400;
-      res.json({
-        error: `No heading found matching path '${heading.join("::")}'.`,
+      this.returnErrorResponse(res, {
+        errorCode: ErrorCode.InvalidHeadingHeader,
       });
       return;
     }
@@ -169,44 +232,34 @@ export default class RequestHandler {
   }
 
   async vaultPost(req: express.Request, res: express.Response): Promise<void> {
-    let path = req.params[0];
+    const path = req.params[0];
 
     if (typeof req.body != "string") {
-      res.statusCode = 400;
-      res.json({
-        error:
-          "Incoming content did not come with a bytes or text content encoding.  Be sure to set a Content-type header matching application/* or text/*.",
+      this.returnErrorResponse(res, {
+        errorCode: ErrorCode.TextOrByteContentEncodingRequired,
       });
       return;
     }
 
-    if (path && !path.endsWith("/")) {
-      const file = this.app.vault.getAbstractFileByPath(path);
-      if (!(file instanceof TFile)) {
-        res.sendStatus(404);
-        return;
-      }
-
-      const fileContents = await this.app.vault.read(file);
-
-      await this.app.vault.adapter.write(path, fileContents + req.body);
-
-      res.sendStatus(200);
-      return;
-    } else {
-      const pathExists = await this.app.vault.adapter.exists(path);
-      if (!pathExists) {
-        res.sendStatus(404);
-        return;
-      }
-
-      const moment = (window as any).moment(Date.now());
-      path = `${path}${moment.format("YYYYMMDDTHHmmss")}.md`;
-
-      await this.app.vault.adapter.write(path, req.body);
-      res.sendStatus(202);
+    if (!path || path.endsWith("/")) {
+      this.returnErrorResponse(res, {
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
+      });
       return;
     }
+
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) {
+      this.returnErrorResponse(res, { statusCode: 404 });
+      return;
+    }
+
+    const fileContents = await this.app.vault.read(file);
+
+    await this.app.vault.adapter.write(path, fileContents + req.body);
+
+    res.sendStatus(200);
+    return;
   }
 
   async vaultDelete(
@@ -216,16 +269,15 @@ export default class RequestHandler {
     const path = req.params[0];
 
     if (!path || path.endsWith("/")) {
-      res.statusCode = 400;
-      res.json({
-        error: "DELETE can only be used to delete files.",
+      this.returnErrorResponse(res, {
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
       });
       return;
     }
 
     const pathExists = await this.app.vault.adapter.exists(path);
     if (!pathExists) {
-      res.sendStatus(404);
+      this.returnErrorResponse(res, { statusCode: 404 });
       return;
     }
 
@@ -273,16 +325,18 @@ export default class RequestHandler {
     };
   }
 
-  periodicGetInterfaceOrError(period: string): PeriodicNoteInterface {
+  periodicGetInterfaceOrError(
+    period: string
+  ): [PeriodicNoteInterface | null, ErrorCode | null] {
     const periodic = this.getPeriodicNoteInterface();
     if (!periodic[period]) {
-      throw new Error(`Period ${period} does not exist.`);
+      return [null, ErrorCode.PeriodDoesNotExist];
     }
     if (!periodic[period].loaded) {
-      throw new Error(`Period ${period} is not enabled.`);
+      return [null, ErrorCode.PeriodIsNotEnabled];
     }
 
-    return periodic[period];
+    return [periodic[period], null];
   }
 
   async periodicGet(
@@ -290,14 +344,9 @@ export default class RequestHandler {
     res: express.Response
   ): Promise<void> {
     const periodName = req.params.period;
-    let period: PeriodicNoteInterface;
-    try {
-      period = this.periodicGetInterfaceOrError(periodName);
-    } catch (e) {
-      res.statusCode = 404;
-      res.json({
-        error: e.message,
-      });
+    const [period, err] = this.periodicGetInterfaceOrError(periodName);
+    if (err) {
+      this.returnErrorResponse(res, { errorCode: err });
       return;
     }
 
@@ -307,10 +356,10 @@ export default class RequestHandler {
     const file = period.get(now, all);
 
     if (!file) {
-      res.statusCode = 404;
-      res.json({
-        error: `Periodic note of type ${periodName} does not exist for the current moment.  You can create one by POST-ing.`,
+      this.returnErrorResponse(res, {
+        errorCode: ErrorCode.PeriodicNoteDoesNotExist,
       });
+      return;
     }
 
     res.statusCode = 307;
@@ -323,14 +372,9 @@ export default class RequestHandler {
     res: express.Response
   ): Promise<void> {
     const periodName = req.params.period;
-    let period: PeriodicNoteInterface;
-    try {
-      period = this.periodicGetInterfaceOrError(periodName);
-    } catch (e) {
-      res.statusCode = 404;
-      res.json({
-        error: e,
-      });
+    const [period, err] = this.periodicGetInterfaceOrError(periodName);
+    if (err) {
+      this.returnErrorResponse(res, { errorCode: err });
       return;
     }
 
@@ -339,9 +383,9 @@ export default class RequestHandler {
     const file = await period.create(now);
 
     if (!file) {
-      res.statusCode = 400;
-      res.json({
-        error: "Could not create new periodic note; does it already exist?",
+      this.returnErrorResponse(res, {
+        statusCode: 500,
+        message: "Could not create new periodic note.",
       });
       return;
     }
@@ -374,13 +418,15 @@ export default class RequestHandler {
     const cmd = this.app.commands.commands[req.params.commandId];
 
     if (!cmd) {
-      res.sendStatus(404);
+      this.returnErrorResponse(res, { statusCode: 404 });
+      return;
     }
 
     try {
       this.app.commands.executeCommandById(req.params.commandId);
     } catch (e) {
-      res.sendStatus(500);
+      this.returnErrorResponse(res, { statusCode: 500, message: e.message });
+      return;
     }
 
     res.sendStatus(202);
@@ -396,26 +442,6 @@ export default class RequestHandler {
     );
     res.statusCode = 200;
     res.send(this.settings.crypto.cert);
-  }
-
-  async authenticationMiddleware(
-    req: express.Request,
-    res: express.Response,
-    next: express.NextFunction
-  ): Promise<void> {
-    const authorizationHeader = req.get("Authorization");
-
-    if (req.path === `/${CERT_NAME}` || req.path === "/") {
-      next();
-      return;
-    }
-
-    if (authorizationHeader !== `Bearer ${this.settings.apiKey}`) {
-      res.sendStatus(401);
-      return;
-    }
-
-    next();
   }
 
   setupRouter() {
