@@ -44,10 +44,12 @@ components:
         error:
           type: string
           description: Message describing the error.
+          example: "A brief description of the error."
         errorCode:
           type: number
           description: |
             A 5-digit error code uniquely identifying this particular type of error.
+          example: 40149
 security:
 - apiKeyAuth: []
 paths:
@@ -445,6 +447,17 @@ paths:
         Appends content to the periodic note for the specified period.  This will create the relevant periodic note if necessary.
       parameters:
       - $ref: '#/components/parameters/period'
+      requestBody:
+        description: Content you would like to insert.
+        required: true
+        content:
+          'text/markdown':
+            schema:
+              type: string
+              example: |
+                # This is my document
+
+                something else here
       responses:
         '200':
           description: Success

@@ -88,9 +88,11 @@ export default class RequestHandler {
     res.sendStatus(200);
   }
 
-  async vaultGet(req: express.Request, res: express.Response): Promise<void> {
-    const path = req.params[0];
-
+  async _vaultGet(
+    path: string,
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
     if (!path || path.endsWith("/")) {
       const files = [
         ...new Set(
@@ -135,9 +137,17 @@ export default class RequestHandler {
     }
   }
 
-  async vaultPut(req: express.Request, res: express.Response): Promise<void> {
+  async vaultGet(req: express.Request, res: express.Response): Promise<void> {
     const path = req.params[0];
 
+    return this._vaultGet(path, req, res);
+  }
+
+  async _vaultPut(
+    path: string,
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
     if (!path || path.endsWith("/")) {
       this.returnErrorResponse(res, {
         errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
@@ -156,14 +166,23 @@ export default class RequestHandler {
     res.sendStatus(202);
   }
 
-  async vaultPatch(req: express.Request, res: express.Response): Promise<void> {
+  async vaultPut(req: express.Request, res: express.Response): Promise<void> {
+    const path = req.params[0];
+
+    return this._vaultPut(path, req, res);
+  }
+
+  async _vaultPatch(
+    path: string,
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
     const headingBoundary = req.get("Heading-Boundary") || "::";
     const heading = (req.get("Heading") || "")
       .split(headingBoundary)
       .filter(Boolean);
     const contentPosition = req.get("Content-Insertion-Position");
     let insert = false;
-    const path = req.params[0];
 
     if (contentPosition === "beginning") {
       insert = true;
@@ -231,9 +250,17 @@ export default class RequestHandler {
     res.send(content);
   }
 
-  async vaultPost(req: express.Request, res: express.Response): Promise<void> {
+  async vaultPatch(req: express.Request, res: express.Response): Promise<void> {
     const path = req.params[0];
 
+    return this._vaultPatch(path, req, res);
+  }
+
+  async _vaultPost(
+    path: string,
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
     if (typeof req.body != "string") {
       this.returnErrorResponse(res, {
         errorCode: ErrorCode.TextOrByteContentEncodingRequired,
@@ -262,12 +289,17 @@ export default class RequestHandler {
     return;
   }
 
-  async vaultDelete(
+  async vaultPost(req: express.Request, res: express.Response): Promise<void> {
+    const path = req.params[0];
+
+    return this._vaultPost(path, req, res);
+  }
+
+  async _vaultDelete(
+    path: string,
     req: express.Request,
     res: express.Response
   ): Promise<void> {
-    const path = req.params[0];
-
     if (!path || path.endsWith("/")) {
       this.returnErrorResponse(res, {
         errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
@@ -283,6 +315,15 @@ export default class RequestHandler {
 
     await this.app.vault.adapter.remove(path);
     res.sendStatus(202);
+  }
+
+  async vaultDelete(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const path = req.params[0];
+
+    return this._vaultDelete(path, req, res);
   }
 
   getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
@@ -376,14 +417,12 @@ export default class RequestHandler {
     file: TFile,
     req: express.Request,
     res: express.Response,
-    handler: (req: express.Request, res: express.Response) => void
+    handler: (path: string, req: express.Request, res: express.Response) => void
   ): void {
-    const path = `/vault/${file.path}`;
+    const path = file.path;
     res.set("Content-Location", path);
 
-    req.path = path;
-
-    return handler(req, res);
+    return handler(path, req, res);
   }
 
   async periodicGet(
@@ -396,7 +435,12 @@ export default class RequestHandler {
       return;
     }
 
-    return this.periodicRedirectToVault(file, req, res, this.vaultGet);
+    return this.periodicRedirectToVault(
+      file,
+      req,
+      res,
+      this._vaultGet.bind(this)
+    );
   }
 
   async periodicPut(
@@ -409,7 +453,12 @@ export default class RequestHandler {
       return;
     }
 
-    return this.periodicRedirectToVault(file, req, res, this.vaultPut);
+    return this.periodicRedirectToVault(
+      file,
+      req,
+      res,
+      this._vaultPut.bind(this)
+    );
   }
 
   async periodicPost(
@@ -422,7 +471,12 @@ export default class RequestHandler {
       return;
     }
 
-    return this.periodicRedirectToVault(file, req, res, this.vaultPost);
+    return this.periodicRedirectToVault(
+      file,
+      req,
+      res,
+      this._vaultPost.bind(this)
+    );
   }
 
   async periodicPatch(
@@ -435,7 +489,12 @@ export default class RequestHandler {
       return;
     }
 
-    return this.periodicRedirectToVault(file, req, res, this.vaultPatch);
+    return this.periodicRedirectToVault(
+      file,
+      req,
+      res,
+      this._vaultPatch.bind(this)
+    );
   }
 
   async periodicDelete(
@@ -448,7 +507,12 @@ export default class RequestHandler {
       return;
     }
 
-    return this.periodicRedirectToVault(file, req, res, this.vaultDelete);
+    return this.periodicRedirectToVault(
+      file,
+      req,
+      res,
+      this._vaultDelete.bind(this)
+    );
   }
 
   async commandGet(req: express.Request, res: express.Response): Promise<void> {
