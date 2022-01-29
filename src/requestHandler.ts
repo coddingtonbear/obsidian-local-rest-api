@@ -325,7 +325,7 @@ export default class RequestHandler {
     };
   }
 
-  periodicGetInterfaceOrError(
+  periodicGetInterface(
     period: string
   ): [PeriodicNoteInterface | null, ErrorCode | null] {
     const periodic = this.getPeriodicNoteInterface();
@@ -339,60 +339,116 @@ export default class RequestHandler {
     return [periodic[period], null];
   }
 
-  async periodicGet(
-    req: express.Request,
-    res: express.Response
-  ): Promise<void> {
-    const periodName = req.params.period;
-    const [period, err] = this.periodicGetInterfaceOrError(periodName);
+  periodicGetNote(periodName: string): [TFile | null, ErrorCode | null] {
+    const [period, err] = this.periodicGetInterface(periodName);
     if (err) {
-      this.returnErrorResponse(res, { errorCode: err });
-      return;
+      return [null, err];
     }
 
     const now = (window as any).moment(Date.now());
     const all = period.getAll();
 
     const file = period.get(now, all);
-
     if (!file) {
-      this.returnErrorResponse(res, {
-        errorCode: ErrorCode.PeriodicNoteDoesNotExist,
-      });
+      return [null, ErrorCode.PeriodicNoteDoesNotExist];
+    }
+
+    return [file, null];
+  }
+
+  async periodicGetOrCreateNote(
+    periodName: string
+  ): Promise<[TFile | null, ErrorCode | null]> {
+    let [file, err] = this.periodicGetNote(periodName);
+    if (err === ErrorCode.PeriodicNoteDoesNotExist) {
+      const [period] = this.periodicGetInterface(periodName);
+      const now = (window as any).moment(Date.now());
+
+      file = await period.create(now);
+    } else if (err) {
+      return [null, err];
+    }
+
+    return [file, null];
+  }
+
+  periodicRedirectToVault(
+    file: TFile,
+    req: express.Request,
+    res: express.Response,
+    handler: (req: express.Request, res: express.Response) => void
+  ): void {
+    const path = `/vault/${file.path}`;
+    res.set("Content-Location", path);
+
+    req.path = path;
+
+    return handler(req, res);
+  }
+
+  async periodicGet(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const [file, err] = this.periodicGetNote(req.params.period);
+    if (err) {
+      this.returnErrorResponse(res, { errorCode: err });
       return;
     }
 
-    res.statusCode = 307;
-    res.set("Location", `/vault/${file.path}`);
-    res.send("");
+    return this.periodicRedirectToVault(file, req, res, this.vaultGet);
+  }
+
+  async periodicPut(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const [file, err] = await this.periodicGetOrCreateNote(req.params.period);
+    if (err) {
+      this.returnErrorResponse(res, { errorCode: err });
+      return;
+    }
+
+    return this.periodicRedirectToVault(file, req, res, this.vaultPut);
   }
 
   async periodicPost(
     req: express.Request,
     res: express.Response
   ): Promise<void> {
-    const periodName = req.params.period;
-    const [period, err] = this.periodicGetInterfaceOrError(periodName);
+    const [file, err] = await this.periodicGetOrCreateNote(req.params.period);
     if (err) {
       this.returnErrorResponse(res, { errorCode: err });
       return;
     }
 
-    const now = (window as any).moment(Date.now());
+    return this.periodicRedirectToVault(file, req, res, this.vaultPost);
+  }
 
-    const file = await period.create(now);
-
-    if (!file) {
-      this.returnErrorResponse(res, {
-        statusCode: 500,
-        message: "Could not create new periodic note.",
-      });
+  async periodicPatch(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const [file, err] = await this.periodicGetOrCreateNote(req.params.period);
+    if (err) {
+      this.returnErrorResponse(res, { errorCode: err });
       return;
     }
 
-    res.statusCode = 307;
-    res.set("Location", `/vault/${file.path}`);
-    res.send("");
+    return this.periodicRedirectToVault(file, req, res, this.vaultPatch);
+  }
+
+  async periodicDelete(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const [file, err] = this.periodicGetNote(req.params.period);
+    if (err) {
+      this.returnErrorResponse(res, { errorCode: err });
+      return;
+    }
+
+    return this.periodicRedirectToVault(file, req, res, this.vaultDelete);
   }
 
   async commandGet(req: express.Request, res: express.Response): Promise<void> {
@@ -461,7 +517,10 @@ export default class RequestHandler {
     this.api
       .route("/periodic/:period/")
       .get(this.periodicGet.bind(this))
-      .post(this.periodicPost.bind(this));
+      .put(this.periodicPut.bind(this))
+      .patch(this.periodicPatch.bind(this))
+      .post(this.periodicPost.bind(this))
+      .delete(this.periodicDelete.bind(this));
 
     this.api.route("/commands/").get(this.commandGet.bind(this));
     this.api.route("/commands/:commandId/").post(this.commandPost.bind(this));
