@@ -9,7 +9,6 @@ export function findHeadingBoundary(
   const cursorHeadingPath: HeadingCache[] = [];
 
   for (const [headingIdx, heading] of fileCache.headings.entries()) {
-    console.log("Testing heading", heading);
     cursorHeadingPath[heading.level] = heading;
     cursorHeadingPath.splice(heading.level + 1);
 
@@ -18,7 +17,6 @@ export function findHeadingBoundary(
     ].reverse();
     let matchesRequestedHeading = true;
     for (const [idx, element] of reversedHeadingPath.entries()) {
-      console.log(reversedCurrentCursor[idx], element);
       if (reversedCurrentCursor[idx] != element) {
         matchesRequestedHeading = false;
         break;
