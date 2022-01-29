@@ -1,6 +1,12 @@
 openapi: '3.0.2'
 info:
   title: Local REST API for Obsidian
+  description: |
+    You can use this interface for trying out your Local REST API in Obsidian.
+
+    Before trying the below tools, you will want to make sure you press the "Authorize" button below and provide the API Key you are shown when you open the "Local REST API" section of your Obsidian settings.  All requests to the API require a valid API Key; so you won't get very far without doing that.
+
+    When using this tool you may see browser security warnings due to your browser not trusting the self-signed certificate the plugin will generate on its first run.  If you do, you can make those errors disappear by adding the certificate as a "Trusted Certificate" in your browser or operating system's settings.
   version: '1.0'
 servers:
   - url: https://127.0.0.1:{port}
@@ -37,7 +43,7 @@ paths:
       - name: filename
         in: path
         description: |
-          Path to the file to return (relative to your vault root).  Note: this particular interactive tool does not support path parameters, so you will only be able to fetch root-level files via this interface.  The API, though, will allow you to access files at any depth in your vault.
+          Path to the file to return (relative to your vault root).
         required: true
         schema:
           type: string
@@ -82,7 +88,7 @@ paths:
       - name: filename
         in: path
         description: |
-          Path to the file to update (relative to your vault root).  Note: this particular interactive tool does not support path parameters, so you will only be able to fetch root-level files via this interface.  The API, though, will allow you to access files at any depth in your vault.
+          Path to the file to update (relative to your vault root).
         required: true
         schema:
           type: string
@@ -103,7 +109,7 @@ paths:
       - name: filename
         in: path
         description: |
-          Path to the file to alter (relative to your vault root).  Note: this particular interactive tool does not support path parameters, so you will only be able to fetch root-level files via this interface.  The API, though, will allow you to access files at any depth in your vault.
+          Path to the file to alter (relative to your vault root).
         required: true
         schema:
           type: string
@@ -160,7 +166,7 @@ paths:
       - name: filename
         in: path
         description: |
-          Path to the file to alter (relative to your vault root).  Note: this particular interactive tool does not support path parameters, so you will only be able to fetch root-level files via this interface.  The API, though, will allow you to access files at any depth in your vault.
+          Path to the file to alter (relative to your vault root).
         required: true
         schema:
           type: string
@@ -219,7 +225,7 @@ paths:
       - name: filename
         in: path
         description: |
-          Path to the file to delete (relative to your vault root).  Note: this particular interactive tool does not support path parameters, so you will only be able to fetch root-level files via this interface.  The API, though, will allow you to access files at any depth in your vault.
+          Path to the file to delete (relative to your vault root).
         required: true
         schema:
           type: string
@@ -235,6 +241,33 @@ paths:
                 $ref: '#/components/schemas/Error'
         '404':
           description: File does not exist.
+  /vault/:
+    get:
+      tags: ["Vault Directories"]
+      summary: |
+        List files that exist in the root of your vault.
+      description: |
+        Lists files in the root directory of your vault.
+        
+        Note: that this is exactly the same API endpoint as the below "List files that exist in the specified directory." and exists here only due to a quirk of this particular interactive tool.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  files:
+                    type: array
+                    items:
+                      type: string
+              example:
+                files:
+                - "mydocument.md"
+                - "somedirectory/"
+        '404':
+          description: File does not exist
   /vault/{pathToDirectory}/:
     get:
       tags: ["Vault Directories"]
@@ -244,7 +277,9 @@ paths:
       - name: pathToDirectory
         in: path
         description: |
-          Path to list files from (relative to your vault root).  Note: this particular interactive tool does not support path parameters, so you will only be able to access root-level directories via this interface.  The API, though, will allow you to access directories at any depth in your vault.
+          Path to list files from (relative to your vault root).
+          
+          Note: this particular interactive tool requires that you provide an argument for this field, but the API itself will allow you to list the root folder of your vault. If you would like to try listing content in the root of your vault using this interactive tool, use the above "List files that exist in the root of your vault" form above.
         required: true
         schema:
           type: string
@@ -277,7 +312,7 @@ paths:
       - name: pathToDirectory
         in: path
         description: |
-          Path in which to place this new file (relative to your vault root).  Note: this particular interactive tool does not support path parameters, so you will only be able to access root-level directories via this interface.  The API, though, will allow you to access directories at any depth in your vault.
+          Path in which to place this new file (relative to your vault root).
         required: true
         schema:
           type: string

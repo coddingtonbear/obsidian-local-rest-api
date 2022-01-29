@@ -42,6 +42,13 @@
         url: "./openapi.yaml",
         dom_id: '#swagger-ui',
         deepLinking: true,
+        requestInterceptor: (request) => {
+          if(request.url.indexOf('%2F') > -1) {
+            request.url = request.url.replaceAll('%2F', '/')
+          }
+          console.log(request)
+          return request
+        },
         presets: [
           SwaggerUIBundle.presets.apis,
           SwaggerUIStandalonePreset
