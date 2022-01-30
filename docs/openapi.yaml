@@ -10,7 +10,7 @@ info:
   version: '1.0'
 servers:
   - url: https://127.0.0.1:{port}
-    description: "OK"
+    description: "Your 'Local REST API' plugin instance running in Obsidian"
     variables:
       port:
         default: '27124'
