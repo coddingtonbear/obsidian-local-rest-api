@@ -85,7 +85,12 @@ export default class RequestHandler {
   }
 
   root(req: express.Request, res: express.Response): void {
-    res.sendStatus(200);
+    res.statusCode = 200;
+
+    res.json({
+      status: "OK",
+      service: "Obsidian Local REST API",
+    });
   }
 
   async _vaultGet(
@@ -564,6 +569,30 @@ export default class RequestHandler {
     res.send(this.settings.crypto.cert);
   }
 
+  async notFoundHandler(
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ): Promise<void> {
+    this.returnErrorResponse(res, {
+      statusCode: 404,
+    });
+    return;
+  }
+
+  async errorHandler(
+    err: Error,
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ): Promise<void> {
+    this.returnErrorResponse(res, {
+      statusCode: 500,
+      message: err.message,
+    });
+    return;
+  }
+
   setupRouter() {
     this.api.use(cors());
     this.api.use(this.authenticationMiddleware.bind(this));
@@ -590,7 +619,9 @@ export default class RequestHandler {
     this.api.route("/commands/:commandId/").post(this.commandPost.bind(this));
 
     this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
-
     this.api.get("/", this.root);
+
+    this.api.use(this.notFoundHandler.bind(this));
+    this.api.use(this.errorHandler.bind(this));
   }
 }
