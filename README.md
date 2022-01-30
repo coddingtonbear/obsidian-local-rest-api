@@ -11,6 +11,8 @@ This plugin provides a secure HTTPS interface gated behind api key authenticatio
 - Create and fetch periodic notes.
 - Execute commands and list what commands are available.
 
+This is particularly useful if you need to interact with Obsidian from a browser extension for things like, for example, sending webpage snippets to your daily notes.
+
 Hopefully you find this as useful as I do!
 
 ## Credits
