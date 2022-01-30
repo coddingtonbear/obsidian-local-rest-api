@@ -185,6 +185,15 @@ class SampleSettingTab extends PluginSettingTab {
         })
         .setValue(this.plugin.settings.port.toString())
     );
+
+    containerEl.createEl("hr");
+    containerEl.createEl("h3", {
+      text: "HTTPs Certificate Settings",
+    });
+    containerEl.createEl("p", {
+      text: `The following are your Local REST API's public key, certificate, and private key.  These are automatically generated the first time this plugin is loaded, but you can update them to use keys you have generated if you would like to do so.`,
+    });
+
     new Setting(containerEl)
       .setName("Reset Crypto on next Load")
       .setDesc(
