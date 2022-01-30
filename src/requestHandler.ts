@@ -198,7 +198,15 @@ export default class RequestHandler {
     const contentPosition = req.get("Content-Insertion-Position");
     let insert = false;
 
-    if (contentPosition === "beginning") {
+    if (!path || path.endsWith("/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
+      });
+      return;
+    }
+    if (contentPosition === undefined) {
+      insert = false;
+    } else if (contentPosition === "beginning") {
       insert = true;
     } else if (contentPosition === "end") {
       insert = false;
@@ -218,12 +226,6 @@ export default class RequestHandler {
     if (!heading.length) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.MissingHeadingHeader,
-      });
-      return;
-    }
-    if (!path || path.endsWith("/")) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
       });
       return;
     }
@@ -275,16 +277,16 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response
   ): Promise<void> {
-    if (typeof req.body != "string") {
+    if (!path || path.endsWith("/")) {
       this.returnCannedResponse(res, {
-        errorCode: ErrorCode.TextOrByteContentEncodingRequired,
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
       });
       return;
     }
 
-    if (!path || path.endsWith("/")) {
+    if (typeof req.body != "string") {
       this.returnCannedResponse(res, {
-        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
+        errorCode: ErrorCode.TextOrByteContentEncodingRequired,
       });
       return;
     }

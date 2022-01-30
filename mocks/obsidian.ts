@@ -1,23 +1,30 @@
 class DataAdapter {
   _exists = true;
-  _read_data = "";
+  _read = "";
+  _write: [string, string];
+  _remove: [string];
 
   async exists(path: string): Promise<boolean> {
     return this._exists;
   }
 
   async read(path: string): Promise<string> {
-    return "";
+    return this._read;
   }
 
-  async write(path: string, content: string): Promise<void> {}
+  async write(path: string, content: string): Promise<void> {
+    this._write = [path, content];
+  }
 
-  async remove(path: string): Promise<void> {}
+  async remove(path: string): Promise<void> {
+    this._remove = [path];
+  }
 }
 
 class Vault {
-  _get_abstract_file_by_path = new TFile();
+  _getAbstractFileByPath: TFile | null = new TFile();
   _read = "";
+  _files: TFile[] = [];
 
   adapter = new DataAdapter();
 
@@ -26,12 +33,16 @@ class Vault {
   }
 
   getFiles(): TFile[] {
-    return [];
+    return this._files;
   }
 
   getAbstractFileByPath(path: string): TFile {
-    return this._get_abstract_file_by_path;
+    return this._getAbstractFileByPath;
   }
+}
+
+export class Loc {
+  line = -1;
 }
 
 export class Pos {
@@ -50,16 +61,27 @@ export class CachedMetadata {
 }
 
 export class MetadataCache {
-  _get_file_cache = new CachedMetadata();
+  _getFileCache = new CachedMetadata();
 
   getFileCache(file: TFile): CachedMetadata {
-    return this._get_file_cache;
+    return this._getFileCache;
+  }
+}
+
+export class CommandContainer {
+  commands: Record<string, Command> = {};
+
+  _executeCommandById: [string];
+
+  executeCommandById(id: string): void {
+    this._executeCommandById = [id];
   }
 }
 
 export class App {
   vault = new Vault();
   metadataCache = new MetadataCache();
+  commands = new CommandContainer();
 }
 
 export class Command {
@@ -68,11 +90,7 @@ export class Command {
 }
 
 export class TFile {
-  path: "";
-}
-
-export class Loc {
-  line: -1;
+  path = "";
 }
 
 export class PluginManifest {}

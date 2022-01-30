@@ -1,10 +1,10 @@
-import { App } from "obsidian";
 import http from "http";
 import request from "supertest";
 
 import RequestHandler from "./requestHandler";
 import { LocalRestApiSettings } from "./types";
 import { CERT_NAME } from "./constants";
+import { App, TFile, Command, HeadingCache } from "mocks/obsidian";
 
 describe("requestHandler", () => {
   const API_KEY = "my api key";
@@ -92,6 +92,519 @@ describe("requestHandler", () => {
         .expect(200);
 
       expect(result.body.toString()).toEqual(settings.crypto.cert);
+    });
+  });
+
+  describe("vaultGet", () => {
+    test("directory empty", async () => {
+      const result = await request(server)
+        .get("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.files).toEqual([]);
+    });
+
+    test("directory with files", async () => {
+      const arbitraryDirectory = "somewhere";
+
+      const rootFile = new TFile();
+      rootFile.path = "rootFile.md";
+
+      const notRootFile = new TFile();
+      notRootFile.path = `${arbitraryDirectory}/anotherFile.md`;
+
+      app.vault._files = [rootFile, notRootFile];
+
+      const result = await request(server)
+        .get("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.files).toEqual([
+        rootFile.path,
+        `${arbitraryDirectory}/`,
+      ]);
+    });
+
+    test("unauthorized", async () => {
+      const arbitraryFilename = "somefile.md";
+      const arbitraryFileContent = "Beep boop";
+
+      app.vault.adapter._read = arbitraryFileContent;
+
+      await request(server).get(`/vault/${arbitraryFilename}`).expect(401);
+    });
+
+    test("file content", async () => {
+      const arbitraryFilename = "somefile.md";
+      const arbitraryFileContent = "Beep boop";
+
+      app.vault.adapter._read = arbitraryFileContent;
+
+      const result = await request(server)
+        .get(`/vault/${arbitraryFilename}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.header["content-disposition"]).toEqual(
+        `attachment; filename="${arbitraryFilename}"`
+      );
+      expect(result.header["content-type"]).toEqual(
+        "text/markdown; charset=utf-8"
+      );
+      expect(result.text).toEqual(arbitraryFileContent);
+    });
+
+    test("file does not exist", async () => {
+      const arbitraryFilename = "somefile.md";
+
+      app.vault.adapter._exists = false;
+
+      await request(server)
+        .get(`/vault/${arbitraryFilename}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(404);
+    });
+  });
+
+  describe("vaultPut", () => {
+    test("directory", async () => {
+      await request(server)
+        .put("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(405);
+    });
+
+    test("unauthorized", async () => {
+      const arbitraryFilePath = "somefile.md";
+      const arbitraryBytes = "bytes";
+
+      await request(server)
+        .put(`/vault/${arbitraryFilePath}`)
+        .set("Content-Type", "text/markdown")
+        .send(arbitraryBytes)
+        .expect(401);
+    });
+
+    test("acceptable content", async () => {
+      const arbitraryFilePath = "somefile.md";
+      const arbitraryBytes = "bytes";
+
+      await request(server)
+        .put(`/vault/${arbitraryFilePath}`)
+        .set("Content-Type", "text/markdown")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .send(arbitraryBytes)
+        .expect(204);
+
+      expect(app.vault.adapter._write).toEqual([
+        arbitraryFilePath,
+        arbitraryBytes,
+      ]);
+    });
+
+    test("non-bytes content", async () => {
+      const arbitraryFilePath = "somefile.md";
+      const arbitraryBytes = "bytes";
+
+      await request(server)
+        .put(`/vault/${arbitraryFilePath}`)
+        .set("Content-Type", "application/json")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .send(arbitraryBytes)
+        .expect(400);
+
+      expect(app.vault.adapter._write).toBeUndefined();
+    });
+  });
+
+  describe("vaultPost", () => {
+    test("directory", async () => {
+      await request(server)
+        .post("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(405);
+    });
+
+    test("unauthorized", async () => {
+      const arbitraryFilePath = "somefile.md";
+      const arbitraryBytes = "bytes";
+
+      const arbitraryExistingBytes = "something\nsomething\n";
+
+      app.vault._read = arbitraryExistingBytes;
+
+      await request(server)
+        .post(`/vault/${arbitraryFilePath}`)
+        .set("Content-Type", "text/markdown")
+        .send(arbitraryBytes)
+        .expect(401);
+    });
+
+    describe("acceptable content", () => {
+      test("existing with trailing newline", async () => {
+        const arbitraryFilePath = "somefile.md";
+        const arbitraryBytes = "bytes";
+
+        const arbitraryExistingBytes = "something\nsomething\n";
+
+        app.vault._read = arbitraryExistingBytes;
+
+        await request(server)
+          .post(`/vault/${arbitraryFilePath}`)
+          .set("Content-Type", "text/markdown")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .send(arbitraryBytes)
+          .expect(204);
+
+        expect(app.vault.adapter._write).toEqual([
+          arbitraryFilePath,
+          arbitraryExistingBytes + arbitraryBytes,
+        ]);
+      });
+
+      test("existing without trailing newline", async () => {
+        const arbitraryFilePath = "somefile.md";
+        const arbitraryBytes = "bytes";
+
+        const arbitraryExistingBytes = "something\nsomething";
+
+        app.vault._read = arbitraryExistingBytes;
+
+        await request(server)
+          .post(`/vault/${arbitraryFilePath}`)
+          .set("Content-Type", "text/markdown")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .send(arbitraryBytes)
+          .expect(204);
+
+        expect(app.vault.adapter._write).toEqual([
+          arbitraryFilePath,
+          arbitraryExistingBytes + "\n" + arbitraryBytes,
+        ]);
+      });
+    });
+
+    test("non-existing file", async () => {
+      const arbitraryFilePath = "somefile.md";
+      const arbitraryBytes = "bytes";
+
+      app.vault._getAbstractFileByPath = null;
+
+      await request(server)
+        .post(`/vault/${arbitraryFilePath}`)
+        .set("Content-Type", "text/markdown")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .send(arbitraryBytes)
+        .expect(404);
+
+      expect(app.vault.adapter._write).toBeUndefined();
+    });
+
+    test("non-bytes content", async () => {
+      const arbitraryFilePath = "somefile.md";
+      const arbitraryBytes = "bytes";
+
+      await request(server)
+        .post(`/vault/${arbitraryFilePath}`)
+        .set("Content-Type", "application/json")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .send(arbitraryBytes)
+        .expect(400);
+
+      expect(app.vault.adapter._write).toBeUndefined();
+    });
+  });
+
+  describe("vaultDelete", () => {
+    test("directory", async () => {
+      await request(server)
+        .delete("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(405);
+    });
+
+    test("non-existing file", async () => {
+      const arbitraryFilePath = "somefile.md";
+      const arbitraryBytes = "bytes";
+
+      app.vault.adapter._exists = false;
+
+      await request(server)
+        .delete(`/vault/${arbitraryFilePath}`)
+        .set("Content-Type", "text/markdown")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .send(arbitraryBytes)
+        .expect(404);
+
+      expect(app.vault.adapter._remove).toBeUndefined();
+    });
+
+    test("unauthorized", async () => {
+      const arbitraryFilePath = "somefile.md";
+      const arbitraryBytes = "bytes";
+
+      await request(server)
+        .delete(`/vault/${arbitraryFilePath}`)
+        .set("Content-Type", "text/markdown")
+        .send(arbitraryBytes)
+        .expect(401);
+    });
+
+    test("existing file", async () => {
+      const arbitraryFilePath = "somefile.md";
+      const arbitraryBytes = "bytes";
+
+      await request(server)
+        .delete(`/vault/${arbitraryFilePath}`)
+        .set("Content-Type", "text/markdown")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .send(arbitraryBytes)
+        .expect(204);
+
+      expect(app.vault.adapter._remove).toEqual([arbitraryFilePath]);
+    });
+  });
+
+  describe("vaultPatch", () => {
+    test("directory", async () => {
+      await request(server)
+        .patch("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(405);
+    });
+
+    test("missing heading header", async () => {
+      const arbitraryFilePath = "somefile.md";
+      const arbitraryBytes = "bytes";
+      const arbitraryHeading = "somewhere";
+
+      const arbitraryExistingBytes = "something\nsomething";
+
+      const headingCache = new HeadingCache();
+      headingCache.heading = arbitraryHeading;
+
+      app.vault._read = arbitraryExistingBytes;
+      app.metadataCache._getFileCache.headings.push(headingCache);
+
+      const result = await request(server)
+        .patch(`/vault/${arbitraryFilePath}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send(arbitraryBytes)
+        .expect(400);
+    });
+
+    test("non-bytes content", async () => {
+      const arbitraryFilePath = "somefile.md";
+      const arbitraryBytes = "bytes";
+      const arbitraryHeading = "somewhere";
+
+      const arbitraryExistingBytes = "something\nsomething";
+
+      const headingCache = new HeadingCache();
+      headingCache.heading = arbitraryHeading;
+
+      app.vault._read = arbitraryExistingBytes;
+      app.metadataCache._getFileCache.headings.push(headingCache);
+
+      const result = await request(server)
+        .patch(`/vault/${arbitraryFilePath}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Heading", arbitraryHeading)
+        .send(arbitraryBytes)
+        .expect(400);
+    });
+
+    test("non-existing file", async () => {
+      const arbitraryFilePath = "somefile.md";
+      const arbitraryBytes = "bytes";
+      const arbitraryHeading = "somewhere";
+
+      const arbitraryExistingBytes = "something\nsomething";
+
+      const headingCache = new HeadingCache();
+      headingCache.heading = arbitraryHeading;
+
+      app.vault._read = arbitraryExistingBytes;
+      app.metadataCache._getFileCache.headings.push(headingCache);
+      app.vault._getAbstractFileByPath = null;
+
+      const result = await request(server)
+        .patch(`/vault/${arbitraryFilePath}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .set("Heading", arbitraryHeading)
+        .send(arbitraryBytes)
+        .expect(404);
+    });
+
+    test("unauthorized", async () => {
+      const arbitraryFilePath = "somefile.md";
+      const arbitraryBytes = "bytes";
+      const arbitraryHeading = "somewhere";
+
+      const arbitraryExistingBytes = "something\nsomething";
+
+      const headingCache = new HeadingCache();
+      headingCache.heading = arbitraryHeading;
+
+      app.vault._read = arbitraryExistingBytes;
+      app.metadataCache._getFileCache.headings.push(headingCache);
+
+      await request(server)
+        .patch(`/vault/${arbitraryFilePath}`)
+        .set("Content-Type", "text/markdown")
+        .set("Heading", arbitraryHeading)
+        .set("Content-Insertion-Position", "beginning")
+        .send(arbitraryBytes)
+        .expect(401);
+    });
+
+    describe("acceptable content", () => {
+      // Unfortunately, testing the actual written content would be
+      // extremely brittle given that we're relying on private Obsidian
+      // API interfaces; so we're just going to verify that we get
+      // a 200 and that a write occurs :shrug:
+
+      test("undefined content-insertion-position", async () => {
+        const arbitraryFilePath = "somefile.md";
+        const arbitraryBytes = "bytes";
+        const arbitraryHeading = "somewhere";
+
+        const arbitraryExistingBytes = "something\nsomething";
+
+        const headingCache = new HeadingCache();
+        headingCache.heading = arbitraryHeading;
+
+        app.vault._read = arbitraryExistingBytes;
+        app.metadataCache._getFileCache.headings.push(headingCache);
+
+        const result = await request(server)
+          .patch(`/vault/${arbitraryFilePath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Heading", arbitraryHeading)
+          .send(arbitraryBytes)
+          .expect(200);
+
+        expect(app.vault.adapter.write).toBeTruthy();
+        expect(result.text).toBeTruthy();
+      });
+
+      test("beginning content-insertion-position", async () => {
+        const arbitraryFilePath = "somefile.md";
+        const arbitraryBytes = "bytes";
+        const arbitraryHeading = "somewhere";
+
+        const arbitraryExistingBytes = "something\nsomething";
+
+        const headingCache = new HeadingCache();
+        headingCache.heading = arbitraryHeading;
+
+        app.vault._read = arbitraryExistingBytes;
+        app.metadataCache._getFileCache.headings.push(headingCache);
+
+        const result = await request(server)
+          .patch(`/vault/${arbitraryFilePath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Heading", arbitraryHeading)
+          .set("Content-Insertion-Position", "beginning")
+          .send(arbitraryBytes)
+          .expect(200);
+
+        expect(app.vault.adapter.write).toBeTruthy();
+        expect(result.text).toBeTruthy();
+      });
+
+      test("end content-insertion-position", async () => {
+        const arbitraryFilePath = "somefile.md";
+        const arbitraryBytes = "bytes";
+        const arbitraryHeading = "somewhere";
+
+        const arbitraryExistingBytes = "something\nsomething";
+
+        const headingCache = new HeadingCache();
+        headingCache.heading = arbitraryHeading;
+
+        app.vault._read = arbitraryExistingBytes;
+        app.metadataCache._getFileCache.headings.push(headingCache);
+
+        const result = await request(server)
+          .patch(`/vault/${arbitraryFilePath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Heading", arbitraryHeading)
+          .set("Content-Insertion-Position", "beginning")
+          .send(arbitraryBytes)
+          .expect(200);
+
+        expect(app.vault.adapter.write).toBeTruthy();
+        expect(result.text).toBeTruthy();
+      });
+    });
+  });
+
+  describe("commandGet", () => {
+    test("acceptable", async () => {
+      const arbitraryCommand = new Command();
+      arbitraryCommand.id = "beep";
+      arbitraryCommand.name = "boop";
+
+      app.commands.commands[arbitraryCommand.id] = arbitraryCommand;
+
+      const result = await request(server)
+        .get(`/commands/`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.commands).toEqual([
+        {
+          id: arbitraryCommand.id,
+          name: arbitraryCommand.name,
+        },
+      ]);
+    });
+
+    test("unauthorized", async () => {
+      const arbitraryCommand = new Command();
+      arbitraryCommand.id = "beep";
+      arbitraryCommand.name = "boop";
+
+      app.commands.commands[arbitraryCommand.id] = arbitraryCommand;
+
+      await request(server).get(`/commands/`).expect(401);
+    });
+  });
+
+  describe("commandPost", () => {
+    test("acceptable", async () => {
+      const arbitraryCommand = new Command();
+      arbitraryCommand.id = "beep";
+      arbitraryCommand.name = "boop";
+
+      app.commands.commands[arbitraryCommand.id] = arbitraryCommand;
+
+      await request(server)
+        .post(`/commands/${arbitraryCommand.id}/`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(204);
+
+      expect(app.commands._executeCommandById).toEqual([arbitraryCommand.id]);
+    });
+
+    test("unauthorized", async () => {
+      const arbitraryCommand = new Command();
+      arbitraryCommand.id = "beep";
+      arbitraryCommand.name = "boop";
+
+      app.commands.commands[arbitraryCommand.id] = arbitraryCommand;
+
+      await request(server)
+        .post(`/commands/${arbitraryCommand.id}`)
+        .expect(401);
     });
   });
 });
