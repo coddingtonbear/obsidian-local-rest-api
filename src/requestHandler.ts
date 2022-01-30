@@ -28,19 +28,25 @@ export default class RequestHandler {
     this.settings = settings;
   }
 
+  requestIsAuthenticated(req: express.Request): boolean {
+    const authorizationHeader = req.get("Authorization");
+    if (authorizationHeader === `Bearer ${this.settings.apiKey}`) {
+      return true;
+    }
+    return false;
+  }
+
   async authenticationMiddleware(
     req: express.Request,
     res: express.Response,
     next: express.NextFunction
   ): Promise<void> {
-    const authorizationHeader = req.get("Authorization");
+    const authenticationExemptRoutes: string[] = ["/", `/${CERT_NAME}`];
 
-    if (req.path === `/${CERT_NAME}` || req.path === "/") {
-      next();
-      return;
-    }
-
-    if (authorizationHeader !== `Bearer ${this.settings.apiKey}`) {
+    if (
+      !authenticationExemptRoutes.includes(req.path) &&
+      !this.requestIsAuthenticated(req)
+    ) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.ApiKeyAuthorizationRequired,
       });
@@ -90,6 +96,7 @@ export default class RequestHandler {
     res.json({
       status: "OK",
       service: "Obsidian Local REST API",
+      authenticated: this.requestIsAuthenticated(req),
     });
   }
 
@@ -627,7 +634,7 @@ export default class RequestHandler {
     this.api.route("/commands/:commandId/").post(this.commandPost.bind(this));
 
     this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
-    this.api.get("/", this.root);
+    this.api.get("/", this.root.bind(this));
 
     this.api.use(this.notFoundHandler.bind(this));
     this.api.use(this.errorHandler.bind(this));
