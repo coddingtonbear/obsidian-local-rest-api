@@ -68,20 +68,18 @@ export class MetadataCache {
   }
 }
 
-export class CommandContainer {
-  commands: Record<string, Command> = {};
-
+export class App {
   _executeCommandById: [string];
 
-  executeCommandById(id: string): void {
-    this._executeCommandById = [id];
-  }
-}
-
-export class App {
   vault = new Vault();
   metadataCache = new MetadataCache();
-  commands = new CommandContainer();
+  commands = {
+    commands: {} as Record<string, Command>,
+
+    executeCommandById: (id: string) => {
+      this._executeCommandById = [id];
+    },
+  };
 }
 
 export class Command {

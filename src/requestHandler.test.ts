@@ -592,7 +592,7 @@ describe("requestHandler", () => {
         .set("Authorization", `Bearer ${API_KEY}`)
         .expect(204);
 
-      expect(app.commands._executeCommandById).toEqual([arbitraryCommand.id]);
+      expect(app._executeCommandById).toEqual([arbitraryCommand.id]);
     });
 
     test("unauthorized", async () => {
