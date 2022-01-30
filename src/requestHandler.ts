@@ -9,7 +9,7 @@ import bodyParser from "body-parser";
 
 import {
   ErrorCode,
-  ErrorResponse,
+  CannedResponse,
   ErrorResponseDescriptor,
   LocalRestApiSettings,
   PeriodicNoteInterface,
@@ -41,7 +41,7 @@ export default class RequestHandler {
     }
 
     if (authorizationHeader !== `Bearer ${this.settings.apiKey}`) {
-      this.returnErrorResponse(res, {
+      this.returnCannedResponse(res, {
         errorCode: ErrorCode.ApiKeyAuthorizationRequired,
       });
       return;
@@ -50,7 +50,7 @@ export default class RequestHandler {
     next();
   }
 
-  getErrorMessage({
+  getResponseMessage({
     statusCode = 400,
     message,
     errorCode,
@@ -70,12 +70,12 @@ export default class RequestHandler {
     return errorCode / 100;
   }
 
-  returnErrorResponse(
+  returnCannedResponse(
     res: express.Response,
     { statusCode, message, errorCode }: ErrorResponseDescriptor
   ): void {
-    const response: ErrorResponse = {
-      error: this.getErrorMessage({ statusCode, message, errorCode }),
+    const response: CannedResponse = {
+      message: this.getResponseMessage({ statusCode, message, errorCode }),
       errorCode: errorCode ?? statusCode * 100,
     };
 
@@ -134,7 +134,7 @@ export default class RequestHandler {
         });
         res.send(content);
       } else {
-        this.returnErrorResponse(res, {
+        this.returnCannedResponse(res, {
           statusCode: 404,
         });
         return;
@@ -154,21 +154,23 @@ export default class RequestHandler {
     res: express.Response
   ): Promise<void> {
     if (!path || path.endsWith("/")) {
-      this.returnErrorResponse(res, {
+      this.returnCannedResponse(res, {
         errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
       });
       return;
     }
 
     if (typeof req.body != "string") {
-      this.returnErrorResponse(res, {
+      this.returnCannedResponse(res, {
         errorCode: ErrorCode.TextOrByteContentEncodingRequired,
       });
       return;
     }
 
     await this.app.vault.adapter.write(path, req.body);
-    res.sendStatus(202);
+
+    this.returnCannedResponse(res, { statusCode: 204 });
+    return;
   }
 
   async vaultPut(req: express.Request, res: express.Response): Promise<void> {
@@ -194,26 +196,26 @@ export default class RequestHandler {
     } else if (contentPosition === "end") {
       insert = false;
     } else {
-      this.returnErrorResponse(res, {
+      this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidContentInsertionPositionValue,
       });
       return;
     }
     if (typeof req.body != "string") {
-      this.returnErrorResponse(res, {
+      this.returnCannedResponse(res, {
         errorCode: ErrorCode.TextOrByteContentEncodingRequired,
       });
       return;
     }
 
     if (!heading.length) {
-      this.returnErrorResponse(res, {
+      this.returnCannedResponse(res, {
         errorCode: ErrorCode.MissingHeadingHeader,
       });
       return;
     }
     if (!path || path.endsWith("/")) {
-      this.returnErrorResponse(res, {
+      this.returnCannedResponse(res, {
         errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
       });
       return;
@@ -221,7 +223,7 @@ export default class RequestHandler {
 
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) {
-      this.returnErrorResponse(res, {
+      this.returnCannedResponse(res, {
         statusCode: 404,
       });
       return;
@@ -230,7 +232,7 @@ export default class RequestHandler {
     const position = findHeadingBoundary(cache, heading);
 
     if (!position) {
-      this.returnErrorResponse(res, {
+      this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidHeadingHeader,
       });
       return;
@@ -267,14 +269,14 @@ export default class RequestHandler {
     res: express.Response
   ): Promise<void> {
     if (typeof req.body != "string") {
-      this.returnErrorResponse(res, {
+      this.returnCannedResponse(res, {
         errorCode: ErrorCode.TextOrByteContentEncodingRequired,
       });
       return;
     }
 
     if (!path || path.endsWith("/")) {
-      this.returnErrorResponse(res, {
+      this.returnCannedResponse(res, {
         errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
       });
       return;
@@ -282,15 +284,19 @@ export default class RequestHandler {
 
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) {
-      this.returnErrorResponse(res, { statusCode: 404 });
+      this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
 
-    const fileContents = await this.app.vault.read(file);
+    let fileContents = await this.app.vault.read(file);
+    if (!fileContents.endsWith("\n")) {
+      fileContents += "\n";
+    }
+    fileContents += req.body;
 
-    await this.app.vault.adapter.write(path, fileContents + req.body);
+    await this.app.vault.adapter.write(path, fileContents);
 
-    res.sendStatus(200);
+    this.returnCannedResponse(res, { statusCode: 204 });
     return;
   }
 
@@ -306,7 +312,7 @@ export default class RequestHandler {
     res: express.Response
   ): Promise<void> {
     if (!path || path.endsWith("/")) {
-      this.returnErrorResponse(res, {
+      this.returnCannedResponse(res, {
         errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
       });
       return;
@@ -314,12 +320,13 @@ export default class RequestHandler {
 
     const pathExists = await this.app.vault.adapter.exists(path);
     if (!pathExists) {
-      this.returnErrorResponse(res, { statusCode: 404 });
+      this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
 
     await this.app.vault.adapter.remove(path);
-    res.sendStatus(202);
+    this.returnCannedResponse(res, { statusCode: 204 });
+    return;
   }
 
   async vaultDelete(
@@ -436,7 +443,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const [file, err] = this.periodicGetNote(req.params.period);
     if (err) {
-      this.returnErrorResponse(res, { errorCode: err });
+      this.returnCannedResponse(res, { errorCode: err });
       return;
     }
 
@@ -454,7 +461,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const [file, err] = await this.periodicGetOrCreateNote(req.params.period);
     if (err) {
-      this.returnErrorResponse(res, { errorCode: err });
+      this.returnCannedResponse(res, { errorCode: err });
       return;
     }
 
@@ -472,7 +479,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const [file, err] = await this.periodicGetOrCreateNote(req.params.period);
     if (err) {
-      this.returnErrorResponse(res, { errorCode: err });
+      this.returnCannedResponse(res, { errorCode: err });
       return;
     }
 
@@ -490,7 +497,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const [file, err] = await this.periodicGetOrCreateNote(req.params.period);
     if (err) {
-      this.returnErrorResponse(res, { errorCode: err });
+      this.returnCannedResponse(res, { errorCode: err });
       return;
     }
 
@@ -508,7 +515,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const [file, err] = this.periodicGetNote(req.params.period);
     if (err) {
-      this.returnErrorResponse(res, { errorCode: err });
+      this.returnCannedResponse(res, { errorCode: err });
       return;
     }
 
@@ -543,18 +550,19 @@ export default class RequestHandler {
     const cmd = this.app.commands.commands[req.params.commandId];
 
     if (!cmd) {
-      this.returnErrorResponse(res, { statusCode: 404 });
+      this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
 
     try {
       this.app.commands.executeCommandById(req.params.commandId);
     } catch (e) {
-      this.returnErrorResponse(res, { statusCode: 500, message: e.message });
+      this.returnCannedResponse(res, { statusCode: 500, message: e.message });
       return;
     }
 
-    res.sendStatus(202);
+    this.returnCannedResponse(res, { statusCode: 204 });
+    return;
   }
 
   async certificateGet(
@@ -574,7 +582,7 @@ export default class RequestHandler {
     res: express.Response,
     next: express.NextFunction
   ): Promise<void> {
-    this.returnErrorResponse(res, {
+    this.returnCannedResponse(res, {
       statusCode: 404,
     });
     return;
@@ -586,7 +594,7 @@ export default class RequestHandler {
     res: express.Response,
     next: express.NextFunction
   ): Promise<void> {
-    this.returnErrorResponse(res, {
+    this.returnCannedResponse(res, {
       statusCode: 500,
       message: err.message,
     });

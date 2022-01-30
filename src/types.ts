@@ -104,7 +104,7 @@ export interface ErrorResponseDescriptor {
   errorCode?: ErrorCode;
 }
 
-export interface ErrorResponse {
-  error: string;
+export interface CannedResponse {
+  message: string;
   errorCode?: number;
 }

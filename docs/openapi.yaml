@@ -41,7 +41,7 @@ components:
     Error:
       type: object
       properties:
-        error:
+        message:
           type: string
           description: Message describing the error.
           example: "A brief description of the error."
@@ -115,7 +115,7 @@ paths:
           type: string
           format: path
       responses:
-        '202':
+        '204':
           description: Success
         '405':
           description: |
@@ -158,7 +158,7 @@ paths:
 
                 something else here
       responses:
-        '200':
+        '204':
           description: Success
         '400':
           description: Bad Request
@@ -285,7 +285,7 @@ paths:
           type: string
           format: path
       responses:
-        '202':
+        '204':
           description: Success
         '404':
           description: File does not exist.
@@ -417,7 +417,7 @@ paths:
 
                 something else here
       responses:
-        '200':
+        '204':
           description: 'Success'
           content:
             text/markdown:
@@ -459,7 +459,7 @@ paths:
 
                 something else here
       responses:
-        '200':
+        '204':
           description: Success
         '400':
           description: Bad request; see response for details.
@@ -560,7 +560,7 @@ paths:
       parameters:
       - $ref: '#/components/parameters/period'
       responses:
-        '200':
+        '204':
           description: Success
         '400':
           description: Bad request; see response for details.
@@ -615,7 +615,7 @@ paths:
         schema:
           type: string
       responses:
-        '202':
+        '204':
           description: Success
         '404':
           description: The command you specified does not exist.
