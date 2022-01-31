@@ -88,9 +88,9 @@ paths:
     put:
       tags: ["Vault Files"]
       summary: |
-        Update the content of a single file in your vault.
+        Create a new file in your vault or update the content of an existing one.
       description: |
-        Updates the content of the file at the specified path in your vault.
+        Creates a new file in your vault or updates the content of an existing one if the specified file already exists.
       requestBody:
         description: Content of the file you would like to upload.
         required: true
