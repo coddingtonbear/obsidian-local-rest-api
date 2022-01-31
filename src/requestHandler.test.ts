@@ -16,7 +16,11 @@ describe("requestHandler", () => {
 
   beforeEach(() => {
     settings = getMockSettings();
+    // This 'App' instance is actually a mock, and it doesn't define
+    // quite a perfectly-matching interface for the actual Obsidian
+    // App interface.
     app = new App();
+    // @ts-ignore: Ignore missing App properties
     handler = new RequestHandler(app, settings);
     handler.setupRouter();
     server = http.createServer(handler.api);
