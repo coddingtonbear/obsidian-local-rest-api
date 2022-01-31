@@ -388,7 +388,7 @@ describe("requestHandler", () => {
       app.vault._read = arbitraryExistingBytes;
       app.metadataCache._getFileCache.headings.push(headingCache);
 
-      const result = await request(server)
+      await request(server)
         .patch(`/vault/${arbitraryFilePath}`)
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Content-Type", "text/markdown")
@@ -409,7 +409,7 @@ describe("requestHandler", () => {
       app.vault._read = arbitraryExistingBytes;
       app.metadataCache._getFileCache.headings.push(headingCache);
 
-      const result = await request(server)
+      await request(server)
         .patch(`/vault/${arbitraryFilePath}`)
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Heading", arbitraryHeading)
@@ -431,7 +431,7 @@ describe("requestHandler", () => {
       app.metadataCache._getFileCache.headings.push(headingCache);
       app.vault._getAbstractFileByPath = null;
 
-      const result = await request(server)
+      await request(server)
         .patch(`/vault/${arbitraryFilePath}`)
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Content-Type", "text/markdown")
