@@ -73,7 +73,7 @@ export default class RequestHandler {
     if (statusCode) {
       return statusCode;
     }
-    return errorCode / 100;
+    return Math.floor(errorCode / 100);
   }
 
   returnCannedResponse(
