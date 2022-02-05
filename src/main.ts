@@ -98,7 +98,7 @@ export default class LocalRestApi extends Plugin {
       this.saveSettings();
     }
 
-    this.addSettingTab(new SampleSettingTab(this.app, this));
+    this.addSettingTab(new LocalRestApiSettingTab(this.app, this));
 
     this.refreshServerState();
   }
@@ -131,7 +131,7 @@ export default class LocalRestApi extends Plugin {
   }
 }
 
-class SampleSettingTab extends PluginSettingTab {
+class LocalRestApiSettingTab extends PluginSettingTab {
   plugin: LocalRestApi;
 
   constructor(app: App, plugin: LocalRestApi) {
