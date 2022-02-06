@@ -14,7 +14,11 @@ export default class LocalRestApi extends Plugin {
 
   async onload() {
     await this.loadSettings();
-    this.requestHandler = new RequestHandler(this.app, this.settings);
+    this.requestHandler = new RequestHandler(
+      this.app,
+      this.manifest,
+      this.settings
+    );
     this.requestHandler.setupRouter();
 
     this.app;

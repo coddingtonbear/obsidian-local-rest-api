@@ -91,8 +91,12 @@ export class TFile {
   path = "";
 }
 
-export class PluginManifest {}
+export class PluginManifest {
+  version = "";
+}
 
 export class SettingTab {}
 
 export class Workspace {}
+
+export const apiVersion = "1.0.0";

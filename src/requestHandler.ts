@@ -1,4 +1,4 @@
-import { App, Command, TFile } from "obsidian";
+import { App, Command, TFile, apiVersion, PluginManifest } from "obsidian";
 import periodicNotes from "obsidian-daily-notes-interface";
 
 import express from "express";
@@ -20,10 +20,16 @@ import { CERT_NAME, ERROR_CODE_MESSAGES } from "./constants";
 export default class RequestHandler {
   app: App;
   api: express.Express;
+  manifest: PluginManifest;
   settings: LocalRestApiSettings;
 
-  constructor(app: App, settings: LocalRestApiSettings) {
+  constructor(
+    app: App,
+    manifest: PluginManifest,
+    settings: LocalRestApiSettings
+  ) {
     this.app = app;
+    this.manifest = manifest;
     this.api = express();
     this.settings = settings;
   }
@@ -95,6 +101,10 @@ export default class RequestHandler {
 
     res.json({
       status: "OK",
+      versions: {
+        obsidian: apiVersion,
+        self: this.manifest.version,
+      },
       service: "Obsidian Local REST API",
       authenticated: this.requestIsAuthenticated(req),
     });

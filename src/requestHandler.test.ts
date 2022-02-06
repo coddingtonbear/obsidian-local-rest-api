@@ -4,13 +4,20 @@ import request from "supertest";
 import RequestHandler from "./requestHandler";
 import { LocalRestApiSettings } from "./types";
 import { CERT_NAME } from "./constants";
-import { App, TFile, Command, HeadingCache } from "mocks/obsidian";
+import {
+  App,
+  TFile,
+  Command,
+  HeadingCache,
+  PluginManifest,
+} from "mocks/obsidian";
 
 describe("requestHandler", () => {
   const API_KEY = "my api key";
 
   let settings: LocalRestApiSettings;
   let app: App;
+  let manifest: PluginManifest;
   let handler: RequestHandler;
   let server: http.Server;
 
@@ -20,8 +27,9 @@ describe("requestHandler", () => {
     // quite a perfectly-matching interface for the actual Obsidian
     // App interface.
     app = new App();
+    manifest = new PluginManifest();
     // @ts-ignore: Ignore missing App properties
-    handler = new RequestHandler(app, settings);
+    handler = new RequestHandler(app, manifest, settings);
     handler.setupRouter();
     server = http.createServer(handler.api);
   });
