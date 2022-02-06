@@ -623,3 +623,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /:
+    get:
+      tags: ["Status"]
+      summary: |
+        Returns basic details about the server.
+      description: |
+        Returns basic details about the server as well as your authentication status.
+
+        This is the only API request that does *not* require authentication.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: string
+                    description: "'OK'"
+                  versions:
+                    type: object
+                    properties:
+                      obsidian:
+                        type: string
+                        description: Obsidian plugin API version
+                      self:
+                        type: string
+                        description: Plugin version.
+                  service:
+                    type: string
+                    description: "'Obsidian Local REST API'"
+                  authenticated:
+                    type: boolean
+                    description: Is your current request authenticated?
