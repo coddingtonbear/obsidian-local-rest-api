@@ -27,7 +27,7 @@ export function findHeadingBoundary(
       const start = heading.position.end;
       const endHeading = fileCache.headings
         .slice(headingIdx + 1)
-        .find((endHeading) => endHeading.level == heading.level);
+        .find((endHeading) => endHeading.level <= heading.level);
       const end = endHeading?.position.start;
 
       return {
