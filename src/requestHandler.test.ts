@@ -47,6 +47,8 @@ describe("requestHandler", () => {
         publicKey: "publicKey",
       },
       port: 1,
+      insecurePort: 2,
+      enableInsecureServer: false,
     };
   }
   describe("requestIsAuthenticated", () => {
