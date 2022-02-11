@@ -1,15 +1,17 @@
 import { App, Plugin, PluginSettingTab, Setting } from "obsidian";
 import * as https from "https";
+import * as http from "http";
 import forge, { pki } from "node-forge";
 
 import RequestHandler from "./requestHandler";
 import { LocalRestApiSettings } from "./types";
 
-import { CERT_NAME, DEFAULT_SETTINGS } from "./constants";
+import { CERT_NAME, DEFAULT_SETTINGS, HOSTNAME } from "./constants";
 
 export default class LocalRestApi extends Plugin {
   settings: LocalRestApiSettings;
   httpsServer: https.Server | null = null;
+  httpServer: http.Server | null = null;
   requestHandler: RequestHandler;
 
   async onload() {
@@ -83,7 +85,7 @@ export default class LocalRestApi extends Plugin {
           altNames: [
             {
               type: 7, // IP
-              ip: "127.0.0.1",
+              ip: HOSTNAME,
             },
           ],
         },
@@ -110,19 +112,38 @@ export default class LocalRestApi extends Plugin {
   refreshServerState() {
     if (this.httpsServer) {
       this.httpsServer.close();
+      this.httpsServer = null;
     }
     this.httpsServer = https.createServer(
       { key: this.settings.crypto.privateKey, cert: this.settings.crypto.cert },
       this.requestHandler.api
     );
-    this.httpsServer.listen(this.settings.port, "127.0.0.1");
+    this.httpsServer.listen(this.settings.port, HOSTNAME);
 
-    console.log(`REST API listening on ${this.settings.port}`);
+    console.log(
+      `REST API listening on https://${HOSTNAME}/${this.settings.port}`
+    );
+
+    if (this.httpServer) {
+      this.httpServer.close();
+      this.httpServer = null;
+    }
+    if (this.settings.enableInsecureServer) {
+      this.httpServer = http.createServer(this.requestHandler.api);
+      this.httpServer.listen(this.settings.insecurePort, HOSTNAME);
+
+      console.log(
+        `REST API listening on http://${HOSTNAME}/${this.settings.insecurePort}`
+      );
+    }
   }
 
   onunload() {
     if (this.httpsServer) {
       this.httpsServer.close();
+    }
+    if (this.httpServer) {
+      this.httpServer.close();
     }
   }
 
@@ -180,15 +201,47 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       text: " to use it for validating your connection's security by adding it as a trusted certificate authority in the browser or tool you are using for interacting with this API.",
     });
 
-    new Setting(containerEl).setName("Server Port").addText((cb) =>
-      cb
-        .onChange((value) => {
-          this.plugin.settings.port = parseInt(value, 10);
-          this.plugin.saveSettings();
-          this.plugin.refreshServerState();
-        })
-        .setValue(this.plugin.settings.port.toString())
-    );
+    new Setting(containerEl)
+      .setName("Secure HTTPS Server Port")
+      .setDesc(
+        "This configures the port on which your REST API will listen for HTTPS connections.  It's recommended that you leave this port at its default as integrating tools may expect the default port.  In no circumstance is it recommended that you expose this service directly to the internet."
+      )
+      .addText((cb) =>
+        cb
+          .onChange((value) => {
+            this.plugin.settings.port = parseInt(value, 10);
+            this.plugin.saveSettings();
+            this.plugin.refreshServerState();
+          })
+          .setValue(this.plugin.settings.port.toString())
+      );
+
+    new Setting(containerEl)
+      .setName("Enable Insecure HTTP Server")
+      .setDesc(
+        "Enables an insecure HTTP server on the port designated below.  By default, this plugin requires a secure HTTPS connection, but in secure environments you may turn on the insecure server to simplify interacting with the API.  In no circumstances is it recommended that you expose this service to the internet, especially if you turn on this feature!"
+      )
+      .addToggle((cb) =>
+        cb
+          .onChange((value) => {
+            this.plugin.settings.enableInsecureServer = value;
+            this.plugin.saveSettings();
+            this.plugin.refreshServerState();
+          })
+          .setValue(this.plugin.settings.enableInsecureServer)
+      );
+
+    new Setting(containerEl)
+      .setName("Insecure HTTP Server Port")
+      .addText((cb) =>
+        cb
+          .onChange((value) => {
+            this.plugin.settings.port = parseInt(value, 10);
+            this.plugin.saveSettings();
+            this.plugin.refreshServerState();
+          })
+          .setValue(this.plugin.settings.insecurePort.toString())
+      );
 
     containerEl.createEl("hr");
     containerEl.createEl("h3", {

@@ -23,6 +23,8 @@ export interface LocalRestApiSettings {
     resetOnNextLoad?: boolean;
   };
   port: number;
+  insecurePort: number;
+  enableInsecureServer: boolean;
 }
 
 export interface HeadingBoundary {

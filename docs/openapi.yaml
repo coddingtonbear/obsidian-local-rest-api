@@ -10,10 +10,15 @@ info:
   version: '1.0'
 servers:
   - url: https://127.0.0.1:{port}
-    description: "Your 'Local REST API' plugin instance running in Obsidian"
+    description: "HTTPS (Secure Mode)"
     variables:
       port:
         default: '27124'
+  - url: http://127.0.0.1:{port}
+    description: "HTTP (Insecure Mode)"
+    variables:
+      port:
+        default: '27123'
 components:
   securitySchemes:
     apiKeyAuth:
