@@ -10,8 +10,8 @@ import { CERT_NAME, DEFAULT_SETTINGS, HOSTNAME } from "./constants";
 
 export default class LocalRestApi extends Plugin {
   settings: LocalRestApiSettings;
-  httpsServer: https.Server | null = null;
-  httpServer: http.Server | null = null;
+  secureServer: https.Server | null = null;
+  insecureServer: http.Server | null = null;
   requestHandler: RequestHandler;
 
   async onload() {
@@ -110,27 +110,27 @@ export default class LocalRestApi extends Plugin {
   }
 
   refreshServerState() {
-    if (this.httpsServer) {
-      this.httpsServer.close();
-      this.httpsServer = null;
+    if (this.secureServer) {
+      this.secureServer.close();
+      this.secureServer = null;
     }
-    this.httpsServer = https.createServer(
+    this.secureServer = https.createServer(
       { key: this.settings.crypto.privateKey, cert: this.settings.crypto.cert },
       this.requestHandler.api
     );
-    this.httpsServer.listen(this.settings.port, HOSTNAME);
+    this.secureServer.listen(this.settings.port, HOSTNAME);
 
     console.log(
       `REST API listening on https://${HOSTNAME}/${this.settings.port}`
     );
 
-    if (this.httpServer) {
-      this.httpServer.close();
-      this.httpServer = null;
+    if (this.insecureServer) {
+      this.insecureServer.close();
+      this.insecureServer = null;
     }
     if (this.settings.enableInsecureServer) {
-      this.httpServer = http.createServer(this.requestHandler.api);
-      this.httpServer.listen(this.settings.insecurePort, HOSTNAME);
+      this.insecureServer = http.createServer(this.requestHandler.api);
+      this.insecureServer.listen(this.settings.insecurePort, HOSTNAME);
 
       console.log(
         `REST API listening on http://${HOSTNAME}/${this.settings.insecurePort}`
@@ -139,11 +139,11 @@ export default class LocalRestApi extends Plugin {
   }
 
   onunload() {
-    if (this.httpsServer) {
-      this.httpsServer.close();
+    if (this.secureServer) {
+      this.secureServer.close();
     }
-    if (this.httpServer) {
-      this.httpServer.close();
+    if (this.insecureServer) {
+      this.insecureServer.close();
     }
   }
 
@@ -204,7 +204,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Secure HTTPS Server Port")
       .setDesc(
-        "This configures the port on which your REST API will listen for HTTPS connections.  It's recommended that you leave this port at its default as integrating tools may expect the default port.  In no circumstance is it recommended that you expose this service directly to the internet."
+        "This configures the port on which your REST API will listen for HTTPS connections.  It is recommended that you leave this port with its default setting as tools integrating with this API may expect the default port to be in use.  In no circumstance is it recommended that you expose this service directly to the internet."
       )
       .addText((cb) =>
         cb
@@ -219,7 +219,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Enable Insecure HTTP Server")
       .setDesc(
-        "Enables an insecure HTTP server on the port designated below.  By default, this plugin requires a secure HTTPS connection, but in secure environments you may turn on the insecure server to simplify interacting with the API.  In no circumstances is it recommended that you expose this service to the internet, especially if you turn on this feature!"
+        "Enables an insecure HTTP server on the port designated below.  By default, this plugin requires a secure HTTPS connection, but in secure environments you may turn on the insecure server to simplify interacting with the API. Interactions with the API will still require the API Key shown above.  In no circumstances is it recommended that you expose this service to the internet, especially if you turn on this feature!"
       )
       .addToggle((cb) =>
         cb
