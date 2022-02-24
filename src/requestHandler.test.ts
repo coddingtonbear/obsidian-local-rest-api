@@ -300,22 +300,6 @@ describe("requestHandler", () => {
       });
     });
 
-    test("non-existing file", async () => {
-      const arbitraryFilePath = "somefile.md";
-      const arbitraryBytes = "bytes";
-
-      app.vault._getAbstractFileByPath = null;
-
-      await request(server)
-        .post(`/vault/${arbitraryFilePath}`)
-        .set("Content-Type", "text/markdown")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .send(arbitraryBytes)
-        .expect(404);
-
-      expect(app.vault.adapter._write).toBeUndefined();
-    });
-
     test("non-bytes content", async () => {
       const arbitraryFilePath = "somefile.md";
       const arbitraryBytes = "bytes";

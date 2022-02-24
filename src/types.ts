@@ -1,9 +1,11 @@
 import type { Moment } from "moment";
-import { Loc, TFile } from "obsidian";
+import { FileStats, Loc, TFile } from "obsidian";
 import { IPeriodicNoteSettings } from "obsidian-daily-notes-interface";
 
 export enum ErrorCode {
   TextOrByteContentEncodingRequired = 40010,
+  ContentTypeSpecificationRequired = 40011,
+  InvalidContentForContentType = 40015,
   InvalidContentInsertionPositionValue = 40050,
   MissingHeadingHeader = 40051,
   InvalidHeadingHeader = 40052,
@@ -109,4 +111,31 @@ export interface ErrorResponseDescriptor {
 export interface CannedResponse {
   message: string;
   errorCode?: number;
+}
+
+export interface SearchContext {
+  match: {
+    start: number;
+    end: number;
+  };
+  context: string;
+}
+
+export interface SearchResponseItem {
+  filename: string;
+  score?: number;
+  matches: SearchContext[];
+}
+
+export interface SearchJsonResponseItem {
+  filename: string;
+  result: unknown;
+}
+
+export interface FileMetadataObject {
+  tags: string[];
+  frontmatter: Record<string, unknown>;
+  stat: FileStats;
+  path: string;
+  content: string;
 }

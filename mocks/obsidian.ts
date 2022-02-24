@@ -21,10 +21,12 @@ class DataAdapter {
   }
 }
 
-class Vault {
+export class Vault {
   _getAbstractFileByPath: TFile | null = new TFile();
   _read = "";
+  _cachedRead = "";
   _files: TFile[] = [];
+  _markdownFiles: TFile[] = [];
 
   adapter = new DataAdapter();
 
@@ -32,8 +34,16 @@ class Vault {
     return this._read;
   }
 
+  async cachedRead(file: TFile): Promise<string> {
+    return this._cachedRead;
+  }
+
   getFiles(): TFile[] {
     return this._files;
+  }
+
+  getMarkdownFiles(): TFile[] {
+    return this._markdownFiles;
   }
 
   getAbstractFileByPath(path: string): TFile {
@@ -58,6 +68,8 @@ export class HeadingCache {
 
 export class CachedMetadata {
   headings: HeadingCache[] = [];
+  frontmatter: Record<string, unknown> = {};
+  tags: { tag: string }[] = [];
 }
 
 export class MetadataCache {
@@ -87,8 +99,15 @@ export class Command {
   name = "";
 }
 
+export class FileStats {
+  ctime = 0;
+  mtime = 0;
+  size = 0;
+}
+
 export class TFile {
   path = "";
+  stat: FileStats = new FileStats();
 }
 
 export class PluginManifest {
@@ -100,3 +119,14 @@ export class SettingTab {}
 export class Workspace {}
 
 export const apiVersion = "1.0.0";
+
+export class SearchResult {
+  score = -10;
+  matches: [number, number][] = [];
+}
+
+export function prepareSimpleSearch(
+  query: string
+): (value: string) => null | SearchResult {
+  return null;
+}

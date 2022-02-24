@@ -1,4 +1,11 @@
-import { App, Command, TFile, apiVersion, PluginManifest } from "obsidian";
+import {
+  App,
+  Command,
+  TFile,
+  apiVersion,
+  PluginManifest,
+  prepareSimpleSearch,
+} from "obsidian";
 import periodicNotes from "obsidian-daily-notes-interface";
 
 import express from "express";
@@ -6,6 +13,7 @@ import http from "http";
 import cors from "cors";
 import mime from "mime";
 import bodyParser from "body-parser";
+import jsonLogic from "json-logic-js";
 
 import {
   ErrorCode,
@@ -13,9 +21,13 @@ import {
   ErrorResponseDescriptor,
   LocalRestApiSettings,
   PeriodicNoteInterface,
+  SearchResponseItem,
+  SearchContext,
+  SearchJsonResponseItem,
+  FileMetadataObject,
 } from "./types";
 import { findHeadingBoundary } from "./utils";
-import { CERT_NAME, ERROR_CODE_MESSAGES } from "./constants";
+import { CERT_NAME, ContentTypes, ERROR_CODE_MESSAGES } from "./constants";
 
 export default class RequestHandler {
   app: App;
@@ -32,6 +44,8 @@ export default class RequestHandler {
     this.manifest = manifest;
     this.api = express();
     this.settings = settings;
+
+    this.api.set("json spaces", 2);
   }
 
   requestIsAuthenticated(req: express.Request): boolean {
@@ -60,6 +74,32 @@ export default class RequestHandler {
     }
 
     next();
+  }
+
+  async getFileMetadataObject(file: TFile): Promise<FileMetadataObject> {
+    const cache = this.app.metadataCache.getFileCache(file);
+
+    // Gather frontmatter & strip out positioning information
+    const frontmatter = { ...(cache.frontmatter ?? {}) };
+    delete frontmatter.position; // This just adds noise
+
+    // Gather both in-line tags (hash'd) & frontmatter tags; strip
+    // leading '#' from them if it's there, and remove duplicates
+    const directTags = (cache.tags ?? []).map((tag) => tag.tag) ?? [];
+    const frontmatterTags = Array.isArray(frontmatter.tags)
+      ? frontmatter.tags
+      : [];
+    const filteredTags: string[] = [...frontmatterTags, ...directTags]
+      .map((tag) => tag.replace(/^#/, ""))
+      .filter((value, index, self) => self.indexOf(value) === index);
+
+    return {
+      tags: filteredTags,
+      frontmatter: frontmatter,
+      stat: file.stat,
+      path: file.path,
+      content: await this.app.vault.cachedRead(file),
+    };
   }
 
   getResponseMessage({
@@ -147,8 +187,17 @@ export default class RequestHandler {
           "Content-Disposition": `attachment; filename="${path}"`,
           "Content-Type":
             `${mimeType}` +
-            (mimeType == "text/markdown" ? "; charset=UTF-8" : ""),
+            (mimeType == ContentTypes.markdown ? "; charset=UTF-8" : ""),
         });
+
+        if (req.headers.accept === ContentTypes.olrapiNoteJson) {
+          const file = this.app.vault.getAbstractFileByPath(path) as TFile;
+          res.setHeader("Content-Type", ContentTypes.olrapiNoteJson);
+          res.send(
+            JSON.stringify(await this.getFileMetadataObject(file), null, 2)
+          );
+          return;
+        }
         res.send(content);
       } else {
         this.returnCannedResponse(res, {
@@ -301,16 +350,15 @@ export default class RequestHandler {
       return;
     }
 
+    let fileContents = "";
     const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) {
-      this.returnCannedResponse(res, { statusCode: 404 });
-      return;
+    if (file instanceof TFile) {
+      fileContents = await this.app.vault.read(file);
+      if (!fileContents.endsWith("\n")) {
+        fileContents += "\n";
+      }
     }
 
-    let fileContents = await this.app.vault.read(file);
-    if (!fileContents.endsWith("\n")) {
-      fileContents += "\n";
-    }
     fileContents += req.body;
 
     await this.app.vault.adapter.write(path, fileContents);
@@ -584,6 +632,150 @@ export default class RequestHandler {
     return;
   }
 
+  async searchSimplePost(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const results: SearchResponseItem[] = [];
+
+    const query: string = req.query.query as string;
+    const contextLength: number =
+      parseInt(req.query.contextLength as string, 10) ?? 100;
+    const search = prepareSimpleSearch(query);
+
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const cachedContents = await this.app.vault.cachedRead(file);
+      const result = search(cachedContents);
+      if (result) {
+        const contextMatches: SearchContext[] = [];
+        for (const match of result.matches) {
+          contextMatches.push({
+            match: {
+              start: match[0],
+              end: match[1],
+            },
+            context: cachedContents.slice(
+              Math.max(match[0] - contextLength, 0),
+              match[1] + contextLength
+            ),
+          });
+        }
+
+        results.push({
+          filename: file.path,
+          score: result.score,
+          matches: contextMatches,
+        });
+      }
+    }
+
+    results.sort((a, b) => (a.score > b.score ? 1 : -1));
+    res.json(results);
+  }
+
+  async searchGuiPost(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const results: SearchResponseItem[] = [];
+    const query: string = req.query.query as string;
+    const contextLength: number =
+      parseInt(req.query.contextLength as string, 10) ?? 100;
+
+    // Open the search panel and start a search
+    this.app.internalPlugins
+      // @ts-ignore
+      .getPluginById("global-search")
+      .instance.openGlobalSearch(query);
+    const searchDom =
+      // @ts-ignore
+      this.app.workspace.getLeavesOfType("search")[0].view.dom;
+
+    // Wait until the search is complete in the UI
+    await new Promise<void>((resolve) => {
+      setTimeout(() => {
+        if (!searchDom.working) {
+          resolve();
+          return;
+        }
+        const interval = setInterval(() => {
+          if (!searchDom.working) {
+            clearInterval(interval);
+            resolve();
+          }
+        }, 2000);
+      }, 100);
+    });
+
+    for (const result of searchDom.children) {
+      const matches: SearchContext[] = [];
+      for (const match of result.result.content) {
+        matches.push({
+          match: {
+            start: match[0],
+            end: match[1],
+          },
+          context: result.content.slice(
+            Math.max(match[0] - contextLength, 0),
+            match[1] + contextLength
+          ),
+        });
+      }
+
+      results.push({
+        filename: result.file.path,
+        matches,
+      });
+    }
+
+    res.json(results);
+  }
+
+  valueIsEmpty(value: unknown): boolean {
+    if (Array.isArray(value)) {
+      return value.length > 0;
+    } else if (typeof value === "object") {
+      return Object.keys(value).length > 0;
+    }
+    return Boolean(value);
+  }
+
+  async searchQueryPost(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const handlers: Record<
+      string,
+      (body: unknown, context: FileMetadataObject) => unknown
+    > = {
+      [ContentTypes.jsonLogic]: jsonLogic.apply,
+    };
+    const contentType = req.headers["content-type"];
+
+    if (!handlers[contentType]) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.ContentTypeSpecificationRequired,
+      });
+      return;
+    }
+
+    const results: SearchJsonResponseItem[] = [];
+
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fileContext = await this.getFileMetadataObject(file);
+
+      const output = handlers[contentType](req.body, fileContext);
+      if (this.valueIsEmpty(output)) {
+        results.push({
+          filename: file.path,
+          result: output,
+        });
+      }
+    }
+
+    res.json(results);
+  }
+
   async certificateGet(
     req: express.Request,
     res: express.Response
@@ -613,6 +805,12 @@ export default class RequestHandler {
     res: express.Response,
     next: express.NextFunction
   ): Promise<void> {
+    if (err instanceof SyntaxError) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidContentForContentType,
+      });
+      return;
+    }
     this.returnCannedResponse(res, {
       statusCode: 500,
       message: err.message,
@@ -624,6 +822,9 @@ export default class RequestHandler {
     this.api.use(cors());
     this.api.use(this.authenticationMiddleware.bind(this));
     this.api.use(bodyParser.text({ type: "text/*" }));
+    this.api.use(bodyParser.json({ type: ContentTypes.json }));
+    this.api.use(bodyParser.json({ type: ContentTypes.olrapiNoteJson }));
+    this.api.use(bodyParser.json({ type: ContentTypes.jsonLogic }));
     this.api.use(bodyParser.raw({ type: "application/*" }));
 
     this.api
@@ -644,6 +845,10 @@ export default class RequestHandler {
 
     this.api.route("/commands/").get(this.commandGet.bind(this));
     this.api.route("/commands/:commandId/").post(this.commandPost.bind(this));
+
+    this.api.route("/search/").post(this.searchQueryPost.bind(this));
+    this.api.route("/search/simple/").post(this.searchSimplePost.bind(this));
+    this.api.route("/search/gui/").post(this.searchGuiPost.bind(this));
 
     this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
     this.api.get("/", this.root.bind(this));

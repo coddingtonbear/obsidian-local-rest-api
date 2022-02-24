@@ -13,8 +13,12 @@ export const DEFAULT_SETTINGS: LocalRestApiSettings = {
 export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.ApiKeyAuthorizationRequired]:
     "Authorization required.  Find your API Key in the 'Local REST API' section of your Obsidian settings.",
+  [ErrorCode.ContentTypeSpecificationRequired]:
+    "Content-Type header required; this API accepts data in multiple content-types and you must indicate the content-type of your request body via the Content-Type header.",
   [ErrorCode.InvalidContentInsertionPositionValue]:
     "Invalid 'Content-Insertion-Position' header value.",
+  [ErrorCode.InvalidContentForContentType]:
+    "Your request body could not be processed as the content-type specified in your Content-Type header.",
   [ErrorCode.InvalidHeadingHeader]:
     "No heading in specified file could be found matching the heading specified in 'Heading' header.",
   [ErrorCode.MissingHeadingHeader]:
@@ -26,5 +30,12 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.RequestMethodValidOnlyForFiles]:
     "Request method is valid only for file paths, not directories.",
   [ErrorCode.TextOrByteContentEncodingRequired]:
-    "Incoming content did not come with a bytes or text content encoding.  Be sure to set a Content-type header matching application/* or text/*.",
+    "Incoming content must be sent with a bytes or text content encoding.  Be sure to set a Content-type header matching application/* or text/*.",
 };
+
+export enum ContentTypes {
+  json = "application/json",
+  markdown = "text/markdown",
+  olrapiNoteJson = "application/vnd.olrapi.note+json",
+  jsonLogic = "application/vnd.olrapi.jsonlogic+json",
+}

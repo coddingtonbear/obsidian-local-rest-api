@@ -43,6 +43,38 @@ components:
         - yearly
         default: daily
   schemas:
+    NoteJson:
+      type: object
+      required:
+      - tags
+      - frontmatter
+      - stat
+      - path
+      - content
+      properties:
+        tags:
+          type: array
+          items:
+            type: string
+        frontmatter:
+          type: object
+        stat:
+          type: object
+          required:
+          - ctime
+          - mtime
+          - size
+          properties:
+            ctime:
+              type: number
+            mtime:
+              type: number
+            size:
+              type: number
+        path:
+          type: string
+        content:
+          type: string
     Error:
       type: object
       properties:
@@ -65,6 +97,8 @@ paths:
         Return the content of a single file in your vault.
       description: |
         Returns the content of the file at the specified path in your vault should the file exist.
+
+        If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.  See "responses" below for details.
       parameters:
       - name: filename
         in: path
@@ -85,9 +119,9 @@ paths:
                   # This is my document
 
                   something else here
-            '*/*':
+            'application/vnd.olrapi.note+json':
               schema:
-                type: string
+                $ref: '#/components/schemas/NoteJson'
         '404':
           description: File does not exist
     put:
@@ -139,9 +173,11 @@ paths:
     post:
       tags: ["Vault Files"]
       summary: |
-        Append content to an existing note.
+        Append content to a new or existing file.
       description: |
-        Appends content to the end of an existing note.  If you would like to insert text relative to a particular heading instead of appending to the end of the file, see 'patch'.
+        Appends content to the end of an existing note. If the specified file does not yet exist, it will be created as an empty file.
+
+        If you would like to insert text relative to a particular heading instead of appending to the end of the file, see 'patch'.
       parameters:
       - name: filename
         in: path
@@ -167,12 +203,6 @@ paths:
           description: Success
         '400':
           description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '404':
-          description: Does not exist
           content:
             application/json:
               schema:
@@ -628,6 +658,219 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /search/:
+    post:
+      tags: ["Search"]
+      summary: |
+        Search for documents matching a specified search query
+      description: |
+        Evaluates a provided query against each file in your vault,
+        returning any non-falsy results.  "Non-falsy" here treats the
+        following values as "falsy":
+
+        - `false`
+        - `null` or `undefined`
+        - `0`
+        - `[]`
+        - `{}`
+
+        Files are represented as an object having the schema described
+        in the Schema named 'NoteJson' at the bottom of this page.
+        Understanding the shape of a JSON object from a schema can be
+        tricky; so you may find it helpful to examine the generated metadata
+        for individual files in your vault to understand exactly what values
+        are returned.  To see that, access the `GET` `/vault/{filePath}`
+        route setting the header:
+        `Accept: application/vnd.olrapi.note+json`.  See examples below
+        for working examples of queries performing common search operations.
+
+        Your query should be specified in your request's body, and will
+        be interpreted according to the `Content-type` header you specify
+        following the below chart:
+
+        - `application/vnd.olrapi.jsonlogic+json`: Accepts a JsonLogic query specified as JSON.  See [JsonLogic](https://jsonlogic.com/operations.html)'s documentation for information about what operators are available.
+
+        Additional query formats may be added in the future.
+      requestBody:
+        required: true
+        content:
+          'application/vnd.olrapi.jsonlogic+json':
+            schema:
+              type: object
+              externalDocs:
+                url: https://jsonlogic.com/operations.html
+            examples:
+              find_by_frontmatter_value:
+                value: |
+                  {
+                    "==": [
+                      {"var": "frontmatter.myField"},
+                      "myValue"
+                    ]
+                  }
+                summary: "Find notes having a certain frontmatter field value."
+              find_by_tag:
+                value: |
+                  {
+                    "in": [
+                      "myTag",
+                      {"var": "tags"}
+                    ]
+                  }
+                summary: "Find notes having a certain tag"
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                  - "filename"
+                  - "result"
+                  properties:
+                    filename:
+                      type: string
+                      description: Path to the matching file
+                    result:
+                      oneOf:
+                        - type: string
+                        - type: number
+                        - type: array
+                        - type: object
+                        - type: boolean
+        '400':
+          description: |
+            Bad request.  Make sure you have specified an acceptable
+            Content-Type for your search query.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /search/simple/:
+    post:
+      tags: ["Search"]
+      summary: |
+        Search for documents matching a specified text query
+      parameters:
+      - name: query
+        in: query
+        description: Your search query
+        required: true
+        schema:
+          type: string
+      - name: contextLength
+        in: query
+        description: How much context to return around the matching string
+        required: false
+        schema:
+          type: number
+          default: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    filename:
+                      type: string
+                      description: Path to the matching file
+                    score:
+                      type: number
+                    matches:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                        - "match"
+                        - "context"
+                        properties:
+                          match:
+                            type: object
+                            required:
+                            - "start"
+                            - "end"
+                            properties:
+                              start:
+                                type: number
+                              end:
+                                type: number
+                          context:
+                            type: string
+  /search/gui/:
+    post:
+      tags: ["Search"]
+      summary: |
+        Search for documents matching a specified gui-evaluated query
+      description: |
+        Uses the search functionality built into the Obsidian UI to find matching files.
+
+        **Note**: Unlike most other functionality in this library, this particular method relies on interacting with the UI directly rather than interacting with your notes behind-the-scenes; so you will see the search panel open when sending requests to this API.  As far as the developers of this library are aware, this is unavoidable.
+      parameters:
+      - name: query
+        in: query
+        description: |
+          Your search query. Search options include:
+
+          - path: match the path of a file
+          - file: match file name
+          - tag: search for tags
+          - line:() search for keywords on the same line
+          - section: search for keywords under the same heading
+
+          See the search field in the Obsidian UI
+          for a better understanding of what options are available.
+        required: true
+        schema:
+          type: string
+      - name: contextLength
+        in: query
+        description: How much context to return around the matching string
+        required: false
+        schema:
+          type: number
+          default: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                  - "filename"
+                  properties:
+                    filename:
+                      type: string
+                      description: Path to the matching file
+                    matches:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                        - "match"
+                        - "context"
+                        properties:
+                          match:
+                            type: object
+                            required:
+                            - "start"
+                            - "end"
+                            properties:
+                              start:
+                                type: number
+                              end:
+                                type: number
+                          context:
+                            type: string
   /:
     get:
       tags: ["Status"]
