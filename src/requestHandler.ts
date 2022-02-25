@@ -107,12 +107,17 @@ export default class RequestHandler {
     message,
     errorCode,
   }: ErrorResponseDescriptor): string {
-    if (message) {
-      return message;
-    } else if (errorCode) {
-      return ERROR_CODE_MESSAGES[errorCode];
+    let errorMessages: string[] = [];
+    if (errorCode) {
+      errorMessages.push(ERROR_CODE_MESSAGES[errorCode]);
+    } else {
+      errorMessages.push(http.STATUS_CODES[statusCode]);
     }
-    return http.STATUS_CODES[statusCode];
+    if (message) {
+      errorMessages.push(message);
+    }
+
+    return errorMessages.join(" ");
   }
 
   getStatusCode({ statusCode, errorCode }: ErrorResponseDescriptor): number {
@@ -764,12 +769,20 @@ export default class RequestHandler {
     for (const file of this.app.vault.getMarkdownFiles()) {
       const fileContext = await this.getFileMetadataObject(file);
 
-      const output = handlers[contentType](req.body, fileContext);
-      if (this.valueIsEmpty(output)) {
-        results.push({
-          filename: file.path,
-          result: output,
+      try {
+        const output = handlers[contentType](req.body, fileContext);
+        if (this.valueIsEmpty(output)) {
+          results.push({
+            filename: file.path,
+            result: output,
+          });
+        }
+      } catch (e) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidFilterQuery,
+          message: e.message,
         });
+        return;
       }
     }
 

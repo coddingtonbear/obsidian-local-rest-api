@@ -31,6 +31,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "Request method is valid only for file paths, not directories.",
   [ErrorCode.TextOrByteContentEncodingRequired]:
     "Incoming content must be sent with a bytes or text content encoding.  Be sure to set a Content-type header matching application/* or text/*.",
+  [ErrorCode.InvalidFilterQuery]:
+    "The query you provided could not be processed.",
 };
 
 export enum ContentTypes {

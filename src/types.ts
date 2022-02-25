@@ -10,6 +10,7 @@ export enum ErrorCode {
   MissingHeadingHeader = 40051,
   InvalidHeadingHeader = 40052,
   PeriodIsNotEnabled = 40060,
+  InvalidFilterQuery = 40070,
   ApiKeyAuthorizationRequired = 40101,
   PeriodDoesNotExist = 40460,
   PeriodicNoteDoesNotExist = 40461,
