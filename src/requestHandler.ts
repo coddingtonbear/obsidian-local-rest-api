@@ -808,7 +808,7 @@ export default class RequestHandler {
       } catch (e) {
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.InvalidFilterQuery,
-          message: e.message,
+          message: `${e.message} (while processing ${file.path})`,
         });
         return;
       }
