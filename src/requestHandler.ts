@@ -16,7 +16,7 @@ import bodyParser from "body-parser";
 import jsonLogic from "json-logic-js";
 import responseTime from "response-time";
 import queryString from "query-string";
-import minimatch from "minimatch";
+import { isMatch as isGlobMatch } from "matcher";
 
 import {
   ErrorCode,
@@ -52,17 +52,20 @@ export default class RequestHandler {
 
     jsonLogic.add_operation(
       "glob",
-      (field: string | undefined, pattern: string) => {
-        if (typeof field === "string") {
-          return minimatch(field, pattern);
+      (pattern: string | undefined, field: string | undefined) => {
+        if (
+          (typeof field === "string" || Array.isArray(pattern)) &&
+          (typeof pattern === "string" || Array.isArray(pattern))
+        ) {
+          return isGlobMatch(field, pattern);
         }
         return false;
       }
     );
     jsonLogic.add_operation(
       "regexp",
-      (field: string | undefined, pattern: string) => {
-        if (typeof field === "string") {
+      (pattern: string | undefined, field: string | undefined) => {
+        if (typeof field === "string" && typeof pattern === "string") {
           const rex = new RegExp(pattern);
           return rex.test(field);
         }

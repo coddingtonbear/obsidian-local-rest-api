@@ -689,8 +689,8 @@ paths:
         following the below chart:
 
         - `application/vnd.olrapi.jsonlogic+json`: Accepts a JsonLogic query specified as JSON.  See [JsonLogic](https://jsonlogic.com/operations.html)'s documentation for information about the base set of operators available, but in addition to those operators the following operators are available:
-          - `glob`: Returns `true` if a string matches a glob pattern.  E.g.: `{"glob": ["bar.foo", "*.foo"]}` is `true` and `{"glob": ["bar.foo", "*.bar"]}` is `false`.
-          - `regexp`: Returns `true` if a string matches a regular expression.  E.g.: `{"regexp": ["bar.foo", ".*\.foo"]` is `true` and `{"regexp": ["bar.foo", ".*\.bar"]}` is `false`.
+          - `glob: [PATTERN, VALUE]`: Returns `true` if a string matches a glob pattern.  E.g.: `{"glob": ["*.foo", "bar.foo"]}` is `true` and `{"glob": ["*.bar", "bar.foo"]}` is `false`.
+          - `regexp: [PATTERN, VALUE]`: Returns `true` if a string matches a regular expression.  E.g.: `{"regexp": [".*\.foo", "bar.foo"]` is `true` and `{"regexp": [".*\.bar", "bar.foo"]}` is `false`.
 
         Additional query formats may be added in the future.
       requestBody:
@@ -703,6 +703,7 @@ paths:
                 url: https://jsonlogic.com/operations.html
             examples:
               find_by_frontmatter_value:
+                summary: "Find notes having a certain frontmatter field value."
                 value: |
                   {
                     "==": [
@@ -710,8 +711,17 @@ paths:
                       "myValue"
                     ]
                   }
-                summary: "Find notes having a certain frontmatter field value."
+              find_by_frontmatter_url_glob:
+                summary: Find notes having URL or a matching URL glob frontmatter field.
+                value: |
+                  {
+                    "or": [
+                      {"===": [{"var": "frontmatter.url"}, "https://myurl.com/some/path/"]},
+                      {"glob": [{"var": "frontmatter.url-glob"}, "https://myurl.com/some/path/"]}
+                    ]
+                  }
               find_by_tag:
+                summary: "Find notes having a certain tag"
                 value: |
                   {
                     "in": [
@@ -719,7 +729,6 @@ paths:
                       {"var": "tags"}
                     ]
                   }
-                summary: "Find notes having a certain tag"
       responses:
         '200':
           description: Success
