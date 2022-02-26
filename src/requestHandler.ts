@@ -15,6 +15,7 @@ import mime from "mime";
 import bodyParser from "body-parser";
 import jsonLogic from "json-logic-js";
 import responseTime from "response-time";
+import queryString from "query-string";
 
 import {
   ErrorCode,
@@ -790,6 +791,19 @@ export default class RequestHandler {
     res.json(results);
   }
 
+  async openPost(req: express.Request, res: express.Response): Promise<void> {
+    const path = req.params[0];
+
+    const query = queryString.parseUrl(req.originalUrl, {
+      parseBooleans: true,
+    }).query;
+    const newLeaf: boolean = Boolean(query.newLeaf);
+
+    this.app.workspace.openLinkText(path, "/", newLeaf);
+
+    res.json();
+  }
+
   async certificateGet(
     req: express.Request,
     res: express.Response
@@ -864,6 +878,8 @@ export default class RequestHandler {
     this.api.route("/search/").post(this.searchQueryPost.bind(this));
     this.api.route("/search/simple/").post(this.searchSimplePost.bind(this));
     this.api.route("/search/gui/").post(this.searchGuiPost.bind(this));
+
+    this.api.route("/open/*").post(this.openPost.bind(this));
 
     this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
     this.api.get("/", this.root.bind(this));

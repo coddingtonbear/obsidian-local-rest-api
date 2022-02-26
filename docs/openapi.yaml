@@ -871,6 +871,29 @@ paths:
                                 type: number
                           context:
                             type: string
+  /open/{filename}:
+    post:
+      tags: ["Open"]
+      summary: |
+        Open the specified document in Obsidian
+      parameters:
+      - name: filename
+        in: path
+        description: |
+          Path to the file to return (relative to your vault root).
+        required: true
+        schema:
+          type: string
+          format: path
+      - name: newLeaf
+        in: query
+        description: Open this as a new leaf?
+        required: false
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: Success
   /:
     get:
       tags: ["Status"]
