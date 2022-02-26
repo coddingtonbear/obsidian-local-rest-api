@@ -16,7 +16,7 @@ import bodyParser from "body-parser";
 import jsonLogic from "json-logic-js";
 import responseTime from "response-time";
 import queryString from "query-string";
-import { isMatch as isGlobMatch } from "matcher";
+import WildcardRegexp from "glob-to-regexp";
 
 import {
   ErrorCode,
@@ -53,11 +53,9 @@ export default class RequestHandler {
     jsonLogic.add_operation(
       "glob",
       (pattern: string | undefined, field: string | undefined) => {
-        if (
-          (typeof field === "string" || Array.isArray(pattern)) &&
-          (typeof pattern === "string" || Array.isArray(pattern))
-        ) {
-          return isGlobMatch(field, pattern);
+        if (typeof field === "string" && typeof pattern === "string") {
+          const glob = WildcardRegexp(pattern);
+          return glob.test(field);
         }
         return false;
       }
