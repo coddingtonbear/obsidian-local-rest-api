@@ -14,6 +14,7 @@ import cors from "cors";
 import mime from "mime";
 import bodyParser from "body-parser";
 import jsonLogic from "json-logic-js";
+import responseTime from "response-time";
 
 import {
   ErrorCode,
@@ -832,6 +833,7 @@ export default class RequestHandler {
   }
 
   setupRouter() {
+    this.api.use(responseTime());
     this.api.use(cors());
     this.api.use(this.authenticationMiddleware.bind(this));
     this.api.use(bodyParser.text({ type: "text/*" }));
