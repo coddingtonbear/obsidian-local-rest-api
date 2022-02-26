@@ -80,10 +80,21 @@ export class MetadataCache {
   }
 }
 
+export class Workspace {
+  async openLinkText(
+    path: string,
+    base: string,
+    newLeaf: boolean
+  ): Promise<void> {
+    return new Promise((resolve, reject) => resolve());
+  }
+}
+
 export class App {
   _executeCommandById: [string];
 
   vault = new Vault();
+  workspace = new Workspace();
   metadataCache = new MetadataCache();
   commands = {
     commands: {} as Record<string, Command>,
@@ -115,8 +126,6 @@ export class PluginManifest {
 }
 
 export class SettingTab {}
-
-export class Workspace {}
 
 export const apiVersion = "1.0.0";
 

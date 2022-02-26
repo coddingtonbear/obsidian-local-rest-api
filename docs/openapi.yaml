@@ -876,6 +876,11 @@ paths:
       tags: ["Open"]
       summary: |
         Open the specified document in Obsidian
+      description: |
+        Opens the specified document in Obsidian.
+
+        Note: Obsidian will create a new document at the path you have
+        specified if such a document did not already exist.
       parameters:
       - name: filename
         in: path
