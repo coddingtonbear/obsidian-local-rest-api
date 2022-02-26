@@ -16,6 +16,7 @@ import bodyParser from "body-parser";
 import jsonLogic from "json-logic-js";
 import responseTime from "response-time";
 import queryString from "query-string";
+import minimatch from "minimatch";
 
 import {
   ErrorCode,
@@ -48,6 +49,26 @@ export default class RequestHandler {
     this.settings = settings;
 
     this.api.set("json spaces", 2);
+
+    jsonLogic.add_operation(
+      "glob",
+      (field: string | undefined, pattern: string) => {
+        if (typeof field === "string") {
+          return minimatch(field, pattern);
+        }
+        return false;
+      }
+    );
+    jsonLogic.add_operation(
+      "regexp",
+      (field: string | undefined, pattern: string) => {
+        if (typeof field === "string") {
+          const rex = new RegExp(pattern);
+          return rex.test(field);
+        }
+        return false;
+      }
+    );
   }
 
   requestIsAuthenticated(req: express.Request): boolean {
