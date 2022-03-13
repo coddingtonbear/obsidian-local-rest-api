@@ -236,7 +236,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       .addText((cb) =>
         cb
           .onChange((value) => {
-            this.plugin.settings.port = parseInt(value, 10);
+            this.plugin.settings.insecurePort = parseInt(value, 10);
             this.plugin.saveSettings();
             this.plugin.refreshServerState();
           })
