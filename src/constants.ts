@@ -31,8 +31,10 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "Request method is valid only for file paths, not directories.",
   [ErrorCode.TextOrByteContentEncodingRequired]:
     "Incoming content must be sent with a bytes or text content encoding.  Be sure to set a Content-type header matching application/* or text/*.",
-  [ErrorCode.InvalidFilterQuery]:
+  [ErrorCode.InvalidSearchQuery]:
     "The query you provided could not be processed.",
+  [ErrorCode.MissingRequiredDependency]:
+    "Your request requires a dependency that is not available.",
 };
 
 export enum ContentTypes {
@@ -40,4 +42,5 @@ export enum ContentTypes {
   markdown = "text/markdown",
   olrapiNoteJson = "application/vnd.olrapi.note+json",
   jsonLogic = "application/vnd.olrapi.jsonlogic+json",
+  dataviewDql = "text/vnd.olrapi.dataview+dql",
 }

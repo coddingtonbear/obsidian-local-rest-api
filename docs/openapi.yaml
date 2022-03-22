@@ -691,6 +691,7 @@ paths:
         - `application/vnd.olrapi.jsonlogic+json`: Accepts a JsonLogic query specified as JSON.  See [JsonLogic](https://jsonlogic.com/operations.html)'s documentation for information about the base set of operators available, but in addition to those operators the following operators are available:
           - `glob: [PATTERN, VALUE]`: Returns `true` if a string matches a glob pattern.  E.g.: `{"glob": ["*.foo", "bar.foo"]}` is `true` and `{"glob": ["*.bar", "bar.foo"]}` is `false`.
           - `regexp: [PATTERN, VALUE]`: Returns `true` if a string matches a regular expression.  E.g.: `{"regexp": [".*\.foo", "bar.foo"]` is `true` and `{"regexp": [".*\.bar", "bar.foo"]}` is `false`.
+        - `text/vnd.olrapi.dataview+dql`: Accepts a Dataview query (DQL).  See [Obsidian Dataview](https://blacksmithgu.github.io/obsidian-dataview/data-queries/)'s documentation for information about what queries are supported.
 
         Additional query formats may be added in the future.
       requestBody:
@@ -729,6 +730,11 @@ paths:
                       {"var": "tags"}
                     ]
                   }
+          'text/vnd.olrapi.dataview+dql':
+            schema:
+              type: string
+              externalDocs:
+                url: https://blacksmithgu.github.io/obsidian-dataview/data-queries/
       responses:
         '200':
           description: Success

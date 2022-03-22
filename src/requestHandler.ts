@@ -7,6 +7,7 @@ import {
   prepareSimpleSearch,
 } from "obsidian";
 import periodicNotes from "obsidian-daily-notes-interface";
+import { getAPI as DataviewAPI } from "obsidian-dataview";
 
 import express from "express";
 import http from "http";
@@ -31,6 +32,17 @@ import {
 } from "./types";
 import { findHeadingBoundary } from "./utils";
 import { CERT_NAME, ContentTypes, ERROR_CODE_MESSAGES } from "./constants";
+
+class SearchQueryError extends Error {
+  errorCode: ErrorCode;
+  message: undefined;
+
+  constructor(message: string, errorCode: ErrorCode) {
+    super(message);
+
+    this.errorCode = errorCode;
+  }
+}
 
 export default class RequestHandler {
   app: App;
@@ -775,11 +787,61 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response
   ): Promise<void> {
+    const dataview = DataviewAPI();
+
+    const handleDataviewDql = async (
+      query: string
+    ): Promise<SearchJsonResponseItem[]> => {
+      if (!dataview) {
+        throw new SearchQueryError(
+          `The 'dataview' Obsidian plugin must be installed and enabled in Obsidian when using the ${ContentTypes.dataviewDql} search query type.`,
+          ErrorCode.MissingRequiredDependency
+        );
+      }
+
+      try {
+        const pages = dataview.pages(req.body);
+        console.log(pages);
+      } catch (e) {
+        throw new SearchQueryError(e.message, ErrorCode.InvalidSearchQuery);
+      }
+
+      return [];
+    };
+
+    const handleJsonlogic = async (
+      query: string
+    ): Promise<SearchJsonResponseItem[]> => {
+      const results: SearchJsonResponseItem[] = [];
+
+      for (const file of this.app.vault.getMarkdownFiles()) {
+        const fileContext = await this.getFileMetadataObject(file);
+
+        try {
+          const output = jsonLogic.apply(req.body, fileContext);
+          if (this.valueIsEmpty(output)) {
+            results.push({
+              filename: file.path,
+              result: output,
+            });
+          }
+        } catch (e) {
+          throw new SearchQueryError(
+            `${e.message} (while processing ${file.path})`,
+            ErrorCode.InvalidSearchQuery
+          );
+        }
+      }
+
+      return results;
+    };
+
     const handlers: Record<
       string,
-      (body: unknown, context: FileMetadataObject) => unknown
+      (query: unknown) => Promise<SearchJsonResponseItem[]>
     > = {
-      [ContentTypes.jsonLogic]: jsonLogic.apply,
+      [ContentTypes.jsonLogic]: handleJsonlogic,
+      [ContentTypes.dataviewDql]: handleDataviewDql,
     };
     const contentType = req.headers["content-type"];
 
@@ -790,29 +852,22 @@ export default class RequestHandler {
       return;
     }
 
-    const results: SearchJsonResponseItem[] = [];
-
-    for (const file of this.app.vault.getMarkdownFiles()) {
-      const fileContext = await this.getFileMetadataObject(file);
-
-      try {
-        const output = handlers[contentType](req.body, fileContext);
-        if (this.valueIsEmpty(output)) {
-          results.push({
-            filename: file.path,
-            result: output,
-          });
-        }
-      } catch (e) {
+    try {
+      const results = await handlers[contentType](req.body);
+      res.json(results);
+    } catch (err) {
+      if (err instanceof SearchQueryError) {
         this.returnCannedResponse(res, {
-          errorCode: ErrorCode.InvalidFilterQuery,
-          message: `${e.message} (while processing ${file.path})`,
+          errorCode: err.errorCode,
+          message: err.message,
         });
-        return;
+      } else {
+        this.returnCannedResponse(res, {
+          statusCode: 500,
+          message: err.message,
+        });
       }
     }
-
-    res.json(results);
   }
 
   async openPost(req: express.Request, res: express.Response): Promise<void> {

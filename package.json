@@ -29,6 +29,7 @@
     "esbuild": "0.13.12",
     "jest": "^26",
     "obsidian": "https://github.com/obsidianmd/obsidian-api/tarball/master",
+    "obsidian-dataview": "^0.4.25",
     "supertest": "^6.2.2",
     "swagger-ui-cli": "^0.10.0",
     "ts-jest": "26.5.6",
