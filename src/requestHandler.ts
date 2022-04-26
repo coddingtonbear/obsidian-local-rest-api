@@ -5,6 +5,7 @@ import {
   apiVersion,
   PluginManifest,
   prepareSimpleSearch,
+  CachedMetadata,
 } from "obsidian";
 import periodicNotes from "obsidian-daily-notes-interface";
 
@@ -516,6 +517,19 @@ export default class RequestHandler {
       const now = (window as any).moment(Date.now());
 
       file = await period.create(now);
+
+      const metadataCachePromise = new Promise<CachedMetadata>((resolve) => {
+        let cache: CachedMetadata = null;
+
+        const interval: ReturnType<typeof setInterval> = setInterval(() => {
+          cache = this.app.metadataCache.getFileCache(file);
+          if (cache) {
+            clearInterval(interval);
+            resolve(cache);
+          }
+        }, 100);
+      });
+      await metadataCachePromise;
     } else if (err) {
       return [null, err];
     }
