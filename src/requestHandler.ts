@@ -544,7 +544,7 @@ export default class RequestHandler {
     handler: (path: string, req: express.Request, res: express.Response) => void
   ): void {
     const path = file.path;
-    res.set("Content-Location", path);
+    res.set("Content-Location", encodeURI(path));
 
     return handler(path, req, res);
   }
