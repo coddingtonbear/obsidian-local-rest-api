@@ -213,7 +213,9 @@ export default class RequestHandler {
         const mimeType = mime.lookup(path);
 
         res.set({
-          "Content-Disposition": `attachment; filename="${path}"`,
+          "Content-Disposition": `attachment; filename="${encodeURI(
+            path
+          ).replace(",", "%2C")}"`,
           "Content-Type":
             `${mimeType}` +
             (mimeType == ContentTypes.markdown ? "; charset=UTF-8" : ""),
