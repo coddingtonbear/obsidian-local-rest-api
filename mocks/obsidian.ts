@@ -1,11 +1,20 @@
+class Stat {
+  type: "file" | "folder" = "file";
+}
+
 class DataAdapter {
   _exists = true;
   _read = "";
   _write: [string, string];
   _remove: [string];
+  _stat = new Stat();
 
   async exists(path: string): Promise<boolean> {
     return this._exists;
+  }
+
+  async stat(path: string): Promise<Stat> {
+    return this._stat;
   }
 
   async read(path: string): Promise<string> {
@@ -25,7 +34,7 @@ export class Vault {
   _getAbstractFileByPath: TFile | null = new TFile();
   _read = "";
   _cachedRead = "";
-  _files: TFile[] = [];
+  _files: TFile[] = [new TFile()];
   _markdownFiles: TFile[] = [];
 
   adapter = new DataAdapter();
@@ -117,7 +126,7 @@ export class FileStats {
 }
 
 export class TFile {
-  path = "";
+  path = "somefile.md";
   stat: FileStats = new FileStats();
 }
 

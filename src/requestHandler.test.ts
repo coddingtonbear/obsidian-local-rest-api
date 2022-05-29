@@ -111,12 +111,12 @@ describe("requestHandler", () => {
 
   describe("vaultGet", () => {
     test("directory empty", async () => {
-      const result = await request(server)
+      app.vault._files = [];
+
+      await request(server)
         .get("/vault/")
         .set("Authorization", `Bearer ${API_KEY}`)
-        .expect(200);
-
-      expect(result.body.files).toEqual([]);
+        .expect(404);
     });
 
     test("directory with files", async () => {
