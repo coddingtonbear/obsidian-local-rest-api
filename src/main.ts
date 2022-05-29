@@ -121,7 +121,7 @@ export default class LocalRestApi extends Plugin {
     this.secureServer.listen(this.settings.port, HOSTNAME);
 
     console.log(
-      `REST API listening on https://${HOSTNAME}/${this.settings.port}`
+      `REST API listening on https://${HOSTNAME}:${this.settings.port}/`
     );
 
     if (this.insecureServer) {
@@ -133,7 +133,7 @@ export default class LocalRestApi extends Plugin {
       this.insecureServer.listen(this.settings.insecurePort, HOSTNAME);
 
       console.log(
-        `REST API listening on http://${HOSTNAME}/${this.settings.insecurePort}`
+        `REST API listening on http://${HOSTNAME}:${this.settings.insecurePort}/`
       );
     }
   }
