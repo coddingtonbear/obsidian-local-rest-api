@@ -210,7 +210,7 @@ export default class RequestHandler {
     } else {
       const exists = await this.app.vault.adapter.exists(path);
 
-      if (exists) {
+      if (exists && (await this.app.vault.adapter.stat(path)).type === "file") {
         const content = await this.app.vault.adapter.read(path);
         const mimeType = mime.lookup(path);
 
