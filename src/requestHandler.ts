@@ -199,6 +199,11 @@ export default class RequestHandler {
       ];
       files.sort();
 
+      if (files.length === 0) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+        return;
+      }
+
       res.json({
         files: files,
       });
