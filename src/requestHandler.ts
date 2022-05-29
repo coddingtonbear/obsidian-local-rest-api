@@ -142,7 +142,7 @@ export default class RequestHandler {
       errorMessages.push(message);
     }
 
-    return errorMessages.join(" ");
+    return errorMessages.join("\n");
   }
 
   getStatusCode({ statusCode, errorCode }: ErrorResponseDescriptor): number {
