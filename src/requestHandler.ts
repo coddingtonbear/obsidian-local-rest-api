@@ -12,7 +12,7 @@ import periodicNotes from "obsidian-daily-notes-interface";
 import express from "express";
 import http from "http";
 import cors from "cors";
-import mime from "mime";
+import mime from "mime-types";
 import bodyParser from "body-parser";
 import jsonLogic from "json-logic-js";
 import responseTime from "response-time";
@@ -161,15 +161,11 @@ export default class RequestHandler {
       errorCode: errorCode ?? statusCode * 100,
     };
 
-    res.statusCode = this.getStatusCode({ statusCode, errorCode });
-
-    res.json(response);
+    res.status(this.getStatusCode({ statusCode, errorCode })).json(response);
   }
 
   root(req: express.Request, res: express.Response): void {
-    res.statusCode = 200;
-
-    res.json({
+    res.status(200).json({
       status: "OK",
       versions: {
         obsidian: apiVersion,
@@ -353,8 +349,7 @@ export default class RequestHandler {
 
     await this.app.vault.adapter.write(path, content);
 
-    res.statusCode = 200;
-    res.send(content);
+    res.status(200).send(content);
   }
 
   async vaultPatch(req: express.Request, res: express.Response): Promise<void> {
@@ -852,8 +847,7 @@ export default class RequestHandler {
       "Content-type",
       `application/octet-stream; filename="${CERT_NAME}"`
     );
-    res.statusCode = 200;
-    res.send(this.settings.crypto.cert);
+    res.status(200).send(this.settings.crypto.cert);
   }
 
   async notFoundHandler(
@@ -897,7 +891,7 @@ export default class RequestHandler {
     this.api.use(bodyParser.raw({ type: "application/*" }));
 
     this.api
-      .route("/vault/*")
+      .route("/vault/(.*)")
       .get(this.vaultGet.bind(this))
       .put(this.vaultPut.bind(this))
       .patch(this.vaultPatch.bind(this))
@@ -919,7 +913,7 @@ export default class RequestHandler {
     this.api.route("/search/simple/").post(this.searchSimplePost.bind(this));
     this.api.route("/search/gui/").post(this.searchGuiPost.bind(this));
 
-    this.api.route("/open/*").post(this.openPost.bind(this));
+    this.api.route("/open/(.*)").post(this.openPost.bind(this));
 
     this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
     this.api.get("/", this.root.bind(this));
