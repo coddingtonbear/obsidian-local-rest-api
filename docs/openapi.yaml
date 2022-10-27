@@ -696,6 +696,21 @@ paths:
       requestBody:
         required: true
         content:
+          'application/vnd.olrapi.dataview.dql+txt':
+            schema:
+              type: object
+              externalDocs:
+                url: https://blacksmithgu.github.io/obsidian-dataview/query/queries/
+            examples:
+              find_fields_by_tag:
+                summary: "List data from files having the #game tag."
+                value: |
+                  TABLE
+                    time-played AS "Time Played",
+                    length AS "Length",
+                    rating AS "Rating"
+                  FROM #game
+                  SORT rating DESC
           'application/vnd.olrapi.jsonlogic+json':
             schema:
               type: object

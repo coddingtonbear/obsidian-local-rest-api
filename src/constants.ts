@@ -40,4 +40,5 @@ export enum ContentTypes {
   markdown = "text/markdown",
   olrapiNoteJson = "application/vnd.olrapi.note+json",
   jsonLogic = "application/vnd.olrapi.jsonlogic+json",
+  dataviewDql = "application/vnd.olrapi.dataview.dql+txt",
 }
