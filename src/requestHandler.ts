@@ -791,11 +791,31 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response
   ): Promise<void> {
-    const handlers: Record<
-      string,
-      (body: unknown, context: FileMetadataObject) => unknown
-    > = {
-      [ContentTypes.jsonLogic]: jsonLogic.apply,
+    const dataviewApi = getDataviewAPI();
+
+    const handlers: Record<string, () => Promise<SearchJsonResponseItem[]>> = {
+      [ContentTypes.jsonLogic]: async () => {
+        const results: SearchJsonResponseItem[] = [];
+
+        for (const file of this.app.vault.getMarkdownFiles()) {
+          const fileContext = await this.getFileMetadataObject(file);
+
+          try {
+            const fileResult = jsonLogic.apply(req.body, fileContext);
+
+            if (this.valueIsEmpty(fileResult)) {
+              results.push({
+                filename: file.path,
+                result: fileResult,
+              });
+            }
+          } catch (e) {
+            throw new Error(`${e.message} (while processing ${file.path})`);
+          }
+        }
+
+        return results;
+      },
     };
     const contentType = req.headers["content-type"];
 
@@ -806,29 +826,16 @@ export default class RequestHandler {
       return;
     }
 
-    const results: SearchJsonResponseItem[] = [];
-
-    for (const file of this.app.vault.getMarkdownFiles()) {
-      const fileContext = await this.getFileMetadataObject(file);
-
-      try {
-        const output = handlers[contentType](req.body, fileContext);
-        if (this.valueIsEmpty(output)) {
-          results.push({
-            filename: file.path,
-            result: output,
-          });
-        }
-      } catch (e) {
-        this.returnCannedResponse(res, {
-          errorCode: ErrorCode.InvalidFilterQuery,
-          message: `${e.message} (while processing ${file.path})`,
-        });
-        return;
-      }
+    try {
+      const results = await handlers[contentType]();
+      res.json(results);
+    } catch (e) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidFilterQuery,
+        message: `${e.message}`,
+      });
+      return;
     }
-
-    res.json(results);
   }
 
   async openPost(req: express.Request, res: express.Response): Promise<void> {
