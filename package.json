@@ -47,6 +47,7 @@
     "minimatch": "^5.0.1",
     "node-forge": "^1.2.1",
     "obsidian-daily-notes-interface": "^0.9.4",
+    "obsidian-dataview": "^0.5.47",
     "query-string": "^7.1.1",
     "response-time": "^2.3.2",
     "uuid": "^8.3.2"

@@ -8,6 +8,7 @@ import {
   CachedMetadata,
 } from "obsidian";
 import periodicNotes from "obsidian-daily-notes-interface";
+import { getAPI as getDataviewAPI } from "obsidian-dataview";
 
 import express from "express";
 import http from "http";
@@ -794,6 +795,43 @@ export default class RequestHandler {
     const dataviewApi = getDataviewAPI();
 
     const handlers: Record<string, () => Promise<SearchJsonResponseItem[]>> = {
+      [ContentTypes.dataviewDql]: async () => {
+        const results: SearchJsonResponseItem[] = [];
+        const dataviewResults = await dataviewApi.tryQuery(req.body);
+
+        const fileColumn =
+          dataviewApi.evaluationContext.settings.tableIdColumnName;
+
+        if (dataviewResults.type !== "table") {
+          throw new Error("Only TABLE dataview queries are supported.");
+        }
+        if (!dataviewResults.headers.includes(fileColumn)) {
+          throw new Error("TABLE WITHOUT ID queries are not supported.");
+        }
+
+        for (const dataviewResult of dataviewResults.values) {
+          const fieldValues: Record<string, any> = {};
+          let hasTruthyValue = false;
+
+          dataviewResults.headers.forEach((value, index) => {
+            if (value !== fileColumn) {
+              if (this.valueIsEmpty(dataviewResult[index])) {
+                fieldValues[value] = dataviewResult[index];
+                hasTruthyValue = true;
+              }
+            }
+          });
+
+          if (hasTruthyValue) {
+            results.push({
+              filename: dataviewResult[0].path,
+              result: fieldValues,
+            });
+          }
+        }
+
+        return results;
+      },
       [ContentTypes.jsonLogic]: async () => {
         const results: SearchJsonResponseItem[] = [];
 
@@ -897,6 +935,7 @@ export default class RequestHandler {
     this.api.use(cors());
     this.api.use(this.authenticationMiddleware.bind(this));
     this.api.use(bodyParser.text({ type: "text/*" }));
+    this.api.use(bodyParser.text({ type: ContentTypes.dataviewDql }));
     this.api.use(bodyParser.json({ type: ContentTypes.json }));
     this.api.use(bodyParser.json({ type: ContentTypes.olrapiNoteJson }));
     this.api.use(bodyParser.json({ type: ContentTypes.jsonLogic }));
