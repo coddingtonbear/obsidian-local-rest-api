@@ -777,7 +777,7 @@ export default class RequestHandler {
     res.json(results);
   }
 
-  valueIsEmpty(value: unknown): boolean {
+  valueIsSaneTruthy(value: unknown): boolean {
     if (value === undefined || value === null) {
       return false;
     } else if (Array.isArray(value)) {
@@ -815,7 +815,7 @@ export default class RequestHandler {
 
           dataviewResults.headers.forEach((value, index) => {
             if (value !== fileColumn) {
-              if (this.valueIsEmpty(dataviewResult[index])) {
+              if (this.valueIsSaneTruthy(dataviewResult[index])) {
                 fieldValues[value] = dataviewResult[index];
                 hasTruthyValue = true;
               }
@@ -841,7 +841,7 @@ export default class RequestHandler {
           try {
             const fileResult = jsonLogic.apply(req.body, fileContext);
 
-            if (this.valueIsEmpty(fileResult)) {
+            if (this.valueIsSaneTruthy(fileResult)) {
               results.push({
                 filename: file.path,
                 result: fileResult,
