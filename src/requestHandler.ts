@@ -811,23 +811,17 @@ export default class RequestHandler {
 
         for (const dataviewResult of dataviewResults.values) {
           const fieldValues: Record<string, any> = {};
-          let hasTruthyValue = false;
 
-          dataviewResults.headers.forEach((value, index) => {
+          dataviewResults.headers.forEach((value: string, index: number) => {
             if (value !== fileColumn) {
-              if (this.valueIsSaneTruthy(dataviewResult[index])) {
-                fieldValues[value] = dataviewResult[index];
-                hasTruthyValue = true;
-              }
+              fieldValues[value] = dataviewResult[index];
             }
           });
 
-          if (hasTruthyValue) {
-            results.push({
-              filename: dataviewResult[0].path,
-              result: fieldValues,
-            });
-          }
+          results.push({
+            filename: dataviewResult[0].path,
+            result: fieldValues,
+          });
         }
 
         return results;
