@@ -664,23 +664,13 @@ paths:
       summary: |
         Search for documents matching a specified search query
       description: |
-        Evaluates a provided query against each file in your vault,
-        returning any non-falsy results.  "Non-falsy" here treats the
-        following values as "falsy":
+        Evaluates a provided query against each file in your vault.
 
-        - `false`
-        - `null` or `undefined`
-        - `0`
-        - `[]`
-        - `{}`
-
-        This endpoint supports multiple query formats.  Your query should be specified in your request's body, and will be interpreted according to the `Content-type` header you specify from the below options.
-
-        Additional query formats may be added in the future.
+        This endpoint supports multiple query formats.  Your query should be specified in your request's body, and will be interpreted according to the `Content-type` header you specify from the below options.Additional query formats may be added in the future.
 
         # Dataview DQL (`application/vnd.olrapi.dataview.dql+txt`)
 
-        Accepts a `TABLE`-type Dataview query as a text string.  See [Dataview](https://blacksmithgu.github.io/obsidian-dataview/query/queries/)'s query documentation for information on how to construct a query.  Only `TABLE`-type queries are supported, and only resuls having at least one truthy value will be returned.
+        Accepts a `TABLE`-type Dataview query as a text string.  See [Dataview](https://blacksmithgu.github.io/obsidian-dataview/query/queries/)'s query documentation for information on how to construct a query.
 
         # JsonLogic (`application/vnd.olrapi.jsonlogic+json`)
 
@@ -688,6 +678,14 @@ paths:
 
         - `glob: [PATTERN, VALUE]`: Returns `true` if a string matches a glob pattern.  E.g.: `{"glob": ["*.foo", "bar.foo"]}` is `true` and `{"glob": ["*.bar", "bar.foo"]}` is `false`.
         - `regexp: [PATTERN, VALUE]`: Returns `true` if a string matches a regular expression.  E.g.: `{"regexp": [".*\.foo", "bar.foo"]` is `true` and `{"regexp": [".*\.bar", "bar.foo"]}` is `false`.
+
+        Returns only non-falsy results.  "Non-falsy" here treats the following values as "falsy":
+
+        - `false`
+        - `null` or `undefined`
+        - `0`
+        - `[]`
+        - `{}`
 
         Files are represented as an object having the schema described
         in the Schema named 'NoteJson' at the bottom of this page.
