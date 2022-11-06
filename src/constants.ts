@@ -16,13 +16,17 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.ContentTypeSpecificationRequired]:
     "Content-Type header required; this API accepts data in multiple content-types and you must indicate the content-type of your request body via the Content-Type header.",
   [ErrorCode.InvalidContentInsertionPositionValue]:
-    "Invalid 'Content-Insertion-Position' header value.",
+    "Invalid 'Content-Insertion-Position' header value for this patch type.",
   [ErrorCode.InvalidContentForContentType]:
     "Your request body could not be processed as the content-type specified in your Content-Type header.",
   [ErrorCode.InvalidHeadingHeader]:
     "No heading in specified file could be found matching the heading specified in 'Heading' header.",
   [ErrorCode.MissingHeadingHeader]:
     "'Heading' header is required for identifying where to insert content.",
+  [ErrorCode.MultiplePatchTypes]:
+    "Only one patch type may be specified in a PATCH request.  Make sure your request does not simultaneously specify more than one of the headers 'Heading' or 'Block'.",
+  [ErrorCode.MissingPatchType]:
+    "Request must include one of 'Heading' or 'Block' headers for specifying patch type.",
   [ErrorCode.PeriodDoesNotExist]: "Specified period does not exist.",
   [ErrorCode.PeriodIsNotEnabled]: "Specified period is not enabled.",
   [ErrorCode.PeriodicNoteDoesNotExist]:

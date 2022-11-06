@@ -34,6 +34,15 @@ import {
 import { findHeadingBoundary } from "./utils";
 import { CERT_NAME, ContentTypes, ERROR_CODE_MESSAGES } from "./constants";
 
+export class PatchError extends Error {
+  code: ErrorCode;
+
+  constructor(code: ErrorCode, ...params) {
+    super(...params);
+    this.code = code;
+  }
+}
+
 export default class RequestHandler {
   app: App;
   api: express.Express;
@@ -279,11 +288,11 @@ export default class RequestHandler {
     return this._vaultPut(path, req, res);
   }
 
-  async _vaultPatch(
-    path: string,
+  _vaultPatchHeading(
     req: express.Request,
-    res: express.Response
-  ): Promise<void> {
+    meta: CachedMetadata,
+    contents: string
+  ): string {
     const headingBoundary = req.get("Heading-Boundary") || "::";
     const heading = (req.get("Heading") || "")
       .split(headingBoundary)
@@ -291,12 +300,6 @@ export default class RequestHandler {
     const contentPosition = req.get("Content-Insertion-Position");
     let insert = false;
 
-    if (!path || path.endsWith("/")) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
-      });
-      return;
-    }
     if (contentPosition === undefined) {
       insert = false;
     } else if (contentPosition === "beginning") {
@@ -304,44 +307,18 @@ export default class RequestHandler {
     } else if (contentPosition === "end") {
       insert = false;
     } else {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.InvalidContentInsertionPositionValue,
-      });
-      return;
+      throw new PatchError(ErrorCode.InvalidContentInsertionPositionValue);
     }
-    if (typeof req.body != "string") {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.TextOrByteContentEncodingRequired,
-      });
-      return;
-    }
-
     if (!heading.length) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.MissingHeadingHeader,
-      });
-      return;
+      throw new PatchError(ErrorCode.MissingHeadingHeader);
     }
-
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) {
-      this.returnCannedResponse(res, {
-        statusCode: 404,
-      });
-      return;
-    }
-    const cache = this.app.metadataCache.getFileCache(file);
-    const position = findHeadingBoundary(cache, heading);
+    const position = findHeadingBoundary(meta, heading);
 
     if (!position) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.InvalidHeadingHeader,
-      });
-      return;
+      throw new PatchError(ErrorCode.InvalidHeadingHeader);
     }
 
-    const fileContents = await this.app.vault.read(file);
-    const fileLines = fileContents.split("\n");
+    const fileLines = contents.split("\n");
 
     fileLines.splice(
       insert === false
@@ -351,7 +328,80 @@ export default class RequestHandler {
       req.body
     );
 
-    const content = fileLines.join("\n");
+    return fileLines.join("\n");
+  }
+
+  async _vaultPatch(
+    path: string,
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    if (!path || path.endsWith("/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
+      });
+      return;
+    }
+    if (typeof req.body != "string") {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.TextOrByteContentEncodingRequired,
+      });
+      return;
+    }
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) {
+      this.returnCannedResponse(res, {
+        statusCode: 404,
+      });
+      return;
+    }
+
+    const handlerMap: Record<
+      string,
+      (req: express.Request, meta: CachedMetadata, contents: string) => string
+    > = {
+      Heading: this._vaultPatchHeading,
+    };
+
+    let handler: (
+      req: express.Request,
+      meta: CachedMetadata,
+      contents: string
+    ) => string | null = null;
+    for (const header in handlerMap) {
+      if (req.get(header)) {
+        // If we already have a handler set, it means that you've
+        // specified two different match methods in a single request
+        if (handler) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.MultiplePatchTypes,
+          });
+          return;
+        }
+        handler = handlerMap[header];
+      }
+    }
+    if (!handler) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingPatchType,
+      });
+      return;
+    }
+    const meta = this.app.metadataCache.getFileCache(file);
+
+    const fileContents = await this.app.vault.read(file);
+
+    let content: string;
+    try {
+      content = handler(req, meta, fileContents);
+    } catch (e) {
+      if (e instanceof PatchError) {
+        this.returnCannedResponse(res, {
+          errorCode: e.code,
+        });
+        return;
+      }
+    }
 
     await this.app.vault.adapter.write(path, content);
 
