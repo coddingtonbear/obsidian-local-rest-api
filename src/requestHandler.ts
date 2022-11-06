@@ -37,7 +37,7 @@ import { CERT_NAME, ContentTypes, ERROR_CODE_MESSAGES } from "./constants";
 export class PatchError extends Error {
   code: ErrorCode;
 
-  constructor(code: ErrorCode, ...params) {
+  constructor(code: ErrorCode, ...params: any[]) {
     super(...params);
     this.code = code;
   }
@@ -288,6 +288,42 @@ export default class RequestHandler {
     return this._vaultPut(path, req, res);
   }
 
+  _vaultPatchBlock(
+    req: express.Request,
+    meta: CachedMetadata,
+    contents: string
+  ): string {
+    const contentPosition = req.get("Content-Insertion-Position");
+    let insert = true;
+    if (contentPosition === undefined) {
+      insert = true;
+    } else if (contentPosition === "after") {
+      insert = true;
+    } else if (contentPosition === "before") {
+      insert = false;
+    } else {
+      throw new PatchError(ErrorCode.InvalidContentInsertionPositionValue);
+    }
+
+    const cache = meta.blocks[req.get("Block")];
+    if (!cache) {
+      throw new PatchError(ErrorCode.InvalidBlockHeader);
+    }
+
+    const fileLines = contents.split("\n");
+    console.log(cache.position);
+
+    fileLines.splice(
+      insert === false
+        ? cache.position.end?.line ?? fileLines.length
+        : cache.position.start.line + 1,
+      0,
+      req.body
+    );
+
+    return fileLines.join("\n");
+  }
+
   _vaultPatchHeading(
     req: express.Request,
     meta: CachedMetadata,
@@ -297,9 +333,9 @@ export default class RequestHandler {
     const heading = (req.get("Heading") || "")
       .split(headingBoundary)
       .filter(Boolean);
-    const contentPosition = req.get("Content-Insertion-Position");
     let insert = false;
 
+    const contentPosition = req.get("Content-Insertion-Position");
     if (contentPosition === undefined) {
       insert = false;
     } else if (contentPosition === "beginning") {
@@ -361,6 +397,7 @@ export default class RequestHandler {
       (req: express.Request, meta: CachedMetadata, contents: string) => string
     > = {
       Heading: this._vaultPatchHeading,
+      Block: this._vaultPatchBlock,
     };
 
     let handler: (

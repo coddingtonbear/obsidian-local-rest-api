@@ -11,6 +11,7 @@ export enum ErrorCode {
   InvalidHeadingHeader = 40052,
   MultiplePatchTypes = 40053,
   MissingPatchType = 40054,
+  InvalidBlockHeader = 40055,
   PeriodIsNotEnabled = 40060,
   InvalidFilterQuery = 40070,
   ApiKeyAuthorizationRequired = 40101,

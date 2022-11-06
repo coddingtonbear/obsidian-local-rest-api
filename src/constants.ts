@@ -21,6 +21,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "Your request body could not be processed as the content-type specified in your Content-Type header.",
   [ErrorCode.InvalidHeadingHeader]:
     "No heading in specified file could be found matching the heading specified in 'Heading' header.",
+  [ErrorCode.InvalidBlockHeader]:
+    "No block reference in the specified file could be found matching the block reference specified in 'Block' header.",
   [ErrorCode.MissingHeadingHeader]:
     "'Heading' header is required for identifying where to insert content.",
   [ErrorCode.MultiplePatchTypes]:

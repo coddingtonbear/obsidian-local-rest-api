@@ -252,19 +252,31 @@ paths:
       - name: Heading
         in: header
         description: |
-          Name of heading relative to which you would like your content inserted.  May be a sequence of nested headers delimited by "::".
-        required: true
+          Name of heading relative to which you would like your content inserted.  May be a sequence of nested headers delimited by "::".  Not valid if 'Block' is specified.
+        schema:
+          type: string
+      - name: Block
+        in: header
+        description: |
+          Block reference relative to which you would like your content
+          inserted.  Not valid if 'Heading' is specified.
         schema:
           type: string
       - name: Content-Insertion-Position
         in: header
         description: |
-          Position at which you would like your content inserted; valid options are "end" or "beginning".
+          Position at which you would like your content inserted;
+          See below for valid options for each patch type:
+
+          - "Heading": "end" or "beginning"
+          - "Block": "before" or "after"
         schema:
           type: string
           enum:
           - end
           - beginning
+          - after
+          - before
           default: end
       - name: Heading-Boundary
         in: header

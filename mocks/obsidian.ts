@@ -75,10 +75,16 @@ export class HeadingCache {
   position = new Pos();
 }
 
+export class BlockCache {
+  id: string;
+  position = new Pos();
+}
+
 export class CachedMetadata {
-  headings: HeadingCache[] = [];
-  frontmatter: Record<string, unknown> = {};
-  tags: { tag: string }[] = [];
+  headings?: HeadingCache[] = [];
+  frontmatter?: Record<string, unknown> = {};
+  tags?: { tag: string }[] = [];
+  blocks?: Record<string, BlockCache> = {};
 }
 
 export class MetadataCache {
