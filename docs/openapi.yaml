@@ -90,6 +90,205 @@ components:
 security:
 - apiKeyAuth: []
 paths:
+  /active/:
+    get:
+      tags: ["Active File"]
+      summary: |
+        Return the content of the active file open in Obsidian.
+      description: |
+        Returns the content of the currently active file in Obsidian.
+
+        If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.  See "responses" below for details.
+      responses:
+        '200':
+          description: Success
+          content:
+            text/markdown:
+              schema:
+                type: string
+                example: |
+                  # This is my document
+
+                  something else here
+            'application/vnd.olrapi.note+json':
+              schema:
+                $ref: '#/components/schemas/NoteJson'
+        '404':
+          description: File does not exist
+    put:
+      tags: ["Active File"]
+      summary: |
+        Update the content of the active file open in Obsidian.
+      requestBody:
+        description: Content of the file you would like to upload.
+        required: true
+        content:
+          'text/markdown':
+            schema:
+              type: string
+              example: |
+                # This is my document
+
+                something else here
+          '*/*':
+            schema:
+              type: string
+      responses:
+        '204':
+          description: Success
+        '405':
+          description: |
+            Your path references a directory instead of a file; this request method is valid only for updating files.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: |
+            Incoming file could not be processed.  Make sure you have specified a reasonable file name, and make sure you have set a reasonable 'Content-Type' header; if you are uploading a note, 'text/markdown' is likely the right choice.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags: ["Active File"]
+      summary: |
+        Append content to the active file open in Obsidian.
+      description: |
+        Appends content to the end of the currently-open note.
+        
+        If you would like to insert text relative to a particular heading instead of appending to the end of the file, see 'patch'.
+      requestBody:
+        description: Content you would like to append.
+        required: true
+        content:
+          'text/markdown':
+            schema:
+              type: string
+              example: |
+                # This is my document
+
+                something else here
+      responses:
+        '204':
+          description: Success
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '405':
+          description: |
+            Your path references a directory instead of a file; this request method is valid only for updating files.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags: ["Active File"]
+      summary: |
+        Insert content into the currently open note in Obsidian relative to a heading within that document.
+      description: |
+        Inserts content into the currently-open note relative to a heading within that note.
+
+        This is useful if you have a document having multiple headings, and you would like to insert content below one of those headings.  For example, if you had the following document:
+
+        ```markdown
+        # An important subject
+
+        ## Details
+
+        # Another important subject
+
+        ## Details
+        ```
+
+        You could insert content below "Another important subject" by providing `Another important subject` in your `Heading` header.
+
+        By default, this will find the first heading matching the name you specify.  If your heading appears more than once in a document, you can control which heading is used by indicating parent headings with the `::` delimiter. 
+
+        For example, if you would like your content to be inserted after the heading "Details" below "Another important subject" in the above document, you could provide the value `Another important subject::Details` in your `Heading` header.
+
+        If on the off chance the string "::" occurs in your headers, you can override the delimiter used for separating headers from one another via the `Heading-Boundary` header.
+      parameters:
+      - name: Heading
+        in: header
+        description: |
+          Name of heading relative to which you would like your content inserted.  May be a sequence of nested headers delimited by "::".
+        required: true
+        schema:
+          type: string
+      - name: Content-Insertion-Position
+        in: header
+        description: |
+          Position at which you would like your content inserted; valid options are "end" or "beginning".
+        schema:
+          type: string
+          enum:
+          - end
+          - beginning
+          default: end
+      - name: Heading-Boundary
+        in: header
+        description: |
+          Set the nested header delimiter to a different value. This is useful if "::" exists in one of the headers you are attempting to use.
+        schema:
+          type: string
+          default: "::"
+      requestBody:
+        description: Content you would like to insert.
+        required: true
+        content:
+          'text/markdown':
+            schema:
+              type: string
+              example: |
+                # This is my document
+
+                something else here
+      responses:
+        '200':
+          description: Success
+        '400':
+          description: Bad Request; see response message for details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '405':
+          description: |
+            Your path references a directory instead of a file; this request method is valid only for updating files.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: ["Active File"]
+      summary: |
+        Deletes the currently-active file in Obsidian.
+      responses:
+        '204':
+          description: Success
+        '404':
+          description: File does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '405':
+          description: |
+            Your path references a directory instead of a file; this request method is valid only for updating files.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /vault/{filename}:
     get:
       tags: ["Vault Files"]

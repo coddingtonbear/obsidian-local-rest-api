@@ -538,7 +538,7 @@ export default class RequestHandler {
     return [file, null];
   }
 
-  periodicRedirectToVault(
+  redirectToVaultPath(
     file: TFile,
     req: express.Request,
     res: express.Response,
@@ -560,12 +560,7 @@ export default class RequestHandler {
       return;
     }
 
-    return this.periodicRedirectToVault(
-      file,
-      req,
-      res,
-      this._vaultGet.bind(this)
-    );
+    return this.redirectToVaultPath(file, req, res, this._vaultGet.bind(this));
   }
 
   async periodicPut(
@@ -578,12 +573,7 @@ export default class RequestHandler {
       return;
     }
 
-    return this.periodicRedirectToVault(
-      file,
-      req,
-      res,
-      this._vaultPut.bind(this)
-    );
+    return this.redirectToVaultPath(file, req, res, this._vaultPut.bind(this));
   }
 
   async periodicPost(
@@ -596,12 +586,7 @@ export default class RequestHandler {
       return;
     }
 
-    return this.periodicRedirectToVault(
-      file,
-      req,
-      res,
-      this._vaultPost.bind(this)
-    );
+    return this.redirectToVaultPath(file, req, res, this._vaultPost.bind(this));
   }
 
   async periodicPatch(
@@ -614,7 +599,7 @@ export default class RequestHandler {
       return;
     }
 
-    return this.periodicRedirectToVault(
+    return this.redirectToVaultPath(
       file,
       req,
       res,
@@ -632,7 +617,62 @@ export default class RequestHandler {
       return;
     }
 
-    return this.periodicRedirectToVault(
+    return this.redirectToVaultPath(
+      file,
+      req,
+      res,
+      this._vaultDelete.bind(this)
+    );
+  }
+
+  async activeFileGet(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const file = this.app.workspace.getActiveFile();
+
+    return this.redirectToVaultPath(file, req, res, this._vaultGet.bind(this));
+  }
+
+  async activeFilePut(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const file = this.app.workspace.getActiveFile();
+
+    return this.redirectToVaultPath(file, req, res, this._vaultPut.bind(this));
+  }
+
+  async activeFilePost(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const file = this.app.workspace.getActiveFile();
+
+    return this.redirectToVaultPath(file, req, res, this._vaultPost.bind(this));
+  }
+
+  async activeFilePatch(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const file = this.app.workspace.getActiveFile();
+
+    return this.redirectToVaultPath(
+      file,
+      req,
+      res,
+      this._vaultPatch.bind(this)
+    );
+  }
+
+  async activeFileDelete(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const file = this.app.workspace.getActiveFile();
+
+    return this.redirectToVaultPath(
       file,
       req,
       res,
@@ -934,6 +974,14 @@ export default class RequestHandler {
     this.api.use(bodyParser.json({ type: ContentTypes.olrapiNoteJson }));
     this.api.use(bodyParser.json({ type: ContentTypes.jsonLogic }));
     this.api.use(bodyParser.raw({ type: "application/*" }));
+
+    this.api
+      .route("/active/")
+      .get(this.activeFileGet.bind(this))
+      .put(this.activeFilePut.bind(this))
+      .patch(this.activeFilePatch.bind(this))
+      .post(this.activeFilePost.bind(this))
+      .delete(this.activeFileDelete.bind(this));
 
     this.api
       .route("/vault/(.*)")
