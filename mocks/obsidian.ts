@@ -97,6 +97,10 @@ export class Workspace {
   ): Promise<void> {
     return new Promise((resolve, reject) => resolve());
   }
+
+  getActiveFile(): TFile {
+    return new TFile();
+  }
 }
 
 export class App {
