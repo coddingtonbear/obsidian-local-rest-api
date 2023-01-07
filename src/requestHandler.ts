@@ -221,7 +221,7 @@ export default class RequestHandler {
           ).replace(",", "%2C")}"`,
           "Content-Type":
             `${mimeType}` +
-            (mimeType == ContentTypes.markdown ? "; charset=UTF-8" : ""),
+            (mimeType == ContentTypes.markdown ? "; charset=utf-8" : ""),
         });
 
         if (req.headers.accept === ContentTypes.olrapiNoteJson) {
