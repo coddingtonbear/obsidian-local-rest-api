@@ -212,7 +212,7 @@ export default class RequestHandler {
       const exists = await this.app.vault.adapter.exists(path);
 
       if (exists && (await this.app.vault.adapter.stat(path)).type === "file") {
-        const content = await this.app.vault.adapter.read(path);
+        const content = await this.app.vault.adapter.readBinary(path);
         const mimeType = mime.lookup(path);
 
         res.set({
@@ -232,7 +232,8 @@ export default class RequestHandler {
           );
           return;
         }
-        res.send(content);
+
+        res.send(Buffer.from(content));
       } else {
         this.returnCannedResponse(res, {
           statusCode: 404,
