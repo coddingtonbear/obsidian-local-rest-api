@@ -153,8 +153,13 @@ describe("requestHandler", () => {
     test("file content", async () => {
       const arbitraryFilename = "somefile.md";
       const arbitraryFileContent = "Beep boop";
+      const fileContentBuffer = new ArrayBuffer(arbitraryFileContent.length);
+      const fileContentBufferView = new Uint8Array(fileContentBuffer);
+      for (let i = 0; i < arbitraryFileContent.length; i++) {
+        fileContentBufferView[i] = arbitraryFileContent.charCodeAt(i);
+      }
 
-      app.vault.adapter._read = arbitraryFileContent;
+      app.vault.adapter._readBinary = fileContentBuffer;
 
       const result = await request(server)
         .get(`/vault/${arbitraryFilename}`)
