@@ -10,7 +10,7 @@ import {
   Command,
   HeadingCache,
   PluginManifest,
-} from "mocks/obsidian";
+} from "../mocks/obsidian";
 
 describe("requestHandler", () => {
   const API_KEY = "my api key";
@@ -520,6 +520,7 @@ describe("requestHandler", () => {
 
         expect(app.vault.adapter.write).toBeTruthy();
         expect(result.text).toBeTruthy();
+        expect(result.text).toEqual("bytes\nsomething\nsomething");
       });
 
       test("end content-insertion-position", async () => {
@@ -540,12 +541,166 @@ describe("requestHandler", () => {
           .set("Authorization", `Bearer ${API_KEY}`)
           .set("Content-Type", "text/markdown")
           .set("Heading", arbitraryHeading)
+          .set("Content-Insertion-Position", "end")
+          .send(arbitraryBytes)
+          .expect(200);
+
+        expect(app.vault.adapter.write).toBeTruthy();
+        expect(result.text).toBeTruthy();
+        expect(result.text).toEqual("something\nsomething\nbytes");
+      });
+
+      test("beginning content-insertion-position with header", async () => {
+        const arbitraryFilePath = "somefile.md";
+        const arbitraryBytes = "bytes";
+        const arbitraryHeading = "Heading1";
+
+        const arbitraryExistingBytes = "something\n\n# Heading1\ncontent here\n# Heading2\nsomething";
+        app.vault._read = arbitraryExistingBytes;
+
+        // Heading 1
+        let headingCache = new HeadingCache();
+        headingCache.heading = arbitraryHeading;
+
+        headingCache.position.end.line = 2
+        headingCache.position.start.line = 2
+        app.metadataCache._getFileCache.headings.push(headingCache);
+
+        // Heading 2
+        headingCache = new HeadingCache();
+        headingCache.heading = "Heading2";
+
+        headingCache.position.end.line = 4
+        headingCache.position.start.line = 4
+        app.metadataCache._getFileCache.headings.push(headingCache);
+
+        const result = await request(server)
+          .patch(`/vault/${arbitraryFilePath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Heading", arbitraryHeading)
           .set("Content-Insertion-Position", "beginning")
           .send(arbitraryBytes)
           .expect(200);
 
         expect(app.vault.adapter.write).toBeTruthy();
         expect(result.text).toBeTruthy();
+        expect(result.text).toEqual("something\n\n# Heading1\nbytes\ncontent here\n# Heading2\nsomething");
+      });
+
+      test("end content-insertion-position with header", async () => {
+        const arbitraryFilePath = "somefile.md";
+        const arbitraryBytes = "bytes";
+        const arbitraryHeading = "Heading1";
+
+        const arbitraryExistingBytes = "something\n\n# Heading1\ncontent here\n# Heading2\nsomething";
+        app.vault._read = arbitraryExistingBytes;
+
+        // Heading 1
+        let headingCache = new HeadingCache();
+        headingCache.heading = arbitraryHeading;
+
+        headingCache.position.end.line = 2
+        headingCache.position.start.line = 2
+        app.metadataCache._getFileCache.headings.push(headingCache);
+
+        // Heading 2
+        headingCache = new HeadingCache();
+        headingCache.heading = "Heading2";
+
+        headingCache.position.end.line = 4
+        headingCache.position.start.line = 4
+        app.metadataCache._getFileCache.headings.push(headingCache);
+
+        const result = await request(server)
+          .patch(`/vault/${arbitraryFilePath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Heading", arbitraryHeading)
+          .set("Content-Insertion-Position", "end")
+          .send(arbitraryBytes)
+          .expect(200);
+
+        expect(app.vault.adapter.write).toBeTruthy();
+        expect(result.text).toBeTruthy();
+        expect(result.text).toEqual("something\n\n# Heading1\ncontent here\nbytes\n# Heading2\nsomething");
+      });
+
+      test("end content-insertion-position with header (new lines at end of header block)", async () => {
+        const arbitraryFilePath = "somefile.md";
+        const arbitraryBytes = "bytes";
+        const arbitraryHeading = "Heading1";
+
+        const arbitraryExistingBytes = "something\n\n# Heading1\ncontent here\n\n\n# Heading2\nsomething";
+        app.vault._read = arbitraryExistingBytes;
+
+        // Heading 1
+        let headingCache = new HeadingCache();
+        headingCache.heading = arbitraryHeading;
+
+        headingCache.position.end.line = 2
+        headingCache.position.start.line = 2
+        app.metadataCache._getFileCache.headings.push(headingCache);
+
+        // Heading 2
+        headingCache = new HeadingCache();
+        headingCache.heading = "Heading2";
+
+        headingCache.position.end.line = 6
+        headingCache.position.start.line = 6
+        app.metadataCache._getFileCache.headings.push(headingCache);
+
+        const result = await request(server)
+          .patch(`/vault/${arbitraryFilePath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Heading", arbitraryHeading)
+          .set("Content-Insertion-Position", "end")
+          .send(arbitraryBytes)
+          .expect(200);
+
+        expect(app.vault.adapter.write).toBeTruthy();
+        expect(result.text).toBeTruthy();
+        expect(result.text).toEqual("something\n\n# Heading1\ncontent here\n\n\nbytes\n# Heading2\nsomething");
+      });
+
+      test("end content-insertion-position with header ignore newlines", async () => {
+        const arbitraryFilePath = "somefile.md";
+        const arbitraryBytes = "bytes";
+        const arbitraryHeading = "Heading1";
+
+        const arbitraryExistingBytes = "something\n\n# Heading1\ncontent here\n\n\n# Heading2\nsomething";
+        app.vault._read = arbitraryExistingBytes;
+
+        // Heading 1
+        let headingCache = new HeadingCache();
+        headingCache.heading = arbitraryHeading;
+
+        headingCache.position.end.line = 2
+        headingCache.position.start.line = 2
+        app.metadataCache._getFileCache.headings.push(headingCache);
+
+        // Heading 2
+        headingCache = new HeadingCache();
+        headingCache.heading = "Heading2";
+
+        headingCache.position.end.line = 6
+        headingCache.position.start.line = 6
+        app.metadataCache._getFileCache.headings.push(headingCache);
+
+        const result = await request(server)
+          .patch(`/vault/${arbitraryFilePath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Heading", arbitraryHeading)
+          .set("Content-Insertion-Position", "end")
+          .set("Content-Insertion-Ignore-Newline", "true")
+          .send(arbitraryBytes)
+          .expect(200);
+
+        expect(app.vault.adapter.write).toBeTruthy();
+        expect(result.text).toBeTruthy();
+        expect(result.text).toEqual("something\n\n# Heading1\ncontent here\nbytes\n\n\n# Heading2\nsomething");
       });
     });
   });
