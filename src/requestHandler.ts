@@ -31,7 +31,7 @@ import {
   SearchJsonResponseItem,
   FileMetadataObject,
 } from "./types";
-import { findHeadingBoundary } from "./utils";
+import { findHeadingBoundary, getSplicePosition } from "./utils";
 import { CERT_NAME, ContentTypes, ERROR_CODE_MESSAGES } from "./constants";
 
 export default class RequestHandler {
@@ -291,6 +291,7 @@ export default class RequestHandler {
       .filter(Boolean);
     const contentPosition = req.get("Content-Insertion-Position");
     let insert = false;
+    let aboveNewLine = false;
 
     if (!path || path.endsWith("/")) {
       this.returnCannedResponse(res, {
@@ -315,6 +316,10 @@ export default class RequestHandler {
         errorCode: ErrorCode.TextOrByteContentEncodingRequired,
       });
       return;
+    }
+
+    if (typeof req.get("Content-Insertion-Ignore-Newline") == "string") {
+      aboveNewLine = (req.get("Content-Insertion-Ignore-Newline").toLowerCase() == "true")
     }
 
     if (!heading.length) {
@@ -344,10 +349,10 @@ export default class RequestHandler {
     const fileContents = await this.app.vault.read(file);
     const fileLines = fileContents.split("\n");
 
+    const splicePosition = getSplicePosition(fileLines, position, insert, aboveNewLine)
+
     fileLines.splice(
-      insert === false
-        ? position.end?.line ?? fileLines.length
-        : position.start.line + 1,
+      splicePosition,
       0,
       req.body
     );

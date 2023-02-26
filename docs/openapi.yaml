@@ -229,6 +229,16 @@ paths:
           - end
           - beginning
           default: end
+      - name: Content-Insertion-Ignore-Newline
+        in: header
+        description: |
+          Insert content before any newslines at end of header block.
+        schema:
+          type: string
+          enum:
+          - true
+          - false
+          default: false
       - name: Heading-Boundary
         in: header
         description: |
@@ -752,6 +762,16 @@ paths:
           - end
           - beginning
           default: end
+      - name: Content-Insertion-Ignore-Newline
+        in: header
+        description: |
+          Insert content before any newslines at end of header block.
+        schema:
+          type: string
+          enum:
+          - true
+          - false
+          default: false
       - name: Heading-Boundary
         in: header
         description: |
