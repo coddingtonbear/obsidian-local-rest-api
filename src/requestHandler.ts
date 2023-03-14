@@ -68,10 +68,7 @@ export default class RequestHandler {
 
   requestIsAuthenticated(req: express.Request): boolean {
     const authorizationHeader = req.get("Authorization");
-    if (authorizationHeader === `Bearer ${this.settings.apiKey}`) {
-      return true;
-    }
-    return false;
+    return authorizationHeader === `Bearer ${this.settings.apiKey}`;
   }
 
   async authenticationMiddleware(
@@ -259,7 +256,7 @@ export default class RequestHandler {
       return;
     }
 
-    await createDirNotExist(filepath);
+    createDirNotExist(filepath);
     await this.app.vault.adapter.write(filepath, req.body);
 
     this.returnCannedResponse(res, { statusCode: 204 });
@@ -376,7 +373,7 @@ export default class RequestHandler {
       return;
     }
 
-    await createDirNotExist(filepath)
+    createDirNotExist(filepath)
     await this.app.vault.adapter.write(filepath, req.body);
 
     let fileContents = "";
