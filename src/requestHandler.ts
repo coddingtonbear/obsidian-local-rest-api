@@ -256,7 +256,7 @@ export default class RequestHandler {
       return;
     }
 
-    createDirNotExist(filepath);
+    await createDirNotExist(filepath);
     await this.app.vault.adapter.write(filepath, req.body);
 
     this.returnCannedResponse(res, { statusCode: 204 });
@@ -373,7 +373,7 @@ export default class RequestHandler {
       return;
     }
 
-    createDirNotExist(filepath)
+    await createDirNotExist(filepath)
     await this.app.vault.adapter.write(filepath, req.body);
 
     let fileContents = "";

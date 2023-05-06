@@ -1,7 +1,6 @@
 import {CachedMetadata, HeadingCache} from "obsidian";
 import {HeadingBoundary} from "./types";
 import path from 'node:path';
-import {mkdirSync} from "fs";
 
 export function findHeadingBoundary(
   fileCache: CachedMetadata,
@@ -43,7 +42,10 @@ export function findHeadingBoundary(
 }
 
 
-export function createDirNotExist(filepath: string) {
-  const directory = path.dirname(filepath).replace(/[\/\\]/g, path.sep)
-  mkdirSync(this.app.vault.adapter.getFullPath(directory), {recursive: true})
+export async function createDirNotExist(filepath: string) {
+  try {
+    await this.app.vault.createFolder(path.dirname(filepath))
+  } catch {
+    // the folder already exists, but we don't care
+  }
 }
