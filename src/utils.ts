@@ -1,6 +1,5 @@
 import {CachedMetadata, HeadingCache} from "obsidian";
 import {HeadingBoundary} from "./types";
-import path from 'node:path';
 
 export function findHeadingBoundary(
   fileCache: CachedMetadata,
@@ -39,13 +38,4 @@ export function findHeadingBoundary(
   }
 
   return null;
-}
-
-
-export async function createDirNotExist(filepath: string) {
-  try {
-    await this.app.vault.createFolder(path.dirname(filepath))
-  } catch {
-    // the folder already exists, but we don't care
-  }
 }
