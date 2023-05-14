@@ -23,8 +23,9 @@ import {
   SearchJsonResponseItem,
   SearchResponseItem,
 } from "./types";
-import {createDirNotExist, findHeadingBoundary} from "./utils";
+import {findHeadingBoundary} from "./utils";
 import {CERT_NAME, ContentTypes, ERROR_CODE_MESSAGES} from "./constants";
+import path from "node:path";
 
 export default class RequestHandler {
   app: App;
@@ -95,7 +96,7 @@ export default class RequestHandler {
     const cache = this.app.metadataCache.getFileCache(file);
 
     // Gather frontmatter & strip out positioning information
-    const frontmatter = { ...(cache.frontmatter ?? {}) };
+    const frontmatter = {...(cache.frontmatter ?? {})};
     delete frontmatter.position; // This just adds noise
 
     // Gather both in-line tags (hash'd) & frontmatter tags; strip
@@ -118,10 +119,10 @@ export default class RequestHandler {
   }
 
   getResponseMessage({
-    statusCode = 400,
-    message,
-    errorCode,
-  }: ErrorResponseDescriptor): string {
+                       statusCode = 400,
+                       message,
+                       errorCode,
+                     }: ErrorResponseDescriptor): string {
     let errorMessages: string[] = [];
     if (errorCode) {
       errorMessages.push(ERROR_CODE_MESSAGES[errorCode]);
@@ -135,7 +136,7 @@ export default class RequestHandler {
     return errorMessages.join("\n");
   }
 
-  getStatusCode({ statusCode, errorCode }: ErrorResponseDescriptor): number {
+  getStatusCode({statusCode, errorCode}: ErrorResponseDescriptor): number {
     if (statusCode) {
       return statusCode;
     }
@@ -144,14 +145,14 @@ export default class RequestHandler {
 
   returnCannedResponse(
     res: express.Response,
-    { statusCode, message, errorCode }: ErrorResponseDescriptor
+    {statusCode, message, errorCode}: ErrorResponseDescriptor
   ): void {
     const response: CannedResponse = {
-      message: this.getResponseMessage({ statusCode, message, errorCode }),
+      message: this.getResponseMessage({statusCode, message, errorCode}),
       errorCode: errorCode ?? statusCode * 100,
     };
 
-    res.status(this.getStatusCode({ statusCode, errorCode })).json(response);
+    res.status(this.getStatusCode({statusCode, errorCode})).json(response);
   }
 
   root(req: express.Request, res: express.Response): void {
@@ -190,7 +191,7 @@ export default class RequestHandler {
       files.sort();
 
       if (files.length === 0) {
-        this.returnCannedResponse(res, { statusCode: 404 });
+        this.returnCannedResponse(res, {statusCode: 404});
         return;
       }
 
@@ -256,10 +257,21 @@ export default class RequestHandler {
       return;
     }
 
-    await createDirNotExist(filepath);
-    await this.app.vault.adapter.write(filepath, req.body);
+    let file
+    try {
+      await this.app.vault.createFolder(path.dirname(filepath))
+      file = await this.app.vault.create(filepath, req.body)
+    } catch {
+      // the folder/file already exists, but we don't care
+    }
 
-    this.returnCannedResponse(res, { statusCode: 204 });
+    // If file is created that means it didn't exist before. Don't modify
+    if (!(file instanceof TFile)) {
+      file = await this.app.vault.getAbstractFileByPath(filepath)
+      if (file instanceof TFile) await this.app.vault.modify(file, req.body)
+    }
+
+    this.returnCannedResponse(res, {statusCode: 204});
     return;
   }
 
@@ -373,23 +385,33 @@ export default class RequestHandler {
       return;
     }
 
-    await createDirNotExist(filepath)
-    await this.app.vault.adapter.write(filepath, req.body);
+    let file;
 
-    let fileContents = "";
-    const file = this.app.vault.getAbstractFileByPath(filepath);
-    if (file instanceof TFile) {
-      fileContents = await this.app.vault.read(file);
-      if (!fileContents.endsWith("\n")) {
-        fileContents += "\n";
+    try {
+      await this.app.vault.createFolder(path.dirname(filepath))
+      file = await this.app.vault.create(filepath, req.body)
+    } catch {
+      // the folder/file already exists, but we don't care
+    }
+
+    // If file is created that means it didn't exist before. Don't modify
+    if (!(file instanceof TFile)) {
+      file = this.app.vault.getAbstractFileByPath(filepath)
+
+      let fileContents = "";
+      if (file instanceof TFile) {
+        fileContents = await this.app.vault.read(file);
+        if (!fileContents.endsWith("\n")) {
+          fileContents += "\n";
+        }
+
+        fileContents += req.body;
+
+        await this.app.vault.modify(file, fileContents);
       }
     }
 
-    fileContents += req.body;
-
-    await this.app.vault.adapter.write(filepath, fileContents);
-
-    this.returnCannedResponse(res, { statusCode: 204 });
+    this.returnCannedResponse(res, {statusCode: 204});
     return;
   }
 
@@ -413,12 +435,12 @@ export default class RequestHandler {
 
     const pathExists = await this.app.vault.adapter.exists(path);
     if (!pathExists) {
-      this.returnCannedResponse(res, { statusCode: 404 });
+      this.returnCannedResponse(res, {statusCode: 404});
       return;
     }
 
     await this.app.vault.adapter.remove(path);
-    this.returnCannedResponse(res, { statusCode: 204 });
+    this.returnCannedResponse(res, {statusCode: 204});
     return;
   }
 
@@ -549,7 +571,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const [file, err] = this.periodicGetNote(req.params.period);
     if (err) {
-      this.returnCannedResponse(res, { errorCode: err });
+      this.returnCannedResponse(res, {errorCode: err});
       return;
     }
 
@@ -562,7 +584,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const [file, err] = await this.periodicGetOrCreateNote(req.params.period);
     if (err) {
-      this.returnCannedResponse(res, { errorCode: err });
+      this.returnCannedResponse(res, {errorCode: err});
       return;
     }
 
@@ -575,7 +597,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const [file, err] = await this.periodicGetOrCreateNote(req.params.period);
     if (err) {
-      this.returnCannedResponse(res, { errorCode: err });
+      this.returnCannedResponse(res, {errorCode: err});
       return;
     }
 
@@ -588,7 +610,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const [file, err] = await this.periodicGetOrCreateNote(req.params.period);
     if (err) {
-      this.returnCannedResponse(res, { errorCode: err });
+      this.returnCannedResponse(res, {errorCode: err});
       return;
     }
 
@@ -606,7 +628,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const [file, err] = this.periodicGetNote(req.params.period);
     if (err) {
-      this.returnCannedResponse(res, { errorCode: err });
+      this.returnCannedResponse(res, {errorCode: err});
       return;
     }
 
@@ -696,18 +718,18 @@ export default class RequestHandler {
     const cmd = this.app.commands.commands[req.params.commandId];
 
     if (!cmd) {
-      this.returnCannedResponse(res, { statusCode: 404 });
+      this.returnCannedResponse(res, {statusCode: 404});
       return;
     }
 
     try {
       this.app.commands.executeCommandById(req.params.commandId);
     } catch (e) {
-      this.returnCannedResponse(res, { statusCode: 500, message: e.message });
+      this.returnCannedResponse(res, {statusCode: 500, message: e.message});
       return;
     }
 
-    this.returnCannedResponse(res, { statusCode: 204 });
+    this.returnCannedResponse(res, {statusCode: 204});
     return;
   }
 
@@ -961,12 +983,12 @@ export default class RequestHandler {
     this.api.use(responseTime());
     this.api.use(cors());
     this.api.use(this.authenticationMiddleware.bind(this));
-    this.api.use(bodyParser.text({ type: "text/*" }));
-    this.api.use(bodyParser.text({ type: ContentTypes.dataviewDql }));
-    this.api.use(bodyParser.json({ type: ContentTypes.json }));
-    this.api.use(bodyParser.json({ type: ContentTypes.olrapiNoteJson }));
-    this.api.use(bodyParser.json({ type: ContentTypes.jsonLogic }));
-    this.api.use(bodyParser.raw({ type: "application/*" }));
+    this.api.use(bodyParser.text({type: "text/*"}));
+    this.api.use(bodyParser.text({type: ContentTypes.dataviewDql}));
+    this.api.use(bodyParser.json({type: ContentTypes.json}));
+    this.api.use(bodyParser.json({type: ContentTypes.olrapiNoteJson}));
+    this.api.use(bodyParser.json({type: ContentTypes.jsonLogic}));
+    this.api.use(bodyParser.raw({type: "application/*"}));
 
     this.api
       .route("/active/")
