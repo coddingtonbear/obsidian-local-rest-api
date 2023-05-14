@@ -1,5 +1,5 @@
-import {CachedMetadata, HeadingCache} from "obsidian";
-import {HeadingBoundary} from "./types";
+import { CachedMetadata, HeadingCache } from "obsidian";
+import { HeadingBoundary } from "./types";
 
 export function findHeadingBoundary(
   fileCache: CachedMetadata,

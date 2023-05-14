@@ -1,6 +1,14 @@
-import {apiVersion, App, CachedMetadata, Command, PluginManifest, prepareSimpleSearch, TFile,} from "obsidian";
+import {
+  apiVersion,
+  App,
+  CachedMetadata,
+  Command,
+  PluginManifest,
+  prepareSimpleSearch,
+  TFile,
+} from "obsidian";
 import periodicNotes from "obsidian-daily-notes-interface";
-import {getAPI as getDataviewAPI} from "obsidian-dataview";
+import { getAPI as getDataviewAPI } from "obsidian-dataview";
 
 import express from "express";
 import http from "http";
@@ -23,8 +31,8 @@ import {
   SearchJsonResponseItem,
   SearchResponseItem,
 } from "./types";
-import {findHeadingBoundary} from "./utils";
-import {CERT_NAME, ContentTypes, ERROR_CODE_MESSAGES} from "./constants";
+import { findHeadingBoundary } from "./utils";
+import { CERT_NAME, ContentTypes, ERROR_CODE_MESSAGES } from "./constants";
 import path from "node:path";
 
 export default class RequestHandler {
@@ -96,7 +104,7 @@ export default class RequestHandler {
     const cache = this.app.metadataCache.getFileCache(file);
 
     // Gather frontmatter & strip out positioning information
-    const frontmatter = {...(cache.frontmatter ?? {})};
+    const frontmatter = { ...(cache.frontmatter ?? {}) };
     delete frontmatter.position; // This just adds noise
 
     // Gather both in-line tags (hash'd) & frontmatter tags; strip
@@ -119,10 +127,10 @@ export default class RequestHandler {
   }
 
   getResponseMessage({
-                       statusCode = 400,
-                       message,
-                       errorCode,
-                     }: ErrorResponseDescriptor): string {
+    statusCode = 400,
+    message,
+    errorCode,
+  }: ErrorResponseDescriptor): string {
     let errorMessages: string[] = [];
     if (errorCode) {
       errorMessages.push(ERROR_CODE_MESSAGES[errorCode]);
@@ -136,7 +144,7 @@ export default class RequestHandler {
     return errorMessages.join("\n");
   }
 
-  getStatusCode({statusCode, errorCode}: ErrorResponseDescriptor): number {
+  getStatusCode({ statusCode, errorCode }: ErrorResponseDescriptor): number {
     if (statusCode) {
       return statusCode;
     }
@@ -145,14 +153,14 @@ export default class RequestHandler {
 
   returnCannedResponse(
     res: express.Response,
-    {statusCode, message, errorCode}: ErrorResponseDescriptor
+    { statusCode, message, errorCode }: ErrorResponseDescriptor
   ): void {
     const response: CannedResponse = {
-      message: this.getResponseMessage({statusCode, message, errorCode}),
+      message: this.getResponseMessage({ statusCode, message, errorCode }),
       errorCode: errorCode ?? statusCode * 100,
     };
 
-    res.status(this.getStatusCode({statusCode, errorCode})).json(response);
+    res.status(this.getStatusCode({ statusCode, errorCode })).json(response);
   }
 
   root(req: express.Request, res: express.Response): void {
@@ -191,7 +199,7 @@ export default class RequestHandler {
       files.sort();
 
       if (files.length === 0) {
-        this.returnCannedResponse(res, {statusCode: 404});
+        this.returnCannedResponse(res, { statusCode: 404 });
         return;
       }
 
@@ -271,7 +279,7 @@ export default class RequestHandler {
       if (file instanceof TFile) await this.app.vault.modify(file, req.body)
     }
 
-    this.returnCannedResponse(res, {statusCode: 204});
+    this.returnCannedResponse(res, { statusCode: 204 });
     return;
   }
 
@@ -411,7 +419,7 @@ export default class RequestHandler {
       }
     }
 
-    this.returnCannedResponse(res, {statusCode: 204});
+    this.returnCannedResponse(res, { statusCode: 204 });
     return;
   }
 
@@ -435,12 +443,12 @@ export default class RequestHandler {
 
     const pathExists = await this.app.vault.adapter.exists(path);
     if (!pathExists) {
-      this.returnCannedResponse(res, {statusCode: 404});
+      this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
 
     await this.app.vault.adapter.remove(path);
-    this.returnCannedResponse(res, {statusCode: 204});
+    this.returnCannedResponse(res, { statusCode: 204 });
     return;
   }
 
@@ -571,7 +579,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const [file, err] = this.periodicGetNote(req.params.period);
     if (err) {
-      this.returnCannedResponse(res, {errorCode: err});
+      this.returnCannedResponse(res, { errorCode: err });
       return;
     }
 
@@ -584,7 +592,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const [file, err] = await this.periodicGetOrCreateNote(req.params.period);
     if (err) {
-      this.returnCannedResponse(res, {errorCode: err});
+      this.returnCannedResponse(res, { errorCode: err });
       return;
     }
 
@@ -597,7 +605,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const [file, err] = await this.periodicGetOrCreateNote(req.params.period);
     if (err) {
-      this.returnCannedResponse(res, {errorCode: err});
+      this.returnCannedResponse(res, { errorCode: err });
       return;
     }
 
@@ -610,7 +618,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const [file, err] = await this.periodicGetOrCreateNote(req.params.period);
     if (err) {
-      this.returnCannedResponse(res, {errorCode: err});
+      this.returnCannedResponse(res, { errorCode: err });
       return;
     }
 
@@ -628,7 +636,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const [file, err] = this.periodicGetNote(req.params.period);
     if (err) {
-      this.returnCannedResponse(res, {errorCode: err});
+      this.returnCannedResponse(res, { errorCode: err });
       return;
     }
 
@@ -718,18 +726,18 @@ export default class RequestHandler {
     const cmd = this.app.commands.commands[req.params.commandId];
 
     if (!cmd) {
-      this.returnCannedResponse(res, {statusCode: 404});
+      this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
 
     try {
       this.app.commands.executeCommandById(req.params.commandId);
     } catch (e) {
-      this.returnCannedResponse(res, {statusCode: 500, message: e.message});
+      this.returnCannedResponse(res, { statusCode: 500, message: e.message });
       return;
     }
 
-    this.returnCannedResponse(res, {statusCode: 204});
+    this.returnCannedResponse(res, { statusCode: 204 });
     return;
   }
 
@@ -983,12 +991,12 @@ export default class RequestHandler {
     this.api.use(responseTime());
     this.api.use(cors());
     this.api.use(this.authenticationMiddleware.bind(this));
-    this.api.use(bodyParser.text({type: "text/*"}));
-    this.api.use(bodyParser.text({type: ContentTypes.dataviewDql}));
-    this.api.use(bodyParser.json({type: ContentTypes.json}));
-    this.api.use(bodyParser.json({type: ContentTypes.olrapiNoteJson}));
-    this.api.use(bodyParser.json({type: ContentTypes.jsonLogic}));
-    this.api.use(bodyParser.raw({type: "application/*"}));
+    this.api.use(bodyParser.text({ type: "text/*" }));
+    this.api.use(bodyParser.text({ type: ContentTypes.dataviewDql }));
+    this.api.use(bodyParser.json({ type: ContentTypes.json }));
+    this.api.use(bodyParser.json({ type: ContentTypes.olrapiNoteJson }));
+    this.api.use(bodyParser.json({ type: ContentTypes.jsonLogic }));
+    this.api.use(bodyParser.raw({ type: "application/*" }));
 
     this.api
       .route("/active/")
