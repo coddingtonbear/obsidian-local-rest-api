@@ -79,6 +79,12 @@ export default class RequestHandler {
     if (authorizationHeader === `Bearer ${this.settings.apiKey}`) {
       return true;
     }
+    
+    const apiKeyHeader = req.get("X-API-KEY");
+    if (apiKeyHeader === this.settings.apiKey) {
+      return true;
+    }
+
     return false;
   }
 
