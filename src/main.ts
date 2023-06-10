@@ -23,8 +23,6 @@ export default class LocalRestApi extends Plugin {
     );
     this.requestHandler.setupRouter();
 
-    this.app;
-
     if (this.settings.crypto && this.settings.crypto.resetOnNextLoad) {
       delete this.settings.apiKey;
       delete this.settings.crypto;
