@@ -24,7 +24,7 @@ export default class LocalRestApi extends Plugin {
   async onload() {
     this.refreshServerState = this.debounce(
       this._refreshServerState.bind(this),
-      5000
+      1000
     );
 
     await this.loadSettings();
@@ -230,7 +230,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
 
     new Setting(containerEl)
-      .setName("Secure HTTPS Server Port")
+      .setName("Encrypted (HTTPS) Server Port")
       .setDesc(
         "This configures the port on which your REST API will listen for HTTPS connections.  It is recommended that you leave this port with its default setting as tools integrating with this API may expect the default port to be in use.  In no circumstance is it recommended that you expose this service directly to the internet."
       )
@@ -245,9 +245,9 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Enable Insecure HTTP Server")
+      .setName("Enable Non-encrypted (HTTP) Server")
       .setDesc(
-        "Enables an insecure HTTP server on the port designated below.  By default, this plugin requires a secure HTTPS connection, but in secure environments you may turn on the insecure server to simplify interacting with the API. Interactions with the API will still require the API Key shown above.  In no circumstances is it recommended that you expose this service to the internet, especially if you turn on this feature!"
+        "Enables an unencrypted (HTTP) server on the port designated below.  By default, this plugin requires a secure HTTPS connection, but in secure environments you may turn on the insecure server to simplify interacting with the API. Interactions with the API will still require the API Key shown above.  In no circumstances is it recommended that you expose this service to the internet, especially if you turn on this feature!"
       )
       .addToggle((cb) =>
         cb
@@ -260,7 +260,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Insecure HTTP Server Port")
+      .setName("Non-encrypted (HTTP) Server Port")
       .addText((cb) =>
         cb
           .onChange((value) => {
