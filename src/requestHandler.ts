@@ -76,8 +76,14 @@ export default class RequestHandler {
   }
 
   requestIsAuthenticated(req: express.Request): boolean {
-    const authorizationHeader = req.get("Authorization");
-    return authorizationHeader === `Bearer ${this.settings.apiKey}`;
+    const authorizationHeader = req.get(
+      this.settings.authorizationHeaderName ?? "Authorization"
+    );
+    if (authorizationHeader === `Bearer ${this.settings.apiKey}`) {
+      return true;
+    }
+
+    return false;
   }
 
   async authenticationMiddleware(
@@ -210,7 +216,7 @@ export default class RequestHandler {
       const exists = await this.app.vault.adapter.exists(path);
 
       if (exists && (await this.app.vault.adapter.stat(path)).type === "file") {
-        const content = await this.app.vault.adapter.read(path);
+        const content = await this.app.vault.adapter.readBinary(path);
         const mimeType = mime.lookup(path);
 
         res.set({
@@ -219,7 +225,7 @@ export default class RequestHandler {
           ).replace(",", "%2C")}"`,
           "Content-Type":
             `${mimeType}` +
-            (mimeType == ContentTypes.markdown ? "; charset=UTF-8" : ""),
+            (mimeType == ContentTypes.markdown ? "; charset=utf-8" : ""),
         });
 
         if (req.headers.accept === ContentTypes.olrapiNoteJson) {
@@ -230,7 +236,8 @@ export default class RequestHandler {
           );
           return;
         }
-        res.send(content);
+
+        res.send(Buffer.from(content));
       } else {
         this.returnCannedResponse(res, {
           statusCode: 404,
@@ -265,18 +272,18 @@ export default class RequestHandler {
       return;
     }
 
-    let file
+    let file;
     try {
-      await this.app.vault.createFolder(path.dirname(filepath))
-      file = await this.app.vault.create(filepath, req.body)
+      await this.app.vault.createFolder(path.dirname(filepath));
+      file = await this.app.vault.create(filepath, req.body);
     } catch {
       // the folder/file already exists, but we don't care
     }
 
     // If file is created that means it didn't exist before. Don't modify
     if (!(file instanceof TFile)) {
-      file = await this.app.vault.getAbstractFileByPath(filepath)
-      if (file instanceof TFile) await this.app.vault.modify(file, req.body)
+      file = await this.app.vault.getAbstractFileByPath(filepath);
+      if (file instanceof TFile) await this.app.vault.modify(file, req.body);
     }
 
     this.returnCannedResponse(res, { statusCode: 204 });
@@ -396,15 +403,15 @@ export default class RequestHandler {
     let file;
 
     try {
-      await this.app.vault.createFolder(path.dirname(filepath))
-      file = await this.app.vault.create(filepath, req.body)
+      await this.app.vault.createFolder(path.dirname(filepath));
+      file = await this.app.vault.create(filepath, req.body);
     } catch {
       // the folder/file already exists, but we don't care
     }
 
     // If file is created that means it didn't exist before. Don't modify
     if (!(file instanceof TFile)) {
-      file = this.app.vault.getAbstractFileByPath(filepath)
+      file = this.app.vault.getAbstractFileByPath(filepath);
 
       let fileContents = "";
       if (file instanceof TFile) {
