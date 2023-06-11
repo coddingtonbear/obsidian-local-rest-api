@@ -1,11 +1,11 @@
 import {
-  App,
-  Command,
-  TFile,
   apiVersion,
+  App,
+  CachedMetadata,
+  Command,
   PluginManifest,
   prepareSimpleSearch,
-  CachedMetadata,
+  TFile,
 } from "obsidian";
 import periodicNotes from "obsidian-daily-notes-interface";
 import { getAPI as getDataviewAPI } from "obsidian-dataview";
@@ -19,17 +19,18 @@ import jsonLogic from "json-logic-js";
 import responseTime from "response-time";
 import queryString from "query-string";
 import WildcardRegexp from "glob-to-regexp";
+import path from "path";
 
 import {
-  ErrorCode,
   CannedResponse,
+  ErrorCode,
   ErrorResponseDescriptor,
+  FileMetadataObject,
   LocalRestApiSettings,
   PeriodicNoteInterface,
-  SearchResponseItem,
   SearchContext,
   SearchJsonResponseItem,
-  FileMetadataObject,
+  SearchResponseItem,
 } from "./types";
 import { findHeadingBoundary } from "./utils";
 import { CERT_NAME, ContentTypes, ERROR_CODE_MESSAGES } from "./constants";
@@ -253,11 +254,11 @@ export default class RequestHandler {
   }
 
   async _vaultPut(
-    path: string,
+    filepath: string,
     req: express.Request,
     res: express.Response
   ): Promise<void> {
-    if (!path || path.endsWith("/")) {
+    if (!filepath || filepath.endsWith("/")) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
       });
@@ -271,7 +272,13 @@ export default class RequestHandler {
       return;
     }
 
-    await this.app.vault.adapter.write(path, req.body);
+    try {
+      await this.app.vault.createFolder(path.dirname(filepath));
+    } catch {
+      // the folder/file already exists, but we don't care
+    }
+
+    await this.app.vault.adapter.write(filepath, req.body);
 
     this.returnCannedResponse(res, { statusCode: 204 });
     return;
@@ -369,11 +376,11 @@ export default class RequestHandler {
   }
 
   async _vaultPost(
-    path: string,
+    filepath: string,
     req: express.Request,
     res: express.Response
   ): Promise<void> {
-    if (!path || path.endsWith("/")) {
+    if (!filepath || filepath.endsWith("/")) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
       });
@@ -387,8 +394,14 @@ export default class RequestHandler {
       return;
     }
 
+    try {
+      await this.app.vault.createFolder(path.dirname(filepath));
+    } catch {
+      // the folder/file already exists, but we don't care
+    }
+
     let fileContents = "";
-    const file = this.app.vault.getAbstractFileByPath(path);
+    const file = this.app.vault.getAbstractFileByPath(filepath);
     if (file instanceof TFile) {
       fileContents = await this.app.vault.read(file);
       if (!fileContents.endsWith("\n")) {
@@ -398,7 +411,7 @@ export default class RequestHandler {
 
     fileContents += req.body;
 
-    await this.app.vault.adapter.write(path, fileContents);
+    await this.app.vault.adapter.write(filepath, fileContents);
 
     this.returnCannedResponse(res, { statusCode: 204 });
     return;

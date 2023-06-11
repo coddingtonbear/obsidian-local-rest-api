@@ -52,6 +52,8 @@ export class Vault {
     return this._cachedRead;
   }
 
+  async createFolder(path: string): Promise<void> {}
+
   getFiles(): TFile[] {
     return this._files;
   }
