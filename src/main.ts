@@ -293,7 +293,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       .setName("Restore Default Settings")
       .setDesc(
         `Pressing this button will reset this plugin's
-        settings to be restored to defaults.`
+        settings to defaults.`
       )
       .addButton((cb) => {
         cb.setWarning()
