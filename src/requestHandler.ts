@@ -19,6 +19,7 @@ import jsonLogic from "json-logic-js";
 import responseTime from "response-time";
 import queryString from "query-string";
 import WildcardRegexp from "glob-to-regexp";
+import path from "path";
 
 import {
   CannedResponse,
@@ -33,7 +34,6 @@ import {
 } from "./types";
 import { findHeadingBoundary } from "./utils";
 import { CERT_NAME, ContentTypes, ERROR_CODE_MESSAGES } from "./constants";
-import path from "node:path";
 
 export default class RequestHandler {
   app: App;
