@@ -6,15 +6,27 @@ import forge, { pki } from "node-forge";
 import RequestHandler from "./requestHandler";
 import { LocalRestApiSettings } from "./types";
 
-import { CERT_NAME, DEFAULT_SETTINGS, HOSTNAME } from "./constants";
+import {
+  DefaultBearerTokenHeaderName,
+  CERT_NAME,
+  DEFAULT_SETTINGS,
+  DefaultBindingHost,
+  LicenseUrl,
+} from "./constants";
 
 export default class LocalRestApi extends Plugin {
   settings: LocalRestApiSettings;
   secureServer: https.Server | null = null;
   insecureServer: http.Server | null = null;
   requestHandler: RequestHandler;
+  refreshServerState: () => void;
 
   async onload() {
+    this.refreshServerState = this.debounce(
+      this._refreshServerState.bind(this),
+      1000
+    );
+
     await this.loadSettings();
     this.requestHandler = new RequestHandler(
       this.app,
@@ -22,14 +34,6 @@ export default class LocalRestApi extends Plugin {
       this.settings
     );
     this.requestHandler.setupRouter();
-
-    this.app;
-
-    if (this.settings.crypto && this.settings.crypto.resetOnNextLoad) {
-      delete this.settings.apiKey;
-      delete this.settings.crypto;
-      this.saveSettings();
-    }
 
     if (!this.settings.apiKey) {
       this.settings.apiKey = forge.md.sha256
@@ -85,7 +89,7 @@ export default class LocalRestApi extends Plugin {
           altNames: [
             {
               type: 7, // IP
-              ip: HOSTNAME,
+              ip: this.settings.bindingHost ?? DefaultBindingHost,
             },
           ],
         },
@@ -109,7 +113,18 @@ export default class LocalRestApi extends Plugin {
     this.refreshServerState();
   }
 
-  refreshServerState() {
+  debounce<F extends (...args: any[]) => any>(
+    func: F,
+    delay: number
+  ): (...args: Parameters<F>) => void {
+    let debounceTimer: NodeJS.Timeout;
+    return (...args: Parameters<F>): void => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => func(...args), delay);
+    };
+  }
+
+  _refreshServerState() {
     if (this.secureServer) {
       this.secureServer.close();
       this.secureServer = null;
@@ -118,10 +133,15 @@ export default class LocalRestApi extends Plugin {
       { key: this.settings.crypto.privateKey, cert: this.settings.crypto.cert },
       this.requestHandler.api
     );
-    this.secureServer.listen(this.settings.port, HOSTNAME);
+    this.secureServer.listen(
+      this.settings.port,
+      this.settings.bindingHost ?? DefaultBindingHost
+    );
 
     console.log(
-      `REST API listening on https://${HOSTNAME}:${this.settings.port}/`
+      `REST API listening on https://${
+        this.settings.bindingHost ?? DefaultBindingHost
+      }:${this.settings.port}/`
     );
 
     if (this.insecureServer) {
@@ -130,10 +150,15 @@ export default class LocalRestApi extends Plugin {
     }
     if (this.settings.enableInsecureServer) {
       this.insecureServer = http.createServer(this.requestHandler.api);
-      this.insecureServer.listen(this.settings.insecurePort, HOSTNAME);
+      this.insecureServer.listen(
+        this.settings.insecurePort,
+        this.settings.bindingHost ?? DefaultBindingHost
+      );
 
       console.log(
-        `REST API listening on http://${HOSTNAME}:${this.settings.insecurePort}/`
+        `REST API listening on http://${
+          this.settings.bindingHost ?? DefaultBindingHost
+        }:${this.settings.insecurePort}/`
       );
     }
   }
@@ -158,6 +183,7 @@ export default class LocalRestApi extends Plugin {
 
 class LocalRestApiSettingTab extends PluginSettingTab {
   plugin: LocalRestApi;
+  showAdvancedSettings: boolean = false;
 
   constructor(app: App, plugin: LocalRestApi) {
     super(app, plugin);
@@ -180,7 +206,9 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     apiKeyDiv.createEl("pre", { text: this.plugin.settings.apiKey });
     apiKeyDiv.createEl("p", { text: "Example header: " });
     apiKeyDiv.createEl("pre", {
-      text: `Authorization: Bearer ${this.plugin.settings.apiKey}`,
+      text: `${
+        this.plugin.settings.authorizationHeaderName ?? "Authorization"
+      }: Bearer ${this.plugin.settings.apiKey}`,
     });
 
     const seeMore = apiKeyDiv.createEl("p");
@@ -202,7 +230,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
 
     new Setting(containerEl)
-      .setName("Secure HTTPS Server Port")
+      .setName("Encrypted (HTTPS) Server Port")
       .setDesc(
         "This configures the port on which your REST API will listen for HTTPS connections.  It is recommended that you leave this port with its default setting as tools integrating with this API may expect the default port to be in use.  In no circumstance is it recommended that you expose this service directly to the internet."
       )
@@ -217,9 +245,9 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Enable Insecure HTTP Server")
+      .setName("Enable Non-encrypted (HTTP) Server")
       .setDesc(
-        "Enables an insecure HTTP server on the port designated below.  By default, this plugin requires a secure HTTPS connection, but in secure environments you may turn on the insecure server to simplify interacting with the API. Interactions with the API will still require the API Key shown above.  In no circumstances is it recommended that you expose this service to the internet, especially if you turn on this feature!"
+        "Enables an unencrypted (HTTP) server on the port designated below.  By default, this plugin requires a secure HTTPS connection, but in secure environments you may turn on the insecure server to simplify interacting with the API. Interactions with the API will still require the API Key shown above.  In no circumstances is it recommended that you expose this service to the internet, especially if you turn on this feature!"
       )
       .addToggle((cb) =>
         cb
@@ -232,7 +260,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Insecure HTTP Server Port")
+      .setName("Non-encrypted (HTTP) Server Port")
       .addText((cb) =>
         cb
           .onChange((value) => {
@@ -243,53 +271,143 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.insecurePort.toString())
       );
 
-    containerEl.createEl("hr");
-    containerEl.createEl("h3", {
-      text: "HTTPs Certificate Settings",
-    });
-    containerEl.createEl("p", {
-      text: `The following are your Local REST API's public key, certificate, and private key.  These are automatically generated the first time this plugin is loaded, but you can update them to use keys you have generated if you would like to do so.`,
-    });
+    new Setting(containerEl)
+      .setName("Reset Cryptography")
+      .setDesc(
+        `Pressing this button will cause all of your certificates
+        to be immediately regenerated`
+      )
+      .addButton((cb) => {
+        cb.setWarning()
+          .setButtonText("Reset Crypo")
+          .onClick(() => {
+            delete this.plugin.settings.apiKey;
+            delete this.plugin.settings.crypto;
+            this.plugin.saveSettings();
+            this.plugin.unload();
+            this.plugin.load();
+          });
+      });
 
     new Setting(containerEl)
-      .setName("Reset Crypto on next Load")
+      .setName("Restore Default Settings")
       .setDesc(
-        "Turning this toggle 'on' will cause your certificates and api key to be regenerated when this plugin is next loaded.  You can force a reload by running the 'Reload app without saving' command from the command palette, closing and re-opening Obsidian, or turning this plugin off and on again from the community plugins panel in Obsidian's settings."
+        `Pressing this button will reset this plugin's
+        settings to defaults.`
       )
-      .addToggle((value) => {
-        value
-          .onChange((value) => {
-            this.plugin.settings.crypto.resetOnNextLoad = value;
+      .addButton((cb) => {
+        cb.setWarning()
+          .setButtonText("Restore Defaults")
+          .onClick(() => {
+            this.plugin.settings = Object.assign({}, DEFAULT_SETTINGS);
             this.plugin.saveSettings();
-          })
-          .setValue(this.plugin.settings.crypto.resetOnNextLoad);
+            this.plugin.unload();
+            this.plugin.load();
+          });
       });
-    new Setting(containerEl).setName("Certificate").addTextArea((cb) =>
-      cb
-        .onChange((value) => {
-          this.plugin.settings.crypto.cert = value;
+
+    new Setting(containerEl)
+      .setName("Show advanced settings")
+      .setDesc(
+        `Advanced settings are dangerous and may make your environment less secure.`
+      )
+      .addToggle((cb) => {
+        cb.onChange((value) => {
+          if (this.showAdvancedSettings !== value) {
+            this.showAdvancedSettings = value;
+            this.display();
+          }
+        }).setValue(this.showAdvancedSettings);
+      });
+
+    if (this.showAdvancedSettings) {
+      containerEl.createEl("hr");
+      containerEl.createEl("h3", {
+        text: "Advanced Settings",
+      });
+      containerEl.createEl("p", {
+        text: `
+          The settings below are potentially dangerous and
+          are intended for use only by people who know what
+          they are doing. Do not change any of these settings if
+          you do not understand what that setting is used for
+          and what security impacts changing that setting will have.
+        `,
+      });
+      const noWarrantee = containerEl.createEl("p");
+      noWarrantee.createEl("span", {
+        text: `
+          Use of this software is licensed to you under the
+          MIT license, and it is important that you understand that 
+          this license provides you with no warranty.
+          For the complete license text please see
+        `,
+      });
+      noWarrantee.createEl("a", {
+        href: LicenseUrl,
+        text: LicenseUrl,
+      });
+      noWarrantee.createEl("span", { text: "." });
+
+      new Setting(containerEl).setName("API Key").addText((cb) => {
+        cb.onChange((value) => {
+          this.plugin.settings.apiKey = value;
           this.plugin.saveSettings();
           this.plugin.refreshServerState();
-        })
-        .setValue(this.plugin.settings.crypto.cert)
-    );
-    new Setting(containerEl).setName("Public Key").addTextArea((cb) =>
-      cb
-        .onChange((value) => {
-          this.plugin.settings.crypto.publicKey = value;
+        }).setValue(this.plugin.settings.apiKey);
+      });
+      new Setting(containerEl).setName("Certificate").addTextArea((cb) =>
+        cb
+          .onChange((value) => {
+            this.plugin.settings.crypto.cert = value;
+            this.plugin.saveSettings();
+            this.plugin.refreshServerState();
+          })
+          .setValue(this.plugin.settings.crypto.cert)
+      );
+      new Setting(containerEl).setName("Public Key").addTextArea((cb) =>
+        cb
+          .onChange((value) => {
+            this.plugin.settings.crypto.publicKey = value;
+            this.plugin.saveSettings();
+            this.plugin.refreshServerState();
+          })
+          .setValue(this.plugin.settings.crypto.publicKey)
+      );
+      new Setting(containerEl).setName("Private Key").addTextArea((cb) =>
+        cb
+          .onChange((value) => {
+            this.plugin.settings.crypto.publicKey = value;
+            this.plugin.saveSettings();
+            this.plugin.refreshServerState();
+          })
+          .setValue(this.plugin.settings.crypto.privateKey)
+      );
+      new Setting(containerEl).setName("Authorization Header").addText((cb) => {
+        cb.onChange((value) => {
+          if (value !== DefaultBearerTokenHeaderName) {
+            this.plugin.settings.authorizationHeaderName = value;
+          } else {
+            delete this.plugin.settings.authorizationHeaderName;
+          }
           this.plugin.saveSettings();
           this.plugin.refreshServerState();
-        })
-        .setValue(this.plugin.settings.crypto.publicKey)
-    );
-    new Setting(containerEl).setName("Private Key").addTextArea((cb) =>
-      cb
-        .onChange((value) => {
-          this.plugin.settings.crypto.privateKey = value;
+        }).setValue(
+          this.plugin.settings.authorizationHeaderName ??
+            DefaultBearerTokenHeaderName
+        );
+      });
+      new Setting(containerEl).setName("Binding Host").addText((cb) => {
+        cb.onChange((value) => {
+          if (value !== DefaultBindingHost) {
+            this.plugin.settings.bindingHost = value;
+          } else {
+            delete this.plugin.settings.bindingHost;
+          }
           this.plugin.saveSettings();
           this.plugin.refreshServerState();
-        })
-        .setValue(this.plugin.settings.crypto.privateKey)
-    );
+        }).setValue(this.plugin.settings.bindingHost ?? DefaultBindingHost);
+      });
+    }
   }
 }
