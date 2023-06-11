@@ -272,19 +272,13 @@ export default class RequestHandler {
       return;
     }
 
-    let file;
     try {
       await this.app.vault.createFolder(path.dirname(filepath));
-      file = await this.app.vault.create(filepath, req.body);
     } catch {
       // the folder/file already exists, but we don't care
     }
 
-    // If file is created that means it didn't exist before. Don't modify
-    if (!(file instanceof TFile)) {
-      file = await this.app.vault.getAbstractFileByPath(filepath);
-      if (file instanceof TFile) await this.app.vault.modify(file, req.body);
-    }
+    await this.app.vault.adapter.write(filepath, req.body);
 
     this.returnCannedResponse(res, { statusCode: 204 });
     return;
@@ -400,31 +394,24 @@ export default class RequestHandler {
       return;
     }
 
-    let file;
-
     try {
       await this.app.vault.createFolder(path.dirname(filepath));
-      file = await this.app.vault.create(filepath, req.body);
     } catch {
       // the folder/file already exists, but we don't care
     }
 
-    // If file is created that means it didn't exist before. Don't modify
-    if (!(file instanceof TFile)) {
-      file = this.app.vault.getAbstractFileByPath(filepath);
-
-      let fileContents = "";
-      if (file instanceof TFile) {
-        fileContents = await this.app.vault.read(file);
-        if (!fileContents.endsWith("\n")) {
-          fileContents += "\n";
-        }
-
-        fileContents += req.body;
-
-        await this.app.vault.modify(file, fileContents);
+    let fileContents = "";
+    const file = this.app.vault.getAbstractFileByPath(filepath);
+    if (file instanceof TFile) {
+      fileContents = await this.app.vault.read(file);
+      if (!fileContents.endsWith("\n")) {
+        fileContents += "\n";
       }
     }
+
+    fileContents += req.body;
+
+    await this.app.vault.adapter.write(filepath, fileContents);
 
     this.returnCannedResponse(res, { statusCode: 204 });
     return;
