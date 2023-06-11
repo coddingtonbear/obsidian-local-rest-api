@@ -23,11 +23,13 @@ export interface LocalRestApiSettings {
     cert: string;
     privateKey: string;
     publicKey: string;
-    resetOnNextLoad?: boolean;
   };
   port: number;
   insecurePort: number;
   enableInsecureServer: boolean;
+
+  authorizationHeaderName?: string;
+  bindingHost?: string;
 }
 
 export interface HeadingBoundary {

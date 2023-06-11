@@ -2,8 +2,6 @@ import { ErrorCode, LocalRestApiSettings } from "./types";
 
 export const CERT_NAME = "obsidian-local-rest-api.crt";
 
-export const HOSTNAME = "127.0.0.1";
-
 export const DEFAULT_SETTINGS: LocalRestApiSettings = {
   port: 27124,
   insecurePort: 27123,
@@ -42,3 +40,9 @@ export enum ContentTypes {
   jsonLogic = "application/vnd.olrapi.jsonlogic+json",
   dataviewDql = "application/vnd.olrapi.dataview.dql+txt",
 }
+
+export const DefaultBearerTokenHeaderName = "Authorization";
+export const DefaultBindingHost = "127.0.0.1";
+
+export const LicenseUrl =
+  "https://raw.githubusercontent.com/coddingtonbear/obsidian-local-rest-api/main/LICENSE";

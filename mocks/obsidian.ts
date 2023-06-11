@@ -5,6 +5,7 @@ class Stat {
 class DataAdapter {
   _exists = true;
   _read = "";
+  _readBinary = new ArrayBuffer(0);
   _write: [string, string];
   _remove: [string];
   _stat = new Stat();
@@ -19,6 +20,10 @@ class DataAdapter {
 
   async read(path: string): Promise<string> {
     return this._read;
+  }
+
+  async readBinary(path: string): Promise<ArrayBuffer> {
+    return this._readBinary;
   }
 
   async write(path: string, content: string): Promise<void> {
