@@ -46,17 +46,17 @@ export function getSplicePosition(
   insert: boolean,
   ignoreNewLines: boolean
 ): number {
+  let splicePosition =
+    insert === false
+      ? heading.end?.line ?? fileLines.length
+      : heading.start.line + 1;
 
-  let splicePosition = insert === false
-        ? heading.end?.line ?? fileLines.length
-        : heading.start.line + 1;
-
-  if(!ignoreNewLines || insert) {
-    return splicePosition
+  if (!ignoreNewLines || insert) {
+    return splicePosition;
   }
 
   while (fileLines[splicePosition - 1] === "") {
     splicePosition--;
   }
-  return splicePosition
+  return splicePosition;
 }
