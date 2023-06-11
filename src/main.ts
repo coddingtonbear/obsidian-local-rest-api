@@ -274,8 +274,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Reset Cryptography")
       .setDesc(
-        `Pressing this button will cause all of your certificates
-        to be immediately regenerated`
+        `Pressing this button will cause your certificate,
+        private and public keys, and API key to be regenerated.`
       )
       .addButton((cb) => {
         cb.setWarning()
