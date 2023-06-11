@@ -75,13 +75,10 @@ export default class RequestHandler {
   }
 
   requestIsAuthenticated(req: express.Request): boolean {
-    const authorizationHeader = req.get("Authorization");
+    const authorizationHeader = req.get(
+      this.settings.authorizationHeaderName ?? "Authorization"
+    );
     if (authorizationHeader === `Bearer ${this.settings.apiKey}`) {
-      return true;
-    }
-    
-    const apiKeyHeader = req.get("X-API-KEY");
-    if (apiKeyHeader === this.settings.apiKey) {
       return true;
     }
 
