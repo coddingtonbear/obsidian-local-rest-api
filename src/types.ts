@@ -24,7 +24,6 @@ export interface LocalRestApiSettings {
     cert: string;
     privateKey: string;
     publicKey: string;
-    resetOnNextLoad?: boolean;
   };
   port: number;
   insecurePort: number;

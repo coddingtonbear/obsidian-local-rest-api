@@ -4,7 +4,7 @@ import * as http from "http";
 import forge, { pki } from "node-forge";
 
 import RequestHandler from "./requestHandler";
-import { AdvancedSettingName, LocalRestApiSettings } from "./types";
+import { LocalRestApiSettings } from "./types";
 
 import {
   DefaultBearerTokenHeaderName,
@@ -19,8 +19,14 @@ export default class LocalRestApi extends Plugin {
   secureServer: https.Server | null = null;
   insecureServer: http.Server | null = null;
   requestHandler: RequestHandler;
+  refreshServerState: () => void;
 
   async onload() {
+    this.refreshServerState = this.debounce(
+      this._refreshServerState.bind(this),
+      5000
+    );
+
     await this.loadSettings();
     this.requestHandler = new RequestHandler(
       this.app,
@@ -28,12 +34,6 @@ export default class LocalRestApi extends Plugin {
       this.settings
     );
     this.requestHandler.setupRouter();
-
-    if (this.settings.crypto && this.settings.crypto.resetOnNextLoad) {
-      delete this.settings.apiKey;
-      delete this.settings.crypto;
-      this.saveSettings();
-    }
 
     if (!this.settings.apiKey) {
       this.settings.apiKey = forge.md.sha256
@@ -113,7 +113,18 @@ export default class LocalRestApi extends Plugin {
     this.refreshServerState();
   }
 
-  refreshServerState() {
+  debounce<F extends (...args: any[]) => any>(
+    func: F,
+    delay: number
+  ): (...args: Parameters<F>) => void {
+    let debounceTimer: NodeJS.Timeout;
+    return (...args: Parameters<F>): void => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => func(...args), delay);
+    };
+  }
+
+  _refreshServerState() {
     if (this.secureServer) {
       this.secureServer.close();
       this.secureServer = null;
@@ -261,17 +272,34 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Reset Cryptography and Restore Default Settings")
+      .setName("Reset Cryptography")
       .setDesc(
         `Pressing this button will cause all of your certificates
-        to be immediately regenerated, and reset all settings
-        to their defaults.`
+        to be immediately regenerated`
       )
       .addButton((cb) => {
         cb.setWarning()
-          .setButtonText("Reset Crypto")
+          .setButtonText("Reset Crypo")
           .onClick(() => {
-            this.plugin.settings.crypto.resetOnNextLoad = true;
+            delete this.plugin.settings.apiKey;
+            delete this.plugin.settings.crypto;
+            this.plugin.saveSettings();
+            this.plugin.unload();
+            this.plugin.load();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Restore Default Settings")
+      .setDesc(
+        `Pressing this button will reset this plugin's
+        settings to be restored to defaults.`
+      )
+      .addButton((cb) => {
+        cb.setWarning()
+          .setButtonText("Restore Defaults")
+          .onClick(() => {
+            this.plugin.settings = Object.assign({}, DEFAULT_SETTINGS);
             this.plugin.saveSettings();
             this.plugin.unload();
             this.plugin.load();
