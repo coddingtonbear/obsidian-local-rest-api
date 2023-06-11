@@ -1,7 +1,6 @@
 import type { Moment } from "moment";
 import { FileStats, Loc, TFile } from "obsidian";
 import { IPeriodicNoteSettings } from "obsidian-daily-notes-interface";
-import ConsoleApi from "./api";
 
 export enum ErrorCode {
   TextOrByteContentEncodingRequired = 40010,
@@ -142,10 +141,4 @@ export interface FileMetadataObject {
   stat: FileStats;
   path: string;
   content: string;
-}
-
-declare global {
-  interface Window {
-    LocalRestApiConsoleApi?: ConsoleApi;
-  }
 }
