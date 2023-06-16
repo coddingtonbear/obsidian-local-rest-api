@@ -1,7 +1,7 @@
 {
 	"id": "obsidian-local-rest-api",
 	"name": "Local REST API",
-	"version": "1.5.2",
+	"version": "1.6.0",
 	"minAppVersion": "0.12.0",
 	"description": "Get, change or otherwise interact with your notes in Obsidian via a REST API.",
 	"author": "Adam Coddington",
