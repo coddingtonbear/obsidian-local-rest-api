@@ -377,7 +377,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       new Setting(containerEl).setName("Private Key").addTextArea((cb) =>
         cb
           .onChange((value) => {
-            this.plugin.settings.crypto.publicKey = value;
+            this.plugin.settings.crypto.privateKey = value;
             this.plugin.saveSettings();
             this.plugin.refreshServerState();
           })
