@@ -5,7 +5,7 @@ import {
   Command,
   PluginManifest,
   prepareSimpleSearch,
-  TFile,
+  TFile, TFolder,
 } from "obsidian";
 import periodicNotes from "obsidian-daily-notes-interface";
 import { getAPI as getDataviewAPI } from "obsidian-dataview";
@@ -183,6 +183,8 @@ export default class RequestHandler {
 
   async _vaultGet(
     path: string,
+    recursive: boolean,
+    directory: boolean,
     req: express.Request,
     res: express.Response
   ): Promise<void> {
@@ -190,15 +192,19 @@ export default class RequestHandler {
       const files = [
         ...new Set(
           this.app.vault
-            .getFiles()
+            .getAllLoadedFiles()
+            .filter((e) => directory ? e instanceof TFolder : true)
             .map((e) => e.path)
             .filter((filename) => filename.startsWith(path))
             .map((filename) => {
+              if (recursive) {
+                return filename;
+              }
               const subPath = filename.slice(path.length);
               if (subPath.indexOf("/") > -1) {
                 return subPath.slice(0, subPath.indexOf("/") + 1);
               }
-              return subPath;
+              return directory ? subPath + '/' : subPath;
             })
         ),
       ];
@@ -249,8 +255,10 @@ export default class RequestHandler {
 
   async vaultGet(req: express.Request, res: express.Response): Promise<void> {
     const path = req.params[0];
+    const recursive = req.query.recursive === "true";
+    const directory = req.query.directory === "true";
 
-    return this._vaultGet(path, req, res);
+    return this._vaultGet(path, recursive, directory, req, res);
   }
 
   async _vaultPut(
