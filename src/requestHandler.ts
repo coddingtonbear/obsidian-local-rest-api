@@ -182,7 +182,7 @@ export default class RequestHandler {
   async _vaultGet(
     path: string,
     recursive: boolean,
-    directory: boolean,
+    type: "folder" | "file" | null,
     req: express.Request,
     res: express.Response
   ): Promise<void> {
@@ -191,18 +191,25 @@ export default class RequestHandler {
         ...new Set(
           this.app.vault
             .getAllLoadedFiles()
-            .filter((e) => directory ? e instanceof TFolder : true)
-            .map((e) => e.path)
-            .filter((filename) => filename.startsWith(path))
-            .map((filename) => {
-              if (recursive) {
-                return filename;
+            .filter((e) => {
+              if (type === "folder") {
+                return e instanceof TFolder;
+              } else if (type === "file") {
+                return e instanceof TFile;
+              } else {
+                return true;
               }
-              const subPath = filename.slice(path.length);
+            })
+            .filter((f) => f.path.startsWith(path))
+            .map((f) => {
+              if (recursive) {
+                return f instanceof TFolder ? f.path + '/' : f.path;
+              }
+              const subPath = f.path.slice(path.length);
               if (subPath.indexOf("/") > -1) {
                 return subPath.slice(0, subPath.indexOf("/") + 1);
               }
-              return directory ? subPath + '/' : subPath;
+              return f instanceof TFolder ? subPath + '/' : subPath
             })
         ),
       ];
@@ -254,9 +261,19 @@ export default class RequestHandler {
   async vaultGet(req: express.Request, res: express.Response): Promise<void> {
     const path = req.params[0];
     const recursive = req.query.recursive === "true";
-    const directory = req.query.directory === "true";
+    let type: "file" | "folder" | null = null;
+    switch (req.query.type) {
+      case "file": {
+        type = "file";
+        break;
+      }
+      case "folder": {
+        type = "folder";
+        break;
+      }
+    }
 
-    return this._vaultGet(path, recursive, directory, req, res);
+    return this._vaultGet(path, recursive, type, req, res);
   }
 
   async _vaultPut(
