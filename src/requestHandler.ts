@@ -79,11 +79,9 @@ export default class RequestHandler {
     const authorizationHeader = req.get(
       this.settings.authorizationHeaderName ?? "Authorization"
     );
-    if (authorizationHeader === `Bearer ${this.settings.apiKey}`) {
-      return true;
-    }
+    return authorizationHeader === `Bearer ${this.settings.apiKey}`;
 
-    return false;
+
   }
 
   async authenticationMiddleware(
@@ -137,7 +135,7 @@ export default class RequestHandler {
     message,
     errorCode,
   }: ErrorResponseDescriptor): string {
-    let errorMessages: string[] = [];
+    const errorMessages: string[] = [];
     if (errorCode) {
       errorMessages.push(ERROR_CODE_MESSAGES[errorCode]);
     } else {
