@@ -340,7 +340,7 @@ paths:
       description: |
         Creates a new file in your vault or updates the content of an existing one if the specified file already exists.
       requestBody:
-        description: Content of the file you would like to upload.
+        description: file or Content of the file you would like to upload.
         required: true
         content:
           'text/markdown':
@@ -350,6 +350,13 @@ paths:
                 # This is my document
 
                 something else here
+          'multipart/form-data':
+            schema:
+              type: object
+              example: |
+                {
+                  "file": [binary file object]
+                }
           '*/*':
             schema:
               type: string
