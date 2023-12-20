@@ -223,6 +223,23 @@ describe("requestHandler", () => {
       ]);
     });
 
+    test("acceptable binary content", async () => {
+      const arbitraryFilePath = "test.png";
+      const arbitraryBytes = "bytes"; // mock a picture binary
+      const file = Buffer.from(arbitraryBytes)
+
+      await request(server)
+        .put(`/vault/${arbitraryFilePath}`)
+        .set('Content-Type', 'multipart/form-data')
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .attach('file', file,arbitraryFilePath)
+        .expect(204);
+
+        expect(app.vault.adapter._writeBinary[0]).toEqual(arbitraryFilePath);
+        const data = app.vault.adapter._writeBinary[1];
+        expect(Buffer.isBuffer(data) || data instanceof ArrayBuffer).toEqual(true);
+    });
+
     test("non-bytes content", async () => {
       const arbitraryFilePath = "somefile.md";
       const arbitraryBytes = "bytes";

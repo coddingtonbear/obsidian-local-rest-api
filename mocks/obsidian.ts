@@ -1,3 +1,18 @@
+export interface DataWriteOptions {
+  /**
+   * Time of creation, represented as a unix timestamp, in milliseconds.
+   * Omit this if you want to keep the default behaviour.
+   * @public
+   * */
+  ctime?: number;
+  /**
+   * Time of last modification, represented as a unix timestamp, in milliseconds.
+   * Omit this if you want to keep the default behaviour.
+   * @public
+   */
+  mtime?: number;
+
+}
 class Stat {
   type: "file" | "folder" = "file";
 }
@@ -7,6 +22,7 @@ class DataAdapter {
   _read = "";
   _readBinary = new ArrayBuffer(0);
   _write: [string, string];
+  _writeBinary : [string, ArrayBuffer];
   _remove: [string];
   _stat = new Stat();
 
@@ -26,8 +42,12 @@ class DataAdapter {
     return this._readBinary;
   }
 
-  async write(path: string, content: string): Promise<void> {
+  async write(path: string, content: string, option?:DataWriteOptions): Promise<void> {
     this._write = [path, content];
+  }
+
+  async writeBinary(path: string, content: ArrayBuffer, option?:DataWriteOptions): Promise<void> {
+    this._writeBinary = [path,content]
   }
 
   async remove(path: string): Promise<void> {
