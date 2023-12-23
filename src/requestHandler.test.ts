@@ -229,14 +229,13 @@ describe("requestHandler", () => {
 
       await request(server)
         .put(`/vault/${arbitraryFilePath}`)
-        .set("Content-Type", "application/octet-stream")
+        .set("Content-Type", "image/jpeg")
         .set("Authorization", `Bearer ${API_KEY}`)
         .send(arbitraryBytes)
         .expect(204);
 
       expect(app.vault.adapter._writeBinary[0]).toEqual(arbitraryFilePath);
       const data = app.vault.adapter._writeBinary[1];
-      console.log(data);
       expect(Buffer.isBuffer(data) || data instanceof ArrayBuffer).toEqual(
         true
       );
