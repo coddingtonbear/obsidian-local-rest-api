@@ -46,3 +46,5 @@ export const DefaultBindingHost = "127.0.0.1";
 
 export const LicenseUrl =
   "https://raw.githubusercontent.com/coddingtonbear/obsidian-local-rest-api/main/LICENSE";
+
+export const MaximumRequestSize = "1024mb";
