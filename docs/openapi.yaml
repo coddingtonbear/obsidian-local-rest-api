@@ -9,16 +9,24 @@ info:
     When using this tool you may see browser security warnings due to your browser not trusting the self-signed certificate the plugin will generate on its first run.  If you do, you can make those errors disappear by adding the certificate as a "Trusted Certificate" in your browser or operating system's settings.
   version: '1.0'
 servers:
-  - url: https://127.0.0.1:{port}
+  - url: https://{host}:{port}
     description: "HTTPS (Secure Mode)"
     variables:
       port:
         default: '27124'
-  - url: http://127.0.0.1:{port}
+        description: 'HTTPS port'
+      host:
+        default: '127.0.0.1'
+        description: 'Binding host'
+  - url: http://{host}:{port}
     description: "HTTP (Insecure Mode)"
     variables:
       port:
         default: '27123'
+        description: 'HTTP port'
+      host:
+        default: '127.0.0.1'
+        description: 'Binding host'
 components:
   securitySchemes:
     apiKeyAuth:
