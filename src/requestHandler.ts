@@ -2,8 +2,7 @@ import {
   apiVersion,
   App,
   CachedMetadata,
-  Command, 
-  DataWriteOptions,
+  Command,
   PluginManifest,
   prepareSimpleSearch,
   TFile,
@@ -21,7 +20,6 @@ import responseTime from "response-time";
 import queryString from "query-string";
 import WildcardRegexp from "glob-to-regexp";
 import path from "path";
-import multer from 'multer'
 
 import {
   CannedResponse,
@@ -34,7 +32,7 @@ import {
   SearchJsonResponseItem,
   SearchResponseItem,
 } from "./types";
-import { findHeadingBoundary, getSplicePosition } from "./utils";
+import { findHeadingBoundary, getSplicePosition, toArrayBuffer } from "./utils";
 import {
   CERT_NAME,
   ContentTypes,
@@ -42,15 +40,6 @@ import {
   MaximumRequestSize,
 } from "./constants";
 
-function toArrayBuffer(arr: Uint8Array | ArrayBuffer | DataView): ArrayBufferLike {
-  if (arr instanceof Uint8Array) {
-    return arr.buffer;
-  }
-  if (arr instanceof DataView) {
-    return arr.buffer;
-  }
-  return arr;
-}
 export default class RequestHandler {
   app: App;
   api: express.Express;
@@ -287,18 +276,17 @@ export default class RequestHandler {
       // the folder/file already exists, but we don't care
     }
 
-    await this._adapterWrite(filepath,req.file?.buffer || req.body)
+    if (typeof req.body === "string") {
+      await this.app.vault.adapter.write(filepath, req.body);
+    } else {
+      await this.app.vault.adapter.writeBinary(
+        filepath,
+        toArrayBuffer(req.body)
+      );
+    }
+
     this.returnCannedResponse(res, { statusCode: 204 });
     return;
-  }
-
-  async _adapterWrite(file: TFile | string, data: string | ArrayBuffer | Uint8Array, options?: DataWriteOptions) {
-    const path = file instanceof TFile ? file.path : file;
-    if (typeof (data) === "string") {
-      return this.app.vault.adapter.write(path, data, options)
-    } else {
-      return this.app.vault.adapter.writeBinary(path, toArrayBuffer(data), options)
-    }
   }
 
   async vaultPut(req: express.Request, res: express.Response): Promise<void> {
@@ -1046,14 +1034,10 @@ export default class RequestHandler {
       .post(this.activeFilePost.bind(this))
       .delete(this.activeFileDelete.bind(this));
 
-    const storage = multer.memoryStorage();
-    const upload = multer({
-      storage: storage
-    })
     this.api
       .route("/vault/(.*)")
       .get(this.vaultGet.bind(this))
-      .put([upload.single('file'),this.vaultPut.bind(this)])
+      .put(this.vaultPut.bind(this))
       .patch(this.vaultPatch.bind(this))
       .post(this.vaultPost.bind(this))
       .delete(this.vaultDelete.bind(this));

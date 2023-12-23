@@ -226,18 +226,27 @@ describe("requestHandler", () => {
     test("acceptable binary content", async () => {
       const arbitraryFilePath = "test.png";
       const arbitraryBytes = "bytes"; // mock a picture binary
-      const file = Buffer.from(arbitraryBytes)
 
       await request(server)
         .put(`/vault/${arbitraryFilePath}`)
-        .set('Content-Type', 'multipart/form-data')
+        .set("Content-Type", "application/octet-stream")
         .set("Authorization", `Bearer ${API_KEY}`)
-        .attach('file', file,arbitraryFilePath)
+        .send(arbitraryBytes)
         .expect(204);
 
-        expect(app.vault.adapter._writeBinary[0]).toEqual(arbitraryFilePath);
-        const data = app.vault.adapter._writeBinary[1];
-        expect(Buffer.isBuffer(data) || data instanceof ArrayBuffer).toEqual(true);
+      expect(app.vault.adapter._writeBinary[0]).toEqual(arbitraryFilePath);
+      const data = app.vault.adapter._writeBinary[1];
+      console.log(data);
+      expect(Buffer.isBuffer(data) || data instanceof ArrayBuffer).toEqual(
+        true
+      );
+      // We won't be able to convert the incoming data
+      // to bytes with this mechanism in a _normal_
+      // situation because those bytes won't be encodable
+      // as ASCII, but we can do this here because we're
+      // lying about the incoming content type above
+      const decoder = new TextDecoder();
+      expect(decoder.decode(data)).toEqual(arbitraryBytes);
     });
 
     test("non-bytes content", async () => {
