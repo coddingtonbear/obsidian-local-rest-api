@@ -33,7 +33,12 @@ import {
   SearchResponseItem,
 } from "./types";
 import { findHeadingBoundary, getSplicePosition } from "./utils";
-import { CERT_NAME, ContentTypes, ERROR_CODE_MESSAGES } from "./constants";
+import {
+  CERT_NAME,
+  ContentTypes,
+  ERROR_CODE_MESSAGES,
+  MaximumRequestSize,
+} from "./constants";
 
 export default class RequestHandler {
   app: App;
@@ -993,12 +998,33 @@ export default class RequestHandler {
     this.api.use(responseTime());
     this.api.use(cors());
     this.api.use(this.authenticationMiddleware.bind(this));
-    this.api.use(bodyParser.text({ type: "text/*" }));
-    this.api.use(bodyParser.text({ type: ContentTypes.dataviewDql }));
-    this.api.use(bodyParser.json({ type: ContentTypes.json }));
-    this.api.use(bodyParser.json({ type: ContentTypes.olrapiNoteJson }));
-    this.api.use(bodyParser.json({ type: ContentTypes.jsonLogic }));
-    this.api.use(bodyParser.raw({ type: "application/*" }));
+    this.api.use(
+      bodyParser.text({ type: "text/*", limit: MaximumRequestSize })
+    );
+    this.api.use(
+      bodyParser.text({
+        type: ContentTypes.dataviewDql,
+        limit: MaximumRequestSize,
+      })
+    );
+    this.api.use(
+      bodyParser.json({ type: ContentTypes.json, limit: MaximumRequestSize })
+    );
+    this.api.use(
+      bodyParser.json({
+        type: ContentTypes.olrapiNoteJson,
+        limit: MaximumRequestSize,
+      })
+    );
+    this.api.use(
+      bodyParser.json({
+        type: ContentTypes.jsonLogic,
+        limit: MaximumRequestSize,
+      })
+    );
+    this.api.use(
+      bodyParser.raw({ type: "application/*", limit: MaximumRequestSize })
+    );
 
     this.api
       .route("/active/")
