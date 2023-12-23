@@ -60,3 +60,21 @@ export function getSplicePosition(
   }
   return splicePosition;
 }
+
+export function toArrayBuffer(
+  arr: Uint8Array | ArrayBuffer | DataView | object
+): ArrayBufferLike {
+  if (arr instanceof Uint8Array) {
+    return arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength);
+  }
+  if (arr instanceof DataView) {
+    return arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength);
+  }
+  if (arr instanceof ArrayBuffer) {
+    return arr;
+  }
+  // If we've made it this far, we probably have a
+  // parsed JSON object
+  const encoder = new TextEncoder();
+  return encoder.encode(JSON.stringify(arr)).buffer;
+}
