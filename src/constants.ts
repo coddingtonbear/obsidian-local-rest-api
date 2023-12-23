@@ -27,8 +27,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "Periodic note does not exist for the specified period.",
   [ErrorCode.RequestMethodValidOnlyForFiles]:
     "Request method is valid only for file paths, not directories.",
-  [ErrorCode.TextOrByteContentEncodingRequired]:
-    "Incoming content must be sent with a bytes or text content encoding.  Be sure to set a Content-type header matching application/* or text/*.",
+  [ErrorCode.TextContentEncodingRequired]:
+    "Incoming content must be text data and have an appropriate text/* Content-type header set (e.g. text/markdown).",
   [ErrorCode.InvalidFilterQuery]:
     "The query you provided could not be processed.",
 };

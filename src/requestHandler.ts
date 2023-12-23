@@ -328,7 +328,7 @@ export default class RequestHandler {
     }
     if (typeof req.body != "string") {
       this.returnCannedResponse(res, {
-        errorCode: ErrorCode.TextOrByteContentEncodingRequired,
+        errorCode: ErrorCode.TextContentEncodingRequired,
       });
       return;
     }
@@ -401,7 +401,7 @@ export default class RequestHandler {
 
     if (typeof req.body != "string") {
       this.returnCannedResponse(res, {
-        errorCode: ErrorCode.TextOrByteContentEncodingRequired,
+        errorCode: ErrorCode.TextContentEncodingRequired,
       });
       return;
     }
@@ -1022,9 +1022,7 @@ export default class RequestHandler {
         limit: MaximumRequestSize,
       })
     );
-    this.api.use(
-      bodyParser.raw({ type: "application/*", limit: MaximumRequestSize })
-    );
+    this.api.use(bodyParser.raw({ type: "*/*", limit: MaximumRequestSize }));
 
     this.api
       .route("/active/")
