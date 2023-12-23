@@ -137,7 +137,7 @@ export default class RequestHandler {
     message,
     errorCode,
   }: ErrorResponseDescriptor): string {
-    let errorMessages: string[] = [];
+    const errorMessages: string[] = [];
     if (errorCode) {
       errorMessages.push(ERROR_CODE_MESSAGES[errorCode]);
     } else {
@@ -329,7 +329,8 @@ export default class RequestHandler {
     }
 
     if (typeof req.get("Content-Insertion-Ignore-Newline") == "string") {
-      aboveNewLine = (req.get("Content-Insertion-Ignore-Newline").toLowerCase() == "true")
+      aboveNewLine =
+        req.get("Content-Insertion-Ignore-Newline").toLowerCase() == "true";
     }
 
     if (!heading.length) {
@@ -359,13 +360,14 @@ export default class RequestHandler {
     const fileContents = await this.app.vault.read(file);
     const fileLines = fileContents.split("\n");
 
-    const splicePosition = getSplicePosition(fileLines, position, insert, aboveNewLine)
-
-    fileLines.splice(
-      splicePosition,
-      0,
-      req.body
+    const splicePosition = getSplicePosition(
+      fileLines,
+      position,
+      insert,
+      aboveNewLine
     );
+
+    fileLines.splice(splicePosition, 0, req.body);
 
     const content = fileLines.join("\n");
 
@@ -534,7 +536,8 @@ export default class RequestHandler {
   async periodicGetOrCreateNote(
     periodName: string
   ): Promise<[TFile | null, ErrorCode | null]> {
-    let [file, err] = this.periodicGetNote(periodName);
+    const [gottenFile, err] = this.periodicGetNote(periodName);
+    let file = gottenFile;
     if (err === ErrorCode.PeriodicNoteDoesNotExist) {
       const [period] = this.periodicGetInterface(periodName);
       const now = (window as any).moment(Date.now());
@@ -938,7 +941,7 @@ export default class RequestHandler {
     const query = queryString.parseUrl(req.originalUrl, {
       parseBooleans: true,
     }).query;
-    const newLeaf: boolean = Boolean(query.newLeaf);
+    const newLeaf = Boolean(query.newLeaf);
 
     this.app.workspace.openLinkText(path, "/", newLeaf);
 
