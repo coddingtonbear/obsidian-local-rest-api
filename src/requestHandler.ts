@@ -789,64 +789,6 @@ export default class RequestHandler {
     res.json(results);
   }
 
-  async searchGuiPost(
-    req: express.Request,
-    res: express.Response
-  ): Promise<void> {
-    const results: SearchResponseItem[] = [];
-    const query: string = req.query.query as string;
-    const contextLength: number =
-      parseInt(req.query.contextLength as string, 10) ?? 100;
-
-    // Open the search panel and start a search
-    this.app.internalPlugins
-      // @ts-ignore
-      .getPluginById("global-search")
-      .instance.openGlobalSearch(query);
-    const searchDom =
-      // @ts-ignore
-      this.app.workspace.getLeavesOfType("search")[0].view.dom;
-
-    // Wait until the search is complete in the UI
-    await new Promise<void>((resolve) => {
-      setTimeout(() => {
-        if (!searchDom.working) {
-          resolve();
-          return;
-        }
-        const interval = setInterval(() => {
-          if (!searchDom.working) {
-            clearInterval(interval);
-            resolve();
-          }
-        }, 2000);
-      }, 100);
-    });
-
-    for (const result of searchDom.children) {
-      const matches: SearchContext[] = [];
-      for (const match of result.result.content) {
-        matches.push({
-          match: {
-            start: match[0],
-            end: match[1],
-          },
-          context: result.content.slice(
-            Math.max(match[0] - contextLength, 0),
-            match[1] + contextLength
-          ),
-        });
-      }
-
-      results.push({
-        filename: result.file.path,
-        matches,
-      });
-    }
-
-    res.json(results);
-  }
-
   valueIsSaneTruthy(value: unknown): boolean {
     if (value === undefined || value === null) {
       return false;
@@ -1053,7 +995,6 @@ export default class RequestHandler {
 
     this.api.route("/search/").post(this.searchQueryPost.bind(this));
     this.api.route("/search/simple/").post(this.searchSimplePost.bind(this));
-    this.api.route("/search/gui/").post(this.searchGuiPost.bind(this));
 
     this.api.route("/open/(.*)").post(this.openPost.bind(this));
 
