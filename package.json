@@ -1,6 +1,6 @@
 {
   "name": "obsidian-local-rest-api",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "Get, change or otherwise interact with your notes in Obsidian via a REST API.",
   "main": "main.js",
   "scripts": {
@@ -27,7 +27,7 @@
     "@typescript-eslint/eslint-plugin": "^5.29.0",
     "@typescript-eslint/parser": "^5.29.0",
     "builtin-modules": "^3.3.0",
-    "esbuild": "0.17.3",
+    "esbuild": "0.13.2",
     "jest": "^26",
     "obsidian": "latest",
     "supertest": "^6.2.2",
