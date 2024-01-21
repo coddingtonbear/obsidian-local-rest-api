@@ -125,7 +125,7 @@ export default class RequestHandler {
       ? frontmatter.tags
       : [];
     const filteredTags: string[] = [...frontmatterTags, ...directTags]
-      .map((tag) => tag.replace(/^#/, ""))
+      .map((tag) => tag.toString().replace(/^#/, ""))
       .filter((value, index, self) => self.indexOf(value) === index);
 
     return {
