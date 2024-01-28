@@ -125,7 +125,10 @@ export default class RequestHandler {
       ? frontmatter.tags
       : [];
     const filteredTags: string[] = [...frontmatterTags, ...directTags]
+      // Strip leading hash and get tag's string representation --
+      // although it should always be a string, it apparently isn't always!
       .map((tag) => tag.toString().replace(/^#/, ""))
+      // Remove duplicates
       .filter((value, index, self) => self.indexOf(value) === index);
 
     return {
