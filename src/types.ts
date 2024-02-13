@@ -30,6 +30,7 @@ export interface LocalRestApiSettings {
 
   authorizationHeaderName?: string;
   bindingHost?: string;
+  subjectAltNames?: string;
 }
 
 export interface HeadingBoundary {
