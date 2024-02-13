@@ -53,6 +53,24 @@ export default class LocalRestApi extends Plugin {
       const certificate = forge.pki.createCertificate();
       certificate.setIssuer(attrs);
       certificate.setSubject(attrs);
+
+      const subjectAltNames: Record<string, any>[] = [
+        {
+          type: 7, // IP
+          ip: this.settings.bindingHost ?? DefaultBindingHost,
+        },
+      ];
+      if (this.settings.subjectAltNames) {
+        for (const name of this.settings.subjectAltNames.split("\n")) {
+          if (name.trim()) {
+            subjectAltNames.push({
+              type: 2,
+              value: name.trim(),
+            });
+          }
+        }
+      }
+
       certificate.setExtensions([
         {
           name: "basicConstraints",
@@ -86,12 +104,7 @@ export default class LocalRestApi extends Plugin {
         },
         {
           name: "subjectAltName",
-          altNames: [
-            {
-              type: 7, // IP
-              ip: this.settings.bindingHost ?? DefaultBindingHost,
-            },
-          ],
+          altNames: subjectAltNames,
         },
       ]);
       certificate.serialNumber = "1";
@@ -272,16 +285,33 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Reset Cryptography")
+      .setName("Reset All Cryptography")
       .setDesc(
         `Pressing this button will cause your certificate,
-        private and public keys, and API key to be regenerated.`
+        private key, public key, and API key to be regenerated.`
       )
       .addButton((cb) => {
         cb.setWarning()
-          .setButtonText("Reset Crypo")
+          .setButtonText("Reset All Crypto")
           .onClick(() => {
             delete this.plugin.settings.apiKey;
+            delete this.plugin.settings.crypto;
+            this.plugin.saveSettings();
+            this.plugin.unload();
+            this.plugin.load();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Re-generate Certificates")
+      .setDesc(
+        `Pressing this button will cause your certificate,
+        private key,  and public key to be re-generated, but your API key will remain unchanged.`
+      )
+      .addButton((cb) => {
+        cb.setWarning()
+          .setButtonText("Re-generate Certificates")
+          .onClick(() => {
             delete this.plugin.settings.crypto;
             this.plugin.saveSettings();
             this.plugin.unload();
@@ -356,6 +386,29 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           this.plugin.refreshServerState();
         }).setValue(this.plugin.settings.apiKey);
       });
+      new Setting(containerEl)
+        .setName("Certificate Hostnames")
+        .setDesc(
+          `
+          List of extra hostnames to add
+          to your certificate's \`subjectAltName\` field.
+          One hostname per line.
+          You must click the "Re-generate Certificates" button above after changing this value
+          for this to have an effect.  This is useful for
+          situations in which you are accessing Obsidian
+          from a hostname other than the host on which
+          it is running.
+      `
+        )
+        .addTextArea((cb) =>
+          cb
+            .onChange((value) => {
+              console.log("onChange");
+              this.plugin.settings.subjectAltNames = value;
+              this.plugin.saveSettings();
+            })
+            .setValue(this.plugin.settings.subjectAltNames)
+        );
       new Setting(containerEl).setName("Certificate").addTextArea((cb) =>
         cb
           .onChange((value) => {
