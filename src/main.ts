@@ -165,7 +165,7 @@ export default class LocalRestApi extends Plugin {
     );
 
     console.log(
-      `REST API listening on https://${
+      `[REST API] Listening on https://${
         this.settings.bindingHost ?? DefaultBindingHost
       }:${this.settings.port}/`
     );
@@ -182,7 +182,7 @@ export default class LocalRestApi extends Plugin {
       );
 
       console.log(
-        `REST API listening on http://${
+        `[REST API] Listening on http://${
           this.settings.bindingHost ?? DefaultBindingHost
         }:${this.settings.insecurePort}/`
       );

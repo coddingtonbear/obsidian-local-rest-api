@@ -940,6 +940,15 @@ export default class RequestHandler {
   }
 
   setupRouter() {
+    this.api.use((req, res, next) => {
+      const originalSend = res.send;
+      res.send = function (body, ...args) {
+        console.log(`[REST API] ${req.method} ${req.url} => ${res.statusCode}`);
+
+        return originalSend.apply(res, [body, ...args]);
+      };
+      next();
+    });
     this.api.use(responseTime());
     this.api.use(cors());
     this.api.use(this.authenticationMiddleware.bind(this));
