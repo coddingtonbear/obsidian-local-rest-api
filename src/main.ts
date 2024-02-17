@@ -49,7 +49,12 @@ export default class LocalRestApi extends Plugin {
       expiry.setDate(today.getDate() + 365);
 
       const keypair = forge.pki.rsa.generateKeyPair(2048);
-      const attrs = [{ name: "commonName", value: "Obsidian Local REST API" }];
+      const attrs = [
+        {
+          name: "commonName",
+          value: "Obsidian Local REST API",
+        },
+      ];
       const certificate = forge.pki.createCertificate();
       certificate.setIssuer(attrs);
       certificate.setSubject(attrs);
@@ -57,9 +62,15 @@ export default class LocalRestApi extends Plugin {
       const subjectAltNames: Record<string, any>[] = [
         {
           type: 7, // IP
-          ip: this.settings.bindingHost ?? DefaultBindingHost,
+          ip: DefaultBindingHost,
         },
       ];
+      if (this.settings.bindingHost) {
+        subjectAltNames.push({
+          type: 7, // IP
+          ip: this.settings.bindingHost,
+        });
+      }
       if (this.settings.subjectAltNames) {
         for (const name of this.settings.subjectAltNames.split("\n")) {
           if (name.trim()) {
@@ -75,14 +86,16 @@ export default class LocalRestApi extends Plugin {
         {
           name: "basicConstraints",
           cA: true,
+          critical: true,
         },
         {
           name: "keyUsage",
           keyCertSign: true,
           digitalSignature: true,
           nonRepudiation: true,
-          keyEncipherment: true,
-          dataEncipherment: true,
+          keyEncipherment: false,
+          dataEncipherment: false,
+          critical: true,
         },
         {
           name: "extKeyUsage",
