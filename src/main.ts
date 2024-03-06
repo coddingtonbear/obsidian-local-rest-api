@@ -212,7 +212,7 @@ export default class LocalRestApi extends Plugin {
 
 class LocalRestApiSettingTab extends PluginSettingTab {
   plugin: LocalRestApi;
-  showAdvancedSettings: boolean = false;
+  showAdvancedSettings = false;
 
   constructor(app: App, plugin: LocalRestApi) {
     super(app, plugin);
