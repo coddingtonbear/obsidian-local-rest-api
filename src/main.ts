@@ -222,6 +222,23 @@ class LocalRestApiSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
 
+    const parsedCertificate = forge.pki.certificateFromPem(
+      this.plugin.settings.crypto.cert
+    );
+    const remainingCertificateValidityDays =
+      (parsedCertificate.validity.notAfter.getTime() - new Date().getTime()) /
+      (1000 * 3600 * 24);
+    const extension: Record<string, unknown> =
+      parsedCertificate.getExtension("subjectAltName");
+    let shouldRegenerateCertificate = false;
+    if (extension && extension.altNames) {
+      (extension.altNames as Record<string, unknown>[]).forEach((altName) => {
+        if (altName.type === 7 && altName.value === "\x00\x00\x00\x00") {
+          shouldRegenerateCertificate = true;
+        }
+      });
+    }
+
     containerEl.empty();
     containerEl.classList.add("obsidian-local-rest-api-settings");
 
@@ -257,6 +274,46 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     importCert.createEl("span", {
       text: " to use it for validating your connection's security by adding it as a trusted certificate authority in the browser or tool you are using for interacting with this API.",
     });
+
+    if (remainingCertificateValidityDays < 0) {
+      const expiredCertDiv = apiKeyDiv.createEl("div");
+      expiredCertDiv.classList.add("certificate-expired");
+      expiredCertDiv.innerHTML = `
+        <b>Your certificate has expired!</b>
+        You must re-generate your certificate below by pressing
+        the "Re-generate Certificates" button below in
+        order to connect securely to this API.
+      `;
+    } else if (remainingCertificateValidityDays < 30) {
+      const soonExpiringCertDiv = apiKeyDiv.createEl("div");
+      soonExpiringCertDiv.classList.add("certificate-expiring-soon");
+      soonExpiringCertDiv.innerHTML = `
+        <b>Your certificate will expire in ${Math.floor(
+          remainingCertificateValidityDays
+        )} day${
+        Math.floor(remainingCertificateValidityDays) === 1 ? "" : "s"
+      }s!</b>
+        You should re-generate your certificate below by pressing
+        the "Re-generate Certificates" button below in
+        order to continue to connect securely to this API.
+      `;
+    }
+    if (shouldRegenerateCertificate) {
+      const shouldRegenerateCertificateDiv = apiKeyDiv.createEl("div");
+      shouldRegenerateCertificateDiv.classList.add(
+        "certificate-regeneration-recommended"
+      );
+      shouldRegenerateCertificateDiv.innerHTML = `
+        <b>You should re-generate your certificate!</b>
+        Your certificate was generated using earlier standards than
+        are currently used by Obsidian Local REST API. Some systems
+        or tools may not accept your certificate with its current
+        configuration, and re-generating your certificate may
+        improve compatibility with such tools.  To re-generate your
+        certificate, press the "Re-generate Certificates" button
+        below.
+      `;
+    }
 
     new Setting(containerEl)
       .setName("Encrypted (HTTPS) Server Port")

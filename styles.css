@@ -14,3 +14,18 @@ div.obsidian-local-rest-api-settings div.api-key-display pre {
 div.obsidian-local-rest-api-settings textarea {
   width: 100%;
 }
+
+div.obsidian-local-rest-api-settings div.certificate-expired {
+  padding: 10px 20px;
+  border: 2px solid #ff0000;
+}
+
+div.obsidian-local-rest-api-settings div.certificate-expiring-soon {
+  padding: 10px 20px;
+  border: 2px solid #ffff00;
+}
+
+div.obsidian-local-rest-api-settings div.certificate-regeneration-recommended {
+  padding: 10px 20px;
+  border: 2px solid #ffff00;
+}
