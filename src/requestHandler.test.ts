@@ -96,7 +96,7 @@ describe("requestHandler", () => {
     test("withhout auth", async () => {
       const result = await request(server).get(certPath).expect(200);
 
-      expect(result.body.toString()).toEqual(settings.crypto.cert);
+      expect(result.body.toString()).toEqual(settings.crypto?.cert);
     });
 
     test("with auth", async () => {
