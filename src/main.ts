@@ -301,7 +301,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       .setName("Reset All Cryptography")
       .setDesc(
         `Pressing this button will cause your certificate,
-        private key, public key, and API key to be regenerated.`
+        private key, public key, and API key to be regenerated.
+        This settings panel will be closed when you press this.`
       )
       .addButton((cb) => {
         cb.setWarning()
@@ -319,7 +320,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       .setName("Re-generate Certificates")
       .setDesc(
         `Pressing this button will cause your certificate,
-        private key,  and public key to be re-generated, but your API key will remain unchanged.`
+        private key,  and public key to be re-generated, but your API key will remain unchanged. 
+        This settings panel will be closed when you press this.`
       )
       .addButton((cb) => {
         cb.setWarning()
@@ -336,7 +338,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       .setName("Restore Default Settings")
       .setDesc(
         `Pressing this button will reset this plugin's
-        settings to defaults.`
+        settings to defaults.
+        This settings panel will be closed when you press this.`
       )
       .addButton((cb) => {
         cb.setWarning()
