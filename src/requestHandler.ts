@@ -9,6 +9,7 @@ import {
 } from "obsidian";
 import periodicNotes from "obsidian-daily-notes-interface";
 import { getAPI as getDataviewAPI } from "obsidian-dataview";
+import forge from "node-forge";
 
 import express from "express";
 import http from "http";
@@ -32,7 +33,13 @@ import {
   SearchJsonResponseItem,
   SearchResponseItem,
 } from "./types";
-import { findHeadingBoundary, getSplicePosition, toArrayBuffer } from "./utils";
+import {
+  findHeadingBoundary,
+  getCertificateIsUptoStandards,
+  getCertificateValidityDays,
+  getSplicePosition,
+  toArrayBuffer,
+} from "./utils";
 import {
   CERT_NAME,
   ContentTypes,
@@ -178,6 +185,8 @@ export default class RequestHandler {
   }
 
   root(req: express.Request, res: express.Response): void {
+    const certificate = forge.pki.certificateFromPem(this.settings.crypto.cert);
+
     res.status(200).json({
       status: "OK",
       versions: {
@@ -186,6 +195,12 @@ export default class RequestHandler {
       },
       service: "Obsidian Local REST API",
       authenticated: this.requestIsAuthenticated(req),
+      certificateInfo: this.requestIsAuthenticated(req)
+        ? {
+            validityDays: getCertificateValidityDays(certificate),
+            regenerateRecommended: !getCertificateIsUptoStandards(certificate),
+          }
+        : undefined,
     });
   }
 

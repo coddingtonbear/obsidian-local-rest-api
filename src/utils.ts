@@ -1,5 +1,6 @@
 import { CachedMetadata, HeadingCache } from "obsidian";
 import { HeadingBoundary } from "./types";
+import forge from "node-forge";
 
 export function findHeadingBoundary(
   fileCache: CachedMetadata,
@@ -77,4 +78,29 @@ export function toArrayBuffer(
   // parsed JSON object
   const encoder = new TextEncoder();
   return encoder.encode(JSON.stringify(arr)).buffer;
+}
+
+export function getCertificateValidityDays(
+  certificate: forge.pki.Certificate
+): number {
+  return (
+    (certificate.validity.notAfter.getTime() - new Date().getTime()) /
+    (1000 * 3600 * 24)
+  );
+}
+
+export function getCertificateIsUptoStandards(
+  certificate: forge.pki.Certificate
+): boolean {
+  const extension: Record<string, unknown> =
+    certificate.getExtension("subjectAltName");
+  let hasStandardsFlaw = false;
+  if (extension && extension.altNames) {
+    (extension.altNames as Record<string, unknown>[]).forEach((altName) => {
+      if (altName.type === 7 && altName.value === "\x00\x00\x00\x00") {
+        hasStandardsFlaw = true;
+      }
+    });
+  }
+  return !hasStandardsFlaw;
 }
