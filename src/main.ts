@@ -232,7 +232,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     const remainingCertificateValidityDays =
       getCertificateValidityDays(parsedCertificate);
     const shouldRegenerateCertificate =
-      getCertificateIsUptoStandards(parsedCertificate);
+      !getCertificateIsUptoStandards(parsedCertificate);
 
     containerEl.empty();
     containerEl.classList.add("obsidian-local-rest-api-settings");
