@@ -65,7 +65,10 @@ export default class LocalRestApi extends Plugin {
           ip: DefaultBindingHost,
         },
       ];
-      if (this.settings.bindingHost) {
+      if (
+        this.settings.bindingHost &&
+        this.settings.bindingHost !== "0.0.0.0"
+      ) {
         subjectAltNames.push({
           type: 7, // IP
           ip: this.settings.bindingHost,
