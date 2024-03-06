@@ -185,7 +185,12 @@ export default class RequestHandler {
   }
 
   root(req: express.Request, res: express.Response): void {
-    const certificate = forge.pki.certificateFromPem(this.settings.crypto.cert);
+    let certificate: forge.pki.Certificate | undefined;
+    try {
+      certificate = forge.pki.certificateFromPem(this.settings.crypto.cert);
+    } catch (e) {
+      // This is fine, we just won't include that in the output
+    }
 
     res.status(200).json({
       status: "OK",
@@ -195,12 +200,14 @@ export default class RequestHandler {
       },
       service: "Obsidian Local REST API",
       authenticated: this.requestIsAuthenticated(req),
-      certificateInfo: this.requestIsAuthenticated(req)
-        ? {
-            validityDays: getCertificateValidityDays(certificate),
-            regenerateRecommended: !getCertificateIsUptoStandards(certificate),
-          }
-        : undefined,
+      certificateInfo:
+        this.requestIsAuthenticated(req) && certificate
+          ? {
+              validityDays: getCertificateValidityDays(certificate),
+              regenerateRecommended:
+                !getCertificateIsUptoStandards(certificate),
+            }
+          : undefined,
     });
   }
 
