@@ -316,21 +316,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     }
 
     new Setting(containerEl)
-      .setName("Encrypted (HTTPS) Server Port")
-      .setDesc(
-        "This configures the port on which your REST API will listen for HTTPS connections.  It is recommended that you leave this port with its default setting as tools integrating with this API may expect the default port to be in use.  Under no circumstances is it recommended that you expose this service directly to the internet."
-      )
-      .addText((cb) =>
-        cb
-          .onChange((value) => {
-            this.plugin.settings.port = parseInt(value, 10);
-            this.plugin.saveSettings();
-            this.plugin.refreshServerState();
-          })
-          .setValue(this.plugin.settings.port.toString())
-      );
-
-    new Setting(containerEl)
       .setName("Enable Non-encrypted (HTTP) Server")
       .setDesc(
         "Enables a non-encrypted (HTTP) server on the port designated below.  By default this plugin requires a secure HTTPS connection, but in safe environments you may turn on the non-encrypted server to simplify interacting with the API. Interactions with the API will still require the API Key shown above.  Under no circumstances is it recommended that you expose this service to the internet, especially if you turn on this feature!"
@@ -343,18 +328,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             this.plugin.refreshServerState();
           })
           .setValue(this.plugin.settings.enableInsecureServer)
-      );
-
-    new Setting(containerEl)
-      .setName("Non-encrypted (HTTP) Server Port")
-      .addText((cb) =>
-        cb
-          .onChange((value) => {
-            this.plugin.settings.insecurePort = parseInt(value, 10);
-            this.plugin.saveSettings();
-            this.plugin.refreshServerState();
-          })
-          .setValue(this.plugin.settings.insecurePort.toString())
       );
 
     new Setting(containerEl)
@@ -454,6 +427,33 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         text: LicenseUrl,
       });
       noWarrantee.createEl("span", { text: "." });
+
+      new Setting(containerEl)
+        .setName("Encrypted (HTTPS) Server Port")
+        .setDesc(
+          "This configures the port on which your REST API will listen for HTTPS connections.  It is recommended that you leave this port with its default setting as tools integrating with this API may expect the default port to be in use.  Under no circumstances is it recommended that you expose this service directly to the internet."
+        )
+        .addText((cb) =>
+          cb
+            .onChange((value) => {
+              this.plugin.settings.port = parseInt(value, 10);
+              this.plugin.saveSettings();
+              this.plugin.refreshServerState();
+            })
+            .setValue(this.plugin.settings.port.toString())
+        );
+
+      new Setting(containerEl)
+        .setName("Non-encrypted (HTTP) Server Port")
+        .addText((cb) =>
+          cb
+            .onChange((value) => {
+              this.plugin.settings.insecurePort = parseInt(value, 10);
+              this.plugin.saveSettings();
+              this.plugin.refreshServerState();
+            })
+            .setValue(this.plugin.settings.insecurePort.toString())
+        );
 
       new Setting(containerEl).setName("API Key").addText((cb) => {
         cb.onChange((value) => {
