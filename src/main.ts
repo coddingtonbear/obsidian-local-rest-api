@@ -13,6 +13,10 @@ import {
   DefaultBindingHost,
   LicenseUrl,
 } from "./constants";
+import {
+  getCertificateIsUptoStandards,
+  getCertificateValidityDays,
+} from "./utils";
 
 export default class LocalRestApi extends Plugin {
   settings: LocalRestApiSettings;
@@ -226,18 +230,9 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       this.plugin.settings.crypto.cert
     );
     const remainingCertificateValidityDays =
-      (parsedCertificate.validity.notAfter.getTime() - new Date().getTime()) /
-      (1000 * 3600 * 24);
-    const extension: Record<string, unknown> =
-      parsedCertificate.getExtension("subjectAltName");
-    let shouldRegenerateCertificate = false;
-    if (extension && extension.altNames) {
-      (extension.altNames as Record<string, unknown>[]).forEach((altName) => {
-        if (altName.type === 7 && altName.value === "\x00\x00\x00\x00") {
-          shouldRegenerateCertificate = true;
-        }
-      });
-    }
+      getCertificateValidityDays(parsedCertificate);
+    const shouldRegenerateCertificate =
+      getCertificateIsUptoStandards(parsedCertificate);
 
     containerEl.empty();
     containerEl.classList.add("obsidian-local-rest-api-settings");
@@ -479,7 +474,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         .addTextArea((cb) =>
           cb
             .onChange((value) => {
-              console.log("onChange");
               this.plugin.settings.subjectAltNames = value;
               this.plugin.saveSettings();
             })
