@@ -162,20 +162,25 @@ export default class LocalRestApi extends Plugin {
       this.secureServer.close();
       this.secureServer = null;
     }
-    this.secureServer = https.createServer(
-      { key: this.settings.crypto.privateKey, cert: this.settings.crypto.cert },
-      this.requestHandler.api
-    );
-    this.secureServer.listen(
-      this.settings.port,
-      this.settings.bindingHost ?? DefaultBindingHost
-    );
-
-    console.log(
-      `[REST API] Listening on https://${
+    if (this.settings.enableSecureServer ?? true) {
+      this.secureServer = https.createServer(
+        {
+          key: this.settings.crypto.privateKey,
+          cert: this.settings.crypto.cert,
+        },
+        this.requestHandler.api
+      );
+      this.secureServer.listen(
+        this.settings.port,
         this.settings.bindingHost ?? DefaultBindingHost
-      }:${this.settings.port}/`
-    );
+      );
+
+      console.log(
+        `[REST API] Listening on https://${
+          this.settings.bindingHost ?? DefaultBindingHost
+        }:${this.settings.port}/`
+      );
+    }
 
     if (this.insecureServer) {
       this.insecureServer.close();
@@ -422,6 +427,25 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         text: LicenseUrl,
       });
       noWarrantee.createEl("span", { text: "." });
+
+      new Setting(containerEl)
+        .setName("Enable Encrypted (HTTPs) Server")
+        .setDesc(
+          `
+          This controls whether the HTTPs server is enabled.  You almost certainly want to leave this switch in its default state ('on'),
+          but may find it useful to turn this switch off for
+          troubleshooting.
+        `
+        )
+        .addToggle((cb) =>
+          cb
+            .onChange((value) => {
+              this.plugin.settings.enableSecureServer = value;
+              this.plugin.saveSettings();
+              this.plugin.refreshServerState();
+            })
+            .setValue(this.plugin.settings.enableSecureServer ?? true)
+        );
 
       new Setting(containerEl)
         .setName("Encrypted (HTTPS) Server Port")
