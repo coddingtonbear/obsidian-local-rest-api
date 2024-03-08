@@ -27,6 +27,7 @@ export interface LocalRestApiSettings {
   port: number;
   insecurePort: number;
   enableInsecureServer: boolean;
+  enableSecureServer?: boolean;
 
   authorizationHeaderName?: string;
   bindingHost?: string;
