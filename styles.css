@@ -33,3 +33,15 @@ div.obsidian-local-rest-api-settings div.certificate-regeneration-recommended {
   padding: 10px 20px;
   border: 2px solid #ffff00;
 }
+
+div.obsidian-local-rest-api-settings table.api-urls tr {
+  width: 100%;
+}
+
+div.obsidian-local-rest-api-settings table.api-urls th, div.obsidian-local-rest-api-settings table.api-urls td {
+  padding: 5px 25px;
+}
+
+div.obsidian-local-rest-api-settings table.api-urls tr.disabled td.name, div.obsidian-local-rest-api-settings table.api-urls tr.disabled td.url {
+  text-decoration: line-through;
+}

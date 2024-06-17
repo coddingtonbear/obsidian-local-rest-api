@@ -241,29 +241,81 @@ class LocalRestApiSettingTab extends PluginSettingTab {
 
     containerEl.empty();
     containerEl.classList.add("obsidian-local-rest-api-settings");
+    containerEl.createEl("h2", { text: "Obsidian Local REST API" });
+    containerEl.createEl("h3", { text: "How to Access" });
 
     const apiKeyDiv = containerEl.createEl("div");
     apiKeyDiv.classList.add("api-key-display");
 
-    apiKeyDiv.createEl("h3", { text: "Your API Key" });
-    apiKeyDiv.createEl("p", {
-      text: "This must be passed in all requests via an authorization header.",
-    });
-    apiKeyDiv.createEl("pre", { text: this.plugin.settings.apiKey });
-    apiKeyDiv.createEl("p", { text: "Example header: " });
-    apiKeyDiv.createEl("pre", {
-      text: `${
-        this.plugin.settings.authorizationHeaderName ?? "Authorization"
-      }: Bearer ${this.plugin.settings.apiKey}`,
-    });
+    const availableApis = apiKeyDiv.createEl("p");
+    availableApis.innerHTML = `
+      You can access Obsidian Local REST API via the following URLs:
+    `;
+
+    const connectionUrls = apiKeyDiv.createEl("table", { cls: "api-urls" });
+    const connectionUrlsTbody = connectionUrls.createEl("tbody");
+    const secureTr = connectionUrlsTbody.createEl(
+      "tr",
+      this.plugin.settings.enableSecureServer === false
+        ? {
+            cls: "disabled",
+            title: "Disabled.  You can enable this in 'Settings' below.",
+          }
+        : {
+            title: "Enabled",
+          }
+    );
+    const secureUrl = `https://127.0.0.1:${this.plugin.settings.port}/`;
+    secureTr.innerHTML = `
+          <td>
+            ${this.plugin.settings.enableSecureServer === false ? "❌" : "✅"}
+          </td>
+          <td class="name">
+            Encrypted (HTTPS) API URL
+          </td>
+          <td class="url">
+             ${secureUrl} <a href="javascript:navigator.clipboard.writeText('${secureUrl}')">(copy)</a>
+          </td>
+      `;
+
+    const insecureTr = connectionUrlsTbody.createEl(
+      "tr",
+      this.plugin.settings.enableInsecureServer === false
+        ? {
+            cls: "disabled",
+            title: "Disabled.  You can enable this in 'Settings' below.",
+          }
+        : {
+            title: "Enabled",
+          }
+    );
+    const insecureUrl = `http://127.0.0.1:${this.plugin.settings.insecurePort}/`;
+    insecureTr.innerHTML = `
+        <td>
+          ${this.plugin.settings.enableInsecureServer === false ? "❌" : "✅"}
+        </td>
+        <td class="name">
+          Non-encrypted (HTTP) API URL  ${
+            this.plugin.settings.enableInsecureServer === false
+              ? "(Disabled; enable below)"
+              : ""
+          }
+        </td>
+        <td class="url">
+          ${insecureUrl} <a href="javascript:navigator.clipboard.writeText('${insecureUrl}')">(copy)</a>
+        </td>
+    `;
 
     const seeMore = apiKeyDiv.createEl("p");
-    seeMore.createEl("a", {
-      href: "https://coddingtonbear.github.io/obsidian-local-rest-api/",
-      text: "See more information and examples in our interactive OpenAPI documentation.",
-    });
+    seeMore.innerHTML = `
+      Comprehensive documentation of what API endpoints are available can
+      be found in
+      <a href="https://coddingtonbear.github.io/obsidian-local-rest-api/">the online docs</a>.
+    `;
 
-    const importCert = apiKeyDiv.createEl("p");
+    const importCert = apiKeyDiv.createEl("p", {
+      cls: this.plugin.settings.enableSecureServer === false ? "disabled" : "",
+    });
     importCert.createEl("span", {
       text: "By default this plugin uses a self-signed certificate for HTTPS; you may want to ",
     });
@@ -274,6 +326,21 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     importCert.createEl("span", {
       text: " to use it for validating your connection's security by adding it as a trusted certificate authority in the browser or tool you are using for interacting with this API.",
     });
+
+    apiKeyDiv.createEl("p", {
+      text: "In order to access this API, your API Key must be passed in all requests via an authorization header:",
+    });
+    apiKeyDiv.createEl("pre", { text: this.plugin.settings.apiKey });
+    apiKeyDiv.createEl("p", {
+      text: "Example request for fetching all notes:",
+    });
+    apiKeyDiv.createEl("pre", {
+      text: `GET /vault/ HTTP/1.1\n${
+        this.plugin.settings.authorizationHeaderName ?? "Authorization"
+      }: Bearer ${this.plugin.settings.apiKey}`,
+    });
+
+    containerEl.createEl("h3", { text: "Settings" });
 
     if (remainingCertificateValidityDays < 0) {
       const expiredCertDiv = apiKeyDiv.createEl("div");
