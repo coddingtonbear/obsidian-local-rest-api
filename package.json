@@ -7,8 +7,7 @@
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "version": "node version-bump.mjs && git add manifest.json versions.json",
-    "test": "jest",
-    "docs": "node_modules/swagger-ui-cli/bin/swagger-ui docs/openapi.yaml"
+    "test": "jest"
   },
   "keywords": [],
   "author": "",
@@ -31,7 +30,6 @@
     "jest": "^26",
     "obsidian": "latest",
     "supertest": "^6.2.2",
-    "swagger-ui-cli": "^0.10.0",
     "ts-jest": "26.5.6",
     "tslib": "2.4.0",
     "typescript": "4.7.4"
