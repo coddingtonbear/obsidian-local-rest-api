@@ -242,7 +242,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
 
     containerEl.empty();
     containerEl.classList.add("obsidian-local-rest-api-settings");
-    containerEl.createEl("h2", { text: "Obsidian Local REST API" });
+    containerEl.createEl("h2", { text: "Local REST API" });
     containerEl.createEl("h3", { text: "How to Access" });
 
     const apiKeyDiv = containerEl.createEl("div");
