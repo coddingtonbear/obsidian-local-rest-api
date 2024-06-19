@@ -240,7 +240,7 @@ paths:
       - name: Content-Insertion-Ignore-Newline
         in: header
         description: |
-          Insert content before any newslines at end of header block.
+          Insert content before any newlines at end of header block.
         schema:
           type: string
           enum:
@@ -773,7 +773,7 @@ paths:
       - name: Content-Insertion-Ignore-Newline
         in: header
         description: |
-          Insert content before any newslines at end of header block.
+          Insert content before any newlines at end of header block.
         schema:
           type: string
           enum:
