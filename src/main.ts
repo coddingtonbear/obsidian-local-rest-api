@@ -230,6 +230,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
 
   display(): void {
     const { containerEl } = this;
+    containerEl.replaceChildren();
 
     const parsedCertificate = forge.pki.certificateFromPem(
       this.plugin.settings.crypto.cert
@@ -390,9 +391,14 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       .addToggle((cb) =>
         cb
           .onChange((value) => {
+            const originalValue = this.plugin.settings.enableInsecureServer;
             this.plugin.settings.enableInsecureServer = value;
             this.plugin.saveSettings();
             this.plugin.refreshServerState();
+            // If our target value differs,
+            if (value !== originalValue) {
+              this.display();
+            }
           })
           .setValue(this.plugin.settings.enableInsecureServer)
       );
@@ -507,9 +513,13 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         .addToggle((cb) =>
           cb
             .onChange((value) => {
+              const originalValue = this.plugin.settings.enableSecureServer;
               this.plugin.settings.enableSecureServer = value;
               this.plugin.saveSettings();
               this.plugin.refreshServerState();
+              if (value !== originalValue) {
+                this.display();
+              }
             })
             .setValue(this.plugin.settings.enableSecureServer ?? true)
         );
