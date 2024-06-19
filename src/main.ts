@@ -274,10 +274,23 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           <td class="name">
             Encrypted (HTTPS) API URL
           </td>
-          <td class="url">
-             ${secureUrl} <a href="javascript:navigator.clipboard.writeText('${secureUrl}')">(copy)</a>
-          </td>
       `;
+    const secureUrlsTd = secureTr.createEl("td", { cls: "url" });
+    secureUrlsTd.innerHTML = `
+      ${secureUrl} <a href="javascript:navigator.clipboard.writeText('${secureUrl}')">(copy)</a><br />
+    `;
+    if (this.plugin.settings.subjectAltNames) {
+      for (const name of this.plugin.settings.subjectAltNames.split("\n")) {
+        if (name.trim()) {
+          const altSecureUrl = `https://${name.trim()}:${
+            this.plugin.settings.port
+          }/`;
+          secureUrlsTd.innerHTML += `
+            ${altSecureUrl} <a href="javascript:navigator.clipboard.writeText('${altSecureUrl}')">(copy)</a><br />
+          `;
+        }
+      }
+    }
 
     const insecureTr = connectionUrlsTbody.createEl(
       "tr",
@@ -302,10 +315,23 @@ class LocalRestApiSettingTab extends PluginSettingTab {
               : ""
           }
         </td>
-        <td class="url">
-          ${insecureUrl} <a href="javascript:navigator.clipboard.writeText('${insecureUrl}')">(copy)</a>
-        </td>
     `;
+    const insecureUrlsTd = insecureTr.createEl("td", { cls: "url" });
+    insecureUrlsTd.innerHTML = `
+      ${insecureUrl} <a href="javascript:navigator.clipboard.writeText('${insecureUrl}')">(copy)</a><br />
+    `;
+    if (this.plugin.settings.subjectAltNames) {
+      for (const name of this.plugin.settings.subjectAltNames.split("\n")) {
+        if (name.trim()) {
+          const altSecureUrl = `https://${name.trim()}:${
+            this.plugin.settings.insecurePort
+          }/`;
+          insecureUrlsTd.innerHTML += `
+            ${altSecureUrl} <a href="javascript:navigator.clipboard.writeText('${altSecureUrl}')">(copy)</a><br />
+          `;
+        }
+      }
+    }
 
     const seeMore = apiKeyDiv.createEl("p");
     seeMore.innerHTML = `
