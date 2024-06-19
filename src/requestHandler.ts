@@ -127,11 +127,14 @@ export default class RequestHandler {
 
     // Gather both in-line tags (hash'd) & frontmatter tags; strip
     // leading '#' from them if it's there, and remove duplicates
-    const directTags = (cache.tags ?? []).map((tag) => tag.tag) ?? [];
+    const directTags =
+      (cache.tags ?? []).filter((tag) => tag).map((tag) => tag.tag) ?? [];
     const frontmatterTags = Array.isArray(frontmatter.tags)
       ? frontmatter.tags
       : [];
     const filteredTags: string[] = [...frontmatterTags, ...directTags]
+      // Filter out falsy tags
+      .filter((tag) => tag)
       // Strip leading hash and get tag's string representation --
       // although it should always be a string, it apparently isn't always!
       .map((tag) => tag.toString().replace(/^#/, ""))
