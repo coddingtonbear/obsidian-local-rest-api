@@ -272,7 +272,14 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             ${this.plugin.settings.enableSecureServer === false ? "❌" : "✅"}
           </td>
           <td class="name">
-            Encrypted (HTTPS) API URL
+            Encrypted (HTTPS) API URL<br /><br />
+            <i>
+              Requires that <a href="https://127.0.0.1:${
+                this.plugin.settings.port
+              }/${CERT_NAME}">this certificate</a> be
+              configured as a trusted certificate authority for
+              your browser.  See <a href="https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F">wiki</a> for more information.
+            </i>
           </td>
       `;
     const secureUrlsTd = secureTr.createEl("td", { cls: "url" });
@@ -309,11 +316,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           ${this.plugin.settings.enableInsecureServer === false ? "❌" : "✅"}
         </td>
         <td class="name">
-          Non-encrypted (HTTP) API URL  ${
-            this.plugin.settings.enableInsecureServer === false
-              ? "(Disabled; enable below)"
-              : ""
-          }
+          Non-encrypted (HTTP) API URL
         </td>
     `;
     const insecureUrlsTd = insecureTr.createEl("td", { cls: "url" });
@@ -333,39 +336,27 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       }
     }
 
-    const seeMore = apiKeyDiv.createEl("p");
-    seeMore.innerHTML = `
-      Comprehensive documentation of what API endpoints are available can
-      be found in
-      <a href="https://coddingtonbear.github.io/obsidian-local-rest-api/">the online docs</a>.
+    const inOrderToAccess = apiKeyDiv.createEl("p");
+    inOrderToAccess.innerHTML = `
+      Your API Key must be passed in requests via an authorization header
+      <a href="javascript:navigator.clipboard.writeText('${this.plugin.settings.apiKey}')">(copy)</a>:
     `;
-
-    const importCert = apiKeyDiv.createEl("p", {
-      cls: this.plugin.settings.enableSecureServer === false ? "disabled" : "",
-    });
-    importCert.createEl("span", {
-      text: "By default this plugin uses a self-signed certificate for HTTPS; you may want to ",
-    });
-    importCert.createEl("a", {
-      href: `https://127.0.0.1:${this.plugin.settings.port}/${CERT_NAME}`,
-      text: "download this certificate",
-    });
-    importCert.createEl("span", {
-      text: " to use it for validating your connection's security by adding it as a trusted certificate authority in the browser or tool you are using for interacting with this API.",
-    });
-
-    apiKeyDiv.createEl("p", {
-      text: "In order to access this API, your API Key must be passed in all requests via an authorization header:",
-    });
     apiKeyDiv.createEl("pre", { text: this.plugin.settings.apiKey });
     apiKeyDiv.createEl("p", {
-      text: "Example request for fetching all notes:",
+      text: "For example, the following request will return all notes in the root directory of your vault:",
     });
     apiKeyDiv.createEl("pre", {
       text: `GET /vault/ HTTP/1.1\n${
         this.plugin.settings.authorizationHeaderName ?? "Authorization"
       }: Bearer ${this.plugin.settings.apiKey}`,
     });
+
+    const seeMore = apiKeyDiv.createEl("p");
+    seeMore.innerHTML = `
+      Comprehensive documentation of what API endpoints are available can
+      be found in
+      <a href="https://coddingtonbear.github.io/obsidian-local-rest-api/">the online docs</a>.
+    `;
 
     containerEl.createEl("h3", { text: "Settings" });
 
