@@ -326,7 +326,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     if (this.plugin.settings.subjectAltNames) {
       for (const name of this.plugin.settings.subjectAltNames.split("\n")) {
         if (name.trim()) {
-          const altSecureUrl = `https://${name.trim()}:${
+          const altSecureUrl = `http://${name.trim()}:${
             this.plugin.settings.insecurePort
           }/`;
           insecureUrlsTd.innerHTML += `
