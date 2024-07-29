@@ -17,6 +17,8 @@ import {
   getCertificateIsUptoStandards,
   getCertificateValidityDays,
 } from "./utils";
+import LocalRestApiPublicApi from "./api";
+import { PluginManifest } from "obsidian";
 
 export default class LocalRestApi extends Plugin {
   settings: LocalRestApiSettings;
@@ -24,6 +26,7 @@ export default class LocalRestApi extends Plugin {
   insecureServer: http.Server | null = null;
   requestHandler: RequestHandler;
   refreshServerState: () => void;
+  registeredPublicApiConsumers: PluginManifest[] = [];
 
   async onload() {
     this.refreshServerState = this.debounce(
@@ -35,7 +38,8 @@ export default class LocalRestApi extends Plugin {
     this.requestHandler = new RequestHandler(
       this.app,
       this.manifest,
-      this.settings
+      this.settings,
+      this.registeredPublicApiConsumers
     );
     this.requestHandler.setupRouter();
 
@@ -144,6 +148,27 @@ export default class LocalRestApi extends Plugin {
     this.addSettingTab(new LocalRestApiSettingTab(this.app, this));
 
     this.refreshServerState();
+  }
+
+  getPublicApi(pluginManifest: PluginManifest): LocalRestApiPublicApi {
+    if (!pluginManifest.id || !pluginManifest.name || !pluginManifest.version) {
+      throw new Error(
+        "PluginManifest instance must include a defined id, name, and version to be accempted."
+      );
+    }
+
+    let alreadyRegistered = false;
+    for (const manifest of this.registeredPublicApiConsumers) {
+      if (JSON.stringify(manifest) === JSON.stringify(pluginManifest)) {
+        alreadyRegistered = true;
+        continue;
+      }
+    }
+    if (!alreadyRegistered) {
+      this.registeredPublicApiConsumers.push(pluginManifest);
+    }
+
+    return new LocalRestApiPublicApi(this.manifest, this.requestHandler);
   }
 
   debounce<F extends (...args: any[]) => any>(

@@ -52,16 +52,19 @@ export default class RequestHandler {
   api: express.Express;
   manifest: PluginManifest;
   settings: LocalRestApiSettings;
+  registeredPublicApiConsumers: PluginManifest[];
 
   constructor(
     app: App,
     manifest: PluginManifest,
-    settings: LocalRestApiSettings
+    settings: LocalRestApiSettings,
+    registeredPublicApiConsumers: PluginManifest[]
   ) {
     this.app = app;
     this.manifest = manifest;
     this.api = express();
     this.settings = settings;
+    this.registeredPublicApiConsumers = registeredPublicApiConsumers;
 
     this.api.set("json spaces", 2);
 
@@ -210,6 +213,10 @@ export default class RequestHandler {
               regenerateRecommended:
                 !getCertificateIsUptoStandards(certificate),
             }
+          : undefined,
+      registeredPublicApiConsumers:
+        this.requestIsAuthenticated(req) && certificate
+          ? this.registeredPublicApiConsumers
           : undefined,
     });
   }
