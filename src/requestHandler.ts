@@ -200,6 +200,7 @@ export default class RequestHandler {
 
     res.status(200).json({
       status: "OK",
+      manifest: this.manifest,
       versions: {
         obsidian: apiVersion,
         self: this.manifest.version,
