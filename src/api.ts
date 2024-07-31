@@ -1,6 +1,6 @@
 import { IRoute, Request } from "express";
 import RequestHandler from "./requestHandler";
-import { PluginManifest } from "mocks/obsidian";
+import { PluginManifest } from "obsidian";
 import { TFile } from "obsidian";
 import { FileMetadataObject } from "./types";
 
