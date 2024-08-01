@@ -46,25 +46,31 @@ import {
   ERROR_CODE_MESSAGES,
   MaximumRequestSize,
 } from "./constants";
+import LocalRestApiPublicApi from "./api";
 
 export default class RequestHandler {
   app: App;
   api: express.Express;
   manifest: PluginManifest;
   settings: LocalRestApiSettings;
-  registeredPublicApiConsumers: PluginManifest[];
+
+  pluginRouter: express.Router;
+  registeredPublicApiConsumers: {
+    manifest: PluginManifest;
+    api: LocalRestApiPublicApi;
+  }[] = [];
 
   constructor(
     app: App,
     manifest: PluginManifest,
-    settings: LocalRestApiSettings,
-    registeredPublicApiConsumers: PluginManifest[]
+    settings: LocalRestApiSettings
   ) {
     this.app = app;
     this.manifest = manifest;
     this.api = express();
     this.settings = settings;
-    this.registeredPublicApiConsumers = registeredPublicApiConsumers;
+
+    this.pluginRouter = express.Router();
 
     this.api.set("json spaces", 2);
 
@@ -88,6 +94,37 @@ export default class RequestHandler {
         return false;
       }
     );
+  }
+
+  registerPublicApiConsumer(manifest: PluginManifest): LocalRestApiPublicApi {
+    let api: LocalRestApiPublicApi | undefined = undefined;
+    for (const { manifest: existingManifest, api: existingApi } of this
+      .registeredPublicApiConsumers) {
+      if (JSON.stringify(existingManifest) === JSON.stringify(manifest)) {
+        api = existingApi;
+        break;
+      }
+    }
+    if (!api) {
+      const router = express.Router();
+      this.pluginRouter.use(router);
+      api = new LocalRestApiPublicApi(router, () => {
+        const idx = this.registeredPublicApiConsumers.findIndex(
+          ({ manifest: storedManifest }) =>
+            JSON.stringify(manifest) === JSON.stringify(storedManifest)
+        );
+        if (idx !== -1) {
+          this.registeredPublicApiConsumers.splice(idx, 1);
+          this.pluginRouter.stack.splice(idx, 1);
+        }
+      });
+      this.registeredPublicApiConsumers.push({
+        manifest,
+        api,
+      });
+    }
+
+    return api;
   }
 
   requestIsAuthenticated(req: express.Request): boolean {
@@ -215,10 +252,9 @@ export default class RequestHandler {
                 !getCertificateIsUptoStandards(certificate),
             }
           : undefined,
-      registeredPublicApiConsumers:
-        this.requestIsAuthenticated(req) && certificate
-          ? this.registeredPublicApiConsumers
-          : undefined,
+      registeredPublicApiConsumers: this.requestIsAuthenticated(req)
+        ? this.registeredPublicApiConsumers.map(({ manifest }) => manifest)
+        : undefined,
     });
   }
 
@@ -1045,6 +1081,8 @@ export default class RequestHandler {
 
     this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
     this.api.get("/", this.root.bind(this));
+
+    this.api.use(this.pluginRouter);
 
     this.api.use(this.notFoundHandler.bind(this));
     this.api.use(this.errorHandler.bind(this));

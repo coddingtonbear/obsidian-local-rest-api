@@ -157,18 +157,9 @@ export default class LocalRestApi extends Plugin {
       );
     }
 
-    let alreadyRegistered = false;
-    for (const manifest of this.registeredPublicApiConsumers) {
-      if (JSON.stringify(manifest) === JSON.stringify(pluginManifest)) {
-        alreadyRegistered = true;
-        continue;
-      }
-    }
-    if (!alreadyRegistered) {
-      this.registeredPublicApiConsumers.push(pluginManifest);
-    }
+    console.log("[REST API] Added new API extension", pluginManifest);
 
-    return new LocalRestApiPublicApi(this.manifest, this.requestHandler);
+    return this.requestHandler.registerPublicApiConsumer(pluginManifest);
   }
 
   debounce<F extends (...args: any[]) => any>(
