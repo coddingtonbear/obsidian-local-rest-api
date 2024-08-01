@@ -54,8 +54,8 @@ export default class RequestHandler {
   manifest: PluginManifest;
   settings: LocalRestApiSettings;
 
-  pluginRouter: express.Router;
-  registeredPublicApiConsumers: {
+  apiExtensionRouter: express.Router;
+  apiExtensions: {
     manifest: PluginManifest;
     api: LocalRestApiPublicApi;
   }[] = [];
@@ -70,7 +70,7 @@ export default class RequestHandler {
     this.api = express();
     this.settings = settings;
 
-    this.pluginRouter = express.Router();
+    this.apiExtensionRouter = express.Router();
 
     this.api.set("json spaces", 2);
 
@@ -96,10 +96,10 @@ export default class RequestHandler {
     );
   }
 
-  registerPublicApiConsumer(manifest: PluginManifest): LocalRestApiPublicApi {
+  registerApiExtension(manifest: PluginManifest): LocalRestApiPublicApi {
     let api: LocalRestApiPublicApi | undefined = undefined;
     for (const { manifest: existingManifest, api: existingApi } of this
-      .registeredPublicApiConsumers) {
+      .apiExtensions) {
       if (JSON.stringify(existingManifest) === JSON.stringify(manifest)) {
         api = existingApi;
         break;
@@ -107,18 +107,18 @@ export default class RequestHandler {
     }
     if (!api) {
       const router = express.Router();
-      this.pluginRouter.use(router);
+      this.apiExtensionRouter.use(router);
       api = new LocalRestApiPublicApi(router, () => {
-        const idx = this.registeredPublicApiConsumers.findIndex(
+        const idx = this.apiExtensions.findIndex(
           ({ manifest: storedManifest }) =>
             JSON.stringify(manifest) === JSON.stringify(storedManifest)
         );
         if (idx !== -1) {
-          this.registeredPublicApiConsumers.splice(idx, 1);
-          this.pluginRouter.stack.splice(idx, 1);
+          this.apiExtensions.splice(idx, 1);
+          this.apiExtensionRouter.stack.splice(idx, 1);
         }
       });
-      this.registeredPublicApiConsumers.push({
+      this.apiExtensions.push({
         manifest,
         api,
       });
@@ -252,8 +252,8 @@ export default class RequestHandler {
                 !getCertificateIsUptoStandards(certificate),
             }
           : undefined,
-      registeredPublicApiConsumers: this.requestIsAuthenticated(req)
-        ? this.registeredPublicApiConsumers.map(({ manifest }) => manifest)
+      apiExtensions: this.requestIsAuthenticated(req)
+        ? this.apiExtensions.map(({ manifest }) => manifest)
         : undefined,
     });
   }
@@ -1082,7 +1082,7 @@ export default class RequestHandler {
     this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
     this.api.get("/", this.root.bind(this));
 
-    this.api.use(this.pluginRouter);
+    this.api.use(this.apiExtensionRouter);
 
     this.api.use(this.notFoundHandler.bind(this));
     this.api.use(this.errorHandler.bind(this));
