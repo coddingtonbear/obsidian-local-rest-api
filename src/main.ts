@@ -26,7 +26,6 @@ export default class LocalRestApi extends Plugin {
   insecureServer: http.Server | null = null;
   requestHandler: RequestHandler;
   refreshServerState: () => void;
-  registeredPublicApiConsumers: PluginManifest[] = [];
 
   async onload() {
     this.refreshServerState = this.debounce(
@@ -38,8 +37,7 @@ export default class LocalRestApi extends Plugin {
     this.requestHandler = new RequestHandler(
       this.app,
       this.manifest,
-      this.settings,
-      this.registeredPublicApiConsumers
+      this.settings
     );
     this.requestHandler.setupRouter();
 
@@ -159,7 +157,7 @@ export default class LocalRestApi extends Plugin {
 
     console.log("[REST API] Added new API extension", pluginManifest);
 
-    return this.requestHandler.registerPublicApiConsumer(pluginManifest);
+    return this.requestHandler.registerApiExtension(pluginManifest);
   }
 
   debounce<F extends (...args: any[]) => any>(

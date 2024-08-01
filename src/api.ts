@@ -2,12 +2,12 @@ import express from "express";
 
 export default class LocalRestApiPublicApi {
   private router: express.Router;
-  private unregisterHandler: () => void;
+  private onUnregister: () => void;
   private unregistered = false;
 
-  constructor(router: express.Router, unregister: () => void) {
+  constructor(router: express.Router, onUnregister: () => void) {
     this.router = router;
-    this.unregisterHandler = unregister;
+    this.onUnregister = onUnregister;
     this.unregistered = false;
   }
 
@@ -22,7 +22,7 @@ export default class LocalRestApiPublicApi {
   }
 
   public unregister(): void {
-    this.unregisterHandler();
+    this.onUnregister();
     this.unregistered = true;
   }
 }
