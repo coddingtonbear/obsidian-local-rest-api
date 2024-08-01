@@ -146,6 +146,8 @@ export default class LocalRestApi extends Plugin {
     this.addSettingTab(new LocalRestApiSettingTab(this.app, this));
 
     this.refreshServerState();
+
+    this.app.workspace.trigger("obsidian-local-rest-api:loaded");
   }
 
   getPublicApi(pluginManifest: PluginManifest): LocalRestApiPublicApi {
