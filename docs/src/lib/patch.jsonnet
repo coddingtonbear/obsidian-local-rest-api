@@ -41,7 +41,10 @@
     {
       name: 'Target',
       'in': 'header',
-      description: 'Target to patch',
+      description: |||
+        Target to patch; this value can be URL-Encoded and *must*
+        be URL-Encoded if it includes non-ASCII characters.
+      |||,
       required: true,
       schema: {
         type: 'string',
