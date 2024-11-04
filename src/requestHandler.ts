@@ -21,6 +21,13 @@ import responseTime from "response-time";
 import queryString from "query-string";
 import WildcardRegexp from "glob-to-regexp";
 import path from "path";
+import {
+  applyPatch,
+  ContentType,
+  PatchInstruction,
+  PatchOperation,
+  PatchTargetType,
+} from "markdown-patch";
 
 import {
   CannedResponse,
@@ -367,7 +374,7 @@ export default class RequestHandler {
     return this._vaultPut(path, req, res);
   }
 
-  async _vaultPatch(
+  async _vaultPatchV2(
     path: string,
     req: express.Request,
     res: express.Response
@@ -451,6 +458,97 @@ export default class RequestHandler {
     await this.app.vault.adapter.write(path, content);
 
     res.status(200).send(content);
+  }
+
+  async _vaultPatchV3(
+    path: string,
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const operation = req.get("Operation");
+    const targetType = req.get("Target-Type");
+    const rawTarget = req.get("Target");
+    const contentType = req.get("Content-Type");
+    const createTargetIfMissing = req.get("Create-Target-If-Missing") == "true";
+    const applyIfContentPreexists =
+      req.get("Apply-If-Content-Preexists") == "true";
+    const trimTargetWhitespace = req.get("Trim-Target-Whitespace") == "true";
+    const targetDelimiter = req.get("Target-Delimiter") || "::";
+
+    const target =
+      targetType == "heading" ? rawTarget.split(targetDelimiter) : rawTarget;
+
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) {
+      this.returnCannedResponse(res, {
+        statusCode: 404,
+      });
+      return;
+    }
+    const fileContents = await this.app.vault.read(file);
+
+    if (!targetType) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingTargetTypeHeader,
+      });
+      return;
+    }
+    if (!["heading", "block", "frontmatter"].includes(targetType)) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidTargetTypeHeader,
+      });
+      return;
+    }
+    if (!operation) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingOperation,
+      });
+      return;
+    }
+    if (!["append", "prepend", "replace"].includes(operation)) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidOperation,
+      });
+      return;
+    }
+    if (!path || path.endsWith("/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
+      });
+      return;
+    }
+
+    const instruction: PatchInstruction = {
+      operation: operation as PatchOperation,
+      targetType: targetType as PatchTargetType,
+      target,
+      contentType: contentType as ContentType,
+      content: req.body,
+      applyIfContentPreexists,
+      trimTargetWhitespace,
+      createTargetIfMissing,
+    } as PatchInstruction;
+
+    console.info("Incoming content ", fileContents);
+
+    const patched = applyPatch(fileContents, instruction);
+
+    console.info("Patched file as ", patched);
+
+    await this.app.vault.adapter.write(path, patched);
+
+    res.status(200).send(patched);
+  }
+
+  async _vaultPatch(
+    path: string,
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    if (req.get("Heading") && !req.get("Target-Type")) {
+      return this._vaultPatchV2(path, req, res);
+    }
+    return this._vaultPatchV3(path, req, res);
   }
 
   async vaultPatch(req: express.Request, res: express.Response): Promise<void> {
@@ -995,6 +1093,11 @@ export default class RequestHandler {
     res: express.Response,
     next: express.NextFunction
   ): Promise<void> {
+    if (err.stack) {
+      console.error(err.stack);
+    } else {
+      console.error("No stack available!");
+    }
     if (err instanceof SyntaxError) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidContentForContentType,
@@ -1022,9 +1125,6 @@ export default class RequestHandler {
     this.api.use(cors());
     this.api.use(this.authenticationMiddleware.bind(this));
     this.api.use(
-      bodyParser.text({ type: "text/*", limit: MaximumRequestSize })
-    );
-    this.api.use(
       bodyParser.text({
         type: ContentTypes.dataviewDql,
         limit: MaximumRequestSize,
@@ -1044,6 +1144,9 @@ export default class RequestHandler {
         type: ContentTypes.jsonLogic,
         limit: MaximumRequestSize,
       })
+    );
+    this.api.use(
+      bodyParser.text({ type: "text/*", limit: MaximumRequestSize })
     );
     this.api.use(bodyParser.raw({ type: "*/*", limit: MaximumRequestSize }));
 
