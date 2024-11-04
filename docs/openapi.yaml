@@ -336,7 +336,9 @@ paths:
           schema:
             default: "::"
             type: "string"
-        - description: "Target to patch"
+        - description: |
+            Target to patch; this value can be URL-Encoded and *must*
+            be URL-Encoded if it includes non-ASCII characters.
           in: "header"
           name: "Target"
           required: true
@@ -808,7 +810,9 @@ paths:
           schema:
             default: "::"
             type: "string"
-        - description: "Target to patch"
+        - description: |
+            Target to patch; this value can be URL-Encoded and *must*
+            be URL-Encoded if it includes non-ASCII characters.
           in: "header"
           name: "Target"
           required: true
@@ -1438,7 +1442,9 @@ paths:
           schema:
             default: "::"
             type: "string"
-        - description: "Target to patch"
+        - description: |
+            Target to patch; this value can be URL-Encoded and *must*
+            be URL-Encoded if it includes non-ASCII characters.
           in: "header"
           name: "Target"
           required: true
