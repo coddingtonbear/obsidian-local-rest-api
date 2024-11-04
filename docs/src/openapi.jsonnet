@@ -147,7 +147,7 @@ std.manifestYamlDoc(
             'Active File',
           ],
           summary: 'Insert content into the currently open note in Obsidian relative to a heading within that document.\n',
-          description: 'Inserts content into the currently-open note relative to a heading within that note.\n\nThis is useful if you have a document having multiple headings, and you would like to insert content below one of those headings.  For example, if you had the following document:\n\n```markdown\n# An important subject\n\n## Details\n\n# Another important subject\n\n## Details\n```\n\nYou could insert content below "Another important subject" by providing `Another important subject` in your `Heading` header.\n\nBy default, this will find the first heading matching the name you specify.  If your heading appears more than once in a document, you can control which heading is used by indicating parent headings with the `::` delimiter. \n\nFor example, if you would like your content to be inserted after the heading "Details" below "Another important subject" in the above document, you could provide the value `Another important subject::Details` in your `Heading` header.\n\nIf on the off chance the string "::" occurs in your headers, you can override the delimiter used for separating headers from one another via the `Heading-Boundary` header.\n',
+          description: 'Inserts content into the currently-open note relative to a heading within that note.\n\n' + Patch.description,
         },
         delete: Delete {
           tags: [
@@ -186,7 +186,7 @@ std.manifestYamlDoc(
             'Vault Files',
           ],
           summary: 'Insert content into an existing note relative to a heading within that document.\n',
-          description: 'Inserts content into an existing note relative to a heading within your note.\n\nThis is useful if you have a document having multiple headings, and you would like to insert content below one of those headings.  For example, if you had the following document:\n\n```markdown\n# An important subject\n\n## Details\n\n# Another important subject\n\n## Details\n```\n\nYou could insert content below "Another important subject" by providing `Another important subject` in your `Heading` header.\n\nBy default, this will find the first heading matching the name you specify.  If your heading appears more than once in a document, you can control which heading is used by indicating parent headings with the `::` delimiter. \n\nFor example, if you would like your content to be inserted after the heading "Details" below "Another important subject" in the above document, you could provide the value `Another important subject::Details` in your `Heading` header.\n\nIf on the off chance the string "::" occurs in your headers, you can override the delimiter used for separating headers from one another via the `Heading-Boundary` header.\n',
+          description: 'Inserts content into an existing note relative to a heading within your note.\n\n' + Patch.description,
           parameters+: [ParamPath],
         },
         delete: Delete {
@@ -326,7 +326,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Insert content into a periodic note relative to a heading within that document.\n',
-          description: 'Inserts content into an existing note relative to a heading within your note.\n\nThis is useful if you have a document having multiple headings, and you would like to insert content below one of those headings.  For example, if you had the following document:\n\n```markdown\n# An important subject\n\n## Details\n\n# Another important subject\n\n## Details\n```\n\nYou could insert content below "Another important subject" by providing `Another important subject` in your `Heading` header.\n\nBy default, this will find the first heading matching the name you specify.  If your heading appears more than once in a document, you can control which heading is used by indicating parent headings with the `::` delimiter. \n\nFor example, if you would like your content to be inserted after the heading "Details" below "Another important subject" in the above document, you could provide the value `Another important subject::Details` in your `Heading` header.\n\nIf on the off chance the string "::" occurs in your headers, you can override the delimiter used for separating headers from one another via the `Heading-Boundary` header.\n',
+          description: 'Inserts content into an existing note relative to a heading within your note.\n\n' + Patch.description,
           parameters+: [ParamPeriod],
         },
         delete: Delete {
