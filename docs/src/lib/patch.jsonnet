@@ -149,6 +149,8 @@
   description: |||
     Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
 
+    Note that this API was changed in Version 3.0 of this extension and the earlier PATCH API is now deprecated. Requests made using the previous version of this API will continue to work until Version 4.0 is released.  See https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0 for more details and migration instructions.
+
     # Examples
 
     All of the below examples assume you have a document that looks like
@@ -272,37 +274,5 @@
     interpreting yoru `prepend` or `append` requests if you specify
     your data as JSON (particularly when appending, for example,
     list items).
-
-    # Upgrading from Version 2.0 (heading-based) to Version 3.0 (target-based) APIs
-
-    This API was changed in version 3.0 of Obsidian Local REST API to support making changes to your document relative to ["block references"](https://help.obsidian.md/Linking+notes+and+files/Internal+links#Link+to+a+block+in+a+note) and frontmatter fields in addition to headings within your document. 
-    Version 2.0 of this API (now undocumented) is still accessible as
-    long as your incoming request specifies the `Heading` header and
-    *does not* specify a `Target-Type` header.  You should upgrade, though,
-    to the current version of the API as support for the Version 2.0 API is
-    now deprecated and will stop working in Version 4.0.
-
-    You can migrate to the current version of the API by following the below guidelines. The words "heading" and "header" both occur quite a lot in the below paragraphs so it may aid in your understanding if you keep in mind that "head**ing**" here refers to a heading existing within your markdown document and "head**er**" refers to an HTTP Header that you may set to a value as part of using this API.
-
-    1. Rename your `Heading` header to `Target`.
-    2. Add a new `Target-Type` header having the value `heading`.
-    3. Set the `Operation` header such that its value is `append` if you had either not set the `Content-Insertion-Position` header or had set it to `end`. Set it to `prepend` if you had set `Content-Insertion-Position` to `beginning`.
-    4. If you had set `Content-Insertion-Ignore-Newline` to `true`, set the `Trim-Target-Whitespace` header value to `true` also.
-
-    Aside from the above, there is one important thing to keep in mind: while the obsolete version of this API allowed you to specify just the terminal heading (e.g. content under `### My Heading` could be addressed by setting the `Heading` header to `My Heading`), the current version of this API requires that you provide the full path to your target heading (i.e. instead of `My Heading`, you must find the parent second level heading and and its parent top level heading) delimited by `::`.  If `::` appears in your heading, you can override that value by setting the `Target-Delimiter` header.
-
-    For example, if you had previously set `Heading` to `My Heading` for adding content to "MY CONTENT" in a document like:
-
-    ```markdown
-    # Some top-level heading
-
-    ## Some second-level heading
-
-    ### My Heading
-
-    MY CONTENT
-    ```
-
-    you should now set yoru `Target` heading to `Some top-level heading::Some second-level heading::My Heading`.
   |||,
 }
