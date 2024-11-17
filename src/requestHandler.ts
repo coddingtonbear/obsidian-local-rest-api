@@ -451,7 +451,17 @@ export default class RequestHandler {
 
     await this.app.vault.adapter.write(path, content);
 
-    res.status(200).send(content);
+    console.warn(
+      `2.x PATCH implementation is deprecated and will be removed in version 4.0`
+    );
+    res
+      .header("Deprecation", 'true; sunset-version="4.0"')
+      .header(
+        "Link",
+        '<https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0>; rel="alternate"'
+      )
+      .status(200)
+      .send(content);
   }
 
   async _vaultPatchV3(
@@ -523,11 +533,7 @@ export default class RequestHandler {
       createTargetIfMissing,
     } as PatchInstruction;
 
-    console.info("Incoming content ", fileContents);
-
     const patched = applyPatch(fileContents, instruction);
-
-    console.info("Patched file as ", patched);
 
     await this.app.vault.adapter.write(path, patched);
 
