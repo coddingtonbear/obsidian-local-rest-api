@@ -332,7 +332,7 @@ export default class RequestHandler {
   }
 
   async vaultGet(req: express.Request, res: express.Response): Promise<void> {
-    const path = req.params[0];
+    const path = req.path.slice(req.path.indexOf("/", 1) + 1);
 
     return this._vaultGet(path, req, res);
   }
@@ -369,7 +369,7 @@ export default class RequestHandler {
   }
 
   async vaultPut(req: express.Request, res: express.Response): Promise<void> {
-    const path = req.params[0];
+    const path = req.path.slice(req.path.indexOf("/", 1) + 1);
 
     return this._vaultPut(path, req, res);
   }
@@ -387,12 +387,6 @@ export default class RequestHandler {
     let insert = false;
     let aboveNewLine = false;
 
-    if (!path || path.endsWith("/")) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
-      });
-      return;
-    }
     if (contentPosition === undefined) {
       insert = false;
     } else if (contentPosition === "beginning") {
@@ -545,6 +539,13 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response
   ): Promise<void> {
+    if (!path || path.endsWith("/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
+      });
+      return;
+    }
+
     if (req.get("Heading") && !req.get("Target-Type")) {
       return this._vaultPatchV2(path, req, res);
     }
@@ -552,7 +553,7 @@ export default class RequestHandler {
   }
 
   async vaultPatch(req: express.Request, res: express.Response): Promise<void> {
-    const path = req.params[0];
+    const path = req.path.slice(req.path.indexOf("/", 1) + 1);
 
     return this._vaultPatch(path, req, res);
   }
@@ -600,7 +601,7 @@ export default class RequestHandler {
   }
 
   async vaultPost(req: express.Request, res: express.Response): Promise<void> {
-    const path = req.params[0];
+    const path = req.path.slice(req.path.indexOf("/", 1) + 1);
 
     return this._vaultPost(path, req, res);
   }
@@ -632,7 +633,7 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response
   ): Promise<void> {
-    const path = req.params[0];
+    const path = req.path.slice(req.path.indexOf("/", 1) + 1);
 
     return this._vaultDelete(path, req, res);
   }
@@ -1053,7 +1054,7 @@ export default class RequestHandler {
   }
 
   async openPost(req: express.Request, res: express.Response): Promise<void> {
-    const path = req.params[0];
+    const path = req.path.slice(req.path.indexOf("/", 1) + 1);
 
     const query = queryString.parseUrl(req.originalUrl, {
       parseBooleans: true,
@@ -1159,7 +1160,7 @@ export default class RequestHandler {
       .delete(this.activeFileDelete.bind(this));
 
     this.api
-      .route("/vault/(.*)")
+      .route("/vault/*")
       .get(this.vaultGet.bind(this))
       .put(this.vaultPut.bind(this))
       .patch(this.vaultPatch.bind(this))
@@ -1180,7 +1181,7 @@ export default class RequestHandler {
     this.api.route("/search/").post(this.searchQueryPost.bind(this));
     this.api.route("/search/simple/").post(this.searchSimplePost.bind(this));
 
-    this.api.route("/open/(.*)").post(this.openPost.bind(this));
+    this.api.route("/open/*").post(this.openPost.bind(this));
 
     this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
     this.api.get("/", this.root.bind(this));
