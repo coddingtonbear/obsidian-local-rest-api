@@ -371,7 +371,9 @@ export default class RequestHandler {
   }
 
   async vaultPut(req: express.Request, res: express.Response): Promise<void> {
-    const path = req.path.slice(req.path.indexOf("/", 1) + 1);
+    const path = decodeURIComponent(
+      req.path.slice(req.path.indexOf("/", 1) + 1)
+    );
 
     return this._vaultPut(path, req, res);
   }
@@ -561,7 +563,9 @@ export default class RequestHandler {
   }
 
   async vaultPatch(req: express.Request, res: express.Response): Promise<void> {
-    const path = req.path.slice(req.path.indexOf("/", 1) + 1);
+    const path = decodeURIComponent(
+      req.path.slice(req.path.indexOf("/", 1) + 1)
+    );
 
     return this._vaultPatch(path, req, res);
   }
@@ -609,7 +613,9 @@ export default class RequestHandler {
   }
 
   async vaultPost(req: express.Request, res: express.Response): Promise<void> {
-    const path = req.path.slice(req.path.indexOf("/", 1) + 1);
+    const path = decodeURIComponent(
+      req.path.slice(req.path.indexOf("/", 1) + 1)
+    );
 
     return this._vaultPost(path, req, res);
   }
@@ -641,7 +647,9 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response
   ): Promise<void> {
-    const path = req.path.slice(req.path.indexOf("/", 1) + 1);
+    const path = decodeURIComponent(
+      req.path.slice(req.path.indexOf("/", 1) + 1)
+    );
 
     return this._vaultDelete(path, req, res);
   }
