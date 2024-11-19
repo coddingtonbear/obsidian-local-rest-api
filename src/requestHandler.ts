@@ -332,7 +332,9 @@ export default class RequestHandler {
   }
 
   async vaultGet(req: express.Request, res: express.Response): Promise<void> {
-    const path = req.path.slice(req.path.indexOf("/", 1) + 1);
+    const path = decodeURIComponent(
+      req.path.slice(req.path.indexOf("/", 1) + 1)
+    );
 
     return this._vaultGet(path, req, res);
   }
@@ -1060,7 +1062,9 @@ export default class RequestHandler {
   }
 
   async openPost(req: express.Request, res: express.Response): Promise<void> {
-    const path = req.path.slice(req.path.indexOf("/", 1) + 1);
+    const path = decodeURIComponent(
+      req.path.slice(req.path.indexOf("/", 1) + 1)
+    );
 
     const query = queryString.parseUrl(req.originalUrl, {
       parseBooleans: true,
