@@ -537,11 +537,16 @@ export default class RequestHandler {
       createTargetIfMissing,
     } as PatchInstruction;
 
-    const patched = applyPatch(fileContents, instruction);
-
-    await this.app.vault.adapter.write(path, patched);
-
-    res.status(200).send(patched);
+    try {
+      const patched = applyPatch(fileContents, instruction);
+      await this.app.vault.adapter.write(path, patched);
+      res.status(200).send(patched);
+    } catch (e) {
+      this.returnCannedResponse(res, {
+        statusCode: 500,
+        message: e.name == "PatchFailed" ? `Patch failed: ${e.reason}` : e.message,
+      });
+    }
   }
 
   async _vaultPatch(
