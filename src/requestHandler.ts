@@ -1163,17 +1163,23 @@ export default class RequestHandler {
       })
     );
     this.api.use(
-      bodyParser.json({ type: ContentTypes.json, limit: MaximumRequestSize })
+      bodyParser.json({
+        type: ContentTypes.json,
+        strict: false,
+        limit: MaximumRequestSize,
+      })
     );
     this.api.use(
       bodyParser.json({
         type: ContentTypes.olrapiNoteJson,
+        strict: false,
         limit: MaximumRequestSize,
       })
     );
     this.api.use(
       bodyParser.json({
         type: ContentTypes.jsonLogic,
+        strict: false,
         limit: MaximumRequestSize,
       })
     );
