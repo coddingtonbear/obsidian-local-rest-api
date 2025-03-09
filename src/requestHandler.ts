@@ -546,7 +546,7 @@ export default class RequestHandler {
       if (e instanceof PatchFailed) {
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.PatchFailed,
-          message: e.message,
+          message: e.reason,
         });
       } else {
         this.returnCannedResponse(res, {

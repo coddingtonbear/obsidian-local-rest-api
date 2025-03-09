@@ -38,7 +38,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.MissingOperation]: "No 'Operation' header was provided.",
   [ErrorCode.InvalidOperation]:
     "The 'Operation' header you provided was invalid.",
-  [ErrorCode.PatchFailed]: "Application of this patch has failed.",
+  [ErrorCode.PatchFailed]:
+    "The patch you provided could not be applied to the target content.",
 };
 
 export enum ContentTypes {
