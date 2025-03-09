@@ -24,6 +24,7 @@ import path from "path";
 import {
   applyPatch,
   ContentType,
+  PatchFailed,
   PatchInstruction,
   PatchOperation,
   PatchTargetType,
@@ -542,10 +543,17 @@ export default class RequestHandler {
       await this.app.vault.adapter.write(path, patched);
       res.status(200).send(patched);
     } catch (e) {
-      this.returnCannedResponse(res, {
-        statusCode: 500,
-        message: e.name == "PatchFailed" ? `Patch failed: ${e.reason}` : e.message,
-      });
+      if (e instanceof PatchFailed) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.PatchFailed,
+          message: e.message,
+        });
+      } else {
+        this.returnCannedResponse(res, {
+          statusCode: 500,
+          message: e.message,
+        });
+      }
     }
   }
 
