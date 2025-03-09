@@ -16,6 +16,7 @@ export enum ErrorCode {
   InvalidOperation = 40057,
   PeriodIsNotEnabled = 40060,
   InvalidFilterQuery = 40070,
+  PatchFailed = 40080,
   ApiKeyAuthorizationRequired = 40101,
   PeriodDoesNotExist = 40460,
   PeriodicNoteDoesNotExist = 40461,
