@@ -24,6 +24,7 @@ import path from "path";
 import {
   applyPatch,
   ContentType,
+  PatchFailed,
   PatchInstruction,
   PatchOperation,
   PatchTargetType,
@@ -537,11 +538,23 @@ export default class RequestHandler {
       createTargetIfMissing,
     } as PatchInstruction;
 
-    const patched = applyPatch(fileContents, instruction);
-
-    await this.app.vault.adapter.write(path, patched);
-
-    res.status(200).send(patched);
+    try {
+      const patched = applyPatch(fileContents, instruction);
+      await this.app.vault.adapter.write(path, patched);
+      res.status(200).send(patched);
+    } catch (e) {
+      if (e instanceof PatchFailed) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.PatchFailed,
+          message: e.message,
+        });
+      } else {
+        this.returnCannedResponse(res, {
+          statusCode: 500,
+          message: e.message,
+        });
+      }
+    }
   }
 
   async _vaultPatch(
