@@ -1240,6 +1240,13 @@ export default class RequestHandler {
       .patch(this.periodicPatch.bind(this))
       .post(this.periodicPost.bind(this))
       .delete(this.periodicDelete.bind(this));
+    this.api
+      .route("/periodic/:year/:month/:day/:period/")
+      .get(this.periodicGet.bind(this))
+      .put(this.periodicPut.bind(this))
+      .patch(this.periodicPatch.bind(this))
+      .post(this.periodicPost.bind(this))
+      .delete(this.periodicDelete.bind(this));
 
     this.api.route("/commands/").get(this.commandGet.bind(this));
     this.api.route("/commands/:commandId/").post(this.commandPost.bind(this));
