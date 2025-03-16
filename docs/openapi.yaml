@@ -403,6 +403,7 @@ paths:
       tags:
         - "Active File"
     put:
+      parameters: []
       requestBody:
         content:
           "*/*":

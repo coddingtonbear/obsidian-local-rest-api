@@ -146,8 +146,8 @@ std.manifestYamlDoc(
           tags: [
             'Active File',
           ],
-          summary: 'Insert content into the currently open note in Obsidian relative to a heading within that document.\n',
-          description: 'Inserts content into the currently-open note relative to a heading within that note.\n\n' + Patch.description,
+          summary: 'Insert content into the currently open note in Obsidian relative to a heading, block reference, or frontmatter field within that document.\n',
+          description: 'Inserts content into the currently-open note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
         },
         delete: Delete {
           tags: [
@@ -178,15 +178,15 @@ std.manifestYamlDoc(
             'Vault Files',
           ],
           summary: 'Append content to a new or existing file.\n',
-          description: "Appends content to the end of an existing note. If the specified file does not yet exist, it will be created as an empty file.\n\nIf you would like to insert text relative to a particular heading instead of appending to the end of the file, see 'patch'.\n",
+          description: "Appends content to the end of an existing note. If the specified file does not yet exist, it will be created as an empty file.\n\nIf you would like to insert text relative to a particular heading, block reference, or frontmatter field instead of appending to the end of the file, see 'patch'.\n",
           parameters+: [ParamPath],
         },
         patch: Patch {
           tags: [
             'Vault Files',
           ],
-          summary: 'Insert content into an existing note relative to a heading within that document.\n',
-          description: 'Inserts content into an existing note relative to a heading within your note.\n\n' + Patch.description,
+          summary: 'Insert content into an existing note in Obsidian relative to a heading, block reference, or frontmatter field within that document.\n',
+          description: 'Inserts content into an existing note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
           parameters+: [ParamPath],
         },
         delete: Delete {
@@ -325,8 +325,8 @@ std.manifestYamlDoc(
           tags: [
             'Periodic Notes',
           ],
-          summary: 'Insert content into a periodic note relative to a heading within that document.\n',
-          description: 'Inserts content into an existing note relative to a heading within your note.\n\n' + Patch.description,
+          summary: 'Insert content into a periodic note in Obsidian relative to a heading, block reference, or frontmatter field within that document.\n',
+          description: 'Inserts content into a periodic note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
           parameters+: [ParamPeriod],
         },
         delete: Delete {
