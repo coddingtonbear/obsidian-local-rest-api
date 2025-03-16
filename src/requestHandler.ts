@@ -721,13 +721,16 @@ export default class RequestHandler {
     return [periodic[period], null];
   }
 
-  periodicGetNote(periodName: string): [TFile | null, ErrorCode | null] {
+  periodicGetNote(
+    periodName: string,
+    timestamp: number
+  ): [TFile | null, ErrorCode | null] {
     const [period, err] = this.periodicGetInterface(periodName);
     if (err) {
       return [null, err];
     }
 
-    const now = (window as any).moment(Date.now());
+    const now = (window as any).moment(timestamp);
     const all = period.getAll();
 
     const file = period.get(now, all);
@@ -739,9 +742,10 @@ export default class RequestHandler {
   }
 
   async periodicGetOrCreateNote(
-    periodName: string
+    periodName: string,
+    timestamp: number
   ): Promise<[TFile | null, ErrorCode | null]> {
-    const [gottenFile, err] = this.periodicGetNote(periodName);
+    const [gottenFile, err] = this.periodicGetNote(periodName, timestamp);
     let file = gottenFile;
     if (err === ErrorCode.PeriodicNoteDoesNotExist) {
       const [period] = this.periodicGetInterface(periodName);
@@ -780,11 +784,23 @@ export default class RequestHandler {
     return handler(path, req, res);
   }
 
+  getPeriodicDateFromParams(params: any): number {
+    const { year, month, day } = params;
+
+    if (year && month && day) {
+      const date = new Date(year, month - 1, day);
+      return date.getTime();
+    }
+
+    return Date.now();
+  }
+
   async periodicGet(
     req: express.Request,
     res: express.Response
   ): Promise<void> {
-    const [file, err] = this.periodicGetNote(req.params.period);
+    const date = this.getPeriodicDateFromParams(req.params);
+    const [file, err] = this.periodicGetNote(req.params.period, date);
     if (err) {
       this.returnCannedResponse(res, { errorCode: err });
       return;
@@ -797,7 +813,11 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response
   ): Promise<void> {
-    const [file, err] = await this.periodicGetOrCreateNote(req.params.period);
+    const date = this.getPeriodicDateFromParams(req.params);
+    const [file, err] = await this.periodicGetOrCreateNote(
+      req.params.period,
+      date
+    );
     if (err) {
       this.returnCannedResponse(res, { errorCode: err });
       return;
@@ -810,7 +830,11 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response
   ): Promise<void> {
-    const [file, err] = await this.periodicGetOrCreateNote(req.params.period);
+    const date = this.getPeriodicDateFromParams(req.params);
+    const [file, err] = await this.periodicGetOrCreateNote(
+      req.params.period,
+      date
+    );
     if (err) {
       this.returnCannedResponse(res, { errorCode: err });
       return;
@@ -823,7 +847,11 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response
   ): Promise<void> {
-    const [file, err] = await this.periodicGetOrCreateNote(req.params.period);
+    const date = this.getPeriodicDateFromParams(req.params);
+    const [file, err] = await this.periodicGetOrCreateNote(
+      req.params.period,
+      date
+    );
     if (err) {
       this.returnCannedResponse(res, { errorCode: err });
       return;
@@ -841,7 +869,8 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response
   ): Promise<void> {
-    const [file, err] = this.periodicGetNote(req.params.period);
+    const date = this.getPeriodicDateFromParams(req.params);
+    const [file, err] = this.periodicGetNote(req.params.period, date);
     if (err) {
       this.returnCannedResponse(res, { errorCode: err });
       return;
