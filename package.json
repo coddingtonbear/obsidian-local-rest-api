@@ -8,6 +8,7 @@
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "build-docs": "jsonnet -J docs/src/lib/ -S docs/src/openapi.jsonnet -o docs/openapi.yaml",
+    "serve-docs": "sh -c 'docker run -p 8080:8080 -e SWAGGER_JSON=/mnt/openapi.yaml -v $(pwd)/docs/openapi.yaml:/mnt/openapi.yaml swaggerapi/swagger-ui'",
     "version": "node version-bump.mjs && git add manifest.json versions.json",
     "test": "jest"
   },
