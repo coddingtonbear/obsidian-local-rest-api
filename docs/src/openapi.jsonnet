@@ -6,6 +6,10 @@ local Put = import 'put.jsonnet';
 
 local ParamPath = import 'path.param.jsonnet';
 local ParamPeriod = import 'period.param.jsonnet';
+local ParamYear = import 'year.param.jsonnet';
+local ParamMonth = import 'month.param.jsonnet';
+local ParamDay = import 'day.param.jsonnet';
+
 
 std.manifestYamlDoc(
   {
@@ -336,6 +340,46 @@ std.manifestYamlDoc(
           summary: 'Delete a periodic note.\n',
           description: 'Deletes the periodic note for the specified period.\n',
           parameters+: [ParamPeriod],
+        },
+      },
+      '/periodic/{year}/{month}/{day}/{period}/': {
+        get: Get {
+          tags: [
+            'Periodic Notes',
+          ],
+          summary: 'Get current periodic note for the specified period.\n',
+          parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
+        },
+        put: Put {
+          tags: [
+            'Periodic Notes',
+          ],
+          summary: 'Update the content of a periodic note.\n',
+          parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
+        },
+        post: Post {
+          tags: [
+            'Periodic Notes',
+          ],
+          summary: 'Append content to a periodic note.\n',
+          description: 'Appends content to the periodic note for the specified period.  This will create the relevant periodic note if necessary.\n',
+          parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
+        },
+        patch: Patch {
+          tags: [
+            'Periodic Notes',
+          ],
+          summary: 'Insert content into a periodic note in Obsidian relative to a heading, block reference, or frontmatter field within that document.\n',
+          description: 'Inserts content into a periodic note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
+          parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
+        },
+        delete: Delete {
+          tags: [
+            'Periodic Notes',
+          ],
+          summary: 'Delete a periodic note.\n',
+          description: 'Deletes the periodic note for the specified period.\n',
+          parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
       },
       '/commands/': {
