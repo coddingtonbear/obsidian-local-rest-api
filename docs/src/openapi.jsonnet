@@ -342,7 +342,7 @@ std.manifestYamlDoc(
           parameters+: [ParamPeriod],
         },
       },
-      '/periodic/{year}/{month}/{day}/{period}/': {
+      '/periodic/{period}/{year}/{month}/{day}/': {
         get: Get {
           tags: [
             'Periodic Notes',

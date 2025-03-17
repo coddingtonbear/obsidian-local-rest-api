@@ -1241,7 +1241,7 @@ export default class RequestHandler {
       .post(this.periodicPost.bind(this))
       .delete(this.periodicDelete.bind(this));
     this.api
-      .route("/periodic/:year/:month/:day/:period/")
+      .route("/periodic/:period/:year/:month/:day/")
       .get(this.periodicGet.bind(this))
       .put(this.periodicPut.bind(this))
       .patch(this.periodicPatch.bind(this))

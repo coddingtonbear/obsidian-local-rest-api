@@ -1,7 +1,7 @@
 {
   name: 'period',
   'in': 'path',
-  description: 'The name of the period for which you would like to grab the current note.',
+  description: 'The name of the period for which you would like to grab a periodic note.',
   required: true,
   schema: {
     type: 'string',
