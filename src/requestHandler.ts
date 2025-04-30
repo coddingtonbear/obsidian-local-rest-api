@@ -152,7 +152,7 @@ export default class RequestHandler {
     res: express.Response,
     next: express.NextFunction
   ): Promise<void> {
-    const authenticationExemptRoutes: string[] = ["/", `/${CERT_NAME}`];
+    const authenticationExemptRoutes: string[] = ["/", `/${CERT_NAME}`, "/openapi.yaml"];
 
     if (
       !authenticationExemptRoutes.includes(req.path) &&
