@@ -21,6 +21,7 @@ import responseTime from "response-time";
 import queryString from "query-string";
 import WildcardRegexp from "glob-to-regexp";
 import path from "path";
+import fs from "fs";
 import {
   applyPatch,
   ContentType,
@@ -255,10 +256,10 @@ export default class RequestHandler {
       certificateInfo:
         this.requestIsAuthenticated(req) && certificate
           ? {
-              validityDays: getCertificateValidityDays(certificate),
-              regenerateRecommended:
-                !getCertificateIsUptoStandards(certificate),
-            }
+            validityDays: getCertificateValidityDays(certificate),
+            regenerateRecommended:
+              !getCertificateIsUptoStandards(certificate),
+          }
           : undefined,
       apiExtensions: this.requestIsAuthenticated(req)
         ? this.apiExtensions.map(({ manifest }) => manifest)
@@ -1255,6 +1256,19 @@ export default class RequestHandler {
     this.api.route("/search/simple/").post(this.searchSimplePost.bind(this));
 
     this.api.route("/open/*").post(this.openPost.bind(this));
+
+    // New route to serve /openapi.yaml from the docs folder.
+    this.api.get("/openapi.yaml", (req, res) => {
+      const filePath = path.join(__dirname, "../docs/openapi.yaml");
+      fs.readFile(filePath, "utf8", (err, data) => {
+        if (err) {
+          res.status(500).send("Error reading openapi.yaml");
+        } else {
+          res.set("Content-Type", "application/yaml");
+          res.send(data);
+        }
+      });
+    });
 
     this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
     this.api.get("/", this.root.bind(this));
