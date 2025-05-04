@@ -21,7 +21,7 @@ import responseTime from "response-time";
 import queryString from "query-string";
 import WildcardRegexp from "glob-to-regexp";
 import path from "path";
-import axios from "axios"; // Add this import at the top
+import axios from "axios";
 import {
   applyPatch,
   ContentType,
@@ -152,7 +152,13 @@ export default class RequestHandler {
     res: express.Response,
     next: express.NextFunction
   ): Promise<void> {
-    const authenticationExemptRoutes: string[] = ["/", `/${CERT_NAME}`];
+    // Routes that do not require authentication.
+    // /openapi.yaml is public so that OpenAPI tools and docs can access the API schema.
+    const authenticationExemptRoutes: string[] = [
+      "/",
+      `/${CERT_NAME}`,
+      "/openapi.yaml", // Publicly accessible OpenAPI schema
+    ];
 
     if (
       !authenticationExemptRoutes.includes(req.path) &&
