@@ -21,6 +21,7 @@ import responseTime from "response-time";
 import queryString from "query-string";
 import WildcardRegexp from "glob-to-regexp";
 import path from "path";
+import axios from "axios"; // Add this import at the top
 import {
   applyPatch,
   ContentType,
@@ -255,10 +256,10 @@ export default class RequestHandler {
       certificateInfo:
         this.requestIsAuthenticated(req) && certificate
           ? {
-              validityDays: getCertificateValidityDays(certificate),
-              regenerateRecommended:
-                !getCertificateIsUptoStandards(certificate),
-            }
+            validityDays: getCertificateValidityDays(certificate),
+            regenerateRecommended:
+              !getCertificateIsUptoStandards(certificate),
+          }
           : undefined,
       apiExtensions: this.requestIsAuthenticated(req)
         ? this.apiExtensions.map(({ manifest }) => manifest)
@@ -1258,6 +1259,20 @@ export default class RequestHandler {
 
     this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
     this.api.get("/", this.root.bind(this));
+
+    // Serve /openapi.yaml from remote URL for compatibility
+    this.api.get("/openapi.yaml", async (req, res) => {
+      try {
+        const response = await axios.get(
+          "https://coddingtonbear.github.io/obsidian-local-rest-api/openapi.yaml",
+          { responseType: "text" }
+        );
+        res.setHeader("Content-Type", "application/yaml");
+        res.send(response.data);
+      } catch (err) {
+        res.status(404).send("openapi.yaml not found");
+      }
+    });
 
     this.api.use(this.apiExtensionRouter);
 
