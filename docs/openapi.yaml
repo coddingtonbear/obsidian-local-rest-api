@@ -97,7 +97,7 @@ paths:
       summary: |
         Returns basic details about the server.
       tags:
-        - "Status"
+        - "System"
   /active/:
     delete:
       parameters: []
@@ -362,7 +362,7 @@ paths:
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
       summary: |
-        Insert content into the currently open note in Obsidian relative to a heading, block reference, or frontmatter field within that document.
+        Partially update content in the currently open note.
       tags:
         - "Active File"
     post:
@@ -490,11 +490,18 @@ paths:
         Execute a command.
       tags:
         - "Commands"
+  /obsidian-local-rest-api.crt:
+    get:
+      responses:
+        "200":
+          description: "Success"
+      summary: |
+        Returns the certificate in use by this API.
+      tags:
+        - "System"
   "/open/{filename}":
     post:
       description: |
-        Opens the specified document in Obsidian.
-        
         Note: Obsidian will create a new document at the path you have
         specified if such a document did not already exist.
       parameters:
@@ -516,15 +523,22 @@ paths:
         "200":
           description: "Success"
       summary: |
-        Open the specified document in Obsidian
+        Open the specified document in the Obsidian user interface.
       tags:
         - "Open"
+  /openapi.yaml:
+    get:
+      responses:
+        "200":
+          description: "Success"
+      summary: |
+        Returns OpenAPI YAML document describing the capabilities of this API.
+      tags:
+        - "System"
   "/periodic/{period}/":
     delete:
-      description: |
-        Deletes the periodic note for the specified period.
       parameters:
-        - description: "The name of the period for which you would like to grab the current note."
+        - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
           name: "period"
           required: true
@@ -554,12 +568,12 @@ paths:
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
       summary: |
-        Delete a periodic note.
+        Delete the current periodic note for the specified period.
       tags:
         - "Periodic Notes"
     get:
       parameters:
-        - description: "The name of the period for which you would like to grab the current note."
+        - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
           name: "period"
           required: true
@@ -594,7 +608,7 @@ paths:
         - "Periodic Notes"
     patch:
       description: |
-        Inserts content into a periodic note relative to a heading, block refeerence, or frontmatter field within that document.
+        Inserts content into the current periodic note for the specified period relative to a heading, block refeerence, or frontmatter field within that document.
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
         
@@ -769,7 +783,7 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "The name of the period for which you would like to grab the current note."
+        - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
           name: "period"
           required: true
@@ -820,14 +834,14 @@ paths:
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
       summary: |
-        Insert content into a periodic note in Obsidian relative to a heading, block reference, or frontmatter field within that document.
+        Partially update content in the current periodic note for the specified period.
       tags:
         - "Periodic Notes"
     post:
       description: |
-        Appends content to the periodic note for the specified period.  This will create the relevant periodic note if necessary.
+        Note that this will create the relevant periodic note if necessary.
       parameters:
-        - description: "The name of the period for which you would like to grab the current note."
+        - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
           name: "period"
           required: true
@@ -868,12 +882,12 @@ paths:
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
       summary: |
-        Append content to a periodic note.
+        Append content to the current periodic note for the specified period.
       tags:
         - "Periodic Notes"
     put:
       parameters:
-        - description: "The name of the period for which you would like to grab the current note."
+        - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
           name: "period"
           required: true
@@ -918,10 +932,10 @@ paths:
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
       summary: |
-        Update the content of a periodic note.
+        Update the content of the current periodic note for the specified period.
       tags:
         - "Periodic Notes"
-  "/periodic/{year}/{month}/{day}/{period}/":
+  "/periodic/{period}/{year}/{month}/{day}/":
     delete:
       description: |
         Deletes the periodic note for the specified period.
@@ -944,7 +958,7 @@ paths:
           required: true
           schema:
             type: "number"
-        - description: "The name of the period for which you would like to grab the current note."
+        - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
           name: "period"
           required: true
@@ -974,7 +988,7 @@ paths:
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
       summary: |
-        Delete a periodic note.
+        Delete the periodic note for the specified period and date.
       tags:
         - "Periodic Notes"
     get:
@@ -997,7 +1011,7 @@ paths:
           required: true
           schema:
             type: "number"
-        - description: "The name of the period for which you would like to grab the current note."
+        - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
           name: "period"
           required: true
@@ -1027,7 +1041,7 @@ paths:
         "404":
           description: "File does not exist"
       summary: |
-        Get current periodic note for the specified period.
+        Get the periodic note for the specified period and date.
       tags:
         - "Periodic Notes"
     patch:
@@ -1225,7 +1239,7 @@ paths:
           required: true
           schema:
             type: "number"
-        - description: "The name of the period for which you would like to grab the current note."
+        - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
           name: "period"
           required: true
@@ -1276,12 +1290,12 @@ paths:
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
       summary: |
-        Insert content into a periodic note in Obsidian relative to a heading, block reference, or frontmatter field within that document.
+        Partially update content in the periodic note for the specified period and date.
       tags:
         - "Periodic Notes"
     post:
       description: |
-        Appends content to the periodic note for the specified period.  This will create the relevant periodic note if necessary.
+        This will create the relevant periodic note if necessary.
       parameters:
         - description: "The year of the date for which you would like to grab a periodic note."
           in: "path"
@@ -1301,7 +1315,7 @@ paths:
           required: true
           schema:
             type: "number"
-        - description: "The name of the period for which you would like to grab the current note."
+        - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
           name: "period"
           required: true
@@ -1342,7 +1356,7 @@ paths:
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
       summary: |
-        Append content to a periodic note.
+        Append content to the periodic note for the specified period and date.
       tags:
         - "Periodic Notes"
     put:
@@ -1365,7 +1379,7 @@ paths:
           required: true
           schema:
             type: "number"
-        - description: "The name of the period for which you would like to grab the current note."
+        - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
           name: "period"
           required: true
@@ -1410,7 +1424,7 @@ paths:
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
       summary: |
-        Update the content of a periodic note.
+        Update the content of the periodic note for the specified period and date.
       tags:
         - "Periodic Notes"
   /search/:
@@ -1909,7 +1923,7 @@ paths:
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
       summary: |
-        Insert content into an existing note in Obsidian relative to a heading, block reference, or frontmatter field within that document.
+        Partially update content in an existing note.
       tags:
         - "Vault Files"
     post:

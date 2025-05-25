@@ -4,11 +4,11 @@ local Patch = import 'patch.jsonnet';
 local Post = import 'post.jsonnet';
 local Put = import 'put.jsonnet';
 
+local ParamDay = import 'day.param.jsonnet';
+local ParamMonth = import 'month.param.jsonnet';
 local ParamPath = import 'path.param.jsonnet';
 local ParamPeriod = import 'period.param.jsonnet';
 local ParamYear = import 'year.param.jsonnet';
-local ParamMonth = import 'month.param.jsonnet';
-local ParamDay = import 'day.param.jsonnet';
 
 
 std.manifestYamlDoc(
@@ -150,7 +150,7 @@ std.manifestYamlDoc(
           tags: [
             'Active File',
           ],
-          summary: 'Insert content into the currently open note in Obsidian relative to a heading, block reference, or frontmatter field within that document.\n',
+          summary: 'Partially update content in the currently open note.\n',
           description: 'Inserts content into the currently-open note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
         },
         delete: Delete {
@@ -189,7 +189,7 @@ std.manifestYamlDoc(
           tags: [
             'Vault Files',
           ],
-          summary: 'Insert content into an existing note in Obsidian relative to a heading, block reference, or frontmatter field within that document.\n',
+          summary: 'Partially update content in an existing note.\n',
           description: 'Inserts content into an existing note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
           parameters+: [ParamPath],
         },
@@ -314,31 +314,30 @@ std.manifestYamlDoc(
           tags: [
             'Periodic Notes',
           ],
-          summary: 'Update the content of a periodic note.\n',
+          summary: 'Update the content of the current periodic note for the specified period.\n',
           parameters+: [ParamPeriod],
         },
         post: Post {
           tags: [
             'Periodic Notes',
           ],
-          summary: 'Append content to a periodic note.\n',
-          description: 'Appends content to the periodic note for the specified period.  This will create the relevant periodic note if necessary.\n',
+          summary: 'Append content to the current periodic note for the specified period.\n',
+          description: 'Note that this will create the relevant periodic note if necessary.\n',
           parameters+: [ParamPeriod],
         },
         patch: Patch {
           tags: [
             'Periodic Notes',
           ],
-          summary: 'Insert content into a periodic note in Obsidian relative to a heading, block reference, or frontmatter field within that document.\n',
-          description: 'Inserts content into a periodic note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
+          summary: 'Partially update content in the current periodic note for the specified period.\n',
+          description: 'Inserts content into the current periodic note for the specified period relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
           parameters+: [ParamPeriod],
         },
         delete: Delete {
           tags: [
             'Periodic Notes',
           ],
-          summary: 'Delete a periodic note.\n',
-          description: 'Deletes the periodic note for the specified period.\n',
+          summary: 'Delete the current periodic note for the specified period.\n',
           parameters+: [ParamPeriod],
         },
       },
@@ -347,29 +346,29 @@ std.manifestYamlDoc(
           tags: [
             'Periodic Notes',
           ],
-          summary: 'Get current periodic note for the specified period.\n',
+          summary: 'Get the periodic note for the specified period and date.\n',
           parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
         put: Put {
           tags: [
             'Periodic Notes',
           ],
-          summary: 'Update the content of a periodic note.\n',
+          summary: 'Update the content of the periodic note for the specified period and date.\n',
           parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
         post: Post {
           tags: [
             'Periodic Notes',
           ],
-          summary: 'Append content to a periodic note.\n',
-          description: 'Appends content to the periodic note for the specified period.  This will create the relevant periodic note if necessary.\n',
+          summary: 'Append content to the periodic note for the specified period and date.\n',
+          description: 'This will create the relevant periodic note if necessary.\n',
           parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
         patch: Patch {
           tags: [
             'Periodic Notes',
           ],
-          summary: 'Insert content into a periodic note in Obsidian relative to a heading, block reference, or frontmatter field within that document.\n',
+          summary: 'Partially update content in the periodic note for the specified period and date.\n',
           description: 'Inserts content into a periodic note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
           parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
@@ -377,7 +376,7 @@ std.manifestYamlDoc(
           tags: [
             'Periodic Notes',
           ],
-          summary: 'Delete a periodic note.\n',
+          summary: 'Delete the periodic note for the specified period and date.\n',
           description: 'Deletes the periodic note for the specified period.\n',
           parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
@@ -656,8 +655,8 @@ std.manifestYamlDoc(
           tags: [
             'Open',
           ],
-          summary: 'Open the specified document in Obsidian\n',
-          description: 'Opens the specified document in Obsidian.\n\nNote: Obsidian will create a new document at the path you have\nspecified if such a document did not already exist.\n',
+          summary: 'Open the specified document in the Obsidian user interface.\n',
+          description: 'Note: Obsidian will create a new document at the path you have\nspecified if such a document did not already exist.\n',
           parameters: [
             {
               name: 'filename',
@@ -689,7 +688,7 @@ std.manifestYamlDoc(
       '/': {
         get: {
           tags: [
-            'Status',
+            'System',
           ],
           summary: 'Returns basic details about the server.\n',
           description: 'Returns basic details about the server as well as your authentication status.\n\nThis is the only API request that does *not* require authentication.\n',
@@ -730,6 +729,32 @@ std.manifestYamlDoc(
                   },
                 },
               },
+            },
+          },
+        },
+      },
+      '/openapi.yaml': {
+        get: {
+          tags: [
+            'System',
+          ],
+          summary: 'Returns OpenAPI YAML document describing the capabilities of this API.\n',
+          responses: {
+            '200': {
+              description: 'Success',
+            },
+          },
+        },
+      },
+      '/obsidian-local-rest-api.crt': {
+        get: {
+          tags: [
+            'System',
+          ],
+          summary: 'Returns the certificate in use by this API.\n',
+          responses: {
+            '200': {
+              description: 'Success',
             },
           },
         },
