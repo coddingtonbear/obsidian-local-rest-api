@@ -154,7 +154,11 @@ export default class RequestHandler {
     res: express.Response,
     next: express.NextFunction
   ): Promise<void> {
-    const authenticationExemptRoutes: string[] = ["/", `/${CERT_NAME}`];
+    const authenticationExemptRoutes: string[] = [
+      "/",
+      `/${CERT_NAME}`,
+      "/openapi.yaml",
+    ];
 
     if (
       !authenticationExemptRoutes.includes(req.path) &&
@@ -258,10 +262,10 @@ export default class RequestHandler {
       certificateInfo:
         this.requestIsAuthenticated(req) && certificate
           ? {
-            validityDays: getCertificateValidityDays(certificate),
-            regenerateRecommended:
-              !getCertificateIsUptoStandards(certificate),
-          }
+              validityDays: getCertificateValidityDays(certificate),
+              regenerateRecommended:
+                !getCertificateIsUptoStandards(certificate),
+            }
           : undefined,
       apiExtensions: this.requestIsAuthenticated(req)
         ? this.apiExtensions.map(({ manifest }) => manifest)
@@ -1140,6 +1144,14 @@ export default class RequestHandler {
     res.status(200).send(this.settings.crypto.cert);
   }
 
+  async openapiYamlGet(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    res.setHeader("Content-Type", "application/yaml; charset=utf-8");
+    res.status(200).send(openapiYaml);
+  }
+
   async notFoundHandler(
     req: express.Request,
     res: express.Response,
@@ -1176,12 +1188,6 @@ export default class RequestHandler {
   }
 
   setupRouter() {
-    // Serve /openapi.yaml unauthenticated
-    this.api.get("/openapi.yaml", (req, res) => {
-      res.setHeader("Content-Type", "application/yaml; charset=utf-8");
-      res.status(200).send(openapiYaml);
-    });
-
     this.api.use((req, res, next) => {
       const originalSend = res.send;
       res.send = function (body, ...args) {
@@ -1266,6 +1272,7 @@ export default class RequestHandler {
     this.api.route("/open/*").post(this.openPost.bind(this));
 
     this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
+    this.api.get("/openapi.yaml", this.openapiYamlGet.bind(this));
     this.api.get("/", this.root.bind(this));
 
     this.api.use(this.apiExtensionRouter);
