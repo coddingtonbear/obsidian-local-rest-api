@@ -10,4 +10,8 @@ module.exports = {
       tsconfig: "tsconfig.test.json",
     },
   },
+  transform: {
+    '\\.ts$': ['ts-jest'],
+    '\\.ya?ml$': 'jest-raw-loader',
+  }
 };

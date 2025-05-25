@@ -31,6 +31,7 @@
     "builtin-modules": "^3.3.0",
     "esbuild": "0.13.2",
     "jest": "^27",
+    "jest-raw-loader": "^1.0.1",
     "obsidian": "latest",
     "supertest": "^6.2.2",
     "ts-jest": "27",
