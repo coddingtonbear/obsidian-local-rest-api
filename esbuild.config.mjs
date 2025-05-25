@@ -51,7 +51,7 @@ esbuild
     sourcemap: prod ? false : "inline",
     treeShaking: true,
     outfile: "main.js",
-	loader: {
+    loader: {
       ".yaml": "text", // Added to handle handle .yaml files as text
     },	
   })
