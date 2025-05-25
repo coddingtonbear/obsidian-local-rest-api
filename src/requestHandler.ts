@@ -56,6 +56,9 @@ import {
 } from "./constants";
 import LocalRestApiPublicApi from "./api";
 
+// Import openapi.yaml as a string
+import openapiYaml from "../docs/openapi.yaml";
+
 export default class RequestHandler {
   app: App;
   api: express.Express;
@@ -255,10 +258,10 @@ export default class RequestHandler {
       certificateInfo:
         this.requestIsAuthenticated(req) && certificate
           ? {
-              validityDays: getCertificateValidityDays(certificate),
-              regenerateRecommended:
-                !getCertificateIsUptoStandards(certificate),
-            }
+            validityDays: getCertificateValidityDays(certificate),
+            regenerateRecommended:
+              !getCertificateIsUptoStandards(certificate),
+          }
           : undefined,
       apiExtensions: this.requestIsAuthenticated(req)
         ? this.apiExtensions.map(({ manifest }) => manifest)
@@ -1173,6 +1176,12 @@ export default class RequestHandler {
   }
 
   setupRouter() {
+    // Serve /openapi.yaml unauthenticated
+    this.api.get("/openapi.yaml", (req, res) => {
+      res.setHeader("Content-Type", "application/yaml; charset=utf-8");
+      res.status(200).send(openapiYaml);
+    });
+
     this.api.use((req, res, next) => {
       const originalSend = res.send;
       res.send = function (body, ...args) {
