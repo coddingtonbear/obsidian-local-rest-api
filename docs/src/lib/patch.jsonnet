@@ -203,7 +203,7 @@
     ^2c7cfa
     ```
 
-    ## Append Content Below a Heading
+    ## Append, Prepend, or Replace Content Below a Heading
 
     If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
     you could send a request with the following headers:
@@ -216,7 +216,7 @@
     The above would work just fine for `prepend` or `replace`, too, of course,
     but with different results.
 
-    ## Append Content to a Block Reference
+    ## Append, Prepend, or Replace Content to a Block Reference
 
     If you wanted to append the content "Hello" below the block referenced by
     "2d9b4a" above ("More random text."), you could send the following headers:
@@ -229,7 +229,7 @@
     The above would work just fine for `prepend` or `replace`, too, of course,
     but with different results.
 
-    ## Add a Row to a Table Referenced by a Block Reference
+    ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
 
     If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
     referenced by the block reference `2c7cfa`, you could send the following
