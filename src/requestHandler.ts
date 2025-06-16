@@ -262,10 +262,10 @@ export default class RequestHandler {
       certificateInfo:
         this.requestIsAuthenticated(req) && certificate
           ? {
-              validityDays: getCertificateValidityDays(certificate),
-              regenerateRecommended:
-                !getCertificateIsUptoStandards(certificate),
-            }
+            validityDays: getCertificateValidityDays(certificate),
+            regenerateRecommended:
+              !getCertificateIsUptoStandards(certificate),
+          }
           : undefined,
       apiExtensions: this.requestIsAuthenticated(req)
         ? this.apiExtensions.map(({ manifest }) => manifest)
@@ -490,6 +490,7 @@ export default class RequestHandler {
       req.get("Apply-If-Content-Preexists") == "true";
     const trimTargetWhitespace = req.get("Trim-Target-Whitespace") == "true";
     const targetDelimiter = req.get("Target-Delimiter") || "::";
+    const replaceHeading = req.get("Replace-Heading") == "true";
 
     const target =
       targetType == "heading" ? rawTarget.split(targetDelimiter) : rawTarget;
@@ -543,6 +544,7 @@ export default class RequestHandler {
       applyIfContentPreexists,
       trimTargetWhitespace,
       createTargetIfMissing,
+      replaceHeading
     } as PatchInstruction;
 
     try {
@@ -1176,6 +1178,7 @@ export default class RequestHandler {
     }
     if (err instanceof SyntaxError) {
       this.returnCannedResponse(res, {
+
         errorCode: ErrorCode.InvalidContentForContentType,
       });
       return;
