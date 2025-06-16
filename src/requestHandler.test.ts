@@ -105,7 +105,7 @@ describe("requestHandler", () => {
         .set("Authorization", `Bearer ${API_KEY}`)
         .expect(200);
 
-      expect(result.body.toString()).toEqual(settings.crypto.cert);
+      expect(result.body.toString()).toEqual(settings.crypto?.cert);
     });
   });
 
