@@ -802,4 +802,158 @@ describe("requestHandler", () => {
         .expect(401);
     });
   });
+
+  describe("vaultPatch - file operations", () => {
+    describe("file operations with replace (should fail)", () => {
+      test("replace operation with file target should fail", async () => {
+        const oldPath = "folder/old-file.md";
+        const newFilename = "new-file.md";
+        
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+        
+        const response = await request(server)
+          .patch(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "replace")
+          .set("Target-Type", "file")
+          .set("Target", "name")
+          .send(newFilename)
+          .expect(400);
+          
+        // Should get an error because replace is not valid for file operations
+        expect(response.body.errorCode).toBeDefined();
+      });
+    });
+
+    describe("semantic file operations", () => {
+      describe("Operation: rename", () => {
+        test("successful rename with semantic operation", async () => {
+          const oldPath = "folder/old-file.md";
+          const newFilename = "new-file.md";
+          const expectedNewPath = "folder/new-file.md";
+          
+          // Mock file exists
+          const mockFile = new TFile();
+          app.vault._getAbstractFileByPath = mockFile;
+          app.vault.adapter._exists = false; // destination doesn't exist
+          
+          // Mock fileManager
+          (app as any).fileManager = {
+            renameFile: jest.fn().mockResolvedValue(undefined)
+          };
+          
+          const response = await request(server)
+            .patch(`/vault/${oldPath}`)
+            .set("Authorization", `Bearer ${API_KEY}`)
+            .set("Content-Type", "text/plain")
+            .set("Operation", "rename")
+            .set("Target-Type", "file")
+            .set("Target", "name")
+            .send(newFilename)
+            .expect(200);
+            
+          expect(response.body.message).toEqual("File successfully renamed");
+          expect(response.body.oldPath).toEqual(oldPath);
+          expect(response.body.newPath).toEqual(expectedNewPath);
+          expect((app as any).fileManager.renameFile).toHaveBeenCalledWith(mockFile, expectedNewPath);
+        });
+
+        test("rename operation must use Target: name", async () => {
+          const response = await request(server)
+            .patch("/vault/file.md")
+            .set("Authorization", `Bearer ${API_KEY}`)
+            .set("Content-Type", "text/plain")
+            .set("Operation", "rename")
+            .set("Target-Type", "file")
+            .set("Target", "path") // Wrong target for rename
+            .send("new-name.md")
+            .expect(400);
+            
+          expect(response.body.message).toContain("rename operation must use Target: name");
+        });
+
+        test("rename operation only valid with file target type", async () => {
+          const response = await request(server)
+            .patch("/vault/file.md")
+            .set("Authorization", `Bearer ${API_KEY}`)
+            .set("Content-Type", "text/plain")
+            .set("Operation", "rename")
+            .set("Target-Type", "heading") // Wrong target type
+            .set("Target", "name")
+            .send("new-name.md")
+            .expect(400);
+            
+          expect(response.body.message).toContain("Operation 'rename' is only valid for Target-Type: file");
+        });
+      });
+
+      describe("Operation: move", () => {
+        test("successful move with semantic operation", async () => {
+          const oldPath = "folder1/file.md";
+          const newPath = "folder2/subfolder/file.md";
+          
+          // Mock file exists
+          const mockFile = new TFile();
+          app.vault._getAbstractFileByPath = mockFile;
+          app.vault.adapter._exists = false; // destination doesn't exist
+          
+          // Mock createFolder
+          app.vault.createFolder = jest.fn().mockResolvedValue(undefined);
+          
+          // Mock fileManager
+          (app as any).fileManager = {
+            renameFile: jest.fn().mockResolvedValue(undefined)
+          };
+          
+          const response = await request(server)
+            .patch(`/vault/${oldPath}`)
+            .set("Authorization", `Bearer ${API_KEY}`)
+            .set("Content-Type", "text/plain")
+            .set("Operation", "move")
+            .set("Target-Type", "file")
+            .set("Target", "path")
+            .send(newPath)
+            .expect(200);
+            
+          expect(response.body.message).toEqual("File successfully moved");
+          expect(response.body.oldPath).toEqual(oldPath);
+          expect(response.body.newPath).toEqual(newPath);
+          expect(app.vault.createFolder).toHaveBeenCalledWith("folder2/subfolder");
+          expect((app as any).fileManager.renameFile).toHaveBeenCalledWith(mockFile, newPath);
+        });
+
+        test("move operation must use Target: path", async () => {
+          const response = await request(server)
+            .patch("/vault/file.md")
+            .set("Authorization", `Bearer ${API_KEY}`)
+            .set("Content-Type", "text/plain")
+            .set("Operation", "move")
+            .set("Target-Type", "file")
+            .set("Target", "name") // Wrong target for move
+            .send("folder/file.md")
+            .expect(400);
+            
+          expect(response.body.message).toContain("move operation must use Target: path");
+        });
+
+        test("move operation only valid with file target type", async () => {
+          const response = await request(server)
+            .patch("/vault/file.md")
+            .set("Authorization", `Bearer ${API_KEY}`)
+            .set("Content-Type", "text/plain")
+            .set("Operation", "move")
+            .set("Target-Type", "block") // Wrong target type
+            .set("Target", "path")
+            .send("new-path.md")
+            .expect(400);
+            
+          expect(response.body.message).toContain("Operation 'move' is only valid for Target-Type: file");
+        });
+      });
+
+    });
+  });
 });

@@ -17,3 +17,29 @@ main.js
 
 # obsidian
 data.json
+
+# Environment and config
+.env
+.hotreload
+
+# Development scripts
+test-*.sh
+cleanup-*.sh
+dev-watch.sh
+obsidian-launcher*.sh
+reload-*.js
+force-reload.js
+aggressive-reload.js
+test-hot-reload.js
+
+# Temporary files
+*.log
+
+# Development documentation
+AGENT_TASK.md
+HOT-RELOAD-ANALYSIS.md
+RELOAD-INSTRUCTIONS.md
+SCRATCHPAD.md
+SPIKE-*.md
+fix-hot-reload.md
+hot-reload-fix.md

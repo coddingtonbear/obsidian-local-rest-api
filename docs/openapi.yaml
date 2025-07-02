@@ -298,6 +298,7 @@ paths:
               - "heading"
               - "block"
               - "frontmatter"
+              - "file"
             type: "string"
         - description: "Delimiter to use for nested targets (i.e. Headings)"
           in: "header"
@@ -757,6 +758,7 @@ paths:
               - "heading"
               - "block"
               - "frontmatter"
+              - "file"
             type: "string"
         - description: "Delimiter to use for nested targets (i.e. Headings)"
           in: "header"
@@ -1195,6 +1197,7 @@ paths:
               - "heading"
               - "block"
               - "frontmatter"
+              - "file"
             type: "string"
         - description: "Delimiter to use for nested targets (i.e. Headings)"
           in: "header"
@@ -1702,9 +1705,16 @@ paths:
         - "Vault Files"
     patch:
       description: |
-        Inserts content into an existing note relative to a heading, block refeerence, or frontmatter field within that document.
+        Modifies an existing note by inserting content relative to a heading, block reference, or frontmatter field, or by performing file operations like rename or move.
         
-        Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
+        Allows you to:
+        - Modify content relative to a heading, block reference, or frontmatter field in your document
+        - Rename a file (when Target-Type is "file" and Target is "name")
+        - Move a file to a different location (when Target-Type is "file" and Target is "path")
+        
+        For file operations, the request body should contain:
+        - For rename: just the new filename (e.g., "new-name.md")
+        - For move: the complete new path (e.g., "folder/subfolder/file.md")
         
         Note that this API was changed in Version 3.0 of this extension and the earlier PATCH API is now deprecated. Requests made using the previous version of this API will continue to work until Version 4.0 is released.  See https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0 for more details and migration instructions.
         
@@ -1831,8 +1841,37 @@ paths:
         interpreting yoru `prepend` or `append` requests if you specify
         your data as JSON (particularly when appending, for example,
         list items).
+        
+        ## Renaming a File
+        
+        To rename a file from "old-name.md" to "new-name.md" in the same directory,
+        send the following headers:
+        
+        - `Operation`: `rename`
+        - `Target-Type`: `file`
+        - `Target`: `name`
+        - `Content-Type`: `text/plain`
+        - with the request body: `new-name.md`
+        
+        This will preserve the file's history, metadata, and automatically update
+        all internal links pointing to this file.
+        
+        ## Moving a File
+        
+        To move a file from "folder1/file.md" to "folder2/subfolder/file.md",
+        send the following headers:
+        
+        - `Operation`: `move`
+        - `Target-Type`: `file`
+        - `Target`: `path`
+        - `Content-Type`: `text/plain`
+        - with the request body: `folder2/subfolder/file.md`
+        
+        Parent directories will be created automatically if they don't exist.
+        This operation preserves the file's history, metadata, and automatically
+        updates all internal links.
       parameters:
-        - description: "Patch operation to perform"
+        - description: "Patch operation to perform. For file operations, use 'rename' or 'move'"
           in: "header"
           name: "Operation"
           required: true
@@ -1841,6 +1880,8 @@ paths:
               - "append"
               - "prepend"
               - "replace"
+              - "rename"
+              - "move"
             type: "string"
         - description: "Type of target to patch"
           in: "header"
@@ -1851,6 +1892,7 @@ paths:
               - "heading"
               - "block"
               - "frontmatter"
+              - "file"
             type: "string"
         - description: "Delimiter to use for nested targets (i.e. Headings)"
           in: "header"
@@ -2016,6 +2058,73 @@ paths:
             Your path references a directory instead of a file; this request method is valid only for updating files.
       summary: |
         Create a new file in your vault or update the content of an existing one.
+      tags:
+        - "Vault Files"
+  "/vault/{filename}/rename":
+    post:
+      description: |
+        Rename or move a file within your vault. This preserves the file's history, metadata, and automatically updates all links pointing to this file.
+      parameters:
+        - description: |
+            Path to the file to rename (relative to your vault root).
+          in: "path"
+          name: "filename"
+          required: true
+          schema:
+            format: "path"
+            type: "string"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                newPath:
+                  description: "The new path for the file (relative to vault root)"
+                  type: "string"
+              required:
+                - "newPath"
+              type: "object"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                properties:
+                  message:
+                    type: "string"
+                  oldPath:
+                    type: "string"
+                  newPath:
+                    type: "string"
+                type: "object"
+          description: "File successfully renamed"
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Invalid request (missing newPath or invalid path)"
+        "404":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Source file does not exist"
+        "409":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Destination file already exists"
+        "500":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Failed to rename file"
+      summary: |
+        Rename or move a file within your vault.
       tags:
         - "Vault Files"
   "/vault/{pathToDirectory}/":

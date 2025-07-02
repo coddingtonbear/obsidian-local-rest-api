@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting } from "obsidian";
+import { App, Plugin, PluginSettingTab, Setting, Notice, PluginManifest } from "obsidian";
 import * as https from "https";
 import * as http from "http";
 import forge, { pki } from "node-forge";
@@ -18,9 +18,11 @@ import {
   getCertificateValidityDays,
 } from "./utils";
 import LocalRestApiPublicApi from "./api";
-import { PluginManifest } from "obsidian";
 
 export default class LocalRestApi extends Plugin {
+  constructor(app: App, manifest: PluginManifest) {
+    super(app, manifest);
+  }
   settings: LocalRestApiSettings;
   secureServer: https.Server | null = null;
   insecureServer: http.Server | null = null;
@@ -28,6 +30,7 @@ export default class LocalRestApi extends Plugin {
   refreshServerState: () => void;
 
   async onload() {
+    console.log("[REST API] Plugin loading at", new Date().toISOString());
     this.refreshServerState = this.debounce(
       this._refreshServerState.bind(this),
       1000
@@ -157,7 +160,7 @@ export default class LocalRestApi extends Plugin {
       );
     }
 
-    console.log("[REST API] Added new API extension", pluginManifest);
+    console.error("[REST API] Added new API extension", pluginManifest);
 
     return this.requestHandler.registerApiExtension(pluginManifest);
   }
@@ -191,6 +194,7 @@ export default class LocalRestApi extends Plugin {
         this.settings.bindingHost ?? DefaultBindingHost
       );
 
+      console.log(`[REST API] Starting secure server on port ${this.settings.port}`);
       console.log(
         `[REST API] Listening on https://${
           this.settings.bindingHost ?? DefaultBindingHost
@@ -209,6 +213,7 @@ export default class LocalRestApi extends Plugin {
         this.settings.bindingHost ?? DefaultBindingHost
       );
 
+      console.log(`[REST API] Starting insecure server on port ${this.settings.insecurePort}`);
       console.log(
         `[REST API] Listening on http://${
           this.settings.bindingHost ?? DefaultBindingHost
@@ -217,7 +222,8 @@ export default class LocalRestApi extends Plugin {
     }
   }
 
-  onunload() {
+  async onunload() {
+    console.log("[REST API] Plugin unloading at", new Date().toISOString());
     if (this.secureServer) {
       this.secureServer.close();
     }

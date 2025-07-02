@@ -70,6 +70,8 @@ export default class RequestHandler {
     manifest: PluginManifest;
     api: LocalRestApiPublicApi;
   }[] = [];
+  
+  requestCounter: number = 0;
 
   constructor(
     app: App,
@@ -272,6 +274,7 @@ export default class RequestHandler {
         : undefined,
     });
   }
+
 
   async _vaultGet(
     path: string,
@@ -481,9 +484,10 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response
   ): Promise<void> {
+    
     const operation = req.get("Operation");
     const targetType = req.get("Target-Type");
-    const rawTarget = decodeURIComponent(req.get("Target"));
+    const rawTarget = req.get("Target") ? decodeURIComponent(req.get("Target")) : "";
     const contentType = req.get("Content-Type");
     const createTargetIfMissing = req.get("Create-Target-If-Missing") == "true";
     const applyIfContentPreexists =
@@ -509,7 +513,43 @@ export default class RequestHandler {
       });
       return;
     }
-    if (!["heading", "block", "frontmatter"].includes(targetType)) {
+    
+    // Check for file-level operations BEFORE general validation
+    if (targetType === "file") {
+      // Handle semantic file operations
+      if (operation === "rename") {
+        if (rawTarget !== "name") {
+          res.status(400).json({
+            errorCode: 40004,
+            message: "rename operation must use Target: name"
+          });
+          return;
+        }
+        return this.handleRenameOperation(path, req, res);
+      }
+      
+      if (operation === "move") {
+        if (rawTarget !== "path") {
+          res.status(400).json({
+            errorCode: 40005,
+            message: "move operation must use Target: path"  
+          });
+          return;
+        }
+        return this.handleRenameOperation(path, req, res);
+      }
+    }
+    
+    // Validate that file-specific operations are only used with file target type
+    if ((operation === "rename" || operation === "move") && targetType !== "file") {
+      res.status(400).json({
+        errorCode: 40006,
+        message: `Operation '${operation}' is only valid for Target-Type: file`
+      });
+      return;
+    }
+    
+    if (!["heading", "block", "frontmatter", "file"].includes(targetType)) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidTargetTypeHeader,
       });
@@ -521,7 +561,7 @@ export default class RequestHandler {
       });
       return;
     }
-    if (!["append", "prepend", "replace"].includes(operation)) {
+    if (!["append", "prepend", "replace", "rename", "move"].includes(operation)) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidOperation,
       });
@@ -534,18 +574,18 @@ export default class RequestHandler {
       return;
     }
 
-    const instruction: PatchInstruction = {
-      operation: operation as PatchOperation,
-      targetType: targetType as PatchTargetType,
-      target,
-      contentType: contentType as ContentType,
-      content: req.body,
-      applyIfContentPreexists,
-      trimTargetWhitespace,
-      createTargetIfMissing,
-    } as PatchInstruction;
-
     try {
+      const instruction: PatchInstruction = {
+        operation: operation as PatchOperation,
+        targetType: targetType as PatchTargetType,
+        target,
+        contentType: contentType as ContentType,
+        content: req.body,
+        applyIfContentPreexists,
+        trimTargetWhitespace,
+        createTargetIfMissing,
+      } as PatchInstruction;
+
       const patched = applyPatch(fileContents, instruction);
       await this.app.vault.adapter.write(path, patched);
       res.status(200).send(patched);
@@ -672,6 +712,108 @@ export default class RequestHandler {
     );
 
     return this._vaultDelete(path, req, res);
+  }
+
+  async handleRenameOperation(
+    path: string,
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    
+    if (!path || path.endsWith("/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
+      });
+      return;
+    }
+
+    const target = req.get("Target");
+    const isMove = target === "path";
+    const isRename = target === "name";
+    
+    if (!isMove && !isRename) {
+      res.status(400).json({
+        errorCode: 40003,
+        message: "Invalid Target value for file operations. Use 'name' for rename or 'path' for move"
+      });
+      return;
+    }
+
+    // For PATCH operations, the new filename/path should be in the request body
+    const newValue = typeof req.body === 'string' ? req.body.trim() : '';
+    
+    if (!newValue) {
+      res.status(400).json({
+        errorCode: 40001,
+        message: isMove ? "New path is required in request body" : "New filename is required in request body"
+      });
+      return;
+    }
+
+    let newPath: string;
+    if (isRename) {
+      // For rename, construct the new path by replacing just the filename
+      const dirPath = path.substring(0, path.lastIndexOf('/'));
+      newPath = dirPath ? `${dirPath}/${newValue}` : newValue;
+    } else {
+      // For move, use the provided path directly
+      newPath = newValue;
+    }
+
+    // Validate new path
+    if (newPath.endsWith("/")) {
+      res.status(400).json({
+        errorCode: 40002,
+        message: "New path must be a file path, not a directory"
+      });
+      return;
+    }
+
+    // Check if source file exists
+    const sourceFile = this.app.vault.getAbstractFileByPath(path);
+    if (!sourceFile || !(sourceFile instanceof TFile)) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
+
+    // Check if destination already exists
+    const destExists = await this.app.vault.adapter.exists(newPath);
+    if (destExists) {
+      res.status(409).json({
+        errorCode: 40901,
+        message: "Destination file already exists"
+      });
+      return;
+    }
+
+    // Create parent directories if needed (for move operations)
+    if (isMove) {
+      const parentDir = newPath.substring(0, newPath.lastIndexOf('/'));
+      if (parentDir) {
+        try {
+          await this.app.vault.createFolder(parentDir);
+        } catch {
+          // Folder might already exist, continue
+        }
+      }
+    }
+
+    try {
+      // Use FileManager to rename/move the file (preserves history and updates links)
+      // @ts-ignore - fileManager exists at runtime but not in type definitions
+      await this.app.fileManager.renameFile(sourceFile, newPath);
+      
+      res.status(200).json({
+        message: isMove ? "File successfully moved" : "File successfully renamed",
+        oldPath: path,
+        newPath: newPath
+      });
+    } catch (error) {
+      res.status(500).json({
+        errorCode: 50001,
+        message: `Failed to ${isMove ? 'move' : 'rename'} file: ${error.message}`
+      });
+    }
   }
 
   getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
@@ -1189,6 +1331,7 @@ export default class RequestHandler {
 
   setupRouter() {
     this.api.use((req, res, next) => {
+      this.requestCounter++;
       const originalSend = res.send;
       res.send = function (body, ...args) {
         console.log(`[REST API] ${req.method} ${req.url} => ${res.statusCode}`);
@@ -1240,6 +1383,7 @@ export default class RequestHandler {
       .post(this.activeFilePost.bind(this))
       .delete(this.activeFileDelete.bind(this));
 
+
     this.api
       .route("/vault/*")
       .get(this.vaultGet.bind(this))
@@ -1247,6 +1391,7 @@ export default class RequestHandler {
       .patch(this.vaultPatch.bind(this))
       .post(this.vaultPost.bind(this))
       .delete(this.vaultDelete.bind(this));
+
 
     this.api
       .route("/periodic/:period/")
