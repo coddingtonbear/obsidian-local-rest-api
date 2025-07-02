@@ -1856,6 +1856,13 @@ paths:
         This will preserve the file's history, metadata, and automatically update
         all internal links pointing to this file.
         
+        ### Security Restrictions for Rename:
+        - Filename cannot contain: `< > : " | ? *` or control characters
+        - Filename cannot be a Windows reserved name (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+        - Filename cannot exceed 255 characters
+        - Filename cannot start/end with spaces or end with a dot
+        - Path traversal attempts (`../`) are blocked
+        
         ## Moving a File
         
         To move a file from "folder1/file.md" to "folder2/subfolder/file.md",
@@ -1870,6 +1877,12 @@ paths:
         Parent directories will be created automatically if they don't exist.
         This operation preserves the file's history, metadata, and automatically
         updates all internal links.
+        
+        ### Security Restrictions for Move:
+        - Path cannot contain path traversal sequences (`../`, `..\\`)
+        - Absolute paths are not allowed (`/`, `\`, `C:\`)
+        - Filename portion follows same restrictions as rename operation
+        - Destination cannot already exist (returns 409 Conflict if it does)
       parameters:
         - description: "Patch operation to perform. For file operations, use 'rename' or 'move'"
           in: "header"

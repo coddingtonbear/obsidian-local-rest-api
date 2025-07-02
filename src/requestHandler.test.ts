@@ -828,6 +828,143 @@ describe("requestHandler", () => {
       });
     });
 
+    describe("security validations", () => {
+      beforeEach(() => {
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+        app.vault.adapter._exists = false;
+        (app as any).fileManager = {
+          renameFile: jest.fn().mockResolvedValue(undefined)
+        };
+      });
+
+      test("should reject path traversal attempts in rename", async () => {
+        const response = await request(server)
+          .patch("/vault/file.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "rename")
+          .set("Target-Type", "file")
+          .set("Target", "name")
+          .send("../malicious.md")
+          .expect(400);
+          
+        expect(response.body.message).toContain("Invalid path");
+      });
+
+      test("should reject path traversal attempts in move", async () => {
+        const response = await request(server)
+          .patch("/vault/file.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "move")
+          .set("Target-Type", "file")
+          .set("Target", "path")
+          .send("../outside/file.md")
+          .expect(400);
+          
+        expect(response.body.message).toContain("Path traversal not allowed");
+      });
+
+      test("should reject absolute paths in move", async () => {
+        const response = await request(server)
+          .patch("/vault/file.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "move")
+          .set("Target-Type", "file")
+          .set("Target", "path")
+          .send("/absolute/path/file.md")
+          .expect(400);
+          
+        expect(response.body.message).toContain("Absolute paths not allowed");
+      });
+
+      test("should reject invalid characters in filename", async () => {
+        const response = await request(server)
+          .patch("/vault/file.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "rename")
+          .set("Target-Type", "file")
+          .set("Target", "name")
+          .send("file<name>.md")
+          .expect(400);
+          
+        expect(response.body.message).toContain("Invalid characters in filename");
+      });
+
+      test("should reject reserved filenames", async () => {
+        const response = await request(server)
+          .patch("/vault/file.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "rename")
+          .set("Target-Type", "file")
+          .set("Target", "name")
+          .send("CON.md")
+          .expect(400);
+          
+        expect(response.body.message).toContain("Reserved filename");
+      });
+
+      test("should reject filename ending with dot", async () => {
+        const response = await request(server)
+          .patch("/vault/file.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "rename")
+          .set("Target-Type", "file")
+          .set("Target", "name")
+          .send("filename.")
+          .expect(400);
+          
+        expect(response.body.message).toContain("cannot start or end with spaces, or end with a dot");
+      });
+
+      test("should reject too long filename", async () => {
+        const longName = "a".repeat(256) + ".md";
+        const response = await request(server)
+          .patch("/vault/file.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "rename")
+          .set("Target-Type", "file")
+          .set("Target", "name")
+          .send(longName)
+          .expect(400);
+          
+        expect(response.body.message).toContain("Filename too long");
+      });
+    });
+
+    describe("conflict handling", () => {
+      test("should handle destination file already exists", async () => {
+        const oldPath = "folder/old-file.md";
+        const newFilename = "existing-file.md";
+        
+        // Mock source file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+        
+        // Mock destination exists
+        app.vault.adapter._exists = true;
+        
+        const response = await request(server)
+          .patch(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "rename")
+          .set("Target-Type", "file")
+          .set("Target", "name")
+          .send(newFilename)
+          .expect(409);
+          
+        expect(response.body.message).toContain("Destination file already exists");
+        expect(response.body.errorCode).toEqual(40901);
+      });
+    });
+
     describe("semantic file operations", () => {
       describe("Operation: rename", () => {
         test("successful rename with semantic operation", async () => {
@@ -887,6 +1024,20 @@ describe("requestHandler", () => {
             .expect(400);
             
           expect(response.body.message).toContain("Operation 'rename' is only valid for Target-Type: file");
+        });
+
+        test("should reject empty filename", async () => {
+          const response = await request(server)
+            .patch("/vault/file.md")
+            .set("Authorization", `Bearer ${API_KEY}`)
+            .set("Content-Type", "text/plain")
+            .set("Operation", "rename")
+            .set("Target-Type", "file")
+            .set("Target", "name")
+            .send("")
+            .expect(400);
+            
+          expect(response.body.message).toContain("New filename is required");
         });
       });
 
@@ -951,6 +1102,37 @@ describe("requestHandler", () => {
             .expect(400);
             
           expect(response.body.message).toContain("Operation 'move' is only valid for Target-Type: file");
+        });
+
+        test("should reject empty path", async () => {
+          const response = await request(server)
+            .patch("/vault/file.md")
+            .set("Authorization", `Bearer ${API_KEY}`)
+            .set("Content-Type", "text/plain")
+            .set("Operation", "move")
+            .set("Target-Type", "file")
+            .set("Target", "path")
+            .send("")
+            .expect(400);
+            
+          expect(response.body.message).toContain("New path is required");
+        });
+
+        test("should reject directory path ending with slash", async () => {
+          const mockFile = new TFile();
+          app.vault._getAbstractFileByPath = mockFile;
+          
+          const response = await request(server)
+            .patch("/vault/file.md")
+            .set("Authorization", `Bearer ${API_KEY}`)
+            .set("Content-Type", "text/plain")
+            .set("Operation", "move")
+            .set("Target-Type", "file")
+            .set("Target", "path")
+            .send("folder/")
+            .expect(400);
+            
+          expect(response.body.message).toContain("New path must be a file path, not a directory");
         });
       });
 

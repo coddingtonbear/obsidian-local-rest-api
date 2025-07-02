@@ -714,6 +714,53 @@ export default class RequestHandler {
     return this._vaultDelete(path, req, res);
   }
 
+  private validateFilePath(filePath: string): { isValid: boolean; error?: string } {
+    // Check for path traversal attempts
+    if (filePath.includes('../') || filePath.includes('..\\')) {
+      return { isValid: false, error: "Path traversal not allowed" };
+    }
+
+    // Check for absolute paths (security risk)
+    if (filePath.startsWith('/') || filePath.startsWith('\\') || /^[a-zA-Z]:/.test(filePath)) {
+      return { isValid: false, error: "Absolute paths not allowed" };
+    }
+
+    // Normalize the path to prevent encoded traversal attempts
+    const normalizedPath = path.normalize(filePath);
+    if (normalizedPath.includes('../') || normalizedPath.includes('..\\')) {
+      return { isValid: false, error: "Invalid path detected after normalization" };
+    }
+
+    return { isValid: true };
+  }
+
+  private validateFileName(fileName: string): { isValid: boolean; error?: string } {
+    // Check for invalid characters in filename
+    const invalidChars = /[<>:"|?*\x00-\x1f]/g;
+    if (invalidChars.test(fileName)) {
+      return { isValid: false, error: "Invalid characters in filename. Characters not allowed: < > : \" | ? * and control characters" };
+    }
+
+    // Check for reserved names (Windows)
+    const reservedNames = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'];
+    const nameWithoutExt = fileName.split('.')[0].toUpperCase();
+    if (reservedNames.includes(nameWithoutExt)) {
+      return { isValid: false, error: `Reserved filename: ${nameWithoutExt}` };
+    }
+
+    // Check filename length (255 characters is common limit)
+    if (fileName.length > 255) {
+      return { isValid: false, error: "Filename too long (maximum 255 characters)" };
+    }
+
+    // Check for leading/trailing spaces or dots
+    if (fileName.startsWith(' ') || fileName.endsWith(' ') || fileName.endsWith('.')) {
+      return { isValid: false, error: "Filename cannot start or end with spaces, or end with a dot" };
+    }
+
+    return { isValid: true };
+  }
+
   async handleRenameOperation(
     path: string,
     req: express.Request,
@@ -750,6 +797,18 @@ export default class RequestHandler {
       return;
     }
 
+    // Validate the input based on operation type
+    if (isRename) {
+      const fileNameValidation = this.validateFileName(newValue);
+      if (!fileNameValidation.isValid) {
+        res.status(400).json({
+          errorCode: 40007,
+          message: `Invalid filename: ${fileNameValidation.error}`
+        });
+        return;
+      }
+    }
+
     let newPath: string;
     if (isRename) {
       // For rename, construct the new path by replacing just the filename
@@ -760,7 +819,30 @@ export default class RequestHandler {
       newPath = newValue;
     }
 
-    // Validate new path
+    // Validate the complete path for security
+    const pathValidation = this.validateFilePath(newPath);
+    if (!pathValidation.isValid) {
+      res.status(400).json({
+        errorCode: 40008,
+        message: `Invalid path: ${pathValidation.error}`
+      });
+      return;
+    }
+
+    // For move operations, also validate the filename part
+    if (isMove) {
+      const fileName = newPath.substring(newPath.lastIndexOf('/') + 1);
+      const fileNameValidation = this.validateFileName(fileName);
+      if (!fileNameValidation.isValid) {
+        res.status(400).json({
+          errorCode: 40007,
+          message: `Invalid filename in path: ${fileNameValidation.error}`
+        });
+        return;
+      }
+    }
+
+    // Validate new path format
     if (newPath.endsWith("/")) {
       res.status(400).json({
         errorCode: 40002,
@@ -781,7 +863,7 @@ export default class RequestHandler {
     if (destExists) {
       res.status(409).json({
         errorCode: 40901,
-        message: "Destination file already exists"
+        message: `Destination file already exists: ${newPath}`
       });
       return;
     }
@@ -792,8 +874,9 @@ export default class RequestHandler {
       if (parentDir) {
         try {
           await this.app.vault.createFolder(parentDir);
-        } catch {
-          // Folder might already exist, continue
+        } catch (error) {
+          // If folder creation fails, it might be a permission issue or invalid path
+          console.warn(`Could not create parent directory: ${error.message}`);
         }
       }
     }
@@ -809,9 +892,24 @@ export default class RequestHandler {
         newPath: newPath
       });
     } catch (error) {
-      res.status(500).json({
-        errorCode: 50001,
-        message: `Failed to ${isMove ? 'move' : 'rename'} file: ${error.message}`
+      // More specific error handling
+      let errorMessage = error.message || 'Unknown error occurred';
+      let errorCode = 50001;
+      
+      if (errorMessage.includes('already exists')) {
+        errorCode = 40901;
+        errorMessage = `Destination file already exists: ${newPath}`;
+      } else if (errorMessage.includes('permission') || errorMessage.includes('access')) {
+        errorCode = 50003;
+        errorMessage = 'Permission denied: unable to access file or destination directory';
+      } else if (errorMessage.includes('not found')) {
+        errorCode = 40404;
+        errorMessage = 'Source file not found or has been moved';
+      }
+      
+      res.status(errorCode >= 50000 ? 500 : 400).json({
+        errorCode: errorCode,
+        message: `Failed to ${isMove ? 'move' : 'rename'} file: ${errorMessage}`
       });
     }
   }
