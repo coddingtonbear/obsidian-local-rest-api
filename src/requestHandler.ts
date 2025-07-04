@@ -509,6 +509,14 @@ export default class RequestHandler {
       });
       return;
     }
+    
+    // Check for file-level operations (like rename) BEFORE validation
+    if (targetType === "file" && operation === "replace") {
+      if (rawTarget === "name") {
+        return this.handleRenameOperation(path, req, res);
+      }
+    }
+    
     if (!["heading", "block", "frontmatter"].includes(targetType)) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidTargetTypeHeader,
@@ -672,6 +680,78 @@ export default class RequestHandler {
     );
 
     return this._vaultDelete(path, req, res);
+  }
+
+  async handleRenameOperation(
+    path: string,
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    
+    if (!path || path.endsWith("/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
+      });
+      return;
+    }
+
+    // For PATCH operations, the new filename should be in the request body
+    const newFilename = typeof req.body === 'string' ? req.body.trim() : '';
+    
+    if (!newFilename) {
+      res.status(400).json({
+        errorCode: 40001,
+        message: "New filename is required in request body"
+      });
+      return;
+    }
+
+    // Construct the new path by replacing just the filename
+    const dirPath = path.substring(0, path.lastIndexOf('/'));
+    const newPath = dirPath ? `${dirPath}/${newFilename}` : newFilename;
+
+    // Validate new path
+    if (newPath.endsWith("/")) {
+      res.status(400).json({
+        errorCode: 40002,
+        message: "New path must be a file path, not a directory"
+      });
+      return;
+    }
+
+    // Check if source file exists
+    const sourceFile = this.app.vault.getAbstractFileByPath(path);
+    if (!sourceFile || !(sourceFile instanceof TFile)) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
+
+    // Check if destination already exists
+    const destExists = await this.app.vault.adapter.exists(newPath);
+    if (destExists) {
+      res.status(409).json({
+        errorCode: 40901,
+        message: "Destination file already exists"
+      });
+      return;
+    }
+
+    try {
+      // Use FileManager to rename the file (preserves history and updates links)
+      // @ts-ignore - fileManager exists at runtime but not in type definitions
+      await this.app.fileManager.renameFile(sourceFile, newPath);
+      
+      res.status(200).json({
+        message: "File successfully renamed",
+        oldPath: path,
+        newPath: newPath
+      });
+    } catch (error) {
+      res.status(500).json({
+        errorCode: 50001,
+        message: `Failed to rename file: ${error.message}`
+      });
+    }
   }
 
   getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
