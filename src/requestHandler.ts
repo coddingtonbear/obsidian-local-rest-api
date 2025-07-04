@@ -483,7 +483,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const operation = req.get("Operation");
     const targetType = req.get("Target-Type");
-    const rawTarget = decodeURIComponent(req.get("Target"));
+    const rawTarget = req.get("Target") ? decodeURIComponent(req.get("Target")) : "";
     const contentType = req.get("Content-Type");
     const createTargetIfMissing = req.get("Create-Target-If-Missing") == "true";
     const applyIfContentPreexists =
