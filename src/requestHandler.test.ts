@@ -740,6 +740,76 @@ describe("requestHandler", () => {
         );
       });
     });
+
+    describe("file rename operation", () => {
+      test("successful rename with Target-Type: file, Target: name", async () => {
+        const oldPath = "folder/old-file.md";
+        const newFilename = "new-file.md";
+        const expectedNewPath = "folder/new-file.md";
+        
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+        app.vault.adapter._exists = false; // destination doesn't exist
+        
+        // Mock fileManager
+        (app as any).fileManager = {
+          renameFile: jest.fn().mockResolvedValue(undefined)
+        };
+        
+        const response = await request(server)
+          .patch(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "replace")
+          .set("Target-Type", "file")
+          .set("Target", "name")
+          .send(newFilename)
+          .expect(200);
+          
+        expect(response.body.message).toEqual("File successfully renamed");
+        expect(response.body.oldPath).toEqual(oldPath);
+        expect(response.body.newPath).toEqual(expectedNewPath);
+        expect((app as any).fileManager.renameFile).toHaveBeenCalledWith(mockFile, expectedNewPath);
+      });
+
+      test("rename fails with non-existent file", async () => {
+        // Mock file doesn't exist
+        app.vault._getAbstractFileByPath = null;
+        
+        const response = await request(server)
+          .patch("/vault/non-existent.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "replace")
+          .set("Target-Type", "file")
+          .set("Target", "name")
+          .send("new-name.md")
+          .expect(404);
+      });
+
+      test("rename fails when destination exists", async () => {
+        const oldPath = "folder/old-file.md";
+        const newFilename = "existing-file.md";
+        
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+        app.vault.adapter._exists = true; // destination already exists
+        
+        const response = await request(server)
+          .patch(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "replace")
+          .set("Target-Type", "file")
+          .set("Target", "name")
+          .send(newFilename)
+          .expect(409);
+          
+        expect(response.body.message).toContain("Destination file already exists");
+      });
+    });
   });
 
   describe("commandGet", () => {
