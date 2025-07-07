@@ -207,7 +207,7 @@ paths:
         ^2c7cfa
         ```
         
-        ## Append Content Below a Heading
+        ## Append, Prepend, or Replace Content Below a Heading
         
         If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
         you could send a request with the following headers:
@@ -220,7 +220,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Append Content to a Block Reference
+        ## Append, Prepend, or Replace Content to a Block Reference
         
         If you wanted to append the content "Hello" below the block referenced by
         "2d9b4a" above ("More random text."), you could send the following headers:
@@ -233,7 +233,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Add a Row to a Table Referenced by a Block Reference
+        ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
         
         If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
         referenced by the block reference `2c7cfa`, you could send the following
@@ -278,6 +278,18 @@ paths:
         interpreting yoru `prepend` or `append` requests if you specify
         your data as JSON (particularly when appending, for example,
         list items).
+        
+        ## File Rename Operation
+        
+        ### Renaming a File
+        
+        To rename a file, use:
+        - `Operation`: `rename`
+        - `Target-Type`: `file`
+        - `Target`: `newfilename.md`
+        - Request body: empty
+        
+        File rename operations preserve internal links within your vault.
       parameters:
         - description: "Patch operation to perform"
           in: "header"
@@ -288,6 +300,7 @@ paths:
               - "append"
               - "prepend"
               - "replace"
+              - "rename"
             type: "string"
         - description: "Type of target to patch"
           in: "header"
@@ -298,6 +311,7 @@ paths:
               - "heading"
               - "block"
               - "frontmatter"
+              - "file"
             type: "string"
         - description: "Delimiter to use for nested targets (i.e. Headings)"
           in: "header"
@@ -309,6 +323,9 @@ paths:
         - description: |
             Target to patch; this value can be URL-Encoded and *must*
             be URL-Encoded if it includes non-ASCII characters.
+            
+            For file operations:
+            - When Operation is 'rename' and Target-Type is 'file': Target should be the new filename
           in: "header"
           name: "Target"
           required: true
@@ -666,7 +683,7 @@ paths:
         ^2c7cfa
         ```
         
-        ## Append Content Below a Heading
+        ## Append, Prepend, or Replace Content Below a Heading
         
         If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
         you could send a request with the following headers:
@@ -679,7 +696,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Append Content to a Block Reference
+        ## Append, Prepend, or Replace Content to a Block Reference
         
         If you wanted to append the content "Hello" below the block referenced by
         "2d9b4a" above ("More random text."), you could send the following headers:
@@ -692,7 +709,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Add a Row to a Table Referenced by a Block Reference
+        ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
         
         If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
         referenced by the block reference `2c7cfa`, you could send the following
@@ -737,6 +754,18 @@ paths:
         interpreting yoru `prepend` or `append` requests if you specify
         your data as JSON (particularly when appending, for example,
         list items).
+        
+        ## File Rename Operation
+        
+        ### Renaming a File
+        
+        To rename a file, use:
+        - `Operation`: `rename`
+        - `Target-Type`: `file`
+        - `Target`: `newfilename.md`
+        - Request body: empty
+        
+        File rename operations preserve internal links within your vault.
       parameters:
         - description: "Patch operation to perform"
           in: "header"
@@ -747,6 +776,7 @@ paths:
               - "append"
               - "prepend"
               - "replace"
+              - "rename"
             type: "string"
         - description: "Type of target to patch"
           in: "header"
@@ -757,6 +787,7 @@ paths:
               - "heading"
               - "block"
               - "frontmatter"
+              - "file"
             type: "string"
         - description: "Delimiter to use for nested targets (i.e. Headings)"
           in: "header"
@@ -768,6 +799,9 @@ paths:
         - description: |
             Target to patch; this value can be URL-Encoded and *must*
             be URL-Encoded if it includes non-ASCII characters.
+            
+            For file operations:
+            - When Operation is 'rename' and Target-Type is 'file': Target should be the new filename
           in: "header"
           name: "Target"
           required: true
@@ -1104,7 +1138,7 @@ paths:
         ^2c7cfa
         ```
         
-        ## Append Content Below a Heading
+        ## Append, Prepend, or Replace Content Below a Heading
         
         If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
         you could send a request with the following headers:
@@ -1117,7 +1151,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Append Content to a Block Reference
+        ## Append, Prepend, or Replace Content to a Block Reference
         
         If you wanted to append the content "Hello" below the block referenced by
         "2d9b4a" above ("More random text."), you could send the following headers:
@@ -1130,7 +1164,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Add a Row to a Table Referenced by a Block Reference
+        ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
         
         If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
         referenced by the block reference `2c7cfa`, you could send the following
@@ -1175,6 +1209,18 @@ paths:
         interpreting yoru `prepend` or `append` requests if you specify
         your data as JSON (particularly when appending, for example,
         list items).
+        
+        ## File Rename Operation
+        
+        ### Renaming a File
+        
+        To rename a file, use:
+        - `Operation`: `rename`
+        - `Target-Type`: `file`
+        - `Target`: `newfilename.md`
+        - Request body: empty
+        
+        File rename operations preserve internal links within your vault.
       parameters:
         - description: "Patch operation to perform"
           in: "header"
@@ -1185,6 +1231,7 @@ paths:
               - "append"
               - "prepend"
               - "replace"
+              - "rename"
             type: "string"
         - description: "Type of target to patch"
           in: "header"
@@ -1195,6 +1242,7 @@ paths:
               - "heading"
               - "block"
               - "frontmatter"
+              - "file"
             type: "string"
         - description: "Delimiter to use for nested targets (i.e. Headings)"
           in: "header"
@@ -1206,6 +1254,9 @@ paths:
         - description: |
             Target to patch; this value can be URL-Encoded and *must*
             be URL-Encoded if it includes non-ASCII characters.
+            
+            For file operations:
+            - When Operation is 'rename' and Target-Type is 'file': Target should be the new filename
           in: "header"
           name: "Target"
           required: true
@@ -1760,7 +1811,7 @@ paths:
         ^2c7cfa
         ```
         
-        ## Append Content Below a Heading
+        ## Append, Prepend, or Replace Content Below a Heading
         
         If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
         you could send a request with the following headers:
@@ -1773,7 +1824,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Append Content to a Block Reference
+        ## Append, Prepend, or Replace Content to a Block Reference
         
         If you wanted to append the content "Hello" below the block referenced by
         "2d9b4a" above ("More random text."), you could send the following headers:
@@ -1786,7 +1837,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Add a Row to a Table Referenced by a Block Reference
+        ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
         
         If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
         referenced by the block reference `2c7cfa`, you could send the following
@@ -1831,6 +1882,18 @@ paths:
         interpreting yoru `prepend` or `append` requests if you specify
         your data as JSON (particularly when appending, for example,
         list items).
+        
+        ## File Rename Operation
+        
+        ### Renaming a File
+        
+        To rename a file, use:
+        - `Operation`: `rename`
+        - `Target-Type`: `file`
+        - `Target`: `newfilename.md`
+        - Request body: empty
+        
+        File rename operations preserve internal links within your vault.
       parameters:
         - description: "Patch operation to perform"
           in: "header"
@@ -1841,6 +1904,7 @@ paths:
               - "append"
               - "prepend"
               - "replace"
+              - "rename"
             type: "string"
         - description: "Type of target to patch"
           in: "header"
@@ -1851,6 +1915,7 @@ paths:
               - "heading"
               - "block"
               - "frontmatter"
+              - "file"
             type: "string"
         - description: "Delimiter to use for nested targets (i.e. Headings)"
           in: "header"
@@ -1862,6 +1927,9 @@ paths:
         - description: |
             Target to patch; this value can be URL-Encoded and *must*
             be URL-Encoded if it includes non-ASCII characters.
+            
+            For file operations:
+            - When Operation is 'rename' and Target-Type is 'file': Target should be the new filename
           in: "header"
           name: "Target"
           required: true

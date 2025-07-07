@@ -11,6 +11,7 @@
           'append',
           'prepend',
           'replace',
+          'rename',
         ],
       },
     },
@@ -25,6 +26,7 @@
           'heading',
           'block',
           'frontmatter',
+          'file',
         ],
       },
     },
@@ -44,6 +46,9 @@
       description: |||
         Target to patch; this value can be URL-Encoded and *must*
         be URL-Encoded if it includes non-ASCII characters.
+        
+        For file operations:
+        - When Operation is 'rename' and Target-Type is 'file': Target should be the new filename
       |||,
       required: true,
       schema: {
@@ -274,5 +279,17 @@
     interpreting yoru `prepend` or `append` requests if you specify
     your data as JSON (particularly when appending, for example,
     list items).
+
+    ## File Rename Operation
+
+    ### Renaming a File
+
+    To rename a file, use:
+    - `Operation`: `rename`
+    - `Target-Type`: `file`
+    - `Target`: `newfilename.md`
+    - Request body: empty
+
+    File rename operations preserve internal links within your vault.
   |||,
 }
