@@ -31,13 +31,13 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "Incoming content must be text data and have an appropriate text/* Content-type header set (e.g. text/markdown).",
   [ErrorCode.InvalidFilterQuery]:
     "The query you provided could not be processed.",
-  [ErrorCode.MissingTargetTypeHeader]: "No 'Target-Type' header was provided.",
+  [ErrorCode.MissingTargetTypeHeader]: "Target-Type header required. Options: 'heading' (insert at heading), 'block' (modify block content), 'frontmatter' (update metadata), 'file' (rename/move), 'directory' (move), 'tag' (add/remove).",
   [ErrorCode.InvalidTargetTypeHeader]:
-    "The 'Target-Type' header you provided was invalid.",
-  [ErrorCode.MissingTargetHeader]: "No 'Target' header was provided.",
-  [ErrorCode.MissingOperation]: "No 'Operation' header was provided.",
+    "Invalid Target-Type header. Valid options: 'heading' (insert at heading), 'block' (modify block content), 'frontmatter' (update metadata), 'file' (rename/move), 'directory' (move), 'tag' (add/remove).",
+  [ErrorCode.MissingTargetHeader]: "Target header required. This should be the heading name, block ID (without ^), frontmatter field name, tag name, or path depending on your Target-Type.",
+  [ErrorCode.MissingOperation]: "Operation header required. Options: 'append' (add after), 'prepend' (add before), 'replace' (replace content), 'rename' (file only), 'move' (file/directory), 'add'/'remove' (tags only).",
   [ErrorCode.InvalidOperation]:
-    "The 'Operation' header you provided was invalid.",
+    "Invalid Operation header. Valid options: 'append' (add after), 'prepend' (add before), 'replace' (replace content), 'rename' (file only), 'move' (file/directory), 'add'/'remove' (tags only).",
   [ErrorCode.PatchFailed]:
     "The patch you provided could not be applied to the target content.",
 };
