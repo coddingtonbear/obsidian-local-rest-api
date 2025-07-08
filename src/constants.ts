@@ -45,6 +45,10 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.InvalidSearch]: "The search query you provided is not valid.",
   [ErrorCode.ErrorPreparingSimpleSearch]:
     "Error encountered while calling Obsidian `prepareSimpleSearch` API.",
+  [ErrorCode.InvalidMoveTarget]:
+    "For move operations, Target must be 'path'.",
+  [ErrorCode.InvalidOperationForTargetType]:
+    "This operation is not valid for the specified target type.",
 };
 
 export enum ContentTypes {

@@ -23,6 +23,8 @@ export enum ErrorCode {
   PeriodDoesNotExist = 40460,
   PeriodicNoteDoesNotExist = 40461,
   RequestMethodValidOnlyForFiles = 40510,
+  InvalidMoveTarget = 40005,
+  InvalidOperationForTargetType = 40006,
   ErrorPreparingSimpleSearch = 50010,
 }
 
