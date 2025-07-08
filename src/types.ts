@@ -21,6 +21,9 @@ export enum ErrorCode {
   PeriodDoesNotExist = 40460,
   PeriodicNoteDoesNotExist = 40461,
   RequestMethodValidOnlyForFiles = 40510,
+  InvalidRenameTarget = 40004,
+  InvalidMoveTarget = 40005,
+  InvalidOperationForTargetType = 40006,
 }
 
 export interface LocalRestApiSettings {

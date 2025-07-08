@@ -510,14 +510,19 @@ export default class RequestHandler {
       return;
     }
     
-    // Check for file-level operations BEFORE validation
+    if (!operation) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingOperation,
+      });
+      return;
+    }
+    
+    // Handle file-specific operations that don't use applyPatch
     if (targetType === "file") {
-      // Handle semantic file operations
       if (operation === "rename") {
         if (rawTarget !== "name") {
-          res.status(400).json({
-            errorCode: 40004,
-            message: "rename operation must use Target: name"
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.InvalidRenameTarget,
           });
           return;
         }
@@ -526,43 +531,38 @@ export default class RequestHandler {
       
       if (operation === "move") {
         if (rawTarget !== "path") {
-          res.status(400).json({
-            errorCode: 40005,
-            message: "move operation must use Target: path"
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.InvalidMoveTarget,
           });
           return;
         }
         return this.handleMoveOperation(path, req, res);
       }
       
-      // Legacy support for "replace" operation with file target type
+      // Legacy support: "replace" with Target: name redirects to rename
       if (operation === "replace" && rawTarget === "name") {
         return this.handleRenameOperation(path, req, res);
       }
     }
     
-    // Validate that file-specific operations are only used with file target type
+    // Validate file-only operations aren't used with other target types
     if ((operation === "rename" || operation === "move") && targetType !== "file") {
-      res.status(400).json({
-        errorCode: 40006,
-        message: `Operation '${operation}' is only valid for Target-Type: file`
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidOperationForTargetType,
       });
       return;
     }
     
+    // Only these target types continue to applyPatch
     if (!["heading", "block", "frontmatter"].includes(targetType)) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidTargetTypeHeader,
       });
       return;
     }
-    if (!operation) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.MissingOperation,
-      });
-      return;
-    }
-    if (!["append", "prepend", "replace", "rename", "move"].includes(operation)) {
+    
+    // Validate operations for applyPatch target types
+    if (!["append", "prepend", "replace"].includes(operation)) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidOperation,
       });

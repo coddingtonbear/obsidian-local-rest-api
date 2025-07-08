@@ -40,6 +40,12 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "Invalid Operation header. Valid options: 'append' (add after), 'prepend' (add before), 'replace' (replace content), 'rename' (file only), 'move' (file/directory), 'add'/'remove' (tags only).",
   [ErrorCode.PatchFailed]:
     "The patch you provided could not be applied to the target content.",
+  [ErrorCode.InvalidRenameTarget]:
+    "For rename operations, Target must be 'name'.",
+  [ErrorCode.InvalidMoveTarget]:
+    "For move operations, Target must be 'path'.",
+  [ErrorCode.InvalidOperationForTargetType]:
+    "This operation is not valid for the specified target type.",
 };
 
 export enum ContentTypes {
