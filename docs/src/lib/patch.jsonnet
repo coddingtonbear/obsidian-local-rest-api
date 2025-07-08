@@ -12,6 +12,7 @@
           'prepend',
           'replace',
           'rename',
+          'move',
         ],
       },
     },
@@ -49,6 +50,7 @@
         
         For file operations:
         - When Operation is 'rename' and Target-Type is 'file': Target should be the new filename
+        - When Operation is 'move' and Target-Type is 'file': Target should be the new file path
       |||,
       required: true,
       schema: {
@@ -280,7 +282,7 @@
     your data as JSON (particularly when appending, for example,
     list items).
 
-    ## File Rename Operation
+    ## File Operations
 
     ### Renaming a File
 
@@ -290,6 +292,14 @@
     - `Target`: `newfilename.md`
     - Request body: empty
 
-    File rename operations preserve internal links within your vault.
+    ### Moving a File
+
+    To move a file to a new path, use:
+    - `Operation`: `move`
+    - `Target-Type`: `file`
+    - `Target`: `new/path/to/file.md`
+    - Request body: empty
+
+    File rename and move operations preserve internal links within your vault.
   |||,
 }
