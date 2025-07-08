@@ -950,6 +950,50 @@ describe("requestHandler", () => {
         expect(app.vault.createFolder).not.toHaveBeenCalled(); // No need to create parent for root
         expect((app as any).fileManager.renameFile).toHaveBeenCalledWith(mockFile, newPath);
       });
+
+      test("move fails with path traversal attempt", async () => {
+        const oldPath = "folder/file.md";
+        const maliciousPath = "../../../etc/passwd";
+        
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+        
+        const response = await request(server)
+          .patch(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "move")
+          .set("Target-Type", "file")
+          .set("Target", "path")
+          .send(maliciousPath)
+          .expect(400);
+          
+        expect(response.body.errorCode).toEqual(40003);
+        expect(response.body.message).toContain("Path traversal is not allowed");
+      });
+
+      test("move fails with absolute path", async () => {
+        const oldPath = "folder/file.md";
+        const absolutePath = "/etc/passwd";
+        
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+        
+        const response = await request(server)
+          .patch(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "move")
+          .set("Target-Type", "file")
+          .set("Target", "path")
+          .send(absolutePath)
+          .expect(400);
+          
+        expect(response.body.errorCode).toEqual(40003);
+        expect(response.body.message).toContain("Path traversal is not allowed");
+      });
     });
   });
 

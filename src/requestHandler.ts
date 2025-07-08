@@ -801,24 +801,33 @@ export default class RequestHandler {
     }
 
     // For move operations, the new path should be in the request body
-    const newPath = typeof req.body === 'string' ? req.body.trim() : '';
+    const rawNewPath = typeof req.body === 'string' ? req.body.trim() : '';
     
-    if (!newPath) {
-      res.status(400).json({
-        errorCode: 40001,
-        message: "New path is required in request body"
+    if (!rawNewPath) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingNewPath,
       });
       return;
     }
 
-    // Validate new path
-    if (newPath.endsWith("/")) {
-      res.status(400).json({
-        errorCode: 40002,
-        message: "New path must be a file path, not a directory"
+    // Check for path traversal attempts
+    if (rawNewPath.includes('..') || rawNewPath.startsWith('/')) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.PathTraversalNotAllowed,
       });
       return;
     }
+
+    // Validate new path is not a directory
+    if (rawNewPath.endsWith("/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidNewPath,
+      });
+      return;
+    }
+
+    // Normalize the new path
+    const newPath = rawNewPath.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
 
     // Check if source file exists
     const sourceFile = this.app.vault.getAbstractFileByPath(path);
@@ -830,9 +839,8 @@ export default class RequestHandler {
     // Check if destination already exists
     const destExists = await this.app.vault.adapter.exists(newPath);
     if (destExists) {
-      res.status(409).json({
-        errorCode: 40901,
-        message: "Destination file already exists"
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.DestinationAlreadyExists,
       });
       return;
     }
@@ -840,7 +848,7 @@ export default class RequestHandler {
     try {
       // Create parent directories if needed
       const parentDir = newPath.substring(0, newPath.lastIndexOf('/'));
-      if (parentDir) {
+      if (parentDir && !await this.app.vault.adapter.exists(parentDir)) {
         await this.app.vault.createFolder(parentDir);
       }
       
@@ -854,8 +862,8 @@ export default class RequestHandler {
         newPath: newPath
       });
     } catch (error) {
-      res.status(500).json({
-        errorCode: 50001,
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.FileOperationFailed,
         message: `Failed to move file: ${error.message}`
       });
     }

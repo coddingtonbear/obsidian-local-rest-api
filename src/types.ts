@@ -24,6 +24,11 @@ export enum ErrorCode {
   InvalidRenameTarget = 40004,
   InvalidMoveTarget = 40005,
   InvalidOperationForTargetType = 40006,
+  MissingNewPath = 40001,
+  InvalidNewPath = 40002,
+  PathTraversalNotAllowed = 40003,
+  DestinationAlreadyExists = 40901,
+  FileOperationFailed = 50001,
 }
 
 export interface LocalRestApiSettings {
