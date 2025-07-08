@@ -11,6 +11,7 @@
           'append',
           'prepend',
           'replace',
+          'move',
         ],
       },
     },
@@ -44,6 +45,8 @@
       description: |||
         Target to patch; this value can be URL-Encoded and *must*
         be URL-Encoded if it includes non-ASCII characters.
+        For file operations:
+        - When Operation is 'move' and Target-Type is 'file': Target should be the new file path
       |||,
       required: true,
       schema: {
@@ -274,5 +277,17 @@
     interpreting yoru `prepend` or `append` requests if you specify
     your data as JSON (particularly when appending, for example,
     list items).
+
+    ## File Operations
+
+    ### Moving a File
+
+    To move a file to a new path, use:
+    - `Operation`: `move`
+    - `Target-Type`: `file`
+    - `Target`: `new/path/to/file.md`
+    - Request body: empty
+
+    File rename and move operations preserve internal links within your vault.
   |||,
 }
