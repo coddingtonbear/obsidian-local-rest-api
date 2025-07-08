@@ -1,16 +1,16 @@
 import http from "http";
 import request from "supertest";
 
-import RequestHandler from "./requestHandler";
-import { LocalRestApiSettings } from "./types";
-import { CERT_NAME } from "./constants";
 import {
   App,
-  TFile,
   Command,
   HeadingCache,
   PluginManifest,
+  TFile,
 } from "../mocks/obsidian";
+import { CERT_NAME } from "./constants";
+import RequestHandler from "./requestHandler";
+import { LocalRestApiSettings } from "./types";
 
 describe("requestHandler", () => {
   const API_KEY = "my api key";
@@ -738,6 +738,147 @@ describe("requestHandler", () => {
         expect(result.text).toEqual(
           "something\n\n# Heading1\ncontent here\nbytes\n\n\n# Heading2\nsomething"
         );
+      });
+    });
+
+    describe("file move operation", () => {
+      test("successful move with Target-Type: file, Target: path", async () => {
+        const oldPath = "folder/file.md";
+        const newPath = "another-folder/subfolder/file.md";
+
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+        app.vault.adapter._exists = false; // destination doesn't exist
+
+        // Mock fileManager and createFolder
+        (app as any).fileManager = {
+          renameFile: jest.fn().mockResolvedValue(undefined)
+        };
+        app.vault.createFolder = jest.fn().mockResolvedValue(undefined);
+
+        const response = await request(server)
+          .patch(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "move")
+          .set("Target-Type", "file")
+          .set("Target", "path")
+          .send(newPath)
+          .expect(200);
+
+        expect(response.body.message).toEqual("File successfully moved");
+        expect(response.body.oldPath).toEqual(oldPath);
+        expect(response.body.newPath).toEqual(newPath);
+        expect(app.vault.createFolder).toHaveBeenCalledWith("another-folder/subfolder");
+        expect((app as any).fileManager.renameFile).toHaveBeenCalledWith(mockFile, newPath);
+      });
+
+      test("move fails with non-existent file", async () => {
+        // Mock file doesn't exist
+        app.vault._getAbstractFileByPath = null;
+
+        await request(server)
+          .patch("/vault/non-existent.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "move")
+          .set("Target-Type", "file")
+          .set("Target", "path")
+          .send("new-location/file.md")
+          .expect(404);
+      });
+
+      test("move fails when destination exists", async () => {
+        const oldPath = "folder/file.md";
+        const newPath = "another-folder/existing-file.md";
+
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+        app.vault.adapter._exists = true; // destination already exists
+
+        const response = await request(server)
+          .patch(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "move")
+          .set("Target-Type", "file")
+          .set("Target", "path")
+          .send(newPath)
+          .expect(409);
+
+        expect(response.body.message).toContain("Destination file already exists");
+      });
+
+      test("move fails with empty new path", async () => {
+        const oldPath = "folder/file.md";
+
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+
+        const response = await request(server)
+          .patch(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "move")
+          .set("Target-Type", "file")
+          .set("Target", "path")
+          .send("")
+          .expect(400);
+
+        expect(response.body.message).toContain("New path is required");
+      });
+
+      test("move fails when new path is a directory", async () => {
+        const oldPath = "folder/file.md";
+
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+
+        const response = await request(server)
+          .patch(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "move")
+          .set("Target-Type", "file")
+          .set("Target", "path")
+          .send("new-folder/")
+          .expect(400);
+
+        expect(response.body.message).toContain("New path must be a file path");
+      });
+
+      test("move to root directory", async () => {
+        const oldPath = "deep/nested/folder/file.md";
+        const newPath = "file.md";
+
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+        app.vault.adapter._exists = false; // destination doesn't exist
+
+        // Mock fileManager
+        (app as any).fileManager = {
+          renameFile: jest.fn().mockResolvedValue(undefined)
+        };
+        app.vault.createFolder = jest.fn();
+
+        const response = await request(server)
+          .patch(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/plain")
+          .set("Operation", "move")
+          .set("Target-Type", "file")
+          .set("Target", "path")
+          .send(newPath)
+          .expect(200);
+
+        expect(response.body.message).toEqual("File successfully moved");
+        expect(app.vault.createFolder).not.toHaveBeenCalled(); // No need to create parent for root
+        expect((app as any).fileManager.renameFile).toHaveBeenCalledWith(mockFile, newPath);
       });
     });
   });
