@@ -40,6 +40,9 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "The 'Operation' header you provided was invalid.",
   [ErrorCode.PatchFailed]:
     "The patch you provided could not be applied to the target content.",
+  [ErrorCode.InvalidSearch]: "The search query you provided is not valid.",
+  [ErrorCode.ErrorPreparingSimpleSearch]:
+    "Error encountered while calling Obsidian `prepareSimpleSearch` API.",
 };
 
 export enum ContentTypes {

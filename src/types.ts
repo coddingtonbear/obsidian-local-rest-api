@@ -17,10 +17,12 @@ export enum ErrorCode {
   PeriodIsNotEnabled = 40060,
   InvalidFilterQuery = 40070,
   PatchFailed = 40080,
+  InvalidSearch = 40090,
   ApiKeyAuthorizationRequired = 40101,
   PeriodDoesNotExist = 40460,
   PeriodicNoteDoesNotExist = 40461,
   RequestMethodValidOnlyForFiles = 40510,
+  ErrorPreparingSimpleSearch = 50010,
 }
 
 export interface LocalRestApiSettings {
