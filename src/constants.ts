@@ -40,6 +40,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "The 'Operation' header you provided was invalid.",
   [ErrorCode.PatchFailed]:
     "The patch you provided could not be applied to the target content.",
+  [ErrorCode.SearchFailed]:
+    "The search operation failed due to an internal error.",
 };
 
 export enum ContentTypes {

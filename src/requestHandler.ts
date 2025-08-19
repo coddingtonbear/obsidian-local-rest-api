@@ -35,6 +35,9 @@ import {
   ErrorCode,
   ErrorResponseDescriptor,
   FileMetadataObject,
+  FulltextSearchRequest,
+  FulltextSearchResponseItem,
+  FulltextSearchMatch,
   LocalRestApiSettings,
   PeriodicNoteInterface,
   SearchContext,
@@ -1025,6 +1028,194 @@ export default class RequestHandler {
     res.json(results);
   }
 
+  async searchFulltextPost(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const request: FulltextSearchRequest = req.body;
+    
+    if (!request.query) {
+      this.returnCannedResponse(res, {
+        statusCode: 400,
+        message: "Query parameter is required",
+      });
+      return;
+    }
+
+    const contextLength = request.contextLength || 200;
+    const fileExtension = request.fileExtension || ".md";
+    const searchPath = request.path || "";
+    const caseSensitive = request.caseSensitive || false; // Default to case-insensitive
+    
+    // Validate that path is safe (no directory traversal)
+    if (searchPath.includes("..") || path.isAbsolute(searchPath)) {
+      this.returnCannedResponse(res, {
+        statusCode: 400,
+        message: "Search path must be relative and within vault bounds",
+      });
+      return;
+    }
+
+    try {
+      const results = await this.executeVaultSearch(
+        request.query,
+        contextLength,
+        fileExtension,
+        searchPath,
+        request.useRegex || false,
+        caseSensitive
+      );
+      res.json(results);
+    } catch (error) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.SearchFailed,
+        message: `Search failed: ${error.message}`,
+      });
+    }
+  }
+
+  private async executeVaultSearch(
+    query: string,
+    contextLength: number,
+    fileExtension: string,
+    searchPath: string,
+    useRegex: boolean,
+    caseSensitive: boolean
+  ): Promise<FulltextSearchResponseItem[]> {
+    const results: FulltextSearchResponseItem[] = [];
+    
+    // Get files to search using Obsidian's vault API
+    const filesToSearch = this.getFilesToSearch(fileExtension, searchPath);
+    
+    // Create search pattern
+    const searchPattern = this.createSearchPattern(query, useRegex, caseSensitive);
+    
+    // Search each file
+    for (const file of filesToSearch) {
+      try {
+        const content = await this.app.vault.cachedRead(file);
+        const matches = this.findMatchesInContent(content, searchPattern, contextLength);
+        
+        if (matches.length > 0) {
+          results.push({
+            filename: file.path,
+            matches: matches
+          });
+        }
+      } catch (error) {
+        // Skip files that can't be read
+        continue;
+      }
+    }
+    
+    return results;
+  }
+  
+  private getFilesToSearch(fileExtension: string, searchPath: string): TFile[] {
+    let allFiles: TFile[] = [];
+    
+    // Get files based on extension
+    if (fileExtension === ".*") {
+      // Get all files
+      allFiles = this.app.vault.getFiles();
+    } else if (fileExtension === ".md" || fileExtension === "md") {
+      // Get markdown files (most common case)
+      allFiles = this.app.vault.getMarkdownFiles();
+    } else {
+      // Get all files and filter by extension
+      const targetExt = fileExtension.startsWith('.') ? fileExtension : `.${fileExtension}`;
+      allFiles = this.app.vault.getFiles().filter(file => file.path.endsWith(targetExt));
+    }
+    
+    // Filter by path if specified
+    if (searchPath) {
+      const normalizedSearchPath = searchPath.endsWith('/') ? searchPath : searchPath + '/';
+      allFiles = allFiles.filter(file => 
+        file.path.startsWith(normalizedSearchPath) || file.path.startsWith(searchPath)
+      );
+    }
+    
+    return allFiles;
+  }
+  
+  private createSearchPattern(query: string, useRegex: boolean, caseSensitive: boolean): RegExp {
+    let pattern: string;
+    let flags = 'g'; // Global flag for multiple matches
+    
+    if (!caseSensitive) {
+      flags += 'i';
+    }
+    
+    if (useRegex) {
+      pattern = query;
+    } else {
+      // Escape special regex characters for literal search
+      pattern = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+    
+    return new RegExp(pattern, flags);
+  }
+  
+  private findMatchesInContent(
+    content: string, 
+    searchPattern: RegExp, 
+    contextLength: number
+  ): FulltextSearchMatch[] {
+    const matches: FulltextSearchMatch[] = [];
+    const lines = content.split('\n');
+    
+    lines.forEach((line, lineIndex) => {
+      let match;
+      // Reset the regex lastIndex for each line
+      searchPattern.lastIndex = 0;
+      
+      while ((match = searchPattern.exec(line)) !== null) {
+        const matchStart = match.index;
+        const matchEnd = matchStart + match[0].length;
+        
+        // Get the matched line plus 2 lines before and after by default
+        const linesBefore = 2;
+        const linesAfter = 2;
+        const startLineIndex = Math.max(0, lineIndex - linesBefore);
+        const endLineIndex = Math.min(lines.length - 1, lineIndex + linesAfter);
+        
+        // Extract the extended content (matched line + surrounding lines)
+        const extendedLines = lines.slice(startLineIndex, endLineIndex + 1);
+        const extendedContent = extendedLines.join('\n');
+        
+        // Calculate the position of the match within the extended content
+        const linesBeforeCount = lineIndex - startLineIndex;
+        const charactersBeforeMatch = extendedLines.slice(0, linesBeforeCount).join('\n').length + 
+                                    (linesBeforeCount > 0 ? 1 : 0); // +1 for the newline character
+        const matchStartInExtended = charactersBeforeMatch + matchStart;
+        const matchEndInExtended = charactersBeforeMatch + matchEnd;
+        
+        // Now extract the context window from the extended content
+        const contextStart = Math.max(0, matchStartInExtended - contextLength);
+        const contextEnd = Math.min(extendedContent.length, matchEndInExtended + contextLength);
+        
+        const snippet = extendedContent.substring(contextStart, contextEnd);
+        const adjustedMatchStart = matchStartInExtended - contextStart;
+        const adjustedMatchEnd = matchEndInExtended - contextStart;
+        
+        matches.push({
+          line: lineIndex + 1, // 1-based line numbers
+          snippet: snippet,
+          matchStart: adjustedMatchStart,
+          matchEnd: adjustedMatchEnd
+        });
+        
+        // Prevent infinite loops on zero-length matches
+        if (match[0].length === 0) {
+          searchPattern.lastIndex++;
+        }
+      }
+    });
+    
+    return matches;
+  }
+
+
   valueIsSaneTruthy(value: unknown): boolean {
     if (value === undefined || value === null) {
       return false;
@@ -1268,6 +1459,7 @@ export default class RequestHandler {
 
     this.api.route("/search/").post(this.searchQueryPost.bind(this));
     this.api.route("/search/simple/").post(this.searchSimplePost.bind(this));
+    this.api.route("/search/fulltext/").post(this.searchFulltextPost.bind(this));
 
     this.api.route("/open/*").post(this.openPost.bind(this));
 

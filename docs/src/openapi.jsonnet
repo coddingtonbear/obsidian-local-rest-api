@@ -650,6 +650,237 @@ std.manifestYamlDoc(
           },
         },
       },
+      '/search/fulltext/': {
+        post: {
+          tags: [
+            'Search',
+          ],
+          summary: 'Perform advanced fulltext search with context snippets and filters\n',
+          description: 'Performs a comprehensive fulltext search across your vault with advanced options including regex support, file filtering, path restrictions, context windows, and case sensitivity controls. This search uses Obsidian\'s vault APIs to provide consistent and secure search functionality.\n\n## Features:\n\n- **Query Types**: Literal text search with regex support\n- **Context Windows**: Configurable character context around matches\n- **File Filtering**: Search specific file extensions or all files\n- **Path Restrictions**: Limit search to specific vault folders\n- **Case Sensitivity**: Optional case-sensitive or case-insensitive search\n- **Security**: Prevents directory traversal and unauthorized access\n\n## Examples:\n\n- Basic search: `{"query": "obsidian vault", "contextLength": 100}`\n- Regex search: `{"query": "\\\\w+@\\\\w+\\\\.\\\\w+", "useRegex": true, "contextLength": 150}`\n- Advanced search: `{"query": "project timeline", "path": "work/projects/", "fileExtension": ".md", "contextLength": 250, "caseSensitive": true}`\n',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: [
+                    'query',
+                  ],
+                  properties: {
+                    query: {
+                      type: 'string',
+                      description: 'The search query string. Can be literal text or regex pattern.',
+                      example: 'obsidian vault',
+                    },
+                    contextLength: {
+                      type: 'number',
+                      description: 'Number of characters to include before and after each match for context.',
+                      default: 200,
+                      example: 100,
+                    },
+                    useRegex: {
+                      type: 'boolean',
+                      description: 'Whether to treat the query as a regular expression pattern.',
+                      default: false,
+                      example: false,
+                    },
+                    path: {
+                      type: 'string',
+                      description: 'Restrict search to files within this path (relative to vault root). Must not contain ".." or be an absolute path.',
+                      example: 'notes/',
+                    },
+                    fileExtension: {
+                      type: 'string',
+                      description: 'File extension to search. Use ".md" for markdown files, ".*" for all files, or specify custom extensions like ".txt".',
+                      default: '.md',
+                      example: '.md',
+                    },
+                    caseSensitive: {
+                      type: 'boolean',
+                      description: 'Whether the search should be case-sensitive.',
+                      default: false,
+                      example: false,
+                    },
+                  },
+                },
+                examples: {
+                  basic_search: {
+                    summary: 'Basic text search',
+                    value: {
+                      query: 'obsidian vault',
+                      contextLength: 100,
+                    },
+                  },
+                  regex_search: {
+                    summary: 'Regex pattern search for email addresses',
+                    value: {
+                      query: '\\\\w+@\\\\w+\\\\.\\\\w+',
+                      useRegex: true,
+                      contextLength: 150,
+                    },
+                  },
+                  advanced_search: {
+                    summary: 'Advanced search with all features',
+                    value: {
+                      query: 'project timeline',
+                      path: 'work/projects/',
+                      fileExtension: '.md',
+                      contextLength: 250,
+                      caseSensitive: true,
+                      useRegex: false,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: 'Successful search with results',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      required: [
+                        'filename',
+                        'matches',
+                      ],
+                      properties: {
+                        filename: {
+                          type: 'string',
+                          description: 'Path to the file containing matches (relative to vault root)',
+                          example: 'notes/getting-started.md',
+                        },
+                        matches: {
+                          type: 'array',
+                          description: 'Array of matches found in the file',
+                          items: {
+                            type: 'object',
+                            required: [
+                              'line',
+                              'snippet',
+                              'matchStart',
+                              'matchEnd',
+                            ],
+                            properties: {
+                              line: {
+                                type: 'number',
+                                description: '1-based line number where the match was found',
+                                example: 3,
+                              },
+                              snippet: {
+                                type: 'string',
+                                description: 'Context snippet containing the match',
+                                example: 'Welcome to your Obsidian vault! This powerful tool helps you organize notes.',
+                              },
+                              matchStart: {
+                                type: 'number',
+                                description: 'Character position where the match starts within the snippet',
+                                example: 20,
+                              },
+                              matchEnd: {
+                                type: 'number',
+                                description: 'Character position where the match ends within the snippet',
+                                example: 34,
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  examples: {
+                    search_results: {
+                      summary: 'Example search results',
+                      value: [
+                        {
+                          filename: 'notes/getting-started.md',
+                          matches: [
+                            {
+                              line: 3,
+                              snippet: 'Welcome to your Obsidian vault! This powerful tool helps you organize notes.',
+                              matchStart: 20,
+                              matchEnd: 34,
+                            },
+                          ],
+                        },
+                        {
+                          filename: 'projects/work-notes.md',
+                          matches: [
+                            {
+                              line: 5,
+                              snippet: 'The Obsidian vault system allows you to manage your knowledge effectively.',
+                              matchStart: 4,
+                              matchEnd: 18,
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+            '400': {
+              description: 'Bad request - invalid parameters',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                  examples: {
+                    missing_query: {
+                      summary: 'Missing required query parameter',
+                      value: {
+                        errorCode: 40000,
+                        message: 'Bad Request\\nQuery parameter is required',
+                      },
+                    },
+                    invalid_path: {
+                      summary: 'Invalid path with directory traversal attempt',
+                      value: {
+                        errorCode: 40000,
+                        message: 'Bad Request\\nSearch path must be relative and within vault bounds',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '401': {
+              description: 'Unauthorized - missing or invalid API key',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                },
+              },
+            },
+            '500': {
+              description: 'Internal server error during search',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                  examples: {
+                    search_failed: {
+                      summary: 'Search operation failed',
+                      value: {
+                        errorCode: 50001,
+                        message: 'The search operation failed due to an internal error.\\nSearch failed: [specific error details]',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       '/open/{filename}': {
         post: {
           tags: [

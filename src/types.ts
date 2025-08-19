@@ -21,6 +21,7 @@ export enum ErrorCode {
   PeriodDoesNotExist = 40460,
   PeriodicNoteDoesNotExist = 40461,
   RequestMethodValidOnlyForFiles = 40510,
+  SearchFailed = 50001,
 }
 
 export interface LocalRestApiSettings {
@@ -149,4 +150,25 @@ export interface FileMetadataObject {
   stat: FileStats;
   path: string;
   content: string;
+}
+
+export interface FulltextSearchRequest {
+  query: string;
+  contextLength?: number;
+  useRegex?: boolean;
+  path?: string;
+  fileExtension?: string;
+  caseSensitive?: boolean;
+}
+
+export interface FulltextSearchMatch {
+  line: number;
+  snippet: string;
+  matchStart: number;
+  matchEnd: number;
+}
+
+export interface FulltextSearchResponseItem {
+  filename: string;
+  matches: FulltextSearchMatch[];
 }

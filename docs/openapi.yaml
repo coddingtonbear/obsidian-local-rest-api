@@ -207,7 +207,7 @@ paths:
         ^2c7cfa
         ```
         
-        ## Append Content Below a Heading
+        ## Append, Prepend, or Replace Content Below a Heading
         
         If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
         you could send a request with the following headers:
@@ -220,7 +220,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Append Content to a Block Reference
+        ## Append, Prepend, or Replace Content to a Block Reference
         
         If you wanted to append the content "Hello" below the block referenced by
         "2d9b4a" above ("More random text."), you could send the following headers:
@@ -233,7 +233,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Add a Row to a Table Referenced by a Block Reference
+        ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
         
         If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
         referenced by the block reference `2c7cfa`, you could send the following
@@ -666,7 +666,7 @@ paths:
         ^2c7cfa
         ```
         
-        ## Append Content Below a Heading
+        ## Append, Prepend, or Replace Content Below a Heading
         
         If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
         you could send a request with the following headers:
@@ -679,7 +679,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Append Content to a Block Reference
+        ## Append, Prepend, or Replace Content to a Block Reference
         
         If you wanted to append the content "Hello" below the block referenced by
         "2d9b4a" above ("More random text."), you could send the following headers:
@@ -692,7 +692,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Add a Row to a Table Referenced by a Block Reference
+        ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
         
         If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
         referenced by the block reference `2c7cfa`, you could send the following
@@ -1104,7 +1104,7 @@ paths:
         ^2c7cfa
         ```
         
-        ## Append Content Below a Heading
+        ## Append, Prepend, or Replace Content Below a Heading
         
         If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
         you could send a request with the following headers:
@@ -1117,7 +1117,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Append Content to a Block Reference
+        ## Append, Prepend, or Replace Content to a Block Reference
         
         If you wanted to append the content "Hello" below the block referenced by
         "2d9b4a" above ("More random text."), you could send the following headers:
@@ -1130,7 +1130,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Add a Row to a Table Referenced by a Block Reference
+        ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
         
         If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
         referenced by the block reference `2c7cfa`, you could send the following
@@ -1548,6 +1548,182 @@ paths:
         Search for documents matching a specified search query
       tags:
         - "Search"
+  /search/fulltext/:
+    post:
+      description: |
+        Performs a comprehensive fulltext search across your vault with advanced options including regex support, file filtering, path restrictions, context windows, and case sensitivity controls. This search uses Obsidian's vault APIs to provide consistent and secure search functionality.
+        
+        ## Features:
+        
+        - **Query Types**: Literal text search with regex support
+        - **Context Windows**: Configurable character context around matches
+        - **File Filtering**: Search specific file extensions or all files
+        - **Path Restrictions**: Limit search to specific vault folders
+        - **Case Sensitivity**: Optional case-sensitive or case-insensitive search
+        - **Security**: Prevents directory traversal and unauthorized access
+        
+        ## Examples:
+        
+        - Basic search: `{"query": "obsidian vault", "contextLength": 100}`
+        - Regex search: `{"query": "\\w+@\\w+\\.\\w+", "useRegex": true, "contextLength": 150}`
+        - Advanced search: `{"query": "project timeline", "path": "work/projects/", "fileExtension": ".md", "contextLength": 250, "caseSensitive": true}`
+      requestBody:
+        content:
+          application/json:
+            examples:
+              advanced_search:
+                summary: "Advanced search with all features"
+                value:
+                  caseSensitive: true
+                  contextLength: 250
+                  fileExtension: ".md"
+                  path: "work/projects/"
+                  query: "project timeline"
+                  useRegex: false
+              basic_search:
+                summary: "Basic text search"
+                value:
+                  contextLength: 100
+                  query: "obsidian vault"
+              regex_search:
+                summary: "Regex pattern search for email addresses"
+                value:
+                  contextLength: 150
+                  query: "\\\\w+@\\\\w+\\\\.\\\\w+"
+                  useRegex: true
+            schema:
+              properties:
+                caseSensitive:
+                  default: false
+                  description: "Whether the search should be case-sensitive."
+                  example: false
+                  type: "boolean"
+                contextLength:
+                  default: 200
+                  description: "Number of characters to include before and after each match for context."
+                  example: 100
+                  type: "number"
+                fileExtension:
+                  default: ".md"
+                  description: "File extension to search. Use \".md\" for markdown files, \".*\" for all files, or specify custom extensions like \".txt\"."
+                  example: ".md"
+                  type: "string"
+                path:
+                  description: "Restrict search to files within this path (relative to vault root). Must not contain \"..\" or be an absolute path."
+                  example: "notes/"
+                  type: "string"
+                query:
+                  description: "The search query string. Can be literal text or regex pattern."
+                  example: "obsidian vault"
+                  type: "string"
+                useRegex:
+                  default: false
+                  description: "Whether to treat the query as a regular expression pattern."
+                  example: false
+                  type: "boolean"
+              required:
+                - "query"
+              type: "object"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              examples:
+                search_results:
+                  summary: "Example search results"
+                  value:
+                    - filename: "notes/getting-started.md"
+                      matches:
+                        - line: 3
+                          matchEnd: 34
+                          matchStart: 20
+                          snippet: "Welcome to your Obsidian vault! This powerful tool helps you organize notes."
+                    - filename: "projects/work-notes.md"
+                      matches:
+                        - line: 5
+                          matchEnd: 18
+                          matchStart: 4
+                          snippet: "The Obsidian vault system allows you to manage your knowledge effectively."
+              schema:
+                items:
+                  properties:
+                    filename:
+                      description: "Path to the file containing matches (relative to vault root)"
+                      example: "notes/getting-started.md"
+                      type: "string"
+                    matches:
+                      description: "Array of matches found in the file"
+                      items:
+                        properties:
+                          line:
+                            description: "1-based line number where the match was found"
+                            example: 3
+                            type: "number"
+                          matchEnd:
+                            description: "Character position where the match ends within the snippet"
+                            example: 34
+                            type: "number"
+                          matchStart:
+                            description: "Character position where the match starts within the snippet"
+                            example: 20
+                            type: "number"
+                          snippet:
+                            description: "Context snippet containing the match"
+                            example: "Welcome to your Obsidian vault! This powerful tool helps you organize notes."
+                            type: "string"
+                        required:
+                          - "line"
+                          - "snippet"
+                          - "matchStart"
+                          - "matchEnd"
+                        type: "object"
+                      type: "array"
+                  required:
+                    - "filename"
+                    - "matches"
+                  type: "object"
+                type: "array"
+          description: "Successful search with results"
+        "400":
+          content:
+            application/json:
+              examples:
+                invalid_path:
+                  summary: "Invalid path with directory traversal attempt"
+                  value:
+                    errorCode: 40000
+                    message: "Bad Request\\nSearch path must be relative and within vault bounds"
+                missing_query:
+                  summary: "Missing required query parameter"
+                  value:
+                    errorCode: 40000
+                    message: "Bad Request\\nQuery parameter is required"
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Bad request - invalid parameters"
+        "401":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Unauthorized - missing or invalid API key"
+        "500":
+          content:
+            application/json:
+              examples:
+                search_failed:
+                  summary: "Search operation failed"
+                  value:
+                    errorCode: 50001
+                    message: "The search operation failed due to an internal error.\\nSearch failed: [specific error details]"
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Internal server error during search"
+      summary: |
+        Perform advanced fulltext search with context snippets and filters
+      tags:
+        - "Search"
   /search/simple/:
     post:
       parameters:
@@ -1760,7 +1936,7 @@ paths:
         ^2c7cfa
         ```
         
-        ## Append Content Below a Heading
+        ## Append, Prepend, or Replace Content Below a Heading
         
         If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
         you could send a request with the following headers:
@@ -1773,7 +1949,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Append Content to a Block Reference
+        ## Append, Prepend, or Replace Content to a Block Reference
         
         If you wanted to append the content "Hello" below the block referenced by
         "2d9b4a" above ("More random text."), you could send the following headers:
@@ -1786,7 +1962,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Add a Row to a Table Referenced by a Block Reference
+        ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
         
         If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
         referenced by the block reference `2c7cfa`, you could send the following
