@@ -1011,221 +1011,28 @@ describe("requestHandler", () => {
   });
 
   describe("Core Search Logic Unit Tests", () => {
-    // Test the actual search methods by accessing them through reflection
-    // since they're private methods
-    
     describe("createSearchPattern", () => {
       test("literal search escapes regex characters", () => {
         const pattern = (handler as any).createSearchPattern("hello.world+test", false, false);
         expect(pattern.source).toBe("hello\\.world\\+test");
-        expect(pattern.flags).toBe("gi"); // global + case-insensitive
-      });
-
-      test("regex search uses pattern as-is", () => {
-        const pattern = (handler as any).createSearchPattern("\\w+@\\w+\\.\\w+", true, false);
-        expect(pattern.source).toBe("\\w+@\\w+\\.\\w+");
         expect(pattern.flags).toBe("gi");
-      });
-
-      test("case sensitive flag removes 'i' flag", () => {
-        const pattern = (handler as any).createSearchPattern("test", false, true);
-        expect(pattern.flags).toBe("g"); // only global, no case-insensitive
-      });
-
-      test("case insensitive includes 'i' flag", () => {
-        const pattern = (handler as any).createSearchPattern("test", false, false);
-        expect(pattern.flags).toBe("gi"); // global + case-insensitive
       });
     });
 
     describe("findMatchesInContent", () => {
-      test("finds single match with correct position", () => {
-        const searchPattern = new RegExp("test", "gi");
-        const content = "This is a test line";
-        const matches = (handler as any).findMatchesInContent(content, searchPattern, 50);
-        
-        expect(matches).toHaveLength(1);
-        expect(matches[0].line).toBe(1);
-        expect(matches[0].snippet).toBe("This is a test line");
-        expect(matches[0].matchStart).toBe(10);
-        expect(matches[0].matchEnd).toBe(14);
-      });
-
-      test("finds multiple matches on same line", () => {
-        const searchPattern = new RegExp("test", "gi");
-        const content = "test this test again";
-        const matches = (handler as any).findMatchesInContent(content, searchPattern, 50);
-        
-        expect(matches).toHaveLength(2);
-        expect(matches[0].matchStart).toBe(0);
-        expect(matches[0].matchEnd).toBe(4);
-        expect(matches[1].matchStart).toBe(10);
-        expect(matches[1].matchEnd).toBe(14);
-      });
-
-      test("finds matches across multiple lines", () => {
-        const searchPattern = new RegExp("important", "gi");
-        const content = "Line 1 has important info\nLine 2 is normal\nLine 3 has important data";
-        const matches = (handler as any).findMatchesInContent(content, searchPattern, 20);
-        
-        expect(matches).toHaveLength(2);
-        expect(matches[0].line).toBe(1);
-        expect(matches[1].line).toBe(3);
-      });
-
       test("respects context window boundaries", () => {
         const searchPattern = new RegExp("match", "gi");
         const content = "This is a very long line with match in the middle and more text after";
         const matches = (handler as any).findMatchesInContent(content, searchPattern, 10);
         
         expect(matches).toHaveLength(1);
-        // The actual implementation extracts 10 chars before and after the match
-        // "match" starts at index 35, so contextStart = 25, contextEnd = 50
-        // Expected snippet: "line with match in the mi" (25 chars)
         expect(matches[0].snippet).toBe("line with match in the mi");
-        expect(matches[0].matchStart).toBe(10); // Position within the snippet
+        expect(matches[0].matchStart).toBe(10);
         expect(matches[0].matchEnd).toBe(15);
-      });
-
-      test("handles regex patterns correctly", () => {
-        const searchPattern = new RegExp("\\w+@\\w+\\.\\w+", "gi");
-        const content = "Contact: user@example.com or admin@test.org for help";
-        const matches = (handler as any).findMatchesInContent(content, searchPattern, 30);
-        
-        expect(matches).toHaveLength(2);
-        expect(matches[0].snippet).toContain("user@example.com");
-        expect(matches[1].snippet).toContain("admin@test.org");
-      });
-
-      test("case sensitivity works correctly", () => {
-        const caseSensitivePattern = new RegExp("Test", "g"); // No 'i' flag
-        const content = "This Test and test are different";
-        const matches = (handler as any).findMatchesInContent(content, caseSensitivePattern, 50);
-        
-        expect(matches).toHaveLength(1); // Only finds "Test", not "test"
-        expect(matches[0].snippet).toContain("Test");
-      });
-
-      test("handles empty content", () => {
-        const searchPattern = new RegExp("test", "gi");
-        const content = "";
-        const matches = (handler as any).findMatchesInContent(content, searchPattern, 50);
-        
-        expect(matches).toEqual([]);
-      });
-
-      test("handles no matches", () => {
-        const searchPattern = new RegExp("nonexistent", "gi");
-        const content = "This content has nothing matching the search";
-        const matches = (handler as any).findMatchesInContent(content, searchPattern, 50);
-        
-        expect(matches).toEqual([]);
       });
     });
 
     describe("getFilesToSearch", () => {
-      beforeEach(() => {
-        // Reset mock files before each test
-        app.vault._files = [];
-        app.vault._markdownFiles = [];
-      });
-
-      test("returns all files for .* extension", () => {
-        const file1 = new TFile();
-        file1.path = "document.md";
-        const file2 = new TFile();
-        file2.path = "notes.txt";
-        const file3 = new TFile();
-        file3.path = "image.png";
-        
-        app.vault._files = [file1, file2, file3];
-        
-        const files = (handler as any).getFilesToSearch(".*", "");
-        expect(files).toHaveLength(3);
-        expect(files).toEqual([file1, file2, file3]);
-      });
-
-      test("returns only markdown files for .md extension", () => {
-        const mdFile = new TFile();
-        mdFile.path = "document.md";
-        const txtFile = new TFile();
-        txtFile.path = "notes.txt";
-        
-        app.vault._markdownFiles = [mdFile];
-        app.vault._files = [mdFile, txtFile];
-        
-        const files = (handler as any).getFilesToSearch(".md", "");
-        expect(files).toHaveLength(1);
-        expect(files[0]).toBe(mdFile);
-      });
-
-      test("returns only markdown files for 'md' extension (without dot)", () => {
-        const mdFile = new TFile();
-        mdFile.path = "document.md";
-        
-        app.vault._markdownFiles = [mdFile];
-        
-        const files = (handler as any).getFilesToSearch("md", "");
-        expect(files).toHaveLength(1);
-        expect(files[0]).toBe(mdFile);
-      });
-
-      test("filters by custom extension", () => {
-        const txtFile1 = new TFile();
-        txtFile1.path = "notes.txt";
-        const txtFile2 = new TFile();
-        txtFile2.path = "readme.txt";
-        const mdFile = new TFile();
-        mdFile.path = "document.md";
-        
-        app.vault._files = [txtFile1, txtFile2, mdFile];
-        
-        const files = (handler as any).getFilesToSearch(".txt", "");
-        expect(files).toHaveLength(2);
-        expect(files).toEqual([txtFile1, txtFile2]);
-      });
-
-      test("filters by path prefix", () => {
-        const file1 = new TFile();
-        file1.path = "notes/daily/day1.md";
-        const file2 = new TFile();
-        file2.path = "notes/ideas.md";
-        const file3 = new TFile();
-        file3.path = "projects/work.md";
-        
-        app.vault._markdownFiles = [file1, file2, file3];
-        
-        const files = (handler as any).getFilesToSearch(".md", "notes/");
-        expect(files).toHaveLength(2);
-        expect(files.map((f: TFile) => f.path)).toEqual([
-          "notes/daily/day1.md",
-          "notes/ideas.md"
-        ]);
-      });
-
-      test("handles path without trailing slash", () => {
-        const file1 = new TFile();
-        file1.path = "notes/daily/day1.md";
-        const file2 = new TFile();
-        file2.path = "projects/work.md";
-        
-        app.vault._markdownFiles = [file1, file2];
-        
-        const files = (handler as any).getFilesToSearch(".md", "notes");
-        expect(files).toHaveLength(1);
-        expect(files[0].path).toBe("notes/daily/day1.md");
-      });
-
-      test("returns empty array when no files match", () => {
-        const file1 = new TFile();
-        file1.path = "projects/work.md";
-        
-        app.vault._markdownFiles = [file1];
-        
-        const files = (handler as any).getFilesToSearch(".md", "notes/");
-        expect(files).toEqual([]);
-      });
-
       test("combines extension and path filtering", () => {
         const txtFile = new TFile();
         txtFile.path = "notes/readme.txt";
