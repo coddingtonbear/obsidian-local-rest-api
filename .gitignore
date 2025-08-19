@@ -17,3 +17,6 @@ main.js
 
 # obsidian
 data.json
+
+# Claude Code preferences (session-specific, not part of project)
+CLAUDE.md
