@@ -1685,41 +1685,6 @@ paths:
                   type: "object"
                 type: "array"
           description: "Successful search with results"
-        "400":
-          content:
-            application/json:
-              examples:
-                invalid_path:
-                  summary: "Invalid path with directory traversal attempt"
-                  value:
-                    errorCode: 40000
-                    message: "Bad Request\\nSearch path must be relative and within vault bounds"
-                missing_query:
-                  summary: "Missing required query parameter"
-                  value:
-                    errorCode: 40000
-                    message: "Bad Request\\nQuery parameter is required"
-              schema:
-                "$ref": "#/components/schemas/Error"
-          description: "Bad request - invalid parameters"
-        "401":
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-          description: "Unauthorized - missing or invalid API key"
-        "500":
-          content:
-            application/json:
-              examples:
-                search_failed:
-                  summary: "Search operation failed"
-                  value:
-                    errorCode: 50001
-                    message: "The search operation failed due to an internal error.\\nSearch failed: [specific error details]"
-              schema:
-                "$ref": "#/components/schemas/Error"
-          description: "Internal server error during search"
       summary: |
         Perform advanced fulltext search with context snippets and filters
       tags:

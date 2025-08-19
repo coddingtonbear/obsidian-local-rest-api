@@ -823,61 +823,6 @@ std.manifestYamlDoc(
                 },
               },
             },
-            '400': {
-              description: 'Bad request - invalid parameters',
-              content: {
-                'application/json': {
-                  schema: {
-                    '$ref': '#/components/schemas/Error',
-                  },
-                  examples: {
-                    missing_query: {
-                      summary: 'Missing required query parameter',
-                      value: {
-                        errorCode: 40000,
-                        message: 'Bad Request\\nQuery parameter is required',
-                      },
-                    },
-                    invalid_path: {
-                      summary: 'Invalid path with directory traversal attempt',
-                      value: {
-                        errorCode: 40000,
-                        message: 'Bad Request\\nSearch path must be relative and within vault bounds',
-                      },
-                    },
-                  },
-                },
-              },
-            },
-            '401': {
-              description: 'Unauthorized - missing or invalid API key',
-              content: {
-                'application/json': {
-                  schema: {
-                    '$ref': '#/components/schemas/Error',
-                  },
-                },
-              },
-            },
-            '500': {
-              description: 'Internal server error during search',
-              content: {
-                'application/json': {
-                  schema: {
-                    '$ref': '#/components/schemas/Error',
-                  },
-                  examples: {
-                    search_failed: {
-                      summary: 'Search operation failed',
-                      value: {
-                        errorCode: 50001,
-                        message: 'The search operation failed due to an internal error.\\nSearch failed: [specific error details]',
-                      },
-                    },
-                  },
-                },
-              },
-            },
           },
         },
       },
