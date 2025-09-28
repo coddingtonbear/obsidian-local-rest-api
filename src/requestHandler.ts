@@ -991,7 +991,7 @@ export default class RequestHandler {
     const results: SearchResponseItem[] = [];
 
     const query: string = req.query.query as string;
-    if (!String.isString(query)) {
+    if (!(typeof query === "string")) {
       return this.returnCannedResponse(res, {
         message: "A single '?query=' parameter is required.",
         errorCode: ErrorCode.InvalidSearch,
