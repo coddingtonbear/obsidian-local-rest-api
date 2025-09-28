@@ -991,9 +991,24 @@ export default class RequestHandler {
     const results: SearchResponseItem[] = [];
 
     const query: string = req.query.query as string;
+    if (!(typeof query === "string")) {
+      return this.returnCannedResponse(res, {
+        message: "A single '?query=' parameter is required.",
+        errorCode: ErrorCode.InvalidSearch,
+      });
+    }
     const contextLength: number =
       parseInt(req.query.contextLength as string, 10) ?? 100;
-    const search = prepareSimpleSearch(query);
+    let search: ReturnType<typeof prepareSimpleSearch>;
+    try {
+      search = prepareSimpleSearch(query);
+    } catch (e) {
+      console.error("Could not prepare simple search: ", e);
+      return this.returnCannedResponse(res, {
+        message: `${e}`,
+        errorCode: ErrorCode.ErrorPreparingSimpleSearch,
+      });
+    }
 
     for (const file of this.app.vault.getMarkdownFiles()) {
       const cachedContents = await this.app.vault.cachedRead(file);
@@ -1099,9 +1114,14 @@ export default class RequestHandler {
     };
     const contentType = req.headers["content-type"];
 
-    if (!handlers[contentType]) {
+    if (!contentType) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.ContentTypeSpecificationRequired,
+      });
+      return;
+    } else if (!handlers[contentType]) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidContentType,
       });
       return;
     }

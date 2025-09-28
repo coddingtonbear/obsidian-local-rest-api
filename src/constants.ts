@@ -13,6 +13,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "Authorization required.  Find your API Key in the 'Local REST API' section of your Obsidian settings.",
   [ErrorCode.ContentTypeSpecificationRequired]:
     "Content-Type header required; this API accepts data in multiple content-types and you must indicate the content-type of your request body via the Content-Type header.",
+  [ErrorCode.InvalidContentType]:
+    "Unknown or invalid Content-Type specified in Content-Type header.",
   [ErrorCode.InvalidContentInsertionPositionValue]:
     "Invalid 'Content-Insertion-Position' header value.",
   [ErrorCode.InvalidContentForContentType]:
@@ -40,6 +42,9 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "The 'Operation' header you provided was invalid.",
   [ErrorCode.PatchFailed]:
     "The patch you provided could not be applied to the target content.",
+  [ErrorCode.InvalidSearch]: "The search query you provided is not valid.",
+  [ErrorCode.ErrorPreparingSimpleSearch]:
+    "Error encountered while calling Obsidian `prepareSimpleSearch` API.",
 };
 
 export enum ContentTypes {
