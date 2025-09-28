@@ -1114,9 +1114,14 @@ export default class RequestHandler {
     };
     const contentType = req.headers["content-type"];
 
-    if (!handlers[contentType]) {
+    if (!contentType) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.ContentTypeSpecificationRequired,
+      });
+      return;
+    } else if (!handlers[contentType]) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidContentType,
       });
       return;
     }

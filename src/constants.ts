@@ -13,6 +13,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "Authorization required.  Find your API Key in the 'Local REST API' section of your Obsidian settings.",
   [ErrorCode.ContentTypeSpecificationRequired]:
     "Content-Type header required; this API accepts data in multiple content-types and you must indicate the content-type of your request body via the Content-Type header.",
+  [ErrorCode.InvalidContentType]:
+    "Unknown or invalid Content-Type specified in Content-Type header.",
   [ErrorCode.InvalidContentInsertionPositionValue]:
     "Invalid 'Content-Insertion-Position' header value.",
   [ErrorCode.InvalidContentForContentType]:

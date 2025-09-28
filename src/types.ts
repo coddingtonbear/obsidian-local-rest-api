@@ -5,6 +5,7 @@ import { IPeriodicNoteSettings } from "obsidian-daily-notes-interface";
 export enum ErrorCode {
   TextContentEncodingRequired = 40010,
   ContentTypeSpecificationRequired = 40011,
+  InvalidContentType = 40012,
   InvalidContentForContentType = 40015,
   InvalidContentInsertionPositionValue = 40050,
   MissingHeadingHeader = 40051,
