@@ -510,30 +510,7 @@ export default class RequestHandler {
       return;
     }
 
-    // Check for file-level operations BEFORE validation
-    if (targetType === "file") {
-      // Handle semantic file operations
-
-      if (operation === "move") {
-        if (rawTarget !== "path") {
-          this.returnCannedResponse(res, {
-            errorCode: ErrorCode.InvalidMoveTarget,
-          });
-          return;
-        }
-        return this.handleMoveOperation(path, req, res);
-      }
-    }
-
-    // Validate file-only operations aren't used with other target types
-    if (operation === "move" && targetType !== "file") {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.InvalidOperationForTargetType,
-      });
-      return;
-    }
-
-    // Only these target types continue to applyPatch
+    // Only these target types are valid for PATCH
     if (!["heading", "block", "frontmatter"].includes(targetType)) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidTargetTypeHeader,
@@ -695,7 +672,7 @@ export default class RequestHandler {
     return this._vaultDelete(path, req, res);
   }
 
-  async handleMoveOperation(
+  async _vaultMove(
     path: string,
     req: express.Request,
     res: express.Response
@@ -708,15 +685,17 @@ export default class RequestHandler {
       return;
     }
 
-    // For move operations, the new path should be in the request body
-    const rawNewPath = typeof req.body === 'string' ? req.body.trim() : '';
+    // For WebDAV-style MOVE, the new path should be in the Destination header
+    const rawDestination = req.get('Destination');
 
-    if (!rawNewPath) {
+    if (!rawDestination) {
       this.returnCannedResponse(res, {
-        errorCode: ErrorCode.MissingNewPath,
+        errorCode: ErrorCode.MissingDestinationHeader,
       });
       return;
     }
+
+    const rawNewPath = decodeURIComponent(rawDestination.trim());
 
     // Check for path traversal attempts
     if (rawNewPath.includes('..') || rawNewPath.startsWith('/')) {
@@ -729,7 +708,7 @@ export default class RequestHandler {
     // Validate new path is not a directory
     if (rawNewPath.endsWith("/")) {
       this.returnCannedResponse(res, {
-        errorCode: ErrorCode.InvalidNewPath,
+        errorCode: ErrorCode.InvalidDestinationPath,
       });
       return;
     }
@@ -764,7 +743,7 @@ export default class RequestHandler {
       // @ts-ignore - fileManager exists at runtime but not in type definitions
       await this.app.fileManager.renameFile(sourceFile, newPath);
 
-      res.status(200).json({
+      res.status(201).json({
         message: "File successfully moved",
         oldPath: path,
         newPath: newPath
@@ -775,6 +754,14 @@ export default class RequestHandler {
         message: `Failed to move file: ${error.message}`
       });
     }
+  }
+
+  async vaultMove(req: express.Request, res: express.Response): Promise<void> {
+    const path = decodeURIComponent(
+      req.path.slice(req.path.indexOf("/", 1) + 1)
+    );
+
+    return this._vaultMove(path, req, res);
   }
 
   getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
@@ -1370,6 +1357,14 @@ export default class RequestHandler {
       .patch(this.vaultPatch.bind(this))
       .post(this.vaultPost.bind(this))
       .delete(this.vaultDelete.bind(this));
+
+    // WebDAV-style MOVE method
+    this.api.route("/vault/*").all((req, res, next) => {
+      if (req.method === "MOVE") {
+        return this.vaultMove(req, res);
+      }
+      next();
+    });
 
     this.api
       .route("/periodic/:period/")

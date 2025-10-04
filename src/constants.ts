@@ -45,14 +45,10 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.InvalidSearch]: "The search query you provided is not valid.",
   [ErrorCode.ErrorPreparingSimpleSearch]:
     "Error encountered while calling Obsidian `prepareSimpleSearch` API.",
-  [ErrorCode.InvalidMoveTarget]:
-    "For move operations, Target must be 'path'.",
-  [ErrorCode.InvalidOperationForTargetType]:
-    "This operation is not valid for the specified target type.",
-  [ErrorCode.MissingNewPath]:
-    "New path is required in request body.",
-  [ErrorCode.InvalidNewPath]:
-    "New path must be a file path, not a directory.",
+  [ErrorCode.MissingDestinationHeader]:
+    "Destination header is required for MOVE operations.",
+  [ErrorCode.InvalidDestinationPath]:
+    "Destination path must be a file path, not a directory.",
   [ErrorCode.PathTraversalNotAllowed]:
     "Path traversal is not allowed. Paths must be relative and within the vault.",
   [ErrorCode.DestinationAlreadyExists]:

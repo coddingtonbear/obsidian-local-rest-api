@@ -1,14 +1,15 @@
-local Delete = import 'delete.jsonnet';
-local Get = import 'get.jsonnet';
-local Patch = import 'patch.jsonnet';
-local Post = import 'post.jsonnet';
-local Put = import 'put.jsonnet';
+local Delete = import 'lib/delete.jsonnet';
+local Get = import 'lib/get.jsonnet';
+local Move = import 'lib/move.jsonnet';
+local Patch = import 'lib/patch.jsonnet';
+local Post = import 'lib/post.jsonnet';
+local Put = import 'lib/put.jsonnet';
 
-local ParamDay = import 'day.param.jsonnet';
-local ParamMonth = import 'month.param.jsonnet';
-local ParamPath = import 'path.param.jsonnet';
-local ParamPeriod = import 'period.param.jsonnet';
-local ParamYear = import 'year.param.jsonnet';
+local ParamDay = import 'lib/day.param.jsonnet';
+local ParamMonth = import 'lib/month.param.jsonnet';
+local ParamPath = import 'lib/path.param.jsonnet';
+local ParamPeriod = import 'lib/period.param.jsonnet';
+local ParamYear = import 'lib/year.param.jsonnet';
 
 
 std.manifestYamlDoc(
@@ -166,7 +167,7 @@ std.manifestYamlDoc(
             'Vault Files',
           ],
           summary: 'Return the content of a single file in your vault.\n',
-          description: 'Returns the content of the file at the specified path in your vault should the file exist.\n\nIf you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.  See "responses" below for details.\n',
+          description: '**Note:** This path also supports the WebDAV-style `MOVE` method for moving files. Specify the destination path in a `Destination` header. The MOVE method is not displayed in Swagger UI due to OpenAPI spec limitations, but is fully functional. See the raw openapi.yaml for complete MOVE documentation.\n\nReturns the content of the file at the specified path in your vault should the file exist.\n\nIf you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.  See "responses" below for details.\n',
           parameters+: [ParamPath],
         },
         put: Put {
@@ -192,6 +193,9 @@ std.manifestYamlDoc(
           summary: 'Partially update content in an existing note.\n',
           description: 'Inserts content into an existing note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
           parameters+: [ParamPath],
+        },
+        move: Move {
+          parameters: Move.parameters + [ParamPath],
         },
         delete: Delete {
           tags: [
