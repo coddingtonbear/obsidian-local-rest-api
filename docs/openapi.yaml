@@ -207,7 +207,7 @@ paths:
         ^2c7cfa
         ```
         
-        ## Append Content Below a Heading
+        ## Append, Prepend, or Replace Content Below a Heading
         
         If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
         you could send a request with the following headers:
@@ -220,7 +220,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Append Content to a Block Reference
+        ## Append, Prepend, or Replace Content to a Block Reference
         
         If you wanted to append the content "Hello" below the block referenced by
         "2d9b4a" above ("More random text."), you could send the following headers:
@@ -233,7 +233,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Add a Row to a Table Referenced by a Block Reference
+        ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
         
         If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
         referenced by the block reference `2c7cfa`, you could send the following
@@ -666,7 +666,7 @@ paths:
         ^2c7cfa
         ```
         
-        ## Append Content Below a Heading
+        ## Append, Prepend, or Replace Content Below a Heading
         
         If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
         you could send a request with the following headers:
@@ -679,7 +679,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Append Content to a Block Reference
+        ## Append, Prepend, or Replace Content to a Block Reference
         
         If you wanted to append the content "Hello" below the block referenced by
         "2d9b4a" above ("More random text."), you could send the following headers:
@@ -692,7 +692,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Add a Row to a Table Referenced by a Block Reference
+        ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
         
         If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
         referenced by the block reference `2c7cfa`, you could send the following
@@ -1104,7 +1104,7 @@ paths:
         ^2c7cfa
         ```
         
-        ## Append Content Below a Heading
+        ## Append, Prepend, or Replace Content Below a Heading
         
         If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
         you could send a request with the following headers:
@@ -1117,7 +1117,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Append Content to a Block Reference
+        ## Append, Prepend, or Replace Content to a Block Reference
         
         If you wanted to append the content "Hello" below the block referenced by
         "2d9b4a" above ("More random text."), you could send the following headers:
@@ -1130,7 +1130,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Add a Row to a Table Referenced by a Block Reference
+        ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
         
         If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
         referenced by the block reference `2c7cfa`, you could send the following
@@ -1668,6 +1668,8 @@ paths:
         - "Vault Files"
     get:
       description: |
+        **Note:** This path also supports the WebDAV-style `MOVE` method for moving files. Specify the destination path in a `Destination` header. The MOVE method is not displayed in Swagger UI due to OpenAPI spec limitations, but is fully functional. See the raw openapi.yaml for complete MOVE documentation.
+        
         Returns the content of the file at the specified path in your vault should the file exist.
         
         If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.  See "responses" below for details.
@@ -1698,6 +1700,73 @@ paths:
           description: "File does not exist"
       summary: |
         Return the content of a single file in your vault.
+      tags:
+        - "Vault Files"
+    move:
+      description: |
+        Moves a file from its current location to a new location specified in the Destination header. This operation preserves file history and updates internal links. The destination path must be provided in the Destination header following WebDAV conventions.
+      parameters:
+        - description: |
+            The new path for the file (relative to your vault root). Path must not contain ".." or start with "/" for security reasons.
+          in: "header"
+          name: "Destination"
+          required: true
+          schema:
+            format: "path"
+            type: "string"
+        - description: |
+            Path to the relevant file (relative to your vault root).
+          in: "path"
+          name: "filename"
+          required: true
+          schema:
+            format: "path"
+            type: "string"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                properties:
+                  message:
+                    example: "File successfully moved"
+                    type: "string"
+                  newPath:
+                    example: "another-folder/file.md"
+                    type: "string"
+                  oldPath:
+                    example: "folder/file.md"
+                    type: "string"
+                type: "object"
+          description: "File successfully moved"
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: |
+            Bad request - Missing Destination header, invalid destination path, or path traversal attempt.
+        "404":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Source file does not exist."
+        "405":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: |
+            Your path references a directory instead of a file; this request method is valid only for files.
+        "409":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Destination file already exists."
+      summary: |
+        Move a file to a new location in your vault.
       tags:
         - "Vault Files"
     patch:
@@ -1760,7 +1829,7 @@ paths:
         ^2c7cfa
         ```
         
-        ## Append Content Below a Heading
+        ## Append, Prepend, or Replace Content Below a Heading
         
         If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
         you could send a request with the following headers:
@@ -1773,7 +1842,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Append Content to a Block Reference
+        ## Append, Prepend, or Replace Content to a Block Reference
         
         If you wanted to append the content "Hello" below the block referenced by
         "2d9b4a" above ("More random text."), you could send the following headers:
@@ -1786,7 +1855,7 @@ paths:
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
         
-        ## Add a Row to a Table Referenced by a Block Reference
+        ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
         
         If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
         referenced by the block reference `2c7cfa`, you could send the following

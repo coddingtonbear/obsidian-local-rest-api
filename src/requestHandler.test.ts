@@ -1,16 +1,16 @@
 import http from "http";
 import request from "supertest";
 
-import RequestHandler from "./requestHandler";
-import { LocalRestApiSettings } from "./types";
-import { CERT_NAME } from "./constants";
 import {
   App,
-  TFile,
   Command,
   HeadingCache,
   PluginManifest,
+  TFile,
 } from "../mocks/obsidian";
+import { CERT_NAME } from "./constants";
+import RequestHandler from "./requestHandler";
+import { LocalRestApiSettings } from "./types";
 
 describe("requestHandler", () => {
   const API_KEY = "my api key";
@@ -738,6 +738,158 @@ describe("requestHandler", () => {
         expect(result.text).toEqual(
           "something\n\n# Heading1\ncontent here\nbytes\n\n\n# Heading2\nsomething"
         );
+      });
+    });
+
+    describe("file move operation", () => {
+      test("successful move with Destination header", async () => {
+        const oldPath = "folder/file.md";
+        const newPath = "another-folder/subfolder/file.md";
+
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+        app.vault.adapter._exists = false; // destination doesn't exist
+
+        // Mock fileManager and createFolder
+        (app as any).fileManager = {
+          renameFile: jest.fn().mockResolvedValue(undefined)
+        };
+        app.vault.createFolder = jest.fn().mockResolvedValue(undefined);
+
+        const response = await request(server)
+          .move(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Destination", newPath)
+          .expect(201);
+
+        expect(response.body.message).toEqual("File successfully moved");
+        expect(response.body.oldPath).toEqual(oldPath);
+        expect(response.body.newPath).toEqual(newPath);
+        expect(app.vault.createFolder).toHaveBeenCalledWith("another-folder/subfolder");
+        expect((app as any).fileManager.renameFile).toHaveBeenCalledWith(mockFile, newPath);
+      });
+
+      test("move fails with non-existent file", async () => {
+        // Mock file doesn't exist
+        app.vault._getAbstractFileByPath = null;
+
+        await request(server)
+          .move("/vault/non-existent.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Destination", "new-location/file.md")
+          .expect(404);
+      });
+
+      test("move fails when destination exists", async () => {
+        const oldPath = "folder/file.md";
+        const newPath = "another-folder/existing-file.md";
+
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+        app.vault.adapter._exists = true; // destination already exists
+
+        const response = await request(server)
+          .move(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Destination", newPath)
+          .expect(409);
+
+        expect(response.body.message).toContain("Destination file already exists");
+      });
+
+      test("move fails with missing Destination header", async () => {
+        const oldPath = "folder/file.md";
+
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+
+        const response = await request(server)
+          .move(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(400);
+
+        expect(response.body.message).toContain("Destination header is required");
+      });
+
+      test("move fails when destination path is a directory", async () => {
+        const oldPath = "folder/file.md";
+
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+
+        const response = await request(server)
+          .move(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Destination", "new-folder/")
+          .expect(400);
+
+        expect(response.body.message).toContain("Destination path must be a file path");
+      });
+
+      test("move to root directory", async () => {
+        const oldPath = "deep/nested/folder/file.md";
+        const newPath = "file.md";
+
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+        app.vault.adapter._exists = false; // destination doesn't exist
+
+        // Mock fileManager
+        (app as any).fileManager = {
+          renameFile: jest.fn().mockResolvedValue(undefined)
+        };
+        app.vault.createFolder = jest.fn();
+
+        const response = await request(server)
+          .move(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Destination", newPath)
+          .expect(201);
+
+        expect(response.body.message).toEqual("File successfully moved");
+        expect(app.vault.createFolder).not.toHaveBeenCalled(); // No need to create parent for root
+        expect((app as any).fileManager.renameFile).toHaveBeenCalledWith(mockFile, newPath);
+      });
+
+      test("move fails with path traversal attempt", async () => {
+        const oldPath = "folder/file.md";
+        const maliciousPath = "../../../etc/passwd";
+
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+
+        const response = await request(server)
+          .move(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Destination", maliciousPath)
+          .expect(400);
+
+        expect(response.body.errorCode).toEqual(40003);
+        expect(response.body.message).toContain("Path traversal is not allowed");
+      });
+
+      test("move fails with absolute path", async () => {
+        const oldPath = "folder/file.md";
+        const absolutePath = "/etc/passwd";
+
+        // Mock file exists
+        const mockFile = new TFile();
+        app.vault._getAbstractFileByPath = mockFile;
+
+        const response = await request(server)
+          .move(`/vault/${oldPath}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Destination", absolutePath)
+          .expect(400);
+
+        expect(response.body.errorCode).toEqual(40003);
+        expect(response.body.message).toContain("Path traversal is not allowed");
       });
     });
   });

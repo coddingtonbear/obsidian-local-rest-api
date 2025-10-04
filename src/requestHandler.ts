@@ -1,3 +1,4 @@
+import forge from "node-forge";
 import {
   apiVersion,
   App,
@@ -9,18 +10,13 @@ import {
 } from "obsidian";
 import periodicNotes from "obsidian-daily-notes-interface";
 import { getAPI as getDataviewAPI } from "obsidian-dataview";
-import forge from "node-forge";
 
-import express from "express";
-import http from "http";
-import cors from "cors";
-import mime from "mime-types";
 import bodyParser from "body-parser";
-import jsonLogic from "json-logic-js";
-import responseTime from "response-time";
-import queryString from "query-string";
+import cors from "cors";
+import express from "express";
 import WildcardRegexp from "glob-to-regexp";
-import path from "path";
+import http from "http";
+import jsonLogic from "json-logic-js";
 import {
   applyPatch,
   ContentType,
@@ -29,7 +25,18 @@ import {
   PatchOperation,
   PatchTargetType,
 } from "markdown-patch";
+import mime from "mime-types";
+import path from "path";
+import queryString from "query-string";
+import responseTime from "response-time";
 
+import LocalRestApiPublicApi from "./api";
+import {
+  CERT_NAME,
+  ContentTypes,
+  ERROR_CODE_MESSAGES,
+  MaximumRequestSize,
+} from "./constants";
 import {
   CannedResponse,
   ErrorCode,
@@ -48,13 +55,6 @@ import {
   getSplicePosition,
   toArrayBuffer,
 } from "./utils";
-import {
-  CERT_NAME,
-  ContentTypes,
-  ERROR_CODE_MESSAGES,
-  MaximumRequestSize,
-} from "./constants";
-import LocalRestApiPublicApi from "./api";
 
 // Import openapi.yaml as a string
 import openapiYaml from "../docs/openapi.yaml";
@@ -262,10 +262,10 @@ export default class RequestHandler {
       certificateInfo:
         this.requestIsAuthenticated(req) && certificate
           ? {
-              validityDays: getCertificateValidityDays(certificate),
-              regenerateRecommended:
-                !getCertificateIsUptoStandards(certificate),
-            }
+            validityDays: getCertificateValidityDays(certificate),
+            regenerateRecommended:
+              !getCertificateIsUptoStandards(certificate),
+          }
           : undefined,
       apiExtensions: this.requestIsAuthenticated(req)
         ? this.apiExtensions.map(({ manifest }) => manifest)
@@ -509,18 +509,16 @@ export default class RequestHandler {
       });
       return;
     }
+
+    // Only these target types are valid for PATCH
     if (!["heading", "block", "frontmatter"].includes(targetType)) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidTargetTypeHeader,
       });
       return;
     }
-    if (!operation) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.MissingOperation,
-      });
-      return;
-    }
+
+    // Validate operations for applyPatch target types
     if (!["append", "prepend", "replace"].includes(operation)) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidOperation,
@@ -672,6 +670,98 @@ export default class RequestHandler {
     );
 
     return this._vaultDelete(path, req, res);
+  }
+
+  async _vaultMove(
+    path: string,
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+
+    if (!path || path.endsWith("/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
+      });
+      return;
+    }
+
+    // For WebDAV-style MOVE, the new path should be in the Destination header
+    const rawDestination = req.get('Destination');
+
+    if (!rawDestination) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingDestinationHeader,
+      });
+      return;
+    }
+
+    const rawNewPath = decodeURIComponent(rawDestination.trim());
+
+    // Check for path traversal attempts
+    if (rawNewPath.includes('..') || rawNewPath.startsWith('/')) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.PathTraversalNotAllowed,
+      });
+      return;
+    }
+
+    // Validate new path is not a directory
+    if (rawNewPath.endsWith("/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidDestinationPath,
+      });
+      return;
+    }
+
+    // Normalize the new path
+    const newPath = rawNewPath.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
+
+    // Check if source file exists
+    const sourceFile = this.app.vault.getAbstractFileByPath(path);
+    if (!sourceFile || !(sourceFile instanceof TFile)) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
+
+    // Check if destination already exists
+    const destExists = await this.app.vault.adapter.exists(newPath);
+    if (destExists) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.DestinationAlreadyExists,
+      });
+      return;
+    }
+
+    try {
+      // Create parent directories if needed
+      const parentDir = newPath.substring(0, newPath.lastIndexOf('/'));
+      if (parentDir && !await this.app.vault.adapter.exists(parentDir)) {
+        await this.app.vault.createFolder(parentDir);
+      }
+
+      // Use FileManager to move the file (preserves history and updates links)
+      // @ts-ignore - fileManager exists at runtime but not in type definitions
+      await this.app.fileManager.renameFile(sourceFile, newPath);
+
+      res.status(201).json({
+        message: "File successfully moved",
+        oldPath: path,
+        newPath: newPath
+      });
+    } catch (error) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.FileOperationFailed,
+        message: `Failed to move file: ${error.message}`
+      });
+    }
+  }
+
+  async vaultMove(req: express.Request, res: express.Response): Promise<void> {
+    const path = decodeURIComponent(
+      req.path.slice(req.path.indexOf("/", 1) + 1)
+    );
+
+    return this._vaultMove(path, req, res);
   }
 
   getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
@@ -1267,6 +1357,14 @@ export default class RequestHandler {
       .patch(this.vaultPatch.bind(this))
       .post(this.vaultPost.bind(this))
       .delete(this.vaultDelete.bind(this));
+
+    // WebDAV-style MOVE method
+    this.api.route("/vault/*").all((req, res, next) => {
+      if (req.method === "MOVE") {
+        return this.vaultMove(req, res);
+      }
+      next();
+    });
 
     this.api
       .route("/periodic/:period/")
