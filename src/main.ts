@@ -1,10 +1,11 @@
-import { App, Plugin, PluginSettingTab, Setting } from "obsidian";
+import { App, Plugin, PluginSettingTab, Setting, TFile } from "obsidian";
 import * as https from "https";
 import * as http from "http";
 import forge, { pki } from "node-forge";
 
 import RequestHandler from "./requestHandler";
 import { LocalRestApiSettings } from "./types";
+import { RenderCacheManager } from "./renderCacheManager";
 
 import {
   DefaultBearerTokenHeaderName,
@@ -12,6 +13,7 @@ import {
   DEFAULT_SETTINGS,
   DefaultBindingHost,
   LicenseUrl,
+  DEFAULT_RENDER_CACHE_SETTINGS,
 } from "./constants";
 import {
   getCertificateIsUptoStandards,
@@ -26,6 +28,7 @@ export default class LocalRestApi extends Plugin {
   insecureServer: http.Server | null = null;
   requestHandler: RequestHandler;
   refreshServerState: () => void;
+  renderCacheManager: RenderCacheManager | null = null;
 
   async onload() {
     this.refreshServerState = this.debounce(
@@ -40,6 +43,35 @@ export default class LocalRestApi extends Plugin {
       this.settings
     );
     this.requestHandler.setupRouter();
+
+    // Initialize render cache manager
+    this.renderCacheManager = new RenderCacheManager(this.app, {
+      cacheDirectory: this.settings.renderCacheDirectory ?? ".obsidian/render-cache",
+      maxCacheSizeMB: this.settings.renderCacheMaxSizeMB ?? 100,
+      autoCleanup: this.settings.renderCacheAutoCleanup ?? true,
+      renderTimeoutMs: this.settings.renderCacheTimeoutMs ?? 30000,
+    });
+    await this.renderCacheManager.initialize();
+
+    // Pass render cache manager to request handler
+    this.requestHandler.renderCacheManager = this.renderCacheManager;
+
+    // Register vault event listeners for cache invalidation
+    this.registerEvent(
+      this.app.vault.on("modify", async (file) => {
+        if (file instanceof TFile && file.extension === "md" && this.renderCacheManager) {
+          await this.renderCacheManager.invalidate(file);
+        }
+      })
+    );
+
+    this.registerEvent(
+      this.app.vault.on("delete", async (file) => {
+        if (file instanceof TFile && file.extension === "md" && this.renderCacheManager) {
+          await this.renderCacheManager.invalidate(file);
+        }
+      })
+    );
 
     if (!this.settings.apiKey) {
       this.settings.apiKey = forge.md.sha256
@@ -192,8 +224,7 @@ export default class LocalRestApi extends Plugin {
       );
 
       console.log(
-        `[REST API] Listening on https://${
-          this.settings.bindingHost ?? DefaultBindingHost
+        `[REST API] Listening on https://${this.settings.bindingHost ?? DefaultBindingHost
         }:${this.settings.port}/`
       );
     }
@@ -210,8 +241,7 @@ export default class LocalRestApi extends Plugin {
       );
 
       console.log(
-        `[REST API] Listening on http://${
-          this.settings.bindingHost ?? DefaultBindingHost
+        `[REST API] Listening on http://${this.settings.bindingHost ?? DefaultBindingHost
         }:${this.settings.insecurePort}/`
       );
     }
@@ -227,7 +257,12 @@ export default class LocalRestApi extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.settings = Object.assign(
+      {},
+      DEFAULT_SETTINGS,
+      DEFAULT_RENDER_CACHE_SETTINGS,
+      await this.loadData()
+    );
   }
 
   async saveSettings() {
@@ -275,12 +310,12 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       "tr",
       this.plugin.settings.enableSecureServer === false
         ? {
-            cls: "disabled",
-            title: "Disabled.  You can enable this in 'Settings' below.",
-          }
+          cls: "disabled",
+          title: "Disabled.  You can enable this in 'Settings' below.",
+        }
         : {
-            title: "Enabled",
-          }
+          title: "Enabled",
+        }
     );
     const secureUrl = `https://127.0.0.1:${this.plugin.settings.port}/`;
     secureTr.innerHTML = `
@@ -290,9 +325,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           <td class="name">
             Encrypted (HTTPS) API URL<br /><br />
             <i>
-              Requires that <a href="https://127.0.0.1:${
-                this.plugin.settings.port
-              }/${CERT_NAME}">this certificate</a> be
+              Requires that <a href="https://127.0.0.1:${this.plugin.settings.port
+      }/${CERT_NAME}">this certificate</a> be
               configured as a trusted certificate authority for
               your browser.  See <a href="https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F">wiki</a> for more information.
             </i>
@@ -305,9 +339,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     if (this.plugin.settings.subjectAltNames) {
       for (const name of this.plugin.settings.subjectAltNames.split("\n")) {
         if (name.trim()) {
-          const altSecureUrl = `https://${name.trim()}:${
-            this.plugin.settings.port
-          }/`;
+          const altSecureUrl = `https://${name.trim()}:${this.plugin.settings.port
+            }/`;
           secureUrlsTd.innerHTML += `
             ${altSecureUrl} <a href="javascript:navigator.clipboard.writeText('${altSecureUrl}')">(copy)</a><br />
           `;
@@ -319,12 +352,12 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       "tr",
       this.plugin.settings.enableInsecureServer === false
         ? {
-            cls: "disabled",
-            title: "Disabled.  You can enable this in 'Settings' below.",
-          }
+          cls: "disabled",
+          title: "Disabled.  You can enable this in 'Settings' below.",
+        }
         : {
-            title: "Enabled",
-          }
+          title: "Enabled",
+        }
     );
     const insecureUrl = `http://127.0.0.1:${this.plugin.settings.insecurePort}/`;
     insecureTr.innerHTML = `
@@ -342,9 +375,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     if (this.plugin.settings.subjectAltNames) {
       for (const name of this.plugin.settings.subjectAltNames.split("\n")) {
         if (name.trim()) {
-          const altSecureUrl = `http://${name.trim()}:${
-            this.plugin.settings.insecurePort
-          }/`;
+          const altSecureUrl = `http://${name.trim()}:${this.plugin.settings.insecurePort
+            }/`;
           insecureUrlsTd.innerHTML += `
             ${altSecureUrl} <a href="javascript:navigator.clipboard.writeText('${altSecureUrl}')">(copy)</a><br />
           `;
@@ -362,9 +394,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       text: "For example, the following request will return all notes in the root directory of your vault:",
     });
     apiKeyDiv.createEl("pre", {
-      text: `GET /vault/ HTTP/1.1\n${
-        this.plugin.settings.authorizationHeaderName ?? "Authorization"
-      }: Bearer ${this.plugin.settings.apiKey}`,
+      text: `GET /vault/ HTTP/1.1\n${this.plugin.settings.authorizationHeaderName ?? "Authorization"
+        }: Bearer ${this.plugin.settings.apiKey}`,
     });
 
     const seeMore = apiKeyDiv.createEl("p");
@@ -390,10 +421,9 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       soonExpiringCertDiv.classList.add("certificate-expiring-soon");
       soonExpiringCertDiv.innerHTML = `
         <b>Your certificate will expire in ${Math.floor(
-          remainingCertificateValidityDays
-        )} day${
-        Math.floor(remainingCertificateValidityDays) === 1 ? "" : "s"
-      }s!</b>
+        remainingCertificateValidityDays
+      )} day${Math.floor(remainingCertificateValidityDays) === 1 ? "" : "s"
+        }s!</b>
         You should re-generate your certificate below by pressing
         the "Re-generate Certificates" button below in
         order to continue to connect securely to this API.
@@ -651,7 +681,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           this.plugin.refreshServerState();
         }).setValue(
           this.plugin.settings.authorizationHeaderName ??
-            DefaultBearerTokenHeaderName
+          DefaultBearerTokenHeaderName
         );
       });
       new Setting(containerEl).setName("Binding Host").addText((cb) => {
@@ -665,9 +695,99 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           this.plugin.refreshServerState();
         }).setValue(this.plugin.settings.bindingHost ?? DefaultBindingHost);
       });
+
+      // Render Cache Settings Section
+      containerEl.createEl("h3", { text: "Render Cache" });
+
+      new Setting(containerEl)
+        .setName("Cache Directory")
+        .setDesc("Directory to store rendered PDF and text cache (relative to vault root)")
+        .addText((text) =>
+          text
+            .setPlaceholder(".obsidian/render-cache")
+            .setValue(this.plugin.settings.renderCacheDirectory ?? ".obsidian/render-cache")
+            .onChange(async (value) => {
+              this.plugin.settings.renderCacheDirectory = value;
+              await this.plugin.saveSettings();
+            })
+        );
+
+      new Setting(containerEl)
+        .setName("Max Cache Size (MB)")
+        .setDesc("Maximum cache size in megabytes")
+        .addText((text) =>
+          text
+            .setPlaceholder("100")
+            .setValue(String(this.plugin.settings.renderCacheMaxSizeMB ?? 100))
+            .onChange(async (value) => {
+              const num = parseInt(value);
+              if (!isNaN(num) && num > 0) {
+                this.plugin.settings.renderCacheMaxSizeMB = num;
+                await this.plugin.saveSettings();
+              }
+            })
+        );
+
+      new Setting(containerEl)
+        .setName("Auto Cleanup")
+        .setDesc("Automatically clean up old cache entries")
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.renderCacheAutoCleanup ?? true)
+            .onChange(async (value) => {
+              this.plugin.settings.renderCacheAutoCleanup = value;
+              await this.plugin.saveSettings();
+            })
+        );
+
+      new Setting(containerEl)
+        .setName("Render Timeout (ms)")
+        .setDesc("Maximum time to wait for content to render (milliseconds)")
+        .addText((text) =>
+          text
+            .setPlaceholder("30000")
+            .setValue(String(this.plugin.settings.renderCacheTimeoutMs ?? 30000))
+            .onChange(async (value) => {
+              const num = parseInt(value);
+              if (!isNaN(num) && num > 0) {
+                this.plugin.settings.renderCacheTimeoutMs = num;
+                await this.plugin.saveSettings();
+              }
+            })
+        );
+
+      // Cache statistics
+      if (this.plugin.renderCacheManager) {
+        this.plugin.renderCacheManager.getCacheStats().then((stats) => {
+          new Setting(containerEl)
+            .setName("Cache Statistics")
+            .setDesc(
+              `Entries: ${stats.entryCount} | Size: ${stats.totalSizeMB.toFixed(2)} MB`
+            );
+        });
+
+        new Setting(containerEl)
+          .setName("Clear Cache")
+          .setDesc("Delete all cached rendered content")
+          .addButton((button) =>
+            button
+              .setButtonText("Clear Cache")
+              .setWarning()
+              .onClick(async () => {
+                if (this.plugin.renderCacheManager) {
+                  await this.plugin.renderCacheManager.clearCache();
+                  this.display(); // Refresh display
+                }
+              })
+          );
+      }
+
     }
   }
+
+
 }
+
 
 export const getAPI = (
   app: App,

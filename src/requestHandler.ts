@@ -3,6 +3,8 @@ import {
   App,
   CachedMetadata,
   Command,
+  Component,
+  MarkdownRenderer,
   PluginManifest,
   prepareSimpleSearch,
   TFile,
@@ -59,11 +61,14 @@ import LocalRestApiPublicApi from "./api";
 // Import openapi.yaml as a string
 import openapiYaml from "../docs/openapi.yaml";
 
+import { RenderCacheManager } from "./renderCacheManager";
+
 export default class RequestHandler {
   app: App;
   api: express.Express;
   manifest: PluginManifest;
   settings: LocalRestApiSettings;
+  renderCacheManager: RenderCacheManager | null = null;
 
   apiExtensionRouter: express.Router;
   apiExtensions: {
@@ -262,10 +267,10 @@ export default class RequestHandler {
       certificateInfo:
         this.requestIsAuthenticated(req) && certificate
           ? {
-              validityDays: getCertificateValidityDays(certificate),
-              regenerateRecommended:
-                !getCertificateIsUptoStandards(certificate),
-            }
+            validityDays: getCertificateValidityDays(certificate),
+            regenerateRecommended:
+              !getCertificateIsUptoStandards(certificate),
+          }
           : undefined,
       apiExtensions: this.requestIsAuthenticated(req)
         ? this.apiExtensions.map(({ manifest }) => manifest)
@@ -320,13 +325,94 @@ export default class RequestHandler {
             (mimeType == ContentTypes.markdown ? "; charset=utf-8" : ""),
         });
 
-        if (req.headers.accept === ContentTypes.olrapiNoteJson) {
+        if (req.headers.accept === ContentTypes.olrapiNoteHtml) {
           const file = this.app.vault.getAbstractFileByPath(path) as TFile;
-          res.setHeader("Content-Type", ContentTypes.olrapiNoteJson);
-          res.send(
-            JSON.stringify(await this.getFileMetadataObject(file), null, 2)
-          );
-          return;
+          if (file && mimeType === ContentTypes.markdown) {
+            const markdown = await this.app.vault.cachedRead(file);
+            const html = await this.renderMarkdownToHtml(markdown, path);
+            res.setHeader("Content-Type", ContentTypes.olrapiNoteHtml);
+            res.send(html);
+            return;
+          } else {
+            this.returnCannedResponse(res, {
+              statusCode: 400,
+              message: "Rendered HTML is only available for markdown files",
+            });
+            return;
+          }
+        }
+
+        if (req.headers.accept === ContentTypes.olrapiRenderedJson) {
+          const file = this.app.vault.getAbstractFileByPath(path) as TFile;
+          if (file && mimeType === ContentTypes.markdown) {
+            if (!this.renderCacheManager) {
+              this.returnCannedResponse(res, {
+                statusCode: 500,
+                message: "Render cache manager not initialized",
+              });
+              return;
+            }
+
+            try {
+              const structured = await this.renderCacheManager.renderToJson(file);
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+              res.setHeader("X-Rendered-At", new Date().toISOString());
+              res.send(JSON.stringify(structured, null, 2));
+              return;
+            } catch (error) {
+              console.error("Error rendering to JSON:", error);
+              this.returnCannedResponse(res, {
+                statusCode: 500,
+                message: `Failed to render content: ${error.message}`,
+              });
+              return;
+            }
+          } else {
+            this.returnCannedResponse(res, {
+              statusCode: 400,
+              message: "Rendered JSON is only available for markdown files",
+            });
+            return;
+          }
+        }
+
+        if (req.headers.accept === ContentTypes.olrapiRenderedText) {
+          const file = this.app.vault.getAbstractFileByPath(path) as TFile;
+          if (file && mimeType === ContentTypes.markdown) {
+            if (!this.renderCacheManager) {
+              this.returnCannedResponse(res, {
+                statusCode: 500,
+                message: "Render cache manager not initialized",
+              });
+              return;
+            }
+
+            try {
+              const text = await this.renderCacheManager.renderToText(file);
+              res.setHeader("Content-Type", "text/plain; charset=utf-8");
+              res.setHeader("X-Rendered-At", new Date().toISOString());
+
+              // Check if response came from cache
+              const cachedPath = await this.renderCacheManager.getCachedTextPath(file);
+              res.setHeader("X-Cache-Hit", cachedPath ? "true" : "false");
+
+              res.send(text);
+              return;
+            } catch (error) {
+              console.error("Error rendering to text:", error);
+              this.returnCannedResponse(res, {
+                statusCode: 500,
+                message: `Failed to render content: ${error.message}`,
+              });
+              return;
+            }
+          } else {
+            this.returnCannedResponse(res, {
+              statusCode: 400,
+              message: "Rendered text is only available for markdown files",
+            });
+            return;
+          }
         }
 
         res.send(Buffer.from(content));
@@ -1205,6 +1291,30 @@ export default class RequestHandler {
       message: err.message,
     });
     return;
+  }
+
+  async renderMarkdownToHtml(
+    markdown: string,
+    sourcePath: string
+  ): Promise<string> {
+    const component = new Component();
+    component.load();
+
+    const renderDiv = document.createElement("div");
+
+    try {
+      await MarkdownRenderer.render(
+        this.app,
+        markdown,
+        renderDiv,
+        sourcePath,
+        component
+      );
+
+      return renderDiv.innerHTML;
+    } finally {
+      component.unload();
+    }
   }
 
   setupRouter() {

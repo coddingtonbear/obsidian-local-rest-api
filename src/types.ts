@@ -41,6 +41,12 @@ export interface LocalRestApiSettings {
   authorizationHeaderName?: string;
   bindingHost?: string;
   subjectAltNames?: string;
+
+  // Render cache settings
+  renderCacheDirectory?: string;
+  renderCacheMaxSizeMB?: number;
+  renderCacheAutoCleanup?: boolean;
+  renderCacheTimeoutMs?: number;
 }
 
 export interface HeadingBoundary {

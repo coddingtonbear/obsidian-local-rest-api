@@ -24,6 +24,7 @@
     "@types/mime-types": "^2.1.1",
     "@types/node": "^16.11.6",
     "@types/node-forge": "^1.0.0",
+    "@types/pdf-parse": "^1.1.4",
     "@types/supertest": "^2.0.11",
     "@types/uuid": "^8.3.4",
     "@typescript-eslint/eslint-plugin": "^5.29.0",
@@ -51,6 +52,7 @@
     "node-forge": "^1.2.1",
     "obsidian-daily-notes-interface": "^0.9.4",
     "obsidian-dataview": "^0.5.47",
+    "pdfjs-dist": "^3.11.174",
     "query-string": "^7.1.1",
     "response-time": "^2.3.2",
     "uuid": "^8.3.2"
