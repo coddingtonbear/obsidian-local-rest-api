@@ -10,6 +10,8 @@ import {
   Command,
   HeadingCache,
   PluginManifest,
+  _prepareSimpleSearchMock,
+  SearchResult,
 } from "../mocks/obsidian";
 
 describe("requestHandler", () => {
@@ -804,6 +806,42 @@ describe("requestHandler", () => {
   });
 
   describe("searchSimplePost", () => {
+    beforeEach(() => {
+      // Setup mock for prepareSimpleSearch
+      _prepareSimpleSearchMock.behavior = (query: string) => {
+        const queryLower = query.toLowerCase();
+        const queryLength = query.length;
+        return (text: string) => {
+          const textLower = text.toLowerCase();
+          const matches: [number, number][] = [];
+          let index = 0;
+
+          // Find all matches (case-insensitive)
+          while ((index = textLower.indexOf(queryLower, index)) !== -1) {
+            matches.push([index, index + queryLength]);
+            index += 1;
+          }
+
+          if (matches.length === 0) {
+            return null;
+          }
+
+          // Calculate score based on number of matches
+          const score = matches.length;
+
+          return {
+            score,
+            matches,
+          } as SearchResult;
+        };
+      };
+    });
+
+    afterEach(() => {
+      // Clean up mock
+      _prepareSimpleSearchMock.behavior = null;
+    });
+
     test("match at beginning of filename", async () => {
       const testFile = new TFile();
       testFile.basename = "Master Plan";
