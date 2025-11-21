@@ -1049,8 +1049,8 @@ export default class RequestHandler {
                 source: "content"
               },
               context: cachedContents.slice(
-                Math.max(match[0] - contextLength, positionOffset),
-                match[1] + contextLength
+                Math.max(match[0] - positionOffset - contextLength, 0),
+                match[1] - positionOffset + contextLength
               ),
             });
           }
