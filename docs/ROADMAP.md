@@ -2,7 +2,7 @@
 
 Comprehensive security audit for Obsidian Local REST API plugin. This roadmap documents security vulnerabilities, remediation priorities, and improvement opportunities based on OWASP, MITRE ATT&CK, and CWE frameworks.
 
-**Audit Date:** December 2024
+**Audit Date:** December 2025
 **Plugin Version:** 3.2.0
 **Auditor:** Claude Code Security Analysis
 
@@ -393,4 +393,4 @@ Security-focused testing needed for remediation verification.
 
 | Date | Version | Changes |
 |------|---------|---------|
-| 2024-12-05 | 1.0.0 | Initial security audit completed |
+| 2025-12-05 | 1.0.0 | Initial security audit completed |
