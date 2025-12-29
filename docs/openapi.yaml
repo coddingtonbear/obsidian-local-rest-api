@@ -1589,6 +1589,7 @@ paths:
                                 description: "Start character position of the match within the file. Starts with 0."
                               source:
                                 type: "string"
+                                enum: ["filename", "content"]
                                 description: "Where the search term matched: 'filename' or 'content'"
                             required:
                               - "start"
