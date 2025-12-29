@@ -1040,8 +1040,8 @@ export default class RequestHandler {
               },
               context: file.basename,
             });
-          } else {
-            // Otherwise, the match was in the content
+          } else if (match[0] >= positionOffset) {
+            // Match is entirely in the content
             contextMatches.push({
               match: {
                 start: match[0] - positionOffset,
@@ -1054,6 +1054,9 @@ export default class RequestHandler {
               ),
             });
           }
+          // Matches that span the boundary between filename and content (match[0] < positionOffset
+          // && match[1] > positionOffset) are intentionally skipped as they would produce invalid
+          // results (e.g., negative start positions or incorrect source attribution).
         }
 
         results.push({

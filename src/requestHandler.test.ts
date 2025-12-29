@@ -1078,6 +1078,91 @@ describe("requestHandler", () => {
       expect(result.body[0].matches[1].match.end).toBe(6);
     });
 
+    test("boundary-spanning matches are filtered out", async () => {
+      // This test verifies that matches spanning from filename into content are skipped.
+      // When searching for a term that bridges the filename and content (e.g., "Master\n\nThe"),
+      // such matches would produce invalid results (negative start positions).
+      const testFile = new TFile();
+      testFile.basename = "Master";
+      testFile.path = "Master.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "The content starts here";
+
+      // Mock prepareSimpleSearch to return a boundary-spanning match
+      _prepareSimpleSearchMock.behavior = (query: string) => {
+        return (text: string) => {
+          // Simulate a match that spans from filename into content
+          // filename "Master" + "\n\n" = 8 chars (positionOffset)
+          // A boundary-spanning match would have start < 8 and end > 8
+          const matches: [number, number][] = [
+            [0, 11], // Spans from "Master" (0) into content "The" (ends at 11)
+          ];
+          return {
+            score: 1,
+            matches,
+          } as SearchResult;
+        };
+      };
+
+      const result = await request(server)
+        .post("/search/simple/?query=Master%0A%0AThe")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      // The file should still be in results (because there was a match)
+      expect(result.body).toHaveLength(1);
+      // But the boundary-spanning match should be filtered out
+      expect(result.body[0].matches).toHaveLength(0);
+    });
+
+    test("boundary-spanning matches don't affect valid matches", async () => {
+      // Verify that when there are both boundary-spanning and valid matches,
+      // only the valid ones are returned
+      const testFile = new TFile();
+      testFile.basename = "Master";
+      testFile.path = "Master.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "The Master plan content";
+
+      // Mock prepareSimpleSearch to return both valid and boundary-spanning matches
+      _prepareSimpleSearchMock.behavior = (query: string) => {
+        return (text: string) => {
+          // text = "Master\n\n" + "The Master plan content"
+          // positionOffset = 8
+          const matches: [number, number][] = [
+            [0, 11],  // Boundary-spanning: starts in filename, ends in content (should be filtered)
+            [0, 6],   // Valid: entirely in filename "Master" (should be kept)
+            [12, 18], // Valid: "Master" in content at position 4, adjusted = 12-8=4, 18-8=10 (should be kept)
+          ];
+          return {
+            score: 3,
+            matches,
+          } as SearchResult;
+        };
+      };
+
+      const result = await request(server)
+        .post("/search/simple/?query=Master")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      // Only 2 valid matches should be returned (boundary-spanning filtered out)
+      expect(result.body[0].matches).toHaveLength(2);
+
+      // First match: filename
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(0);
+      expect(result.body[0].matches[0].match.end).toBe(6);
+
+      // Second match: content (position adjusted by positionOffset)
+      expect(result.body[0].matches[1].match.source).toBe("content");
+      expect(result.body[0].matches[1].match.start).toBe(4);  // 12 - 8
+      expect(result.body[0].matches[1].match.end).toBe(10);   // 18 - 8
+    });
+
     test("unauthorized", async () => {
       await request(server)
         .post("/search/simple/?query=test")
