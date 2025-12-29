@@ -185,5 +185,5 @@ export function prepareSimpleSearch(query: string): (value: string) => null | Se
   if (_prepareSimpleSearchMock.behavior) {
     return _prepareSimpleSearchMock.behavior(query);
   }
-  return null;
+  return () => null;
 }
