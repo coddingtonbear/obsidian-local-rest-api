@@ -23,6 +23,11 @@ export enum ErrorCode {
   PeriodDoesNotExist = 40460,
   PeriodicNoteDoesNotExist = 40461,
   RequestMethodValidOnlyForFiles = 40510,
+  SourcePathNotFound = 40420,
+  DestinationAlreadyExists = 40921,
+  CannotMoveToSubdirectory = 40022,
+  MissingSourcePath = 40023,
+  MissingDestinationPath = 40024,
   ErrorPreparingSimpleSearch = 50010,
 }
 
@@ -57,6 +62,9 @@ export interface PeriodicNoteInterface {
 }
 
 declare module "obsidian" {
+  interface FileManager {
+    renameFile(file: TAbstractFile, newPath: string): Promise<void>;
+  }
   interface App {
     setting: {
       containerEl: HTMLElement;

@@ -45,6 +45,14 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.InvalidSearch]: "The search query you provided is not valid.",
   [ErrorCode.ErrorPreparingSimpleSearch]:
     "Error encountered while calling Obsidian `prepareSimpleSearch` API.",
+  [ErrorCode.SourcePathNotFound]: "Source file or folder does not exist.",
+  [ErrorCode.DestinationAlreadyExists]: "Destination path already exists.",
+  [ErrorCode.CannotMoveToSubdirectory]:
+    "Cannot move a folder into its own subdirectory.",
+  [ErrorCode.MissingSourcePath]:
+    "The 'source' field is required in the request body.",
+  [ErrorCode.MissingDestinationPath]:
+    "The 'destination' field is required in the request body.",
 };
 
 export enum ContentTypes {

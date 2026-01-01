@@ -5,7 +5,9 @@ import {
   Command,
   PluginManifest,
   prepareSimpleSearch,
+  TAbstractFile,
   TFile,
+  TFolder,
 } from "obsidian";
 import periodicNotes from "obsidian-daily-notes-interface";
 import { getAPI as getDataviewAPI } from "obsidian-dataview";
@@ -674,6 +676,79 @@ export default class RequestHandler {
     return this._vaultDelete(path, req, res);
   }
 
+  async _vaultMove(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    const { source, destination, updateLinks } = req.body;
+
+    // Validate source exists in body
+    if (!source) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingSourcePath,
+      });
+      return;
+    }
+
+    // Validate destination exists in body
+    if (!destination) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingDestinationPath,
+      });
+      return;
+    }
+
+    // Get source file/folder
+    const sourceFile = this.app.vault.getAbstractFileByPath(source);
+    if (!sourceFile) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.SourcePathNotFound,
+      });
+      return;
+    }
+
+    // Check destination doesn't already exist
+    const destExists = await this.app.vault.adapter.exists(destination);
+    if (destExists) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.DestinationAlreadyExists,
+      });
+      return;
+    }
+
+    // Check we're not moving a folder into its own subdirectory
+    if (sourceFile instanceof TFolder && destination.startsWith(source + "/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.CannotMoveToSubdirectory,
+      });
+      return;
+    }
+
+    // Create parent directory if needed
+    try {
+      await this.app.vault.createFolder(path.dirname(destination));
+    } catch {
+      // the folder already exists, but we don't care
+    }
+
+    // Perform the move
+    if (updateLinks && sourceFile instanceof TFile) {
+      await this.app.fileManager.renameFile(sourceFile, destination);
+    } else {
+      await this.app.vault.rename(sourceFile, destination);
+    }
+
+    res.status(200).json({
+      source,
+      destination,
+      message: "Successfully moved",
+    });
+  }
+
+  async vaultMove(req: express.Request, res: express.Response): Promise<void> {
+    return this._vaultMove(req, res);
+  }
+
   getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
     return {
       daily: {
@@ -1259,6 +1334,9 @@ export default class RequestHandler {
       .patch(this.activeFilePatch.bind(this))
       .post(this.activeFilePost.bind(this))
       .delete(this.activeFileDelete.bind(this));
+
+    // Must be before /vault/* route
+    this.api.route("/vault/move").post(this.vaultMove.bind(this));
 
     this.api
       .route("/vault/*")

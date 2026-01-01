@@ -1635,6 +1635,74 @@ paths:
         List files that exist in the root of your vault.
       tags:
         - "Vault Directories"
+  /vault/move:
+    post:
+      description: |
+        Moves or renames a file or folder within your vault.
+
+        Use `updateLinks: true` to automatically update all links pointing to the moved file (only works for files, not folders).
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                source:
+                  description: "The current path of the file or folder to move (relative to vault root)."
+                  example: "old-folder/my-note.md"
+                  type: "string"
+                destination:
+                  description: "The new path for the file or folder (relative to vault root)."
+                  example: "new-folder/my-note.md"
+                  type: "string"
+                updateLinks:
+                  description: "If true, automatically update all links pointing to the moved file. Only applicable to files, not folders."
+                  default: false
+                  type: "boolean"
+              required:
+                - "source"
+                - "destination"
+              type: "object"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                properties:
+                  source:
+                    description: "The original path of the moved file or folder."
+                    type: "string"
+                  destination:
+                    description: "The new path of the moved file or folder."
+                    type: "string"
+                  message:
+                    description: "Success message."
+                    type: "string"
+                type: "object"
+          description: "Success"
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: |
+            Bad request. Possible reasons: missing source or destination fields, or attempting to move a folder into its own subdirectory.
+        "404":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Source file or folder does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Destination path already exists."
+      summary: |
+        Move or rename a file or folder in your vault.
+      tags:
+        - "Vault Files"
   "/vault/{filename}":
     delete:
       parameters:

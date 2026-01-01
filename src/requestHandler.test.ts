@@ -7,6 +7,7 @@ import { CERT_NAME } from "./constants";
 import {
   App,
   TFile,
+  TFolder,
   Command,
   HeadingCache,
   PluginManifest,
@@ -392,6 +393,150 @@ describe("requestHandler", () => {
         .expect(204);
 
       expect(app.vault.adapter._remove).toEqual([arbitraryFilePath]);
+    });
+  });
+
+  describe("vaultMove", () => {
+    test("unauthorized", async () => {
+      await request(server)
+        .post("/vault/move")
+        .send({ source: "old.md", destination: "new.md" })
+        .expect(401);
+    });
+
+    test("missing source", async () => {
+      const result = await request(server)
+        .post("/vault/move")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/json")
+        .send({ destination: "new.md" })
+        .expect(400);
+
+      expect(result.body.errorCode).toEqual(40023);
+    });
+
+    test("missing destination", async () => {
+      const result = await request(server)
+        .post("/vault/move")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/json")
+        .send({ source: "old.md" })
+        .expect(400);
+
+      expect(result.body.errorCode).toEqual(40024);
+    });
+
+    test("source not found", async () => {
+      app.vault._getAbstractFileByPath = null;
+
+      const result = await request(server)
+        .post("/vault/move")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/json")
+        .send({ source: "old.md", destination: "new.md" })
+        .expect(404);
+
+      expect(result.body.errorCode).toEqual(40420);
+    });
+
+    test("destination already exists", async () => {
+      app.vault._getAbstractFileByPath = new TFile();
+      app.vault.adapter._exists = true;
+
+      const result = await request(server)
+        .post("/vault/move")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/json")
+        .send({ source: "old.md", destination: "new.md" })
+        .expect(409);
+
+      expect(result.body.errorCode).toEqual(40921);
+    });
+
+    test("success move file", async () => {
+      const sourceFile = new TFile();
+      sourceFile.path = "old.md";
+      app.vault._getAbstractFileByPath = sourceFile;
+      app.vault.adapter._exists = false;
+
+      const result = await request(server)
+        .post("/vault/move")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/json")
+        .send({ source: "old.md", destination: "new.md" })
+        .expect(200);
+
+      expect(result.body.source).toEqual("old.md");
+      expect(result.body.destination).toEqual("new.md");
+      expect(result.body.message).toEqual("Successfully moved");
+      expect(app.vault._rename).toEqual([sourceFile, "new.md"]);
+    });
+
+    test("success move folder", async () => {
+      const sourceFolder = new TFolder();
+      sourceFolder.path = "oldfolder";
+      app.vault._getAbstractFileByPath = sourceFolder;
+      app.vault.adapter._exists = false;
+
+      const result = await request(server)
+        .post("/vault/move")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/json")
+        .send({ source: "oldfolder", destination: "newfolder" })
+        .expect(200);
+
+      expect(result.body.source).toEqual("oldfolder");
+      expect(result.body.destination).toEqual("newfolder");
+      expect(app.vault._rename).toEqual([sourceFolder, "newfolder"]);
+    });
+
+    test("updateLinks uses fileManager.renameFile for files", async () => {
+      const sourceFile = new TFile();
+      sourceFile.path = "old.md";
+      app.vault._getAbstractFileByPath = sourceFile;
+      app.vault.adapter._exists = false;
+
+      await request(server)
+        .post("/vault/move")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/json")
+        .send({ source: "old.md", destination: "new.md", updateLinks: true })
+        .expect(200);
+
+      expect(app.fileManager._renameFile).toEqual([sourceFile, "new.md"]);
+      expect(app.vault._rename).toBeNull();
+    });
+
+    test("updateLinks false uses vault.rename", async () => {
+      const sourceFile = new TFile();
+      sourceFile.path = "old.md";
+      app.vault._getAbstractFileByPath = sourceFile;
+      app.vault.adapter._exists = false;
+
+      await request(server)
+        .post("/vault/move")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/json")
+        .send({ source: "old.md", destination: "new.md", updateLinks: false })
+        .expect(200);
+
+      expect(app.vault._rename).toEqual([sourceFile, "new.md"]);
+    });
+
+    test("cannot move folder into its own subdirectory", async () => {
+      const sourceFolder = new TFolder();
+      sourceFolder.path = "folder";
+      app.vault._getAbstractFileByPath = sourceFolder;
+      app.vault.adapter._exists = false;
+
+      const result = await request(server)
+        .post("/vault/move")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/json")
+        .send({ source: "folder", destination: "folder/subfolder" })
+        .expect(400);
+
+      expect(result.body.errorCode).toEqual(40022);
     });
   });
 

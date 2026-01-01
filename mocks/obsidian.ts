@@ -56,11 +56,12 @@ class DataAdapter {
 }
 
 export class Vault {
-  _getAbstractFileByPath: TFile | null = new TFile();
+  _getAbstractFileByPath: TAbstractFile | null = new TFile();
   _read = "";
   _cachedRead = "";
   _files: TFile[] = [new TFile()];
   _markdownFiles: TFile[] = [];
+  _rename: [TAbstractFile, string] | null = null;
 
   adapter = new DataAdapter();
 
@@ -82,8 +83,12 @@ export class Vault {
     return this._markdownFiles;
   }
 
-  getAbstractFileByPath(path: string): TFile {
+  getAbstractFileByPath(path: string): TAbstractFile | null {
     return this._getAbstractFileByPath;
+  }
+
+  async rename(file: TAbstractFile, newPath: string): Promise<void> {
+    this._rename = [file, newPath];
   }
 }
 
@@ -130,12 +135,21 @@ export class Workspace {
   }
 }
 
+export class FileManager {
+  _renameFile: [TAbstractFile, string] | null = null;
+
+  async renameFile(file: TAbstractFile, newPath: string): Promise<void> {
+    this._renameFile = [file, newPath];
+  }
+}
+
 export class App {
   _executeCommandById: [string];
 
   vault = new Vault();
   workspace = new Workspace();
   metadataCache = new MetadataCache();
+  fileManager = new FileManager();
   commands = {
     commands: {} as Record<string, Command>,
 
@@ -160,6 +174,14 @@ export class TFile {
   path = "somefile.md";
   stat: FileStats = new FileStats();
 }
+
+export class TFolder {
+  path = "somefolder";
+  name = "somefolder";
+  children: (TFile | TFolder)[] = [];
+}
+
+export type TAbstractFile = TFile | TFolder;
 
 export class PluginManifest {
   version = "";
