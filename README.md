@@ -16,3 +16,80 @@ This is particularly useful if you need to interact with Obsidian from a browser
 ## Credits
 
 This was inspired by [Vinzent03](https://github.com/Vinzent03)'s [advanced-uri plugin](https://github.com/Vinzent03/obsidian-advanced-uri) with hopes of expanding the automation options beyond the limitations of custom URL schemes.
+
+## Rendered Content Support
+
+This plugin can extract fully-rendered content from your notes, including:
+
+- **Dataview queries** - Tables, lists, and task queries are fully executed
+- **DataviewJS** - Custom JavaScript blocks are rendered
+- **Plugin-generated content** - Metadata Menu, Buttons, and other plugin outputs
+- **Dynamic dashboards** - Perfect for AI assistants to see computed views
+
+### Content Formats
+
+**Plain Text** (`application/vnd.olrapi.note+rendered-text`)
+- Human-readable text output
+- Fast and simple
+- Good for general text analysis
+
+**Structured JSON** (`application/vnd.olrapi.note+rendered-json`)
+- AI-optimized structured data
+- Tables as 2D arrays with headers
+- Document hierarchy preserved with type tags
+- Complete frontmatter included
+- Perfect for programmatic access
+
+### Example Usage
+
+```bash
+# Get rendered text
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+     -H "Accept: application/vnd.olrapi.note+rendered-text" \
+     "https://localhost:27124/vault/path/to/note.md"
+
+# Get structured JSON
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+     -H "Accept: application/vnd.olrapi.note+rendered-json" \
+     "https://localhost:27124/vault/path/to/note.md"
+```
+
+**JSON Output Structure:**
+```json
+{
+  "metadata": {
+    "sourcePath": "path/to/note.md",
+    "renderedAt": "2025-01-10T18:00:00.000Z",
+    "format": "json",
+    "version": "1.0"
+  },
+  "frontmatter": {
+    "tags": ["example"],
+    "category": "Documentation"
+  },
+  "content": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Section Title"
+    },
+    {
+      "type": "table",
+      "headers": ["Column 1", "Column 2"],
+      "rows": [
+        ["Value 1", "Value 2"],
+        ["Value 3", "Value 4"]
+      ]
+    }
+  ]
+}
+```
+
+### Caching
+
+Rendered content is cached for performance:
+- Cache directory: `.obsidian/render-cache/` (configurable)
+- Automatic invalidation on file changes
+- Manual cache clearing available in settings
+- Cache statistics displayed in plugin settings
+

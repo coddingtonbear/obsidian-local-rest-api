@@ -8,6 +8,14 @@ export const DEFAULT_SETTINGS: LocalRestApiSettings = {
   enableInsecureServer: false,
 };
 
+export const DEFAULT_RENDER_CACHE_SETTINGS = {
+  renderCacheDirectory: ".obsidian/render-cache",
+  renderCacheMaxSizeMB: 100,
+  renderCacheAutoCleanup: true,
+  renderCacheTimeoutMs: 30000,
+};
+
+
 export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.ApiKeyAuthorizationRequired]:
     "Authorization required.  Find your API Key in the 'Local REST API' section of your Obsidian settings.",
@@ -51,6 +59,9 @@ export enum ContentTypes {
   json = "application/json",
   markdown = "text/markdown",
   olrapiNoteJson = "application/vnd.olrapi.note+json",
+  olrapiNoteHtml = "application/vnd.olrapi.note+html",
+  olrapiRenderedText = "application/vnd.olrapi.note+rendered-text",
+  olrapiRenderedJson = "application/vnd.olrapi.note+rendered-json",
   jsonLogic = "application/vnd.olrapi.jsonlogic+json",
   dataviewDql = "application/vnd.olrapi.dataview.dql+txt",
 }
