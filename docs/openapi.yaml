@@ -1583,11 +1583,18 @@ paths:
                             properties:
                               end:
                                 type: "number"
+                                description: "End character position of the match within the file. Starts with 0."
                               start:
                                 type: "number"
+                                description: "Start character position of the match within the file. Starts with 0."
+                              source:
+                                type: "string"
+                                enum: ["filename", "content"]
+                                description: "Where the search term matched: 'filename' or 'content'"
                             required:
                               - "start"
                               - "end"
+                              - "source"
                             type: "object"
                         required:
                           - "match"

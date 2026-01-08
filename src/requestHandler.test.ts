@@ -10,6 +10,8 @@ import {
   Command,
   HeadingCache,
   PluginManifest,
+  _prepareSimpleSearchMock,
+  SearchResult,
 } from "../mocks/obsidian";
 
 describe("requestHandler", () => {
@@ -800,6 +802,378 @@ describe("requestHandler", () => {
       await request(server)
         .post(`/commands/${arbitraryCommand.id}`)
         .expect(401);
+    });
+  });
+
+  describe("searchSimplePost", () => {
+    beforeEach(() => {
+      // Setup mock for prepareSimpleSearch
+      _prepareSimpleSearchMock.behavior = (query: string) => {
+        const queryLower = query.toLowerCase();
+        const queryLength = query.length;
+        return (text: string) => {
+          const textLower = text.toLowerCase();
+          const matches: [number, number][] = [];
+          let index = 0;
+
+          // Find all matches (case-insensitive)
+          while ((index = textLower.indexOf(queryLower, index)) !== -1) {
+            matches.push([index, index + queryLength]);
+            index += 1;
+          }
+
+          if (matches.length === 0) {
+            return null;
+          }
+
+          // Calculate score based on number of matches
+          const score = matches.length;
+
+          return {
+            score,
+            matches,
+          } as SearchResult;
+        };
+      };
+    });
+
+    afterEach(() => {
+      // Clean up mock
+      _prepareSimpleSearchMock.behavior = null;
+    });
+
+    test("match at beginning of filename", async () => {
+      const testFile = new TFile();
+      testFile.basename = "Master Plan";
+      testFile.path = "Master Plan.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "Some content here";
+
+      const result = await request(server)
+        .post("/search/simple/?query=Master")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("Master Plan.md");
+      expect(result.body[0].matches).toHaveLength(1);
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(0);
+      expect(result.body[0].matches[0].match.end).toBe(6);
+      expect(result.body[0].matches[0].context).toBe("Master Plan");
+    });
+
+    test("match in middle of filename", async () => {
+      const testFile = new TFile();
+      testFile.basename = "1 - Master Plan";
+      testFile.path = "1 - Master Plan.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "Some content here";
+
+      const result = await request(server)
+        .post("/search/simple/?query=Master")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("1 - Master Plan.md");
+      expect(result.body[0].matches).toHaveLength(1);
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(4);
+      expect(result.body[0].matches[0].match.end).toBe(10);
+      expect(result.body[0].matches[0].context).toBe("1 - Master Plan");
+    });
+
+    test("match at end of filename", async () => {
+      const testFile = new TFile();
+      testFile.basename = "My Master Plan";
+      testFile.path = "My Master Plan.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "Some content here";
+
+      const result = await request(server)
+        .post("/search/simple/?query=Plan")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("My Master Plan.md");
+      expect(result.body[0].matches).toHaveLength(1);
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(10);
+      expect(result.body[0].matches[0].match.end).toBe(14);
+      expect(result.body[0].matches[0].context).toBe("My Master Plan");
+    });
+
+    test("match in content only", async () => {
+      const testFile = new TFile();
+      testFile.basename = "Random Note";
+      testFile.path = "Random Note.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "This is my master plan for the project.";
+
+      const result = await request(server)
+        .post("/search/simple/?query=master")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("Random Note.md");
+      expect(result.body[0].matches).toHaveLength(1);
+      expect(result.body[0].matches[0].match.source).toBe("content");
+      expect(result.body[0].matches[0].match.start).toBe(11);
+      expect(result.body[0].matches[0].match.end).toBe(17);
+    });
+
+    test("match in both filename and content", async () => {
+      const testFile = new TFile();
+      testFile.basename = "Master Plan";
+      testFile.path = "Master Plan.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "The master plan is to complete this project.";
+
+      const result = await request(server)
+        .post("/search/simple/?query=master")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("Master Plan.md");
+      expect(result.body[0].matches).toHaveLength(2);
+
+      // First match should be in filename (case-insensitive)
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(0);
+      expect(result.body[0].matches[0].match.end).toBe(6);
+      expect(result.body[0].matches[0].context).toBe("Master Plan");
+
+      // Second match should be in content
+      expect(result.body[0].matches[1].match.source).toBe("content");
+      expect(result.body[0].matches[1].match.start).toBe(4);
+      expect(result.body[0].matches[1].match.end).toBe(10);
+    });
+
+    test("multiple matches in filename", async () => {
+      const testFile = new TFile();
+      testFile.basename = "Test Test Test";
+      testFile.path = "Test Test Test.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "Content without the search term";
+
+      const result = await request(server)
+        .post("/search/simple/?query=Test")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("Test Test Test.md");
+      expect(result.body[0].matches).toHaveLength(3);
+
+      // All matches should be in filename
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(0);
+      expect(result.body[0].matches[0].match.end).toBe(4);
+
+      expect(result.body[0].matches[1].match.source).toBe("filename");
+      expect(result.body[0].matches[1].match.start).toBe(5);
+      expect(result.body[0].matches[1].match.end).toBe(9);
+
+      expect(result.body[0].matches[2].match.source).toBe("filename");
+      expect(result.body[0].matches[2].match.start).toBe(10);
+      expect(result.body[0].matches[2].match.end).toBe(14);
+    });
+
+    test("filename with special characters", async () => {
+      const testFile = new TFile();
+      testFile.basename = "Project (2024) - Master Plan";
+      testFile.path = "Project (2024) - Master Plan.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "Project details";
+
+      const result = await request(server)
+        .post("/search/simple/?query=2024")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("Project (2024) - Master Plan.md");
+      expect(result.body[0].matches).toHaveLength(1);
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(9);
+      expect(result.body[0].matches[0].match.end).toBe(13);
+      expect(result.body[0].matches[0].context).toBe("Project (2024) - Master Plan");
+    });
+
+    test("context length for content matches", async () => {
+      const testFile = new TFile();
+      testFile.basename = "Note";
+      testFile.path = "Note.md";
+
+      const longContent = "A".repeat(200) + "MATCH" + "B".repeat(200);
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = longContent;
+
+      const result = await request(server)
+        .post("/search/simple/?query=MATCH&contextLength=50")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].matches).toHaveLength(1);
+      expect(result.body[0].matches[0].match.source).toBe("content");
+
+      // Context should be approximately 50 chars before + match + 50 chars after
+      const context = result.body[0].matches[0].context;
+      expect(context.length).toBeLessThanOrEqual(105); // 50 + 5 + 50
+      expect(context).toContain("MATCH");
+    });
+
+    test("no matches returns empty array", async () => {
+      const testFile = new TFile();
+      testFile.basename = "Random Note";
+      testFile.path = "Random Note.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "Some content";
+
+      const result = await request(server)
+        .post("/search/simple/?query=NonExistentTerm")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(0);
+    });
+
+    test("case insensitive search", async () => {
+      const testFile = new TFile();
+      testFile.basename = "MASTER Plan";
+      testFile.path = "MASTER Plan.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "master plan details";
+
+      const result = await request(server)
+        .post("/search/simple/?query=master")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].matches).toHaveLength(2);
+
+      // Should match "MASTER" in filename (case-insensitive)
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(0);
+      expect(result.body[0].matches[0].match.end).toBe(6);
+
+      // Should match "master" in content
+      expect(result.body[0].matches[1].match.source).toBe("content");
+      expect(result.body[0].matches[1].match.start).toBe(0);
+      expect(result.body[0].matches[1].match.end).toBe(6);
+    });
+
+    test("boundary-spanning matches are filtered out", async () => {
+      // This test verifies that matches spanning from filename into content are skipped.
+      // When searching for a term that bridges the filename and content (e.g., "Master\n\nThe"),
+      // such matches would produce invalid results (negative start positions).
+      const testFile = new TFile();
+      testFile.basename = "Master";
+      testFile.path = "Master.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "The content starts here";
+
+      // Mock prepareSimpleSearch to return a boundary-spanning match
+      _prepareSimpleSearchMock.behavior = (query: string) => {
+        return (text: string) => {
+          // Simulate a match that spans from filename into content
+          // filename "Master" + "\n\n" = 8 chars (positionOffset)
+          // A boundary-spanning match would have start < 8 and end > 8
+          const matches: [number, number][] = [
+            [0, 11], // Spans from "Master" (0) into content "The" (ends at 11)
+          ];
+          return {
+            score: 1,
+            matches,
+          } as SearchResult;
+        };
+      };
+
+      const result = await request(server)
+        .post("/search/simple/?query=Master%0A%0AThe")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      // The file should still be in results (because there was a match)
+      expect(result.body).toHaveLength(1);
+      // But the boundary-spanning match should be filtered out
+      expect(result.body[0].matches).toHaveLength(0);
+    });
+
+    test("boundary-spanning matches don't affect valid matches", async () => {
+      // Verify that when there are both boundary-spanning and valid matches,
+      // only the valid ones are returned
+      const testFile = new TFile();
+      testFile.basename = "Master";
+      testFile.path = "Master.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "The Master plan content";
+
+      // Mock prepareSimpleSearch to return both valid and boundary-spanning matches
+      _prepareSimpleSearchMock.behavior = (query: string) => {
+        return (text: string) => {
+          // text = "Master\n\n" + "The Master plan content"
+          // positionOffset = 8
+          const matches: [number, number][] = [
+            [0, 11],  // Boundary-spanning: starts in filename, ends in content (should be filtered)
+            [0, 6],   // Valid: entirely in filename "Master" (should be kept)
+            [12, 18], // Valid: "Master" in content at position 4, adjusted = 12-8=4, 18-8=10 (should be kept)
+          ];
+          return {
+            score: 3,
+            matches,
+          } as SearchResult;
+        };
+      };
+
+      const result = await request(server)
+        .post("/search/simple/?query=Master")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      // Only 2 valid matches should be returned (boundary-spanning filtered out)
+      expect(result.body[0].matches).toHaveLength(2);
+
+      // First match: filename
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(0);
+      expect(result.body[0].matches[0].match.end).toBe(6);
+
+      // Second match: content (position adjusted by positionOffset)
+      expect(result.body[0].matches[1].match.source).toBe("content");
+      expect(result.body[0].matches[1].match.start).toBe(4);  // 12 - 8
+      expect(result.body[0].matches[1].match.end).toBe(10);   // 18 - 8
+    });
+
+    test("unauthorized", async () => {
+      await request(server)
+        .post("/search/simple/?query=test")
+        .expect(401);
+    });
+
+    test("missing query parameter", async () => {
+      await request(server)
+        .post("/search/simple/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(400);
     });
   });
 });

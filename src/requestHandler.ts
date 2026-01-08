@@ -262,10 +262,10 @@ export default class RequestHandler {
       certificateInfo:
         this.requestIsAuthenticated(req) && certificate
           ? {
-              validityDays: getCertificateValidityDays(certificate),
-              regenerateRecommended:
-                !getCertificateIsUptoStandards(certificate),
-            }
+            validityDays: getCertificateValidityDays(certificate),
+            regenerateRecommended:
+              !getCertificateIsUptoStandards(certificate),
+          }
           : undefined,
       apiExtensions: this.requestIsAuthenticated(req)
         ? this.apiExtensions.map(({ manifest }) => manifest)
@@ -997,8 +997,8 @@ export default class RequestHandler {
         errorCode: ErrorCode.InvalidSearch,
       });
     }
-    const contextLength: number =
-      parseInt(req.query.contextLength as string, 10) ?? 100;
+    const contextLengthRaw = parseInt(req.query.contextLength as string, 10);
+    const contextLength = Number.isNaN(contextLengthRaw) ? 100 : contextLengthRaw;
     let search: ReturnType<typeof prepareSimpleSearch>;
     try {
       search = prepareSimpleSearch(query);
@@ -1012,20 +1012,51 @@ export default class RequestHandler {
 
     for (const file of this.app.vault.getMarkdownFiles()) {
       const cachedContents = await this.app.vault.cachedRead(file);
-      const result = search(cachedContents);
+
+      // Add the filename to the search text to include it in the search.
+      const filenamePrefix = file.basename + "\n\n";
+      const result = search(filenamePrefix + cachedContents);
+
+      // We added the filename to the search text with 2 newline characters.
+      // That causes the start and end position numbers to be wrong with an offset
+      // of the char length of the filename newline characters.
+      // This is fixed by subtracting the positionOffset from the start and end position.
+      const positionOffset = filenamePrefix.length;
+
       if (result) {
         const contextMatches: SearchContext[] = [];
         for (const match of result.matches) {
-          contextMatches.push({
-            match: {
-              start: match[0],
-              end: match[1],
-            },
-            context: cachedContents.slice(
-              Math.max(match[0] - contextLength, 0),
-              match[1] + contextLength
-            ),
-          });
+          // Check if the entire match is within the filename (including the newlines).
+          // We need to ensure both start and end positions are within the filename prefix.
+          if (match[0] < positionOffset && match[1] <= positionOffset) {
+            // When start position is between 0 and positionOffset and end position is <= positionOffset,
+            // that means the search term matched entirely within the filename prefix.
+            // Clamp the end position to the basename length to ensure it doesn't exceed the context.
+            contextMatches.push({
+              match: {
+                start: match[0],
+                end: Math.min(match[1], file.basename.length),
+                source: "filename"
+              },
+              context: file.basename,
+            });
+          } else if (match[0] >= positionOffset) {
+            // Match is entirely in the content
+            contextMatches.push({
+              match: {
+                start: match[0] - positionOffset,
+                end: match[1] - positionOffset,
+                source: "content"
+              },
+              context: cachedContents.slice(
+                Math.max(match[0] - positionOffset - contextLength, 0),
+                match[1] - positionOffset + contextLength
+              ),
+            });
+          }
+          // Matches that span the boundary between filename and content (match[0] < positionOffset
+          // && match[1] > positionOffset) are intentionally skipped as they would produce invalid
+          // results (e.g., negative start positions or incorrect source attribution).
         }
 
         results.push({

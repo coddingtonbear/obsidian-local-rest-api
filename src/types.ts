@@ -131,6 +131,7 @@ export interface SearchContext {
   match: {
     start: number;
     end: number;
+    source: "filename" | "content";
   };
   context: string;
 }
