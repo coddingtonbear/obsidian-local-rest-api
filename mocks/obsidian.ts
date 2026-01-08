@@ -110,9 +110,14 @@ export class CachedMetadata {
 
 export class MetadataCache {
   _getFileCache = new CachedMetadata();
+  _getTags: Record<string, number> = {};
 
   getFileCache(file: TFile): CachedMetadata {
     return this._getFileCache;
+  }
+
+  getTags(): Record<string, number> {
+    return this._getTags;
   }
 }
 

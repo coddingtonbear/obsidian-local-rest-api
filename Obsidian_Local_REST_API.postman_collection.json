@@ -1,0 +1,455 @@
+{
+	"info": {
+		"_postman_id": "obsidian-local-rest-api-collection",
+		"name": "Obsidian Local REST API",
+		"description": "Collection for testing Obsidian Local REST API endpoints including the new /tags/ endpoint",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "obsidian-local-rest-api"
+	},
+	"item": [
+		{
+			"name": "Tags",
+			"item": [
+				{
+					"name": "Get All Tags",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/tags/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"tags",
+								""
+							]
+						},
+						"description": "Get all tags from the vault with their usage counts"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Commands",
+			"item": [
+				{
+					"name": "List Commands",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/commands/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"commands",
+								""
+							]
+						},
+						"description": "List all available Obsidian commands"
+					},
+					"response": []
+				},
+				{
+					"name": "Execute Command",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/commands/:commandId/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"commands",
+								":commandId",
+								""
+							],
+							"variable": [
+								{
+									"key": "commandId",
+									"value": "editor:toggle-bold"
+								}
+							]
+						},
+						"description": "Execute a specific Obsidian command"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Vault",
+			"item": [
+				{
+					"name": "List Vault Root",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/vault/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"vault",
+								""
+							]
+						},
+						"description": "List files in vault root directory"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Note Content",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/vault/:notePath",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"vault",
+								":notePath"
+							],
+							"variable": [
+								{
+									"key": "notePath",
+									"value": "MyNote.md"
+								}
+							]
+						},
+						"description": "Get content of a specific note"
+					},
+					"response": []
+				},
+				{
+					"name": "Create/Update Note",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{api_key}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "text/markdown",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "# My Note\n\nThis is the content of my note.\n\n#tag1 #tag2"
+						},
+						"url": {
+							"raw": "{{base_url}}/vault/:notePath",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"vault",
+								":notePath"
+							],
+							"variable": [
+								{
+									"key": "notePath",
+									"value": "MyNote.md"
+								}
+							]
+						},
+						"description": "Create or update a note"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Note",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/vault/:notePath",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"vault",
+								":notePath"
+							],
+							"variable": [
+								{
+									"key": "notePath",
+									"value": "MyNote.md"
+								}
+							]
+						},
+						"description": "Delete a note from the vault"
+					},
+					"response": []
+				},
+				{
+					"name": "Patch Note",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{api_key}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "text/markdown",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "New content to append"
+						},
+						"url": {
+							"raw": "{{base_url}}/vault/:notePath",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"vault",
+								":notePath"
+							],
+							"variable": [
+								{
+									"key": "notePath",
+									"value": "MyNote.md"
+								}
+							]
+						},
+						"description": "Patch a note (insert content at specific location)"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Search",
+			"item": [
+				{
+					"name": "Simple Search",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{api_key}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "text/plain",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "search query"
+						},
+						"url": {
+							"raw": "{{base_url}}/search/simple/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"search",
+								"simple",
+								""
+							]
+						},
+						"description": "Simple text search across vault"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Active File",
+			"item": [
+				{
+					"name": "Get Active File",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/active/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"active",
+								""
+							]
+						},
+						"description": "Get content of currently active file"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Periodic Notes",
+			"item": [
+				{
+					"name": "Get Daily Note",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/periodic/daily/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"periodic",
+								"daily",
+								""
+							]
+						},
+						"description": "Get today's daily note"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Weekly Note",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/periodic/weekly/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"periodic",
+								"weekly",
+								""
+							]
+						},
+						"description": "Get this week's weekly note"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Info",
+			"item": [
+				{
+					"name": "Root Endpoint",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								""
+							]
+						},
+						"description": "Get API info (no auth required)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Certificate",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/obsidian-local-rest-api.crt",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"obsidian-local-rest-api.crt"
+							]
+						},
+						"description": "Download the SSL certificate (no auth required)"
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "https://127.0.0.1:27124",
+			"type": "string"
+		},
+		{
+			"key": "api_key",
+			"value": "YOUR_API_KEY_HERE",
+			"type": "string"
+		}
+	]
+}
