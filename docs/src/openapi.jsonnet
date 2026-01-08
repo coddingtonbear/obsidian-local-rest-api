@@ -539,6 +539,7 @@ std.manifestYamlDoc(
                             },
                             {
                               type: 'array',
+                              items: {}
                             },
                             {
                               type: 'object',
