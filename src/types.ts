@@ -26,7 +26,7 @@ export enum ErrorCode {
   MissingDestinationHeader = 40001,
   InvalidDestinationPath = 40002,
   PathTraversalNotAllowed = 40003,
-  DestinationAlreadyExists = 40901,
+  DestinationAlreadyExists = 41201,
   FileOperationFailed = 50001,
   ErrorPreparingSimpleSearch = 50010,
 }

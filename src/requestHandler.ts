@@ -685,7 +685,8 @@ export default class RequestHandler {
     }
 
     // For WebDAV-style MOVE, the new path should be in the Destination header
-    const rawDestination = req.get("Destination");
+    const rawDestination = req.header("Destination");
+    const overwriteAllowed = req.header("Overwrite").toUpperCase() !== "F";
 
     if (!rawDestination) {
       this.returnCannedResponse(res, {
@@ -727,7 +728,7 @@ export default class RequestHandler {
 
     // Check if destination already exists
     const destExists = await this.app.vault.adapter.exists(newPath);
-    if (destExists) {
+    if (destExists && !overwriteAllowed) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.DestinationAlreadyExists,
       });
