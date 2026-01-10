@@ -51,8 +51,7 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "Destination path must be a file path, not a directory.",
   [ErrorCode.PathTraversalNotAllowed]:
     "Path traversal is not allowed. Paths must be relative and within the vault.",
-  [ErrorCode.DestinationAlreadyExists]:
-    "Destination file already exists.",
+  [ErrorCode.DestinationAlreadyExists]: "Destination file already exists.",
   [ErrorCode.FileOperationFailed]:
     "File operation failed. Check the error message for details.",
 };

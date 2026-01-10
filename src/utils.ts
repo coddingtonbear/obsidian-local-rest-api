@@ -4,7 +4,7 @@ import forge from "node-forge";
 
 export function findHeadingBoundary(
   fileCache: CachedMetadata,
-  headingPath: string[]
+  headingPath: string[],
 ): HeadingBoundary | null {
   const reversedHeadingPath = [...headingPath].reverse();
   const cursorHeadingPath: HeadingCache[] = [];
@@ -45,11 +45,11 @@ export function getSplicePosition(
   fileLines: string[],
   heading: HeadingBoundary,
   insert: boolean,
-  ignoreNewLines: boolean
+  ignoreNewLines: boolean,
 ): number {
   let splicePosition =
     insert === false
-      ? heading.end?.line ?? fileLines.length
+      ? (heading.end?.line ?? fileLines.length)
       : heading.start.line + 1;
 
   if (!ignoreNewLines || insert) {
@@ -63,7 +63,7 @@ export function getSplicePosition(
 }
 
 export function toArrayBuffer(
-  arr: Uint8Array | ArrayBuffer | DataView | object
+  arr: Uint8Array | ArrayBuffer | DataView | object,
 ): ArrayBufferLike {
   if (arr instanceof Uint8Array) {
     return arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength);
@@ -81,7 +81,7 @@ export function toArrayBuffer(
 }
 
 export function getCertificateValidityDays(
-  certificate: forge.pki.Certificate
+  certificate: forge.pki.Certificate,
 ): number {
   return (
     (certificate.validity.notAfter.getTime() - new Date().getTime()) /
@@ -90,7 +90,7 @@ export function getCertificateValidityDays(
 }
 
 export function getCertificateIsUptoStandards(
-  certificate: forge.pki.Certificate
+  certificate: forge.pki.Certificate,
 ): boolean {
   const extension: Record<string, unknown> =
     certificate.getExtension("subjectAltName");

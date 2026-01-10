@@ -30,14 +30,14 @@ export default class LocalRestApi extends Plugin {
   async onload() {
     this.refreshServerState = this.debounce(
       this._refreshServerState.bind(this),
-      1000
+      1000,
     );
 
     await this.loadSettings();
     this.requestHandler = new RequestHandler(
       this.app,
       this.manifest,
-      this.settings
+      this.settings,
     );
     this.requestHandler.setupRouter();
 
@@ -153,7 +153,7 @@ export default class LocalRestApi extends Plugin {
   getPublicApi(pluginManifest: PluginManifest): LocalRestApiPublicApi {
     if (!pluginManifest.id || !pluginManifest.name || !pluginManifest.version) {
       throw new Error(
-        "PluginManifest instance must include a defined id, name, and version to be accempted."
+        "PluginManifest instance must include a defined id, name, and version to be accempted.",
       );
     }
 
@@ -164,7 +164,7 @@ export default class LocalRestApi extends Plugin {
 
   debounce<F extends (...args: any[]) => any>(
     func: F,
-    delay: number
+    delay: number,
   ): (...args: Parameters<F>) => void {
     let debounceTimer: NodeJS.Timeout;
     return (...args: Parameters<F>): void => {
@@ -184,17 +184,17 @@ export default class LocalRestApi extends Plugin {
           key: this.settings.crypto.privateKey,
           cert: this.settings.crypto.cert,
         },
-        this.requestHandler.api
+        this.requestHandler.api,
       );
       this.secureServer.listen(
         this.settings.port,
-        this.settings.bindingHost ?? DefaultBindingHost
+        this.settings.bindingHost ?? DefaultBindingHost,
       );
 
       console.log(
         `[REST API] Listening on https://${
           this.settings.bindingHost ?? DefaultBindingHost
-        }:${this.settings.port}/`
+        }:${this.settings.port}/`,
       );
     }
 
@@ -206,13 +206,13 @@ export default class LocalRestApi extends Plugin {
       this.insecureServer = http.createServer(this.requestHandler.api);
       this.insecureServer.listen(
         this.settings.insecurePort,
-        this.settings.bindingHost ?? DefaultBindingHost
+        this.settings.bindingHost ?? DefaultBindingHost,
       );
 
       console.log(
         `[REST API] Listening on http://${
           this.settings.bindingHost ?? DefaultBindingHost
-        }:${this.settings.insecurePort}/`
+        }:${this.settings.insecurePort}/`,
       );
     }
   }
@@ -249,7 +249,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     containerEl.replaceChildren();
 
     const parsedCertificate = forge.pki.certificateFromPem(
-      this.plugin.settings.crypto.cert
+      this.plugin.settings.crypto.cert,
     );
     const remainingCertificateValidityDays =
       getCertificateValidityDays(parsedCertificate);
@@ -280,7 +280,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           }
         : {
             title: "Enabled",
-          }
+          },
     );
     const secureUrl = `https://127.0.0.1:${this.plugin.settings.port}/`;
     secureTr.innerHTML = `
@@ -324,7 +324,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           }
         : {
             title: "Enabled",
-          }
+          },
     );
     const insecureUrl = `http://127.0.0.1:${this.plugin.settings.insecurePort}/`;
     insecureTr.innerHTML = `
@@ -390,10 +390,10 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       soonExpiringCertDiv.classList.add("certificate-expiring-soon");
       soonExpiringCertDiv.innerHTML = `
         <b>Your certificate will expire in ${Math.floor(
-          remainingCertificateValidityDays
+          remainingCertificateValidityDays,
         )} day${
-        Math.floor(remainingCertificateValidityDays) === 1 ? "" : "s"
-      }s!</b>
+          Math.floor(remainingCertificateValidityDays) === 1 ? "" : "s"
+        }s!</b>
         You should re-generate your certificate below by pressing
         the "Re-generate Certificates" button below in
         order to continue to connect securely to this API.
@@ -402,7 +402,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     if (shouldRegenerateCertificate) {
       const shouldRegenerateCertificateDiv = apiKeyDiv.createEl("div");
       shouldRegenerateCertificateDiv.classList.add(
-        "certificate-regeneration-recommended"
+        "certificate-regeneration-recommended",
       );
       shouldRegenerateCertificateDiv.innerHTML = `
         <b>You should re-generate your certificate!</b>
@@ -419,7 +419,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Enable Non-encrypted (HTTP) Server")
       .setDesc(
-        "Enables a non-encrypted (HTTP) server on the port designated below.  By default this plugin requires a secure HTTPS connection, but in safe environments you may turn on the non-encrypted server to simplify interacting with the API. Interactions with the API will still require the API Key shown above.  Under no circumstances is it recommended that you expose this service to the internet, especially if you turn on this feature!"
+        "Enables a non-encrypted (HTTP) server on the port designated below.  By default this plugin requires a secure HTTPS connection, but in safe environments you may turn on the non-encrypted server to simplify interacting with the API. Interactions with the API will still require the API Key shown above.  Under no circumstances is it recommended that you expose this service to the internet, especially if you turn on this feature!",
       )
       .addToggle((cb) =>
         cb
@@ -433,7 +433,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
               this.display();
             }
           })
-          .setValue(this.plugin.settings.enableInsecureServer)
+          .setValue(this.plugin.settings.enableInsecureServer),
       );
 
     new Setting(containerEl)
@@ -441,7 +441,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       .setDesc(
         `Pressing this button will cause your certificate,
         private key, public key, and API key to be regenerated.
-        This settings panel will be closed when you press this.`
+        This settings panel will be closed when you press this.`,
       )
       .addButton((cb) => {
         cb.setWarning()
@@ -460,7 +460,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       .setDesc(
         `Pressing this button will cause your certificate,
         private key,  and public key to be re-generated, but your API key will remain unchanged. 
-        This settings panel will be closed when you press this.`
+        This settings panel will be closed when you press this.`,
       )
       .addButton((cb) => {
         cb.setWarning()
@@ -478,7 +478,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       .setDesc(
         `Pressing this button will reset this plugin's
         settings to defaults.
-        This settings panel will be closed when you press this.`
+        This settings panel will be closed when you press this.`,
       )
       .addButton((cb) => {
         cb.setWarning()
@@ -494,7 +494,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Show advanced settings")
       .setDesc(
-        `Advanced settings are dangerous and may make your environment less secure.`
+        `Advanced settings are dangerous and may make your environment less secure.`,
       )
       .addToggle((cb) => {
         cb.onChange((value) => {
@@ -541,7 +541,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           This controls whether the HTTPs server is enabled.  You almost certainly want to leave this switch in its default state ('on'),
           but may find it useful to turn this switch off for
           troubleshooting.
-        `
+        `,
         )
         .addToggle((cb) =>
           cb
@@ -554,13 +554,13 @@ class LocalRestApiSettingTab extends PluginSettingTab {
                 this.display();
               }
             })
-            .setValue(this.plugin.settings.enableSecureServer ?? true)
+            .setValue(this.plugin.settings.enableSecureServer ?? true),
         );
 
       new Setting(containerEl)
         .setName("Encrypted (HTTPS) Server Port")
         .setDesc(
-          "This configures the port on which your REST API will listen for HTTPS connections.  It is recommended that you leave this port with its default setting as tools integrating with this API may expect the default port to be in use.  Under no circumstances is it recommended that you expose this service directly to the internet."
+          "This configures the port on which your REST API will listen for HTTPS connections.  It is recommended that you leave this port with its default setting as tools integrating with this API may expect the default port to be in use.  Under no circumstances is it recommended that you expose this service directly to the internet.",
         )
         .addText((cb) =>
           cb
@@ -569,7 +569,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
               this.plugin.saveSettings();
               this.plugin.refreshServerState();
             })
-            .setValue(this.plugin.settings.port.toString())
+            .setValue(this.plugin.settings.port.toString()),
         );
 
       new Setting(containerEl)
@@ -581,7 +581,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
               this.plugin.saveSettings();
               this.plugin.refreshServerState();
             })
-            .setValue(this.plugin.settings.insecurePort.toString())
+            .setValue(this.plugin.settings.insecurePort.toString()),
         );
 
       new Setting(containerEl).setName("API Key").addText((cb) => {
@@ -603,7 +603,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           situations in which you are accessing Obsidian
           from a hostname other than the host on which
           it is running.
-      `
+      `,
         )
         .addTextArea((cb) =>
           cb
@@ -611,7 +611,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
               this.plugin.settings.subjectAltNames = value;
               this.plugin.saveSettings();
             })
-            .setValue(this.plugin.settings.subjectAltNames)
+            .setValue(this.plugin.settings.subjectAltNames),
         );
       new Setting(containerEl).setName("Certificate").addTextArea((cb) =>
         cb
@@ -620,7 +620,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             this.plugin.saveSettings();
             this.plugin.refreshServerState();
           })
-          .setValue(this.plugin.settings.crypto.cert)
+          .setValue(this.plugin.settings.crypto.cert),
       );
       new Setting(containerEl).setName("Public Key").addTextArea((cb) =>
         cb
@@ -629,7 +629,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             this.plugin.saveSettings();
             this.plugin.refreshServerState();
           })
-          .setValue(this.plugin.settings.crypto.publicKey)
+          .setValue(this.plugin.settings.crypto.publicKey),
       );
       new Setting(containerEl).setName("Private Key").addTextArea((cb) =>
         cb
@@ -638,7 +638,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             this.plugin.saveSettings();
             this.plugin.refreshServerState();
           })
-          .setValue(this.plugin.settings.crypto.privateKey)
+          .setValue(this.plugin.settings.crypto.privateKey),
       );
       new Setting(containerEl).setName("Authorization Header").addText((cb) => {
         cb.onChange((value) => {
@@ -651,7 +651,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           this.plugin.refreshServerState();
         }).setValue(
           this.plugin.settings.authorizationHeaderName ??
-            DefaultBearerTokenHeaderName
+            DefaultBearerTokenHeaderName,
         );
       });
       new Setting(containerEl).setName("Binding Host").addText((cb) => {
@@ -671,7 +671,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
 
 export const getAPI = (
   app: App,
-  manifest: PluginManifest
+  manifest: PluginManifest,
 ): LocalRestApiPublicApi | undefined => {
   const plugin = app.plugins.plugins["obsidian-local-rest-api"];
   if (plugin) {

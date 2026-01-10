@@ -15,7 +15,7 @@ export default class LocalRestApiPublicApi {
   public addRoute(path: string): express.IRoute {
     if (this.unregistered) {
       throw new Error(
-        "Routes cannot be added after API extension has been unregistered."
+        "Routes cannot be added after API extension has been unregistered.",
       );
     }
     return this.router.route(path);

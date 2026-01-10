@@ -1,0 +1,23 @@
+name: Prettier
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  prettier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # assumes Prettier is installed in devDependencies
+      - run: npx prettier . --check
+

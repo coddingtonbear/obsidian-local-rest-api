@@ -167,10 +167,10 @@ describe("requestHandler", () => {
         .expect(200);
 
       expect(result.header["content-disposition"]).toEqual(
-        `attachment; filename="${arbitraryFilename}"`
+        `attachment; filename="${arbitraryFilename}"`,
       );
       expect(result.header["content-type"]).toEqual(
-        "text/markdown; charset=utf-8"
+        "text/markdown; charset=utf-8",
       );
       expect(result.text).toEqual(arbitraryFileContent);
     });
@@ -237,7 +237,7 @@ describe("requestHandler", () => {
       expect(app.vault.adapter._writeBinary[0]).toEqual(arbitraryFilePath);
       const data = app.vault.adapter._writeBinary[1];
       expect(Buffer.isBuffer(data) || data instanceof ArrayBuffer).toEqual(
-        true
+        true,
       );
       // We won't be able to convert the incoming data
       // to bytes with this mechanism in a _normal_
@@ -612,7 +612,7 @@ describe("requestHandler", () => {
         expect(app.vault.adapter.write).toBeTruthy();
         expect(result.text).toBeTruthy();
         expect(result.text).toEqual(
-          "something\n\n# Heading1\nbytes\ncontent here\n# Heading2\nsomething"
+          "something\n\n# Heading1\nbytes\ncontent here\n# Heading2\nsomething",
         );
       });
 
@@ -653,7 +653,7 @@ describe("requestHandler", () => {
         expect(app.vault.adapter.write).toBeTruthy();
         expect(result.text).toBeTruthy();
         expect(result.text).toEqual(
-          "something\n\n# Heading1\ncontent here\nbytes\n# Heading2\nsomething"
+          "something\n\n# Heading1\ncontent here\nbytes\n# Heading2\nsomething",
         );
       });
 
@@ -694,7 +694,7 @@ describe("requestHandler", () => {
         expect(app.vault.adapter.write).toBeTruthy();
         expect(result.text).toBeTruthy();
         expect(result.text).toEqual(
-          "something\n\n# Heading1\ncontent here\n\n\nbytes\n# Heading2\nsomething"
+          "something\n\n# Heading1\ncontent here\n\n\nbytes\n# Heading2\nsomething",
         );
       });
 
@@ -736,7 +736,7 @@ describe("requestHandler", () => {
         expect(app.vault.adapter.write).toBeTruthy();
         expect(result.text).toBeTruthy();
         expect(result.text).toEqual(
-          "something\n\n# Heading1\ncontent here\nbytes\n\n\n# Heading2\nsomething"
+          "something\n\n# Heading1\ncontent here\nbytes\n\n\n# Heading2\nsomething",
         );
       });
     });
@@ -753,7 +753,7 @@ describe("requestHandler", () => {
 
         // Mock fileManager and createFolder
         (app as any).fileManager = {
-          renameFile: jest.fn().mockResolvedValue(undefined)
+          renameFile: jest.fn().mockResolvedValue(undefined),
         };
         app.vault.createFolder = jest.fn().mockResolvedValue(undefined);
 
@@ -766,8 +766,13 @@ describe("requestHandler", () => {
         expect(response.body.message).toEqual("File successfully moved");
         expect(response.body.oldPath).toEqual(oldPath);
         expect(response.body.newPath).toEqual(newPath);
-        expect(app.vault.createFolder).toHaveBeenCalledWith("another-folder/subfolder");
-        expect((app as any).fileManager.renameFile).toHaveBeenCalledWith(mockFile, newPath);
+        expect(app.vault.createFolder).toHaveBeenCalledWith(
+          "another-folder/subfolder",
+        );
+        expect((app as any).fileManager.renameFile).toHaveBeenCalledWith(
+          mockFile,
+          newPath,
+        );
       });
 
       test("move fails with non-existent file", async () => {
@@ -796,7 +801,9 @@ describe("requestHandler", () => {
           .set("Destination", newPath)
           .expect(409);
 
-        expect(response.body.message).toContain("Destination file already exists");
+        expect(response.body.message).toContain(
+          "Destination file already exists",
+        );
       });
 
       test("move fails with missing Destination header", async () => {
@@ -811,7 +818,9 @@ describe("requestHandler", () => {
           .set("Authorization", `Bearer ${API_KEY}`)
           .expect(400);
 
-        expect(response.body.message).toContain("Destination header is required");
+        expect(response.body.message).toContain(
+          "Destination header is required",
+        );
       });
 
       test("move fails when destination path is a directory", async () => {
@@ -827,7 +836,9 @@ describe("requestHandler", () => {
           .set("Destination", "new-folder/")
           .expect(400);
 
-        expect(response.body.message).toContain("Destination path must be a file path");
+        expect(response.body.message).toContain(
+          "Destination path must be a file path",
+        );
       });
 
       test("move to root directory", async () => {
@@ -841,7 +852,7 @@ describe("requestHandler", () => {
 
         // Mock fileManager
         (app as any).fileManager = {
-          renameFile: jest.fn().mockResolvedValue(undefined)
+          renameFile: jest.fn().mockResolvedValue(undefined),
         };
         app.vault.createFolder = jest.fn();
 
@@ -853,7 +864,10 @@ describe("requestHandler", () => {
 
         expect(response.body.message).toEqual("File successfully moved");
         expect(app.vault.createFolder).not.toHaveBeenCalled(); // No need to create parent for root
-        expect((app as any).fileManager.renameFile).toHaveBeenCalledWith(mockFile, newPath);
+        expect((app as any).fileManager.renameFile).toHaveBeenCalledWith(
+          mockFile,
+          newPath,
+        );
       });
 
       test("move fails with path traversal attempt", async () => {
@@ -871,7 +885,9 @@ describe("requestHandler", () => {
           .expect(400);
 
         expect(response.body.errorCode).toEqual(40003);
-        expect(response.body.message).toContain("Path traversal is not allowed");
+        expect(response.body.message).toContain(
+          "Path traversal is not allowed",
+        );
       });
 
       test("move fails with absolute path", async () => {
@@ -889,7 +905,9 @@ describe("requestHandler", () => {
           .expect(400);
 
         expect(response.body.errorCode).toEqual(40003);
-        expect(response.body.message).toContain("Path traversal is not allowed");
+        expect(response.body.message).toContain(
+          "Path traversal is not allowed",
+        );
       });
     });
   });

@@ -74,7 +74,7 @@ export default class RequestHandler {
   constructor(
     app: App,
     manifest: PluginManifest,
-    settings: LocalRestApiSettings
+    settings: LocalRestApiSettings,
   ) {
     this.app = app;
     this.manifest = manifest;
@@ -93,7 +93,7 @@ export default class RequestHandler {
           return glob.test(field);
         }
         return false;
-      }
+      },
     );
     jsonLogic.add_operation(
       "regexp",
@@ -103,7 +103,7 @@ export default class RequestHandler {
           return rex.test(field);
         }
         return false;
-      }
+      },
     );
   }
 
@@ -122,7 +122,7 @@ export default class RequestHandler {
       api = new LocalRestApiPublicApi(router, () => {
         const idx = this.apiExtensions.findIndex(
           ({ manifest: storedManifest }) =>
-            JSON.stringify(manifest) === JSON.stringify(storedManifest)
+            JSON.stringify(manifest) === JSON.stringify(storedManifest),
         );
         if (idx !== -1) {
           this.apiExtensions.splice(idx, 1);
@@ -140,7 +140,7 @@ export default class RequestHandler {
 
   requestIsAuthenticated(req: express.Request): boolean {
     const authorizationHeader = req.get(
-      this.settings.authorizationHeaderName ?? "Authorization"
+      this.settings.authorizationHeaderName ?? "Authorization",
     );
     if (authorizationHeader === `Bearer ${this.settings.apiKey}`) {
       return true;
@@ -152,7 +152,7 @@ export default class RequestHandler {
   async authenticationMiddleware(
     req: express.Request,
     res: express.Response,
-    next: express.NextFunction
+    next: express.NextFunction,
   ): Promise<void> {
     const authenticationExemptRoutes: string[] = [
       "/",
@@ -232,7 +232,7 @@ export default class RequestHandler {
 
   returnCannedResponse(
     res: express.Response,
-    { statusCode, message, errorCode }: ErrorResponseDescriptor
+    { statusCode, message, errorCode }: ErrorResponseDescriptor,
   ): void {
     const response: CannedResponse = {
       message: this.getResponseMessage({ statusCode, message, errorCode }),
@@ -262,10 +262,10 @@ export default class RequestHandler {
       certificateInfo:
         this.requestIsAuthenticated(req) && certificate
           ? {
-            validityDays: getCertificateValidityDays(certificate),
-            regenerateRecommended:
-              !getCertificateIsUptoStandards(certificate),
-          }
+              validityDays: getCertificateValidityDays(certificate),
+              regenerateRecommended:
+                !getCertificateIsUptoStandards(certificate),
+            }
           : undefined,
       apiExtensions: this.requestIsAuthenticated(req)
         ? this.apiExtensions.map(({ manifest }) => manifest)
@@ -276,7 +276,7 @@ export default class RequestHandler {
   async _vaultGet(
     path: string,
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     if (!path || path.endsWith("/")) {
       const files = [
@@ -291,7 +291,7 @@ export default class RequestHandler {
                 return subPath.slice(0, subPath.indexOf("/") + 1);
               }
               return subPath;
-            })
+            }),
         ),
       ];
       files.sort();
@@ -313,7 +313,7 @@ export default class RequestHandler {
 
         res.set({
           "Content-Disposition": `attachment; filename="${encodeURI(
-            path
+            path,
           ).replace(",", "%2C")}"`,
           "Content-Type":
             `${mimeType}` +
@@ -324,7 +324,7 @@ export default class RequestHandler {
           const file = this.app.vault.getAbstractFileByPath(path) as TFile;
           res.setHeader("Content-Type", ContentTypes.olrapiNoteJson);
           res.send(
-            JSON.stringify(await this.getFileMetadataObject(file), null, 2)
+            JSON.stringify(await this.getFileMetadataObject(file), null, 2),
           );
           return;
         }
@@ -341,7 +341,7 @@ export default class RequestHandler {
 
   async vaultGet(req: express.Request, res: express.Response): Promise<void> {
     const path = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1)
+      req.path.slice(req.path.indexOf("/", 1) + 1),
     );
 
     return this._vaultGet(path, req, res);
@@ -350,7 +350,7 @@ export default class RequestHandler {
   async _vaultPut(
     filepath: string,
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     if (!filepath || filepath.endsWith("/")) {
       this.returnCannedResponse(res, {
@@ -370,7 +370,7 @@ export default class RequestHandler {
     } else {
       await this.app.vault.adapter.writeBinary(
         filepath,
-        toArrayBuffer(req.body)
+        toArrayBuffer(req.body),
       );
     }
 
@@ -380,7 +380,7 @@ export default class RequestHandler {
 
   async vaultPut(req: express.Request, res: express.Response): Promise<void> {
     const path = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1)
+      req.path.slice(req.path.indexOf("/", 1) + 1),
     );
 
     return this._vaultPut(path, req, res);
@@ -389,7 +389,7 @@ export default class RequestHandler {
   async _vaultPatchV2(
     path: string,
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const headingBoundary = req.get("Heading-Boundary") || "::";
     const heading = (req.get("Heading") || "")
@@ -454,7 +454,7 @@ export default class RequestHandler {
       fileLines,
       position,
       insert,
-      aboveNewLine
+      aboveNewLine,
     );
 
     fileLines.splice(splicePosition, 0, req.body);
@@ -464,13 +464,13 @@ export default class RequestHandler {
     await this.app.vault.adapter.write(path, content);
 
     console.warn(
-      `2.x PATCH implementation is deprecated and will be removed in version 4.0`
+      `2.x PATCH implementation is deprecated and will be removed in version 4.0`,
     );
     res
       .header("Deprecation", 'true; sunset-version="4.0"')
       .header(
         "Link",
-        '<https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0>; rel="alternate"'
+        '<https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0>; rel="alternate"',
       )
       .status(200)
       .send(content);
@@ -479,7 +479,7 @@ export default class RequestHandler {
   async _vaultPatchV3(
     path: string,
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const operation = req.get("Operation");
     const targetType = req.get("Target-Type");
@@ -565,7 +565,7 @@ export default class RequestHandler {
   async _vaultPatch(
     path: string,
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     if (!path || path.endsWith("/")) {
       this.returnCannedResponse(res, {
@@ -582,7 +582,7 @@ export default class RequestHandler {
 
   async vaultPatch(req: express.Request, res: express.Response): Promise<void> {
     const path = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1)
+      req.path.slice(req.path.indexOf("/", 1) + 1),
     );
 
     return this._vaultPatch(path, req, res);
@@ -591,7 +591,7 @@ export default class RequestHandler {
   async _vaultPost(
     filepath: string,
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     if (!filepath || filepath.endsWith("/")) {
       this.returnCannedResponse(res, {
@@ -632,7 +632,7 @@ export default class RequestHandler {
 
   async vaultPost(req: express.Request, res: express.Response): Promise<void> {
     const path = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1)
+      req.path.slice(req.path.indexOf("/", 1) + 1),
     );
 
     return this._vaultPost(path, req, res);
@@ -641,7 +641,7 @@ export default class RequestHandler {
   async _vaultDelete(
     path: string,
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     if (!path || path.endsWith("/")) {
       this.returnCannedResponse(res, {
@@ -663,10 +663,10 @@ export default class RequestHandler {
 
   async vaultDelete(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const path = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1)
+      req.path.slice(req.path.indexOf("/", 1) + 1),
     );
 
     return this._vaultDelete(path, req, res);
@@ -675,9 +675,8 @@ export default class RequestHandler {
   async _vaultMove(
     path: string,
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
-
     if (!path || path.endsWith("/")) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
@@ -686,7 +685,7 @@ export default class RequestHandler {
     }
 
     // For WebDAV-style MOVE, the new path should be in the Destination header
-    const rawDestination = req.get('Destination');
+    const rawDestination = req.get("Destination");
 
     if (!rawDestination) {
       this.returnCannedResponse(res, {
@@ -698,7 +697,7 @@ export default class RequestHandler {
     const rawNewPath = decodeURIComponent(rawDestination.trim());
 
     // Check for path traversal attempts
-    if (rawNewPath.includes('..') || rawNewPath.startsWith('/')) {
+    if (rawNewPath.includes("..") || rawNewPath.startsWith("/")) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.PathTraversalNotAllowed,
       });
@@ -714,7 +713,10 @@ export default class RequestHandler {
     }
 
     // Normalize the new path
-    const newPath = rawNewPath.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
+    const newPath = rawNewPath
+      .replace(/\\/g, "/")
+      .replace(/\/+/g, "/")
+      .replace(/^\/|\/$/g, "");
 
     // Check if source file exists
     const sourceFile = this.app.vault.getAbstractFileByPath(path);
@@ -734,8 +736,8 @@ export default class RequestHandler {
 
     try {
       // Create parent directories if needed
-      const parentDir = newPath.substring(0, newPath.lastIndexOf('/'));
-      if (parentDir && !await this.app.vault.adapter.exists(parentDir)) {
+      const parentDir = newPath.substring(0, newPath.lastIndexOf("/"));
+      if (parentDir && !(await this.app.vault.adapter.exists(parentDir))) {
         await this.app.vault.createFolder(parentDir);
       }
 
@@ -746,19 +748,19 @@ export default class RequestHandler {
       res.status(201).json({
         message: "File successfully moved",
         oldPath: path,
-        newPath: newPath
+        newPath: newPath,
       });
     } catch (error) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.FileOperationFailed,
-        message: `Failed to move file: ${error.message}`
+        message: `Failed to move file: ${error.message}`,
       });
     }
   }
 
   async vaultMove(req: express.Request, res: express.Response): Promise<void> {
     const path = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1)
+      req.path.slice(req.path.indexOf("/", 1) + 1),
     );
 
     return this._vaultMove(path, req, res);
@@ -805,7 +807,7 @@ export default class RequestHandler {
   }
 
   periodicGetInterface(
-    period: string
+    period: string,
   ): [PeriodicNoteInterface | null, ErrorCode | null] {
     const periodic = this.getPeriodicNoteInterface();
     if (!periodic[period]) {
@@ -820,7 +822,7 @@ export default class RequestHandler {
 
   periodicGetNote(
     periodName: string,
-    timestamp: number
+    timestamp: number,
   ): [TFile | null, ErrorCode | null] {
     const [period, err] = this.periodicGetInterface(periodName);
     if (err) {
@@ -840,7 +842,7 @@ export default class RequestHandler {
 
   async periodicGetOrCreateNote(
     periodName: string,
-    timestamp: number
+    timestamp: number,
   ): Promise<[TFile | null, ErrorCode | null]> {
     const [gottenFile, err] = this.periodicGetNote(periodName, timestamp);
     let file = gottenFile;
@@ -873,7 +875,11 @@ export default class RequestHandler {
     file: TFile,
     req: express.Request,
     res: express.Response,
-    handler: (path: string, req: express.Request, res: express.Response) => void
+    handler: (
+      path: string,
+      req: express.Request,
+      res: express.Response,
+    ) => void,
   ): void {
     const path = file.path;
     res.set("Content-Location", encodeURI(path));
@@ -894,7 +900,7 @@ export default class RequestHandler {
 
   async periodicGet(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const date = this.getPeriodicDateFromParams(req.params);
     const [file, err] = this.periodicGetNote(req.params.period, date);
@@ -908,12 +914,12 @@ export default class RequestHandler {
 
   async periodicPut(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const date = this.getPeriodicDateFromParams(req.params);
     const [file, err] = await this.periodicGetOrCreateNote(
       req.params.period,
-      date
+      date,
     );
     if (err) {
       this.returnCannedResponse(res, { errorCode: err });
@@ -925,12 +931,12 @@ export default class RequestHandler {
 
   async periodicPost(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const date = this.getPeriodicDateFromParams(req.params);
     const [file, err] = await this.periodicGetOrCreateNote(
       req.params.period,
-      date
+      date,
     );
     if (err) {
       this.returnCannedResponse(res, { errorCode: err });
@@ -942,12 +948,12 @@ export default class RequestHandler {
 
   async periodicPatch(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const date = this.getPeriodicDateFromParams(req.params);
     const [file, err] = await this.periodicGetOrCreateNote(
       req.params.period,
-      date
+      date,
     );
     if (err) {
       this.returnCannedResponse(res, { errorCode: err });
@@ -958,13 +964,13 @@ export default class RequestHandler {
       file,
       req,
       res,
-      this._vaultPatch.bind(this)
+      this._vaultPatch.bind(this),
     );
   }
 
   async periodicDelete(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const date = this.getPeriodicDateFromParams(req.params);
     const [file, err] = this.periodicGetNote(req.params.period, date);
@@ -977,13 +983,13 @@ export default class RequestHandler {
       file,
       req,
       res,
-      this._vaultDelete.bind(this)
+      this._vaultDelete.bind(this),
     );
   }
 
   async activeFileGet(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const file = this.app.workspace.getActiveFile();
 
@@ -992,7 +998,7 @@ export default class RequestHandler {
 
   async activeFilePut(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const file = this.app.workspace.getActiveFile();
 
@@ -1001,7 +1007,7 @@ export default class RequestHandler {
 
   async activeFilePost(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const file = this.app.workspace.getActiveFile();
 
@@ -1010,7 +1016,7 @@ export default class RequestHandler {
 
   async activeFilePatch(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const file = this.app.workspace.getActiveFile();
 
@@ -1018,13 +1024,13 @@ export default class RequestHandler {
       file,
       req,
       res,
-      this._vaultPatch.bind(this)
+      this._vaultPatch.bind(this),
     );
   }
 
   async activeFileDelete(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const file = this.app.workspace.getActiveFile();
 
@@ -1032,7 +1038,7 @@ export default class RequestHandler {
       file,
       req,
       res,
-      this._vaultDelete.bind(this)
+      this._vaultDelete.bind(this),
     );
   }
 
@@ -1054,7 +1060,7 @@ export default class RequestHandler {
 
   async commandPost(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const cmd = this.app.commands.commands[req.params.commandId];
 
@@ -1076,7 +1082,7 @@ export default class RequestHandler {
 
   async searchSimplePost(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const results: SearchResponseItem[] = [];
 
@@ -1113,7 +1119,7 @@ export default class RequestHandler {
             },
             context: cachedContents.slice(
               Math.max(match[0] - contextLength, 0),
-              match[1] + contextLength
+              match[1] + contextLength,
             ),
           });
         }
@@ -1143,7 +1149,7 @@ export default class RequestHandler {
 
   async searchQueryPost(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const dataviewApi = getDataviewAPI();
 
@@ -1230,7 +1236,7 @@ export default class RequestHandler {
 
   async openPost(req: express.Request, res: express.Response): Promise<void> {
     const path = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1)
+      req.path.slice(req.path.indexOf("/", 1) + 1),
     );
 
     const query = queryString.parseUrl(req.originalUrl, {
@@ -1245,18 +1251,18 @@ export default class RequestHandler {
 
   async certificateGet(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     res.set(
       "Content-type",
-      `application/octet-stream; filename="${CERT_NAME}"`
+      `application/octet-stream; filename="${CERT_NAME}"`,
     );
     res.status(200).send(this.settings.crypto.cert);
   }
 
   async openapiYamlGet(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     res.setHeader("Content-Type", "application/yaml; charset=utf-8");
     res.status(200).send(openapiYaml);
@@ -1265,7 +1271,7 @@ export default class RequestHandler {
   async notFoundHandler(
     req: express.Request,
     res: express.Response,
-    next: express.NextFunction
+    next: express.NextFunction,
   ): Promise<void> {
     this.returnCannedResponse(res, {
       statusCode: 404,
@@ -1277,7 +1283,7 @@ export default class RequestHandler {
     err: Error,
     req: express.Request,
     res: express.Response,
-    next: express.NextFunction
+    next: express.NextFunction,
   ): Promise<void> {
     if (err.stack) {
       console.error(err.stack);
@@ -1314,31 +1320,31 @@ export default class RequestHandler {
       bodyParser.text({
         type: ContentTypes.dataviewDql,
         limit: MaximumRequestSize,
-      })
+      }),
     );
     this.api.use(
       bodyParser.json({
         type: ContentTypes.json,
         strict: false,
         limit: MaximumRequestSize,
-      })
+      }),
     );
     this.api.use(
       bodyParser.json({
         type: ContentTypes.olrapiNoteJson,
         strict: false,
         limit: MaximumRequestSize,
-      })
+      }),
     );
     this.api.use(
       bodyParser.json({
         type: ContentTypes.jsonLogic,
         strict: false,
         limit: MaximumRequestSize,
-      })
+      }),
     );
     this.api.use(
-      bodyParser.text({ type: "text/*", limit: MaximumRequestSize })
+      bodyParser.text({ type: "text/*", limit: MaximumRequestSize }),
     );
     this.api.use(bodyParser.raw({ type: "*/*", limit: MaximumRequestSize }));
 
