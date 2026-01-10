@@ -1356,15 +1356,13 @@ export default class RequestHandler {
       .put(this.vaultPut.bind(this))
       .patch(this.vaultPatch.bind(this))
       .post(this.vaultPost.bind(this))
-      .delete(this.vaultDelete.bind(this));
-
-    // WebDAV-style MOVE method
-    this.api.route("/vault/*").all((req, res, next) => {
-      if (req.method === "MOVE") {
-        return this.vaultMove(req, res);
-      }
-      next();
-    });
+      .delete(this.vaultDelete.bind(this))
+      .all((req, res, next) => {
+        if (req.method === "MOVE") {
+          return this.vaultMove(req, res);
+        }
+        next();
+      });
 
     this.api
       .route("/periodic/:period/")
