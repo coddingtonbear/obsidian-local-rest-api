@@ -274,5 +274,11 @@
     interpreting yoru `prepend` or `append` requests if you specify
     your data as JSON (particularly when appending, for example,
     list items).
+
+    ## Identifying Patch Targets in a File
+
+    You can issue a GET request to `/files/{path}` with an `Accept` header
+    of `application/vnd.olrapi.document-map+json` to get a JSON object
+    outlining what headings, block references, and frontmatter fields exist.
   |||,
 }

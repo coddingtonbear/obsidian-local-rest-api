@@ -166,7 +166,7 @@ std.manifestYamlDoc(
             'Vault Files',
           ],
           summary: 'Return the content of a single file in your vault.\n',
-          description: 'Returns the content of the file at the specified path in your vault should the file exist.\n\nIf you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.  See "responses" below for details.\n',
+          description: 'Returns the content of the file at the specified path in your vault should the file exist.\n\nIf you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.\n\nIf you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist.  See "responses" below for details.\n',
           parameters+: [ParamPath],
         },
         put: Put {
@@ -539,7 +539,7 @@ std.manifestYamlDoc(
                             },
                             {
                               type: 'array',
-                              items: {}
+                              items: {},
                             },
                             {
                               type: 'object',

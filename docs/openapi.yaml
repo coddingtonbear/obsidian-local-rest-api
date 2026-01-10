@@ -130,6 +130,32 @@ paths:
       responses:
         "200":
           content:
+            "application/vnd.olrapi.document-map+json":
+              schema:
+                properties:
+                  blocks:
+                    example:
+                      - "^blockref1"
+                      - "^anotherBlockRef"
+                    items:
+                      type: "string"
+                    type: "array"
+                  frontmatterFields:
+                    example:
+                      - "title"
+                      - "tags"
+                      - "dateCreated"
+                    items:
+                      type: "string"
+                    type: "array"
+                  headings:
+                    example:
+                      - "# Heading 1"
+                      - "## Heading 2"
+                    items:
+                      type: "string"
+                    type: "array"
+                type: "object"
             "application/vnd.olrapi.note+json":
               schema:
                 "$ref": "#/components/schemas/NoteJson"
@@ -278,6 +304,12 @@ paths:
         interpreting yoru `prepend` or `append` requests if you specify
         your data as JSON (particularly when appending, for example,
         list items).
+        
+        ## Identifying Patch Targets in a File
+        
+        You can issue a GET request to `/files/{path}` with an `Accept` header
+        of `application/vnd.olrapi.document-map+json` to get a JSON object
+        outlining what headings, block references, and frontmatter fields exist.
       parameters:
         - description: "Patch operation to perform"
           in: "header"
@@ -589,6 +621,32 @@ paths:
       responses:
         "200":
           content:
+            "application/vnd.olrapi.document-map+json":
+              schema:
+                properties:
+                  blocks:
+                    example:
+                      - "^blockref1"
+                      - "^anotherBlockRef"
+                    items:
+                      type: "string"
+                    type: "array"
+                  frontmatterFields:
+                    example:
+                      - "title"
+                      - "tags"
+                      - "dateCreated"
+                    items:
+                      type: "string"
+                    type: "array"
+                  headings:
+                    example:
+                      - "# Heading 1"
+                      - "## Heading 2"
+                    items:
+                      type: "string"
+                    type: "array"
+                type: "object"
             "application/vnd.olrapi.note+json":
               schema:
                 "$ref": "#/components/schemas/NoteJson"
@@ -737,6 +795,12 @@ paths:
         interpreting yoru `prepend` or `append` requests if you specify
         your data as JSON (particularly when appending, for example,
         list items).
+        
+        ## Identifying Patch Targets in a File
+        
+        You can issue a GET request to `/files/{path}` with an `Accept` header
+        of `application/vnd.olrapi.document-map+json` to get a JSON object
+        outlining what headings, block references, and frontmatter fields exist.
       parameters:
         - description: "Patch operation to perform"
           in: "header"
@@ -1027,6 +1091,32 @@ paths:
       responses:
         "200":
           content:
+            "application/vnd.olrapi.document-map+json":
+              schema:
+                properties:
+                  blocks:
+                    example:
+                      - "^blockref1"
+                      - "^anotherBlockRef"
+                    items:
+                      type: "string"
+                    type: "array"
+                  frontmatterFields:
+                    example:
+                      - "title"
+                      - "tags"
+                      - "dateCreated"
+                    items:
+                      type: "string"
+                    type: "array"
+                  headings:
+                    example:
+                      - "# Heading 1"
+                      - "## Heading 2"
+                    items:
+                      type: "string"
+                    type: "array"
+                type: "object"
             "application/vnd.olrapi.note+json":
               schema:
                 "$ref": "#/components/schemas/NoteJson"
@@ -1175,6 +1265,12 @@ paths:
         interpreting yoru `prepend` or `append` requests if you specify
         your data as JSON (particularly when appending, for example,
         list items).
+        
+        ## Identifying Patch Targets in a File
+        
+        You can issue a GET request to `/files/{path}` with an `Accept` header
+        of `application/vnd.olrapi.document-map+json` to get a JSON object
+        outlining what headings, block references, and frontmatter fields exist.
       parameters:
         - description: "Patch operation to perform"
           in: "header"
@@ -1584,18 +1680,11 @@ paths:
                             properties:
                               end:
                                 type: "number"
-                                description: "End character position of the match within the file. Starts with 0."
                               start:
                                 type: "number"
-                                description: "Start character position of the match within the file. Starts with 0."
-                              source:
-                                type: "string"
-                                enum: ["filename", "content"]
-                                description: "Where the search term matched: 'filename' or 'content'"
                             required:
                               - "start"
                               - "end"
-                              - "source"
                             type: "object"
                         required:
                           - "match"
@@ -1678,7 +1767,9 @@ paths:
       description: |
         Returns the content of the file at the specified path in your vault should the file exist.
         
-        If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.  See "responses" below for details.
+        If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.
+        
+        If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist.  See "responses" below for details.
       parameters:
         - description: |
             Path to the relevant file (relative to your vault root).
@@ -1691,6 +1782,32 @@ paths:
       responses:
         "200":
           content:
+            "application/vnd.olrapi.document-map+json":
+              schema:
+                properties:
+                  blocks:
+                    example:
+                      - "^blockref1"
+                      - "^anotherBlockRef"
+                    items:
+                      type: "string"
+                    type: "array"
+                  frontmatterFields:
+                    example:
+                      - "title"
+                      - "tags"
+                      - "dateCreated"
+                    items:
+                      type: "string"
+                    type: "array"
+                  headings:
+                    example:
+                      - "# Heading 1"
+                      - "## Heading 2"
+                    items:
+                      type: "string"
+                    type: "array"
+                type: "object"
             "application/vnd.olrapi.note+json":
               schema:
                 "$ref": "#/components/schemas/NoteJson"
@@ -1839,6 +1956,12 @@ paths:
         interpreting yoru `prepend` or `append` requests if you specify
         your data as JSON (particularly when appending, for example,
         list items).
+        
+        ## Identifying Patch Targets in a File
+        
+        You can issue a GET request to `/files/{path}` with an `Accept` header
+        of `application/vnd.olrapi.document-map+json` to get a JSON object
+        outlining what headings, block references, and frontmatter fields exist.
       parameters:
         - description: "Patch operation to perform"
           in: "header"

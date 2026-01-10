@@ -154,3 +154,9 @@ export interface FileMetadataObject {
   path: string;
   content: string;
 }
+
+export interface DocumentMapObject {
+  headings: string[];
+  blocks: string[];
+  frontmatterFields: string[];
+}
