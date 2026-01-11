@@ -192,13 +192,15 @@ export default class RequestHandler {
     const cache = this.app.metadataCache.getFileCache(file);
 
     // Gather frontmatter & strip out positioning information
-    const frontmatter = { ...(cache.frontmatter ?? {}) };
+    // Note: cache can be null if the metadata cache hasn't been populated yet
+    // (e.g., immediately after a file write)
+    const frontmatter = { ...(cache?.frontmatter ?? {}) };
     delete frontmatter.position; // This just adds noise
 
     // Gather both in-line tags (hash'd) & frontmatter tags; strip
     // leading '#' from them if it's there, and remove duplicates
     const directTags =
-      (cache.tags ?? []).filter((tag) => tag).map((tag) => tag.tag) ?? [];
+      (cache?.tags ?? []).filter((tag) => tag).map((tag) => tag.tag) ?? [];
     const frontmatterTags = Array.isArray(frontmatter.tags)
       ? frontmatter.tags
       : [];
