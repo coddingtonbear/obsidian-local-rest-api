@@ -190,7 +190,8 @@ export default class RequestHandler {
 
   /**
    * Wait for the metadata cache to become available for a file.
-   * Returns the cache if available within the timeout, or null if timeout is reached.
+   * Resolves with the current cache if it becomes available within the timeout,
+   * or with the current cache state (which may be null) when the timeout is reached.
    */
   private waitForFileCache(
     file: TFile,
@@ -228,6 +229,16 @@ export default class RequestHandler {
       }, timeoutMs);
 
       this.app.metadataCache.on("changed", onCacheChange);
+
+      // After registering the listener, check again in case the cache
+      // became available and a change event was fired in the meantime.
+      const cacheAfterListener = this.app.metadataCache.getFileCache(file);
+      if (cacheAfterListener && !resolved) {
+        resolved = true;
+        this.app.metadataCache.off("changed", onCacheChange);
+        clearTimeout(timeoutId);
+        resolve(cacheAfterListener);
+      }
     });
   }
 
@@ -243,8 +254,9 @@ export default class RequestHandler {
 
     // Gather both in-line tags (hash'd) & frontmatter tags; strip
     // leading '#' from them if it's there, and remove duplicates
-    const directTags =
-      (cache?.tags ?? []).filter((tag) => tag).map((tag) => tag.tag) ?? [];
+    const directTags = (cache?.tags ?? [])
+      .filter((tag) => tag)
+      .map((tag) => tag.tag);
     const frontmatterTags = Array.isArray(frontmatter.tags)
       ? frontmatter.tags
       : [];
