@@ -109,10 +109,36 @@ export class CachedMetadata {
 }
 
 export class MetadataCache {
-  _getFileCache = new CachedMetadata();
+  _getFileCache: CachedMetadata | null = new CachedMetadata();
+  _listeners: Map<string, ((file: TFile) => void)[]> = new Map();
 
-  getFileCache(file: TFile): CachedMetadata {
+  getFileCache(file: TFile): CachedMetadata | null {
     return this._getFileCache;
+  }
+
+  on(event: string, callback: (file: TFile) => void): void {
+    if (!this._listeners.has(event)) {
+      this._listeners.set(event, []);
+    }
+    this._listeners.get(event)!.push(callback);
+  }
+
+  off(event: string, callback: (file: TFile) => void): void {
+    const listeners = this._listeners.get(event);
+    if (listeners) {
+      const index = listeners.indexOf(callback);
+      if (index !== -1) {
+        listeners.splice(index, 1);
+      }
+    }
+  }
+
+  // Helper method for tests to simulate cache change events
+  _emitChanged(file: TFile): void {
+    const listeners = this._listeners.get("changed");
+    if (listeners) {
+      listeners.forEach((cb) => cb(file));
+    }
   }
 }
 

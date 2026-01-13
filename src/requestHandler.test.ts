@@ -1176,4 +1176,142 @@ describe("requestHandler", () => {
         .expect(400);
     });
   });
+
+  describe("waitForFileCache", () => {
+    test("returns immediately if cache is already available", async () => {
+      const testFile = new TFile();
+      testFile.path = "test.md";
+
+      // Cache is already available (default mock behavior)
+      app.metadataCache._getFileCache = {
+        headings: [],
+        frontmatter: { title: "Test" },
+        tags: [],
+      };
+
+      // Access the private method via the handler instance
+      // @ts-ignore: Accessing private method for testing
+      const result = await handler.waitForFileCache(testFile);
+
+      expect(result).not.toBeNull();
+      expect(result?.frontmatter?.title).toBe("Test");
+    });
+
+    test("waits for cache change event when cache is initially null", async () => {
+      const testFile = new TFile();
+      testFile.path = "test.md";
+
+      // Start with null cache
+      app.metadataCache._getFileCache = null;
+
+      // @ts-ignore: Accessing private method for testing
+      const cachePromise = handler.waitForFileCache(testFile, 5000);
+
+      // Simulate cache becoming available after a short delay
+      setTimeout(() => {
+        app.metadataCache._getFileCache = {
+          headings: [],
+          frontmatter: { title: "Loaded" },
+          tags: [],
+        };
+        app.metadataCache._emitChanged(testFile);
+      }, 50);
+
+      const result = await cachePromise;
+
+      expect(result).not.toBeNull();
+      expect(result?.frontmatter?.title).toBe("Loaded");
+    });
+
+    test("ignores cache change events for other files", async () => {
+      const testFile = new TFile();
+      testFile.path = "test.md";
+
+      const otherFile = new TFile();
+      otherFile.path = "other.md";
+
+      // Start with null cache
+      app.metadataCache._getFileCache = null;
+
+      // @ts-ignore: Accessing private method for testing
+      const cachePromise = handler.waitForFileCache(testFile, 200);
+
+      // Emit change for a different file - should be ignored
+      setTimeout(() => {
+        app.metadataCache._emitChanged(otherFile);
+      }, 20);
+
+      // Then emit for the correct file
+      setTimeout(() => {
+        app.metadataCache._getFileCache = {
+          headings: [],
+          frontmatter: { title: "Correct" },
+          tags: [],
+        };
+        app.metadataCache._emitChanged(testFile);
+      }, 50);
+
+      const result = await cachePromise;
+
+      expect(result).not.toBeNull();
+      expect(result?.frontmatter?.title).toBe("Correct");
+    });
+
+    test("returns current cache state on timeout", async () => {
+      const testFile = new TFile();
+      testFile.path = "test.md";
+
+      // Start with null cache and never populate it
+      app.metadataCache._getFileCache = null;
+
+      // Use a very short timeout for the test
+      // @ts-ignore: Accessing private method for testing
+      const result = await handler.waitForFileCache(testFile, 100);
+
+      // Should return null (timeout reached without cache becoming available)
+      expect(result).toBeNull();
+    });
+
+    test("cleans up event listener after cache becomes available", async () => {
+      const testFile = new TFile();
+      testFile.path = "test.md";
+
+      // Start with null cache
+      app.metadataCache._getFileCache = null;
+
+      // @ts-ignore: Accessing private method for testing
+      const cachePromise = handler.waitForFileCache(testFile, 5000);
+
+      // Simulate cache becoming available
+      setTimeout(() => {
+        app.metadataCache._getFileCache = {
+          headings: [],
+          frontmatter: {},
+          tags: [],
+        };
+        app.metadataCache._emitChanged(testFile);
+      }, 50);
+
+      await cachePromise;
+
+      // Check that the listener was removed
+      const listeners = app.metadataCache._listeners.get("changed") || [];
+      expect(listeners.length).toBe(0);
+    });
+
+    test("cleans up event listener on timeout", async () => {
+      const testFile = new TFile();
+      testFile.path = "test.md";
+
+      // Start with null cache
+      app.metadataCache._getFileCache = null;
+
+      // @ts-ignore: Accessing private method for testing
+      await handler.waitForFileCache(testFile, 100);
+
+      // Check that the listener was removed after timeout
+      const listeners = app.metadataCache._listeners.get("changed") || [];
+      expect(listeners.length).toBe(0);
+    });
+  });
 });
