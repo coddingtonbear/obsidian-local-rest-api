@@ -188,17 +188,76 @@ export default class RequestHandler {
     };
   }
 
+  /**
+   * Wait for the metadata cache to become available for a file.
+   * Resolves with the current cache if it becomes available within the timeout,
+   * or with the current cache state (which may be null) when the timeout is reached.
+   */
+  private waitForFileCache(
+    file: TFile,
+    timeoutMs = 5000,
+  ): Promise<CachedMetadata | null> {
+    // Check if cache is already available
+    const existingCache = this.app.metadataCache.getFileCache(file);
+    if (existingCache) {
+      return Promise.resolve(existingCache);
+    }
+
+    // Wait for the cache to become available
+    return new Promise((resolve) => {
+      let resolved = false;
+
+      const onCacheChange = (...data: unknown[]) => {
+        const changedFile = data[0] as TFile;
+        if (changedFile.path === file.path && !resolved) {
+          resolved = true;
+          this.app.metadataCache.off("changed", onCacheChange);
+          clearTimeout(timeoutId);
+          resolve(this.app.metadataCache.getFileCache(file));
+        }
+      };
+
+      const timeoutId = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          this.app.metadataCache.off("changed", onCacheChange);
+          console.warn(
+            `[REST API] Timeout waiting for metadata cache for ${file.path} after ${timeoutMs}ms`,
+          );
+          // Return whatever cache state exists (likely null)
+          resolve(this.app.metadataCache.getFileCache(file));
+        }
+      }, timeoutMs);
+
+      this.app.metadataCache.on("changed", onCacheChange);
+
+      // After registering the listener, check again in case the cache
+      // became available and a change event was fired in the meantime.
+      const cacheAfterListener = this.app.metadataCache.getFileCache(file);
+      if (cacheAfterListener && !resolved) {
+        resolved = true;
+        this.app.metadataCache.off("changed", onCacheChange);
+        clearTimeout(timeoutId);
+        resolve(cacheAfterListener);
+      }
+    });
+  }
+
   async getFileMetadataObject(file: TFile): Promise<FileMetadataObject> {
-    const cache = this.app.metadataCache.getFileCache(file);
+    // Wait for the metadata cache to be available (with timeout)
+    // This handles the case where a file was just written and the cache
+    // hasn't been populated yet
+    const cache = await this.waitForFileCache(file);
 
     // Gather frontmatter & strip out positioning information
-    const frontmatter = { ...(cache.frontmatter ?? {}) };
+    const frontmatter = { ...(cache?.frontmatter ?? {}) };
     delete frontmatter.position; // This just adds noise
 
     // Gather both in-line tags (hash'd) & frontmatter tags; strip
     // leading '#' from them if it's there, and remove duplicates
-    const directTags =
-      (cache.tags ?? []).filter((tag) => tag).map((tag) => tag.tag) ?? [];
+    const directTags = (cache?.tags ?? [])
+      .filter((tag) => tag)
+      .map((tag) => tag.tag);
     const frontmatterTags = Array.isArray(frontmatter.tags)
       ? frontmatter.tags
       : [];
