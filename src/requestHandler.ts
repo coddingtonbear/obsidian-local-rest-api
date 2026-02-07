@@ -829,10 +829,11 @@ export default class RequestHandler {
     timestamp: number,
   ): [TFile | null, ErrorCode | null] {
     const [period, err] = this.periodicGetInterface(periodName);
-    if (err) {
-      return [null, err];
+    if (err || !period) {
+      return [null, err ?? ErrorCode.PeriodDoesNotExist];
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const now = (window as any).moment(timestamp);
     const all = period.getAll();
 
@@ -852,21 +853,29 @@ export default class RequestHandler {
     let file = gottenFile;
     if (err === ErrorCode.PeriodicNoteDoesNotExist) {
       const [period] = this.periodicGetInterface(periodName);
+      if (!period) {
+        return [null, ErrorCode.PeriodDoesNotExist];
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const now = (window as any).moment(Date.now());
 
       file = await period.create(now);
 
-      const metadataCachePromise = new Promise<CachedMetadata>((resolve) => {
-        let cache: CachedMetadata = null;
+      const metadataCachePromise = new Promise<CachedMetadata | null>(
+        (resolve) => {
+          let cache: CachedMetadata | null = null;
 
-        const interval: ReturnType<typeof setInterval> = setInterval(() => {
-          cache = this.app.metadataCache.getFileCache(file);
-          if (cache) {
-            clearInterval(interval);
-            resolve(cache);
-          }
-        }, 100);
-      });
+          const interval: ReturnType<typeof setInterval> = setInterval(() => {
+            if (file) {
+              cache = this.app.metadataCache.getFileCache(file);
+              if (cache) {
+                clearInterval(interval);
+                resolve(cache);
+              }
+            }
+          }, 100);
+        },
+      );
       await metadataCachePromise;
     } else if (err) {
       return [null, err];
@@ -891,11 +900,15 @@ export default class RequestHandler {
     return handler(path, req, res);
   }
 
-  getPeriodicDateFromParams(params: any): number {
+  getPeriodicDateFromParams(params: {
+    year?: string;
+    month?: string;
+    day?: string;
+  }): number {
     const { year, month, day } = params;
 
     if (year && month && day) {
-      const date = new Date(year, month - 1, day);
+      const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
       return date.getTime();
     }
 
@@ -908,8 +921,10 @@ export default class RequestHandler {
   ): Promise<void> {
     const date = this.getPeriodicDateFromParams(req.params);
     const [file, err] = this.periodicGetNote(req.params.period, date);
-    if (err) {
-      this.returnCannedResponse(res, { errorCode: err });
+    if (err || !file) {
+      this.returnCannedResponse(res, {
+        errorCode: err ?? ErrorCode.PeriodicNoteDoesNotExist,
+      });
       return;
     }
 
@@ -925,8 +940,10 @@ export default class RequestHandler {
       req.params.period,
       date,
     );
-    if (err) {
-      this.returnCannedResponse(res, { errorCode: err });
+    if (err || !file) {
+      this.returnCannedResponse(res, {
+        errorCode: err ?? ErrorCode.PeriodicNoteDoesNotExist,
+      });
       return;
     }
 
@@ -942,8 +959,10 @@ export default class RequestHandler {
       req.params.period,
       date,
     );
-    if (err) {
-      this.returnCannedResponse(res, { errorCode: err });
+    if (err || !file) {
+      this.returnCannedResponse(res, {
+        errorCode: err ?? ErrorCode.PeriodicNoteDoesNotExist,
+      });
       return;
     }
 
@@ -959,8 +978,10 @@ export default class RequestHandler {
       req.params.period,
       date,
     );
-    if (err) {
-      this.returnCannedResponse(res, { errorCode: err });
+    if (err || !file) {
+      this.returnCannedResponse(res, {
+        errorCode: err ?? ErrorCode.PeriodicNoteDoesNotExist,
+      });
       return;
     }
 
@@ -978,8 +999,10 @@ export default class RequestHandler {
   ): Promise<void> {
     const date = this.getPeriodicDateFromParams(req.params);
     const [file, err] = this.periodicGetNote(req.params.period, date);
-    if (err) {
-      this.returnCannedResponse(res, { errorCode: err });
+    if (err || !file) {
+      this.returnCannedResponse(res, {
+        errorCode: err ?? ErrorCode.PeriodicNoteDoesNotExist,
+      });
       return;
     }
 
@@ -996,6 +1019,10 @@ export default class RequestHandler {
     res: express.Response,
   ): Promise<void> {
     const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
 
     return this.redirectToVaultPath(file, req, res, this._vaultGet.bind(this));
   }
@@ -1005,6 +1032,10 @@ export default class RequestHandler {
     res: express.Response,
   ): Promise<void> {
     const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
 
     return this.redirectToVaultPath(file, req, res, this._vaultPut.bind(this));
   }
@@ -1014,6 +1045,10 @@ export default class RequestHandler {
     res: express.Response,
   ): Promise<void> {
     const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
 
     return this.redirectToVaultPath(file, req, res, this._vaultPost.bind(this));
   }
@@ -1023,6 +1058,10 @@ export default class RequestHandler {
     res: express.Response,
   ): Promise<void> {
     const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
 
     return this.redirectToVaultPath(
       file,
@@ -1037,6 +1076,10 @@ export default class RequestHandler {
     res: express.Response,
   ): Promise<void> {
     const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
 
     return this.redirectToVaultPath(
       file,
@@ -1076,7 +1119,11 @@ export default class RequestHandler {
     try {
       this.app.commands.executeCommandById(req.params.commandId);
     } catch (e) {
-      this.returnCannedResponse(res, { statusCode: 500, message: e.message });
+      const error = e as Error;
+      this.returnCannedResponse(res, {
+        statusCode: 500,
+        message: error.message,
+      });
       return;
     }
 
@@ -1169,7 +1216,7 @@ export default class RequestHandler {
       }
     }
 
-    results.sort((a, b) => (a.score > b.score ? 1 : -1));
+    results.sort((a, b) => ((a.score ?? 0) > (b.score ?? 0) ? 1 : -1));
     res.json(results);
   }
 
@@ -1206,7 +1253,7 @@ export default class RequestHandler {
         }
 
         for (const dataviewResult of dataviewResults.values) {
-          const fieldValues: Record<string, any> = {};
+          const fieldValues: Record<string, unknown> = {};
 
           dataviewResults.headers.forEach((value: string, index: number) => {
             if (value !== fileColumn) {
@@ -1238,7 +1285,8 @@ export default class RequestHandler {
               });
             }
           } catch (e) {
-            throw new Error(`${e.message} (while processing ${file.path})`);
+            const error = e as Error;
+            throw new Error(`${error.message} (while processing ${file.path})`);
           }
         }
 
@@ -1263,9 +1311,10 @@ export default class RequestHandler {
       const results = await handlers[contentType]();
       res.json(results);
     } catch (e) {
+      const error = e as Error;
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidFilterQuery,
-        message: `${e.message}`,
+        message: `${error.message}`,
       });
       return;
     }
@@ -1290,6 +1339,10 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
+    if (!this.settings.crypto?.cert) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
     res.set(
       "Content-type",
       `application/octet-stream; filename="${CERT_NAME}"`,
