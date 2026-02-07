@@ -195,7 +195,7 @@ export default class RequestHandler {
    */
   private waitForFileCache(
     file: TFile,
-    timeoutMs: number = 5000,
+    timeoutMs = 5000,
   ): Promise<CachedMetadata | null> {
     // Check if cache is already available
     const existingCache = this.app.metadataCache.getFileCache(file);
@@ -207,7 +207,8 @@ export default class RequestHandler {
     return new Promise((resolve) => {
       let resolved = false;
 
-      const onCacheChange = (changedFile: TFile) => {
+      const onCacheChange = (...data: unknown[]) => {
+        const changedFile = data[0] as TFile;
         if (changedFile.path === file.path && !resolved) {
           resolved = true;
           this.app.metadataCache.off("changed", onCacheChange);

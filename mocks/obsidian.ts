@@ -110,20 +110,20 @@ export class CachedMetadata {
 
 export class MetadataCache {
   _getFileCache: CachedMetadata | null = new CachedMetadata();
-  _listeners: Map<string, ((file: TFile) => void)[]> = new Map();
+  _listeners: Map<string, ((...data: unknown[]) => unknown)[]> = new Map();
 
   getFileCache(file: TFile): CachedMetadata | null {
     return this._getFileCache;
   }
 
-  on(event: string, callback: (file: TFile) => void): void {
+  on(event: string, callback: (...data: unknown[]) => unknown): void {
     if (!this._listeners.has(event)) {
       this._listeners.set(event, []);
     }
     this._listeners.get(event)!.push(callback);
   }
 
-  off(event: string, callback: (file: TFile) => void): void {
+  off(event: string, callback: (...data: unknown[]) => unknown): void {
     const listeners = this._listeners.get(event);
     if (listeners) {
       const index = listeners.indexOf(callback);
