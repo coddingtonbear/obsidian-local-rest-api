@@ -288,7 +288,7 @@ export default class RequestHandler {
     if (errorCode) {
       errorMessages.push(ERROR_CODE_MESSAGES[errorCode]);
     } else {
-      errorMessages.push(http.STATUS_CODES[statusCode]);
+      errorMessages.push(http.STATUS_CODES[statusCode] ?? "Unknown Error");
     }
     if (message) {
       errorMessages.push(message);
@@ -300,17 +300,22 @@ export default class RequestHandler {
   getStatusCode({ statusCode, errorCode }: ErrorResponseDescriptor): number {
     if (statusCode) {
       return statusCode;
+    } else if (errorCode) {
+      return Math.floor(errorCode / 100);
     }
-    return Math.floor(errorCode / 100);
+    throw new Error("Either statusCode or errorCode must be provided");
   }
 
   returnCannedResponse(
     res: express.Response,
     { statusCode, message, errorCode }: ErrorResponseDescriptor,
   ): void {
+    if (!statusCode && !errorCode) {
+      throw new Error("Either statusCode or errorCode must be provided");
+    }
     const response: CannedResponse = {
       message: this.getResponseMessage({ statusCode, message, errorCode }),
-      errorCode: errorCode ?? statusCode * 100,
+      errorCode: errorCode ?? (statusCode ?? -1) * 100,
     };
 
     res.status(this.getStatusCode({ statusCode, errorCode })).json(response);
@@ -319,7 +324,9 @@ export default class RequestHandler {
   root(req: express.Request, res: express.Response): void {
     let certificate: forge.pki.Certificate | undefined;
     try {
-      certificate = forge.pki.certificateFromPem(this.settings.crypto.cert);
+      if (this.settings.crypto?.cert) {
+        certificate = forge.pki.certificateFromPem(this.settings.crypto.cert);
+      }
     } catch (e) {
       // This is fine, we just won't include that in the output
     }
@@ -380,8 +387,11 @@ export default class RequestHandler {
       });
     } else {
       const exists = await this.app.vault.adapter.exists(path);
+      const statResult = exists
+        ? await this.app.vault.adapter.stat(path)
+        : null;
 
-      if (exists && (await this.app.vault.adapter.stat(path)).type === "file") {
+      if (statResult && statResult.type === "file") {
         const content = await this.app.vault.adapter.readBinary(path);
         const mimeType = mime.lookup(path);
 
@@ -501,7 +511,7 @@ export default class RequestHandler {
 
     if (typeof req.get("Content-Insertion-Ignore-Newline") == "string") {
       aboveNewLine =
-        req.get("Content-Insertion-Ignore-Newline").toLowerCase() == "true";
+        req.get("Content-Insertion-Ignore-Newline")?.toLowerCase() == "true";
     }
 
     if (!heading.length) {
@@ -519,6 +529,11 @@ export default class RequestHandler {
       return;
     }
     const cache = this.app.metadataCache.getFileCache(file);
+    if (!cache) {
+      throw new Error(
+        "Error awaiting metadata cache for file in _vaultPatchV2: cache is null",
+      );
+    }
     const position = findHeadingBoundary(cache, heading);
 
     if (!position) {
@@ -564,7 +579,7 @@ export default class RequestHandler {
   ): Promise<void> {
     const operation = req.get("Operation");
     const targetType = req.get("Target-Type");
-    const rawTarget = decodeURIComponent(req.get("Target"));
+    const rawTarget = decodeURIComponent(req.get("Target") ?? "");
     const contentType = req.get("Content-Type");
     const createTargetIfMissing = req.get("Create-Target-If-Missing") == "true";
     const applyIfContentPreexists =
@@ -639,7 +654,7 @@ export default class RequestHandler {
       } else {
         this.returnCannedResponse(res, {
           statusCode: 500,
-          message: e.message,
+          message: (e as Error).message,
         });
       }
     }
