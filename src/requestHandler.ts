@@ -1089,6 +1089,15 @@ export default class RequestHandler {
     );
   }
 
+  async tagsGet(req: express.Request, res: express.Response): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const allTags = (this.app.metadataCache as any).getTags();
+
+    res.json({
+      tags: allTags,
+    });
+  }
+
   async commandGet(req: express.Request, res: express.Response): Promise<void> {
     const commands: Command[] = [];
     for (const commandName in this.app.commands.commands) {
@@ -1468,6 +1477,8 @@ export default class RequestHandler {
       .patch(this.periodicPatch.bind(this))
       .post(this.periodicPost.bind(this))
       .delete(this.periodicDelete.bind(this));
+
+    this.api.route("/tags/").get(this.tagsGet.bind(this));
 
     this.api.route("/commands/").get(this.commandGet.bind(this));
     this.api.route("/commands/:commandId/").post(this.commandPost.bind(this));
