@@ -150,8 +150,9 @@ paths:
                     type: "array"
                   headings:
                     example:
-                      - "# Heading 1"
-                      - "## Heading 2"
+                      - "Heading 1"
+                      - "Heading 1::Subhead of Heading 1"
+                      - "Heading 2"
                     items:
                       type: "string"
                     type: "array"
@@ -641,8 +642,9 @@ paths:
                     type: "array"
                   headings:
                     example:
-                      - "# Heading 1"
-                      - "## Heading 2"
+                      - "Heading 1"
+                      - "Heading 1::Subhead of Heading 1"
+                      - "Heading 2"
                     items:
                       type: "string"
                     type: "array"
@@ -1111,8 +1113,9 @@ paths:
                     type: "array"
                   headings:
                     example:
-                      - "# Heading 1"
-                      - "## Heading 2"
+                      - "Heading 1"
+                      - "Heading 1::Subhead of Heading 1"
+                      - "Heading 2"
                     items:
                       type: "string"
                     type: "array"
@@ -1700,6 +1703,31 @@ paths:
         Search for documents matching a specified text query
       tags:
         - "Search"
+  /tags/:
+    get:
+      description: |
+        Returns all tags found across all files in the vault, along with the number of times each tag is used.
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                tags:
+                  "#important": 1
+                  "#project": 3
+                  "#work/tasks": 2
+              schema:
+                properties:
+                  tags:
+                    additionalProperties:
+                      type: "number"
+                    type: "object"
+                type: "object"
+          description: "A mapping of tag names to their usage counts."
+      summary: |
+        Get a list of all tags and their usage counts.
+      tags:
+        - "Tags"
   /vault/:
     get:
       description: |
@@ -1802,8 +1830,9 @@ paths:
                     type: "array"
                   headings:
                     example:
-                      - "# Heading 1"
-                      - "## Heading 2"
+                      - "Heading 1"
+                      - "Heading 1::Subhead of Heading 1"
+                      - "Heading 2"
                     items:
                       type: "string"
                     type: "array"

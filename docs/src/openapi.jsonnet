@@ -381,6 +381,42 @@ std.manifestYamlDoc(
           parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
       },
+      '/tags/': {
+        get: {
+          tags: [
+            'Tags',
+          ],
+          summary: 'Get a list of all tags and their usage counts.\n',
+          description: 'Returns all tags found across all files in the vault, along with the number of times each tag is used.\n',
+          responses: {
+            '200': {
+              description: 'A mapping of tag names to their usage counts.',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      tags: {
+                        type: 'object',
+                        additionalProperties: {
+                          type: 'number',
+                        },
+                      },
+                    },
+                  },
+                  example: {
+                    tags: {
+                      '#project': 3,
+                      '#important': 1,
+                      '#work/tasks': 2,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       '/commands/': {
         get: {
           tags: [

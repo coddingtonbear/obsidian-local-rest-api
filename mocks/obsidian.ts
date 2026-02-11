@@ -117,10 +117,15 @@ export class CachedMetadata {
 
 export class MetadataCache {
   _getFileCache: CachedMetadata | null = new CachedMetadata();
+  _getTags: Record<string, number> = {};
   _listeners: Map<string, ((...data: unknown[]) => unknown)[]> = new Map();
 
   getFileCache(file: TFile): CachedMetadata | null {
     return this._getFileCache;
+  }
+
+  getTags(): Record<string, number> {
+    return this._getTags;
   }
 
   on(event: string, callback: (...data: unknown[]) => unknown): void {
