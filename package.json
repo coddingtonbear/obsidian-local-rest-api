@@ -1,6 +1,6 @@
 {
   "name": "obsidian-local-rest-api",
-  "version": "3.4.3",
+  "version": "3.4.4",
   "description": "Get, change or otherwise interact with your notes in Obsidian via a REST API.",
   "main": "main.js",
   "types": "main.d.ts",
@@ -44,7 +44,7 @@
     "express": "^4.21.1",
     "glob-to-regexp": "^0.4.1",
     "json-logic-js": "^2.0.2",
-    "markdown-patch": "^0.4.0",
+    "markdown-patch": "^0.4.1",
     "matcher": "^5.0.0",
     "mime-types": "^2.1.35",
     "minimatch": "^5.0.1",
