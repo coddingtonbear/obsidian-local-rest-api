@@ -744,6 +744,31 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("tagsGet", () => {
+    test("acceptable", async () => {
+      app.metadataCache._getTags = {
+        "#project": 3,
+        "#important": 1,
+        "#work/tasks": 2,
+      };
+
+      const result = await request(server)
+        .get("/tags/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.tags).toEqual({
+        "#project": 3,
+        "#important": 1,
+        "#work/tasks": 2,
+      });
+    });
+
+    test("unauthorized", async () => {
+      await request(server).get("/tags/").expect(401);
+    });
+  });
+
   describe("commandGet", () => {
     test("acceptable", async () => {
       const arbitraryCommand = new Command();
