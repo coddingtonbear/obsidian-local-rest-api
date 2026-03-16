@@ -16,11 +16,11 @@ jobs:
         with:
           node-version: '18.x' # adjust this for your needs
 
-      # Get the version number and put it in a variable
+      # Get the version number from the tag that triggered this workflow
       - name: Get Version
         id: version
         run: |
-          echo "tag=$(git describe --abbrev=0)" >> $GITHUB_OUTPUT
+          echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
 
       # Build the plugin
       - name: Build
