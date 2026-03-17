@@ -216,6 +216,13 @@ export const _prepareSimpleSearchMock = {
     | null,
 };
 
+export function getAllTags(
+  cache: CachedMetadata,
+): string[] | null {
+  if (!cache.tags || cache.tags.length === 0) return null;
+  return cache.tags.map((t) => t.tag);
+}
+
 export function prepareSimpleSearch(
   query: string,
 ): (value: string) => null | SearchResult {

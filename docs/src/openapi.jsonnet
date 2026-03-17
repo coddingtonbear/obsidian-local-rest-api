@@ -381,6 +381,48 @@ std.manifestYamlDoc(
           parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
       },
+      '/tags/': {
+        get: {
+          tags: [
+            'Tags',
+          ],
+          summary: 'Get a list of all tags with metadata.\n',
+          description: 'Returns all tags found across all files in the vault. Each tag is returned without the `#` prefix and includes metadata such as usage count. The response structure is extensible to support additional metadata in the future.\n',
+          responses: {
+            '200': {
+              description: 'A mapping of tag names to their metadata.',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      tags: {
+                        type: 'object',
+                        additionalProperties: {
+                          type: 'object',
+                          properties: {
+                            count: {
+                              type: 'number',
+                              description: 'Number of times this tag is used across the vault.',
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  example: {
+                    tags: {
+                      project: { count: 3 },
+                      important: { count: 1 },
+                      'work/tasks': { count: 2 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       '/commands/': {
         get: {
           tags: [
