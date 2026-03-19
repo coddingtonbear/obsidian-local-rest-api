@@ -769,12 +769,15 @@ describe("requestHandler", () => {
         .set("Authorization", `Bearer ${API_KEY}`)
         .expect(200);
 
-      expect(result.body.tags).toEqual({
-        project: { count: 2 },
-        important: { count: 1 },
-        work: { count: 1 },
-        "work/tasks": { count: 1 },
-      });
+      expect(result.body.tags).toEqual(
+        expect.arrayContaining([
+          { name: "project", count: 2 },
+          { name: "important", count: 1 },
+          { name: "work", count: 1 },
+          { name: "work/tasks", count: 1 },
+        ]),
+      );
+      expect(result.body.tags).toHaveLength(4);
     });
 
     test("counts frontmatter tags", async () => {
@@ -792,10 +795,13 @@ describe("requestHandler", () => {
         .set("Authorization", `Bearer ${API_KEY}`)
         .expect(200);
 
-      expect(result.body.tags).toEqual({
-        project: { count: 1 },
-        important: { count: 1 },
-      });
+      expect(result.body.tags).toEqual(
+        expect.arrayContaining([
+          { name: "project", count: 1 },
+          { name: "important", count: 1 },
+        ]),
+      );
+      expect(result.body.tags).toHaveLength(2);
     });
 
     test("handles files with no cache", async () => {
@@ -808,7 +814,7 @@ describe("requestHandler", () => {
         .set("Authorization", `Bearer ${API_KEY}`)
         .expect(200);
 
-      expect(result.body.tags).toEqual({});
+      expect(result.body.tags).toEqual([]);
     });
 
     test("handles files with no tags", async () => {
@@ -823,7 +829,7 @@ describe("requestHandler", () => {
         .set("Authorization", `Bearer ${API_KEY}`)
         .expect(200);
 
-      expect(result.body.tags).toEqual({});
+      expect(result.body.tags).toEqual([]);
     });
 
     test("merges inline (#-prefixed) and frontmatter (no-#) forms of the same tag", async () => {
@@ -852,9 +858,7 @@ describe("requestHandler", () => {
         .set("Authorization", `Bearer ${API_KEY}`)
         .expect(200);
 
-      expect(result.body.tags).toEqual({
-        project: { count: 2 },
-      });
+      expect(result.body.tags).toEqual([{ name: "project", count: 2 }]);
     });
 
     test("unauthorized", async () => {

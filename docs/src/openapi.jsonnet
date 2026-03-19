@@ -390,17 +390,21 @@ std.manifestYamlDoc(
           description: 'Returns all tags found across all files in the vault, drawn from both inline (`#tag`) and frontmatter tag syntax. Each tag is returned without the `#` prefix. Hierarchical tags (e.g. `work/tasks`) also contribute a count to every parent prefix (e.g. `work`), mirroring how Obsidian displays tag counts in its sidebar.\n',
           responses: {
             '200': {
-              description: 'A mapping of tag names to their metadata.',
+              description: 'A list of tags with their usage counts.',
               content: {
                 'application/json': {
                   schema: {
                     type: 'object',
                     properties: {
                       tags: {
-                        type: 'object',
-                        additionalProperties: {
+                        type: 'array',
+                        items: {
                           type: 'object',
                           properties: {
+                            name: {
+                              type: 'string',
+                              description: 'Tag name without the leading `#`.',
+                            },
                             count: {
                               type: 'number',
                               description: 'Number of times this tag is used across the vault.',
@@ -411,11 +415,12 @@ std.manifestYamlDoc(
                     },
                   },
                   example: {
-                    tags: {
-                      project: { count: 3 },
-                      important: { count: 1 },
-                      'work/tasks': { count: 2 },
-                    },
+                    tags: [
+                      { name: 'project', count: 3 },
+                      { name: 'important', count: 1 },
+                      { name: 'work', count: 2 },
+                      { name: 'work/tasks', count: 2 },
+                    ],
                   },
                 },
               },

@@ -1108,10 +1108,10 @@ export default class RequestHandler {
         }
       }
     }
-    const tags: Record<string, { count: number }> = {};
+    const tags: { name: string; count: number }[] = [];
     for (const [tag, count] of Object.entries(tagCounts)) {
       if (!tag) continue;
-      tags[tag] = { count };
+      tags.push({ name: tag, count });
     }
     res.json({ tags });
   }

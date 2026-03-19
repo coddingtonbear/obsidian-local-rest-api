@@ -1713,24 +1713,29 @@ paths:
             application/json:
               example:
                 tags:
-                  important:
-                    count: 1
-                  project:
-                    count: 3
-                  work/tasks:
-                    count: 2
+                  - count: 3
+                    name: "project"
+                  - count: 1
+                    name: "important"
+                  - count: 2
+                    name: "work"
+                  - count: 2
+                    name: "work/tasks"
               schema:
                 properties:
                   tags:
-                    additionalProperties:
+                    items:
                       properties:
                         count:
                           description: "Number of times this tag is used across the vault."
                           type: "number"
+                        name:
+                          description: "Tag name without the leading `#`."
+                          type: "string"
                       type: "object"
-                    type: "object"
+                    type: "array"
                 type: "object"
-          description: "A mapping of tag names to their metadata."
+          description: "A list of tags with their usage counts."
       summary: |
         Get a list of all tags with metadata.
       tags:
