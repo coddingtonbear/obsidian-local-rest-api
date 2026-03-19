@@ -216,6 +216,17 @@ export const _prepareSimpleSearchMock = {
     | null,
 };
 
+export function getAllTags(
+  cache: CachedMetadata,
+): string[] | null {
+  const inlineTags = (cache.tags ?? []).map((t) => t.tag);
+  const frontmatterTags = Array.isArray(cache.frontmatter?.tags)
+    ? (cache.frontmatter.tags as string[])
+    : [];
+  const all = [...inlineTags, ...frontmatterTags];
+  return all.length > 0 ? all : null;
+}
+
 export function prepareSimpleSearch(
   query: string,
 ): (value: string) => null | SearchResult {

@@ -1,5 +1,6 @@
 import {
   apiVersion,
+  getAllTags,
   App,
   CachedMetadata,
   Command,
@@ -1089,6 +1090,32 @@ export default class RequestHandler {
     );
   }
 
+  async tagsGet(req: express.Request, res: express.Response): Promise<void> {
+    const tagCounts: Record<string, number> = {};
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const cache = this.app.metadataCache.getFileCache(file);
+      if (!cache) continue;
+      const fileTags = getAllTags(cache);
+      if (!fileTags) continue;
+      for (const rawTag of fileTags) {
+        const tag = rawTag.startsWith("#") ? rawTag.slice(1) : rawTag;
+        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+        // Roll up parent tags: food/recipe/pasta counts toward food/recipe and food
+        const parts = tag.split("/");
+        for (let i = 1; i < parts.length; i++) {
+          const parent = parts.slice(0, i).join("/");
+          tagCounts[parent] = (tagCounts[parent] || 0) + 1;
+        }
+      }
+    }
+    const tags: { name: string; count: number }[] = [];
+    for (const [tag, count] of Object.entries(tagCounts)) {
+      if (!tag) continue;
+      tags.push({ name: tag, count });
+    }
+    res.json({ tags });
+  }
+
   async commandGet(req: express.Request, res: express.Response): Promise<void> {
     const commands: Command[] = [];
     for (const commandName in this.app.commands.commands) {
@@ -1468,6 +1495,8 @@ export default class RequestHandler {
       .patch(this.periodicPatch.bind(this))
       .post(this.periodicPost.bind(this))
       .delete(this.periodicDelete.bind(this));
+
+    this.api.route("/tags/").get(this.tagsGet.bind(this));
 
     this.api.route("/commands/").get(this.commandGet.bind(this));
     this.api.route("/commands/:commandId/").post(this.commandPost.bind(this));
