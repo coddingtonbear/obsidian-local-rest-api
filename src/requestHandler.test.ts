@@ -777,6 +777,27 @@ describe("requestHandler", () => {
       });
     });
 
+    test("counts frontmatter tags", async () => {
+      const file1 = new TFile();
+      file1.path = "note1.md";
+      app.vault._markdownFiles = [file1];
+
+      const cache1 = new CachedMetadata();
+      cache1.frontmatter = { tags: ["project", "important"] };
+
+      app.metadataCache.getFileCache = () => cache1;
+
+      const result = await request(server)
+        .get("/tags/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.tags).toEqual({
+        project: { count: 1 },
+        important: { count: 1 },
+      });
+    });
+
     test("handles files with no cache", async () => {
       const file1 = new TFile();
       app.vault._markdownFiles = [file1];
