@@ -219,8 +219,12 @@ export const _prepareSimpleSearchMock = {
 export function getAllTags(
   cache: CachedMetadata,
 ): string[] | null {
-  if (!cache.tags || cache.tags.length === 0) return null;
-  return cache.tags.map((t) => t.tag);
+  const inlineTags = (cache.tags ?? []).map((t) => t.tag);
+  const frontmatterTags = Array.isArray(cache.frontmatter?.tags)
+    ? (cache.frontmatter.tags as string[])
+    : [];
+  const all = [...inlineTags, ...frontmatterTags];
+  return all.length > 0 ? all : null;
 }
 
 export function prepareSimpleSearch(
