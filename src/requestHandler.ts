@@ -1097,9 +1097,10 @@ export default class RequestHandler {
       if (!cache) continue;
       const fileTags = getAllTags(cache);
       if (!fileTags) continue;
-      for (const tag of fileTags) {
+      for (const rawTag of fileTags) {
+        const tag = rawTag.startsWith("#") ? rawTag.slice(1) : rawTag;
         tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-        // Roll up parent tags: #food/recipe/pasta counts toward #food/recipe and #food
+        // Roll up parent tags: food/recipe/pasta counts toward food/recipe and food
         const parts = tag.split("/");
         for (let i = 1; i < parts.length; i++) {
           const parent = parts.slice(0, i).join("/");
@@ -1109,12 +1110,8 @@ export default class RequestHandler {
     }
     const tags: Record<string, { count: number }> = {};
     for (const [tag, count] of Object.entries(tagCounts)) {
-      let name = tag.startsWith("#") ? tag.slice(1) : tag;
-      name = name.replace(/\/+$/, "");
-      if (!name) continue;
-      tags[name] = tags[name]
-        ? { count: tags[name].count + count }
-        : { count };
+      if (!tag) continue;
+      tags[tag] = { count };
     }
     res.json({ tags });
   }
