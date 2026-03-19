@@ -805,6 +805,37 @@ describe("requestHandler", () => {
       expect(result.body.tags).toEqual({});
     });
 
+    test("merges inline (#-prefixed) and frontmatter (no-#) forms of the same tag", async () => {
+      const file1 = new TFile();
+      file1.path = "note1.md";
+      const file2 = new TFile();
+      file2.path = "note2.md";
+      app.vault._markdownFiles = [file1, file2];
+
+      // note1 has the tag as an inline #project
+      const cache1 = new CachedMetadata();
+      cache1.tags = [{ tag: "#project" }];
+
+      // note2 has the same tag via frontmatter (no # prefix)
+      const cache2 = new CachedMetadata();
+      cache2.frontmatter = { tags: ["project"] };
+
+      app.metadataCache.getFileCache = (file: TFile) => {
+        if (file.path === "note1.md") return cache1;
+        if (file.path === "note2.md") return cache2;
+        return null;
+      };
+
+      const result = await request(server)
+        .get("/tags/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.tags).toEqual({
+        project: { count: 2 },
+      });
+    });
+
     test("unauthorized", async () => {
       await request(server).get("/tags/").expect(401);
     });
