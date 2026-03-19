@@ -387,7 +387,7 @@ std.manifestYamlDoc(
             'Tags',
           ],
           summary: 'Get a list of all tags with metadata.\n',
-          description: 'Returns all tags found across all files in the vault. Each tag is returned without the `#` prefix and includes metadata such as usage count. The response structure is extensible to support additional metadata in the future.\n',
+          description: 'Returns all tags found across all files in the vault, drawn from both inline (`#tag`) and frontmatter tag syntax. Each tag is returned without the `#` prefix. Hierarchical tags (e.g. `work/tasks`) also contribute a count to every parent prefix (e.g. `work`), mirroring how Obsidian displays tag counts in its sidebar.\n',
           responses: {
             '200': {
               description: 'A mapping of tag names to their metadata.',
