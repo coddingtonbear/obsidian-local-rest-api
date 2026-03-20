@@ -126,10 +126,56 @@ paths:
         Returns the content of the currently active file in Obsidian.
         
         If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.  See "responses" below for details.
-      parameters: []
+        
+        You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
+        
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve.
+        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+        
+        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
+      parameters:
+        - description: |
+            Type of section to retrieve. When specified, only the content of the
+            matching section is returned instead of the full file. Must be used
+            together with the `Target` header.
+            
+            - `heading`: returns the markdown content of the section under the
+              specified heading (use `Target-Delimiter` to specify nested headings).
+            - `block`: returns the markdown content of the specified block reference.
+            - `frontmatter`: returns the value of the specified frontmatter field
+              as JSON.
+          in: "header"
+          name: "Target-Type"
+          required: false
+          schema:
+            enum:
+              - "heading"
+              - "block"
+              - "frontmatter"
+            type: "string"
+        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
+          in: "header"
+          name: "Target-Delimiter"
+          required: false
+          schema:
+            default: "::"
+            type: "string"
+        - description: |
+            The section to retrieve; required when `Target-Type` is specified.
+            This value can be URL-Encoded and *must* be URL-Encoded if it
+            includes non-ASCII characters.
+          in: "header"
+          name: "Target"
+          required: false
+          schema:
+            type: "string"
       responses:
         "200":
           content:
+            application/json:
+              description: "Returned when `Target-Type` is `frontmatter`; the JSON value of the specified frontmatter field."
+              schema: {}
             "application/vnd.olrapi.document-map+json":
               schema:
                 properties:
@@ -150,8 +196,9 @@ paths:
                     type: "array"
                   headings:
                     example:
-                      - "# Heading 1"
-                      - "## Heading 2"
+                      - "Heading 1"
+                      - "Heading 1::Subhead of Heading 1"
+                      - "Heading 2"
                     items:
                       type: "string"
                     type: "array"
@@ -168,7 +215,7 @@ paths:
                 type: "string"
           description: "Success"
         "404":
-          description: "File does not exist"
+          description: "File or target section does not exist"
       summary: |
         Return the content of the active file open in Obsidian.
       tags:
@@ -604,7 +651,46 @@ paths:
       tags:
         - "Periodic Notes"
     get:
+      description: |
+        Returns the content of the current periodic note for the specified period.
+        
+        You can retrieve a specific section by providing the `Target-Type` and `Target` headers. Set `Target-Type` to `heading`, `block`, or `frontmatter`, and `Target` to the section name. For nested headings, use `Target-Delimiter` (default `::`) to separate levels.
       parameters:
+        - description: |
+            Type of section to retrieve. When specified, only the content of the
+            matching section is returned instead of the full file. Must be used
+            together with the `Target` header.
+            
+            - `heading`: returns the markdown content of the section under the
+              specified heading (use `Target-Delimiter` to specify nested headings).
+            - `block`: returns the markdown content of the specified block reference.
+            - `frontmatter`: returns the value of the specified frontmatter field
+              as JSON.
+          in: "header"
+          name: "Target-Type"
+          required: false
+          schema:
+            enum:
+              - "heading"
+              - "block"
+              - "frontmatter"
+            type: "string"
+        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
+          in: "header"
+          name: "Target-Delimiter"
+          required: false
+          schema:
+            default: "::"
+            type: "string"
+        - description: |
+            The section to retrieve; required when `Target-Type` is specified.
+            This value can be URL-Encoded and *must* be URL-Encoded if it
+            includes non-ASCII characters.
+          in: "header"
+          name: "Target"
+          required: false
+          schema:
+            type: "string"
         - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
           name: "period"
@@ -621,6 +707,9 @@ paths:
       responses:
         "200":
           content:
+            application/json:
+              description: "Returned when `Target-Type` is `frontmatter`; the JSON value of the specified frontmatter field."
+              schema: {}
             "application/vnd.olrapi.document-map+json":
               schema:
                 properties:
@@ -641,8 +730,9 @@ paths:
                     type: "array"
                   headings:
                     example:
-                      - "# Heading 1"
-                      - "## Heading 2"
+                      - "Heading 1"
+                      - "Heading 1::Subhead of Heading 1"
+                      - "Heading 2"
                     items:
                       type: "string"
                     type: "array"
@@ -659,7 +749,7 @@ paths:
                 type: "string"
           description: "Success"
         "404":
-          description: "File does not exist"
+          description: "File or target section does not exist"
       summary: |
         Get current periodic note for the specified period.
       tags:
@@ -1056,7 +1146,46 @@ paths:
       tags:
         - "Periodic Notes"
     get:
+      description: |
+        Returns the content of the periodic note for the specified period and date.
+        
+        You can retrieve a specific section by providing the `Target-Type` and `Target` headers. Set `Target-Type` to `heading`, `block`, or `frontmatter`, and `Target` to the section name. For nested headings, use `Target-Delimiter` (default `::`) to separate levels.
       parameters:
+        - description: |
+            Type of section to retrieve. When specified, only the content of the
+            matching section is returned instead of the full file. Must be used
+            together with the `Target` header.
+            
+            - `heading`: returns the markdown content of the section under the
+              specified heading (use `Target-Delimiter` to specify nested headings).
+            - `block`: returns the markdown content of the specified block reference.
+            - `frontmatter`: returns the value of the specified frontmatter field
+              as JSON.
+          in: "header"
+          name: "Target-Type"
+          required: false
+          schema:
+            enum:
+              - "heading"
+              - "block"
+              - "frontmatter"
+            type: "string"
+        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
+          in: "header"
+          name: "Target-Delimiter"
+          required: false
+          schema:
+            default: "::"
+            type: "string"
+        - description: |
+            The section to retrieve; required when `Target-Type` is specified.
+            This value can be URL-Encoded and *must* be URL-Encoded if it
+            includes non-ASCII characters.
+          in: "header"
+          name: "Target"
+          required: false
+          schema:
+            type: "string"
         - description: "The year of the date for which you would like to grab a periodic note."
           in: "path"
           name: "year"
@@ -1091,6 +1220,9 @@ paths:
       responses:
         "200":
           content:
+            application/json:
+              description: "Returned when `Target-Type` is `frontmatter`; the JSON value of the specified frontmatter field."
+              schema: {}
             "application/vnd.olrapi.document-map+json":
               schema:
                 properties:
@@ -1111,8 +1243,9 @@ paths:
                     type: "array"
                   headings:
                     example:
-                      - "# Heading 1"
-                      - "## Heading 2"
+                      - "Heading 1"
+                      - "Heading 1::Subhead of Heading 1"
+                      - "Heading 2"
                     items:
                       type: "string"
                     type: "array"
@@ -1129,7 +1262,7 @@ paths:
                 type: "string"
           description: "Success"
         "404":
-          description: "File does not exist"
+          description: "File or target section does not exist"
       summary: |
         Get the periodic note for the specified period and date.
       tags:
@@ -1770,7 +1903,50 @@ paths:
         If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.
         
         If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist.  See "responses" below for details.
+        
+        You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
+        
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve.
+        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+        
+        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
       parameters:
+        - description: |
+            Type of section to retrieve. When specified, only the content of the
+            matching section is returned instead of the full file. Must be used
+            together with the `Target` header.
+            
+            - `heading`: returns the markdown content of the section under the
+              specified heading (use `Target-Delimiter` to specify nested headings).
+            - `block`: returns the markdown content of the specified block reference.
+            - `frontmatter`: returns the value of the specified frontmatter field
+              as JSON.
+          in: "header"
+          name: "Target-Type"
+          required: false
+          schema:
+            enum:
+              - "heading"
+              - "block"
+              - "frontmatter"
+            type: "string"
+        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
+          in: "header"
+          name: "Target-Delimiter"
+          required: false
+          schema:
+            default: "::"
+            type: "string"
+        - description: |
+            The section to retrieve; required when `Target-Type` is specified.
+            This value can be URL-Encoded and *must* be URL-Encoded if it
+            includes non-ASCII characters.
+          in: "header"
+          name: "Target"
+          required: false
+          schema:
+            type: "string"
         - description: |
             Path to the relevant file (relative to your vault root).
           in: "path"
@@ -1782,6 +1958,9 @@ paths:
       responses:
         "200":
           content:
+            application/json:
+              description: "Returned when `Target-Type` is `frontmatter`; the JSON value of the specified frontmatter field."
+              schema: {}
             "application/vnd.olrapi.document-map+json":
               schema:
                 properties:
@@ -1802,8 +1981,9 @@ paths:
                     type: "array"
                   headings:
                     example:
-                      - "# Heading 1"
-                      - "## Heading 2"
+                      - "Heading 1"
+                      - "Heading 1::Subhead of Heading 1"
+                      - "Heading 2"
                     items:
                       type: "string"
                     type: "array"
@@ -1820,7 +2000,7 @@ paths:
                 type: "string"
           description: "Success"
         "404":
-          description: "File does not exist"
+          description: "File or target section does not exist"
       summary: |
         Return the content of a single file in your vault.
       tags:

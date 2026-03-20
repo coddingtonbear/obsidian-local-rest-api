@@ -131,7 +131,7 @@ std.manifestYamlDoc(
         get: Get {
           tags: ['Active File'],
           summary: 'Return the content of the active file open in Obsidian.\n',
-          description: 'Returns the content of the currently active file in Obsidian.\n\nIf you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.  See "responses" below for details.\n',
+          description: 'Returns the content of the currently active file in Obsidian.\n\nIf you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.  See "responses" below for details.\n\nYou can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:\n\n- Set `Target-Type` to `heading`, `block`, or `frontmatter`.\n- Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve.\n- For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.\n\nWhen `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.\n',
         },
         put: Put {
           tags: [
@@ -166,7 +166,7 @@ std.manifestYamlDoc(
             'Vault Files',
           ],
           summary: 'Return the content of a single file in your vault.\n',
-          description: 'Returns the content of the file at the specified path in your vault should the file exist.\n\nIf you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.\n\nIf you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist.  See "responses" below for details.\n',
+          description: 'Returns the content of the file at the specified path in your vault should the file exist.\n\nIf you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.\n\nIf you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist.  See "responses" below for details.\n\nYou can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:\n\n- Set `Target-Type` to `heading`, `block`, or `frontmatter`.\n- Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve.\n- For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.\n\nWhen `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.\n',
           parameters+: [ParamPath],
         },
         put: Put {
@@ -308,6 +308,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Get current periodic note for the specified period.\n',
+          description: 'Returns the content of the current periodic note for the specified period.\n\nYou can retrieve a specific section by providing the `Target-Type` and `Target` headers. Set `Target-Type` to `heading`, `block`, or `frontmatter`, and `Target` to the section name. For nested headings, use `Target-Delimiter` (default `::`) to separate levels.\n',
           parameters+: [ParamPeriod],
         },
         put: Put {
@@ -347,6 +348,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Get the periodic note for the specified period and date.\n',
+          description: 'Returns the content of the periodic note for the specified period and date.\n\nYou can retrieve a specific section by providing the `Target-Type` and `Target` headers. Set `Target-Type` to `heading`, `block`, or `frontmatter`, and `Target` to the section name. For nested headings, use `Target-Delimiter` (default `::`) to separate levels.\n',
           parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
         put: Put {
