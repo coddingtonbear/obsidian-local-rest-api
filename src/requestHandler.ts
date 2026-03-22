@@ -422,16 +422,16 @@ export default class RequestHandler {
 
         const targetType = req.get("Target-Type");
         if (targetType) {
+          if (!["heading", "block", "frontmatter"].includes(targetType)) {
+            this.returnCannedResponse(res, {
+              errorCode: ErrorCode.InvalidTargetTypeHeader,
+            });
+            return;
+          }
           const rawTarget = req.get("Target");
           if (!rawTarget) {
             this.returnCannedResponse(res, {
               errorCode: ErrorCode.MissingTargetHeader,
-            });
-            return;
-          }
-          if (!["heading", "block", "frontmatter"].includes(targetType)) {
-            this.returnCannedResponse(res, {
-              errorCode: ErrorCode.InvalidTargetTypeHeader,
             });
             return;
           }
