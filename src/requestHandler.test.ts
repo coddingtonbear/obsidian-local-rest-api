@@ -351,6 +351,17 @@ describe("requestHandler", () => {
         .expect(400);
     });
 
+    test("invalid Target-Type without Target still returns 400 for bad type", async () => {
+      setFileContent(markdownWithHeadings);
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "invalid")
+        .expect(400);
+    });
+
     test("non-existent file returns 404", async () => {
       app.vault.adapter._exists = false;
 
