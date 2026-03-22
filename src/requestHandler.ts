@@ -439,10 +439,9 @@ export default class RequestHandler {
           const fileContent = Buffer.from(content).toString("utf-8");
           const documentMap = getDocumentMap(fileContent);
           const targetDelimiter = req.get("Target-Delimiter") || "::";
-          const decodedTarget = decodeURIComponent(rawTarget);
 
           if (targetType === "frontmatter") {
-            const value = documentMap.frontmatter[decodedTarget];
+            const value = documentMap.frontmatter[rawTarget];
             if (value === undefined) {
               this.returnCannedResponse(res, { statusCode: 404 });
               return;
@@ -454,10 +453,10 @@ export default class RequestHandler {
 
           const mapKey =
             targetType === "heading"
-              ? decodedTarget
+              ? rawTarget
                 .split(targetDelimiter)
                 .join("\u001f")
-              : decodedTarget;
+              : rawTarget;
 
           const entry =
             targetType === "heading"
