@@ -436,7 +436,7 @@ export default class RequestHandler {
             return;
           }
 
-          const fileContent = await this.app.vault.adapter.read(path);
+          const fileContent = Buffer.from(content).toString("utf-8");
           const documentMap = getDocumentMap(fileContent);
           const targetDelimiter = req.get("Target-Delimiter") || "::";
           const decodedTarget = decodeURIComponent(rawTarget);
