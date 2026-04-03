@@ -3,7 +3,7 @@
 You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
 
 - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-- Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve.
+- Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
 - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
 
 When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.

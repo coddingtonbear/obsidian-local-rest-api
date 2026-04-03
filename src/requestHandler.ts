@@ -428,7 +428,7 @@ export default class RequestHandler {
             });
             return;
           }
-          const rawTarget = req.get("Target");
+          const rawTarget = decodeURIComponent(req.get("Target") ?? "");
           if (!rawTarget) {
             this.returnCannedResponse(res, {
               errorCode: ErrorCode.MissingTargetHeader,
