@@ -313,7 +313,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Get current periodic note for the specified period.\n',
-          description: 'Returns the content of the current periodic note for the specified period.\n\nYou can retrieve a specific section by providing the `Target-Type` and `Target` headers. Set `Target-Type` to `heading`, `block`, or `frontmatter`, and `Target` to the section name. For nested headings, use `Target-Delimiter` (default `::`) to separate levels.\n',
+          description: (importstr 'lib/descriptions/periodic-current-get.md') + '\n' + GetShared,
           parameters+: [ParamPeriod],
         },
         put: Put {
@@ -328,7 +328,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Append content to the current periodic note for the specified period.\n',
-          description: 'Note that this will create the relevant periodic note if necessary.\n',
+          description: (importstr 'lib/descriptions/periodic-current-post.md') + '\n' + PostShared,
           parameters+: [ParamPeriod],
         },
         patch: Patch {
@@ -336,7 +336,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Partially update content in the current periodic note for the specified period.\n',
-          description: 'Inserts content into the current periodic note for the specified period relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
+          description: PatchDescription('the current periodic note for the specified period'),
           parameters+: [ParamPeriod],
         },
         delete: Delete {
@@ -353,7 +353,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Get the periodic note for the specified period and date.\n',
-          description: 'Returns the content of the periodic note for the specified period and date.\n\nYou can retrieve a specific section by providing the `Target-Type` and `Target` headers. Set `Target-Type` to `heading`, `block`, or `frontmatter`, and `Target` to the section name. For nested headings, use `Target-Delimiter` (default `::`) to separate levels.\n',
+          description: (importstr 'lib/descriptions/periodic-date-get.md') + '\n' + GetShared,
           parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
         put: Put {
@@ -368,7 +368,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Append content to the periodic note for the specified period and date.\n',
-          description: 'This will create the relevant periodic note if necessary.\n',
+          description: (importstr 'lib/descriptions/periodic-date-post.md') + '\n' + PostShared,
           parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
         patch: Patch {
@@ -376,7 +376,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Partially update content in the periodic note for the specified period and date.\n',
-          description: 'Inserts content into a periodic note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
+          description: PatchDescription('a periodic note for the specified period and date'),
           parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
         delete: Delete {
