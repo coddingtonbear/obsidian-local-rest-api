@@ -10,6 +10,11 @@ local ParamPath = import 'path.param.jsonnet';
 local ParamPeriod = import 'period.param.jsonnet';
 local ParamYear = import 'year.param.jsonnet';
 
+local GetShared = importstr 'lib/descriptions/get-shared.md';
+local PostShared = importstr 'lib/descriptions/post-shared.md';
+local PatchDescription(fileRef) =
+  'Inserts content into ' + fileRef + ' relative to a heading, block reference, or frontmatter field within that document.\n\n' + Patch.description;
+
 
 std.manifestYamlDoc(
   {
@@ -131,7 +136,7 @@ std.manifestYamlDoc(
         get: Get {
           tags: ['Active File'],
           summary: 'Return the content of the active file open in Obsidian.\n',
-          description: importstr 'lib/descriptions/active-get.md',
+          description: (importstr 'lib/descriptions/active-get.md') + '\n' + GetShared,
         },
         put: Put {
           tags: [
@@ -144,14 +149,14 @@ std.manifestYamlDoc(
             'Active File',
           ],
           summary: 'Append content to the active file open in Obsidian.\n',
-          description: importstr 'lib/descriptions/active-post.md',
+          description: (importstr 'lib/descriptions/active-post.md') + '\n' + PostShared,
         },
         patch: Patch {
           tags: [
             'Active File',
           ],
           summary: 'Partially update content in the currently open note.\n',
-          description: 'Inserts content into the currently-open note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
+          description: PatchDescription('the currently-open note'),
         },
         delete: Delete {
           tags: [
@@ -166,7 +171,7 @@ std.manifestYamlDoc(
             'Vault Files',
           ],
           summary: 'Return the content of a single file in your vault.\n',
-          description: importstr 'lib/descriptions/vault-file-get.md',
+          description: (importstr 'lib/descriptions/vault-file-get.md') + '\n' + GetShared,
           parameters+: [ParamPath],
         },
         put: Put {
@@ -182,7 +187,7 @@ std.manifestYamlDoc(
             'Vault Files',
           ],
           summary: 'Append content to a new or existing file.\n',
-          description: importstr 'lib/descriptions/vault-file-post.md',
+          description: (importstr 'lib/descriptions/vault-file-post.md') + '\n' + PostShared,
           parameters+: [ParamPath],
         },
         patch: Patch {
@@ -190,7 +195,7 @@ std.manifestYamlDoc(
             'Vault Files',
           ],
           summary: 'Partially update content in an existing note.\n',
-          description: 'Inserts content into an existing note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
+          description: PatchDescription('an existing note'),
           parameters+: [ParamPath],
         },
         delete: Delete {
