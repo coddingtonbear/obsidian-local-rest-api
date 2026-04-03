@@ -125,7 +125,7 @@ paths:
       description: |
         Returns the content of the currently active file in Obsidian.
         
-        If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.  See "responses" below for details.
+        # Selecting Sub-parts of your Document
         
         You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
         
@@ -134,6 +134,16 @@ paths:
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
         When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
+        
+        # Retrieving Document Metadata
+        
+        ## Metadata
+        
+        If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.
+        
+        ## Document Map
+        
+        If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
       parameters:
         - description: |
             Type of section to retrieve. When specified, only the content of the
@@ -222,7 +232,7 @@ paths:
         - "Active File"
     patch:
       description: |
-        Inserts content into the currently-open note relative to a heading, block refeerence, or frontmatter field within that document.
+        Inserts content into the currently-open note relative to a heading, block reference, or frontmatter field within that document.
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
         
@@ -448,7 +458,7 @@ paths:
       description: |
         Appends content to the end of the currently-open note.
         
-        If you would like to insert text relative to a particular heading instead of appending to the end of the file, see 'patch'.
+        If you would like to insert text relative to a particular heading, block reference, or frontmatter field instead of appending to the end of the file, see 'patch'.
       parameters: []
       requestBody:
         content:
@@ -654,7 +664,25 @@ paths:
       description: |
         Returns the content of the current periodic note for the specified period.
         
-        You can retrieve a specific section by providing the `Target-Type` and `Target` headers. Set `Target-Type` to `heading`, `block`, or `frontmatter`, and `Target` to the section name. For nested headings, use `Target-Delimiter` (default `::`) to separate levels.
+        # Selecting Sub-parts of your Document
+        
+        You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
+        
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve.
+        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+        
+        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
+        
+        # Retrieving Document Metadata
+        
+        ## Metadata
+        
+        If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.
+        
+        ## Document Map
+        
+        If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
       parameters:
         - description: |
             Type of section to retrieve. When specified, only the content of the
@@ -756,7 +784,7 @@ paths:
         - "Periodic Notes"
     patch:
       description: |
-        Inserts content into the current periodic note for the specified period relative to a heading, block refeerence, or frontmatter field within that document.
+        Inserts content into the current periodic note for the specified period relative to a heading, block reference, or frontmatter field within that document.
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
         
@@ -993,7 +1021,9 @@ paths:
         - "Periodic Notes"
     post:
       description: |
-        Note that this will create the relevant periodic note if necessary.
+        Appends content to the current periodic note for the specified period. Note that this will create the relevant periodic note if necessary.
+        
+        If you would like to insert text relative to a particular heading, block reference, or frontmatter field instead of appending to the end of the file, see 'patch'.
       parameters:
         - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
@@ -1149,7 +1179,25 @@ paths:
       description: |
         Returns the content of the periodic note for the specified period and date.
         
-        You can retrieve a specific section by providing the `Target-Type` and `Target` headers. Set `Target-Type` to `heading`, `block`, or `frontmatter`, and `Target` to the section name. For nested headings, use `Target-Delimiter` (default `::`) to separate levels.
+        # Selecting Sub-parts of your Document
+        
+        You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
+        
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve.
+        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+        
+        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
+        
+        # Retrieving Document Metadata
+        
+        ## Metadata
+        
+        If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.
+        
+        ## Document Map
+        
+        If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
       parameters:
         - description: |
             Type of section to retrieve. When specified, only the content of the
@@ -1269,7 +1317,7 @@ paths:
         - "Periodic Notes"
     patch:
       description: |
-        Inserts content into a periodic note relative to a heading, block refeerence, or frontmatter field within that document.
+        Inserts content into a periodic note for the specified period and date relative to a heading, block reference, or frontmatter field within that document.
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
         
@@ -1524,7 +1572,9 @@ paths:
         - "Periodic Notes"
     post:
       description: |
-        This will create the relevant periodic note if necessary.
+        Appends content to the periodic note for the specified period and date. Note that this will create the relevant periodic note if necessary.
+        
+        If you would like to insert text relative to a particular heading, block reference, or frontmatter field instead of appending to the end of the file, see 'patch'.
       parameters:
         - description: "The year of the date for which you would like to grab a periodic note."
           in: "path"
@@ -1900,9 +1950,7 @@ paths:
       description: |
         Returns the content of the file at the specified path in your vault should the file exist.
         
-        If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.
-        
-        If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist.  See "responses" below for details.
+        # Selecting Sub-parts of your Document
         
         You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
         
@@ -1911,6 +1959,16 @@ paths:
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
         When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
+        
+        # Retrieving Document Metadata
+        
+        ## Metadata
+        
+        If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.
+        
+        ## Document Map
+        
+        If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
       parameters:
         - description: |
             Type of section to retrieve. When specified, only the content of the
@@ -2007,7 +2065,7 @@ paths:
         - "Vault Files"
     patch:
       description: |
-        Inserts content into an existing note relative to a heading, block refeerence, or frontmatter field within that document.
+        Inserts content into an existing note relative to a heading, block reference, or frontmatter field within that document.
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
         
