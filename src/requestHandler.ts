@@ -360,132 +360,167 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    if (!path || path.endsWith("/")) {
-      const files = [
-        ...new Set(
-          this.app.vault
-            .getFiles()
-            .map((e) => e.path)
-            .filter((filename) => filename.startsWith(path))
-            .map((filename) => {
-              const subPath = filename.slice(path.length);
-              if (subPath.indexOf("/") > -1) {
-                return subPath.slice(0, subPath.indexOf("/") + 1);
-              }
-              return subPath;
-            }),
-        ),
-      ];
-      files.sort();
+    // Step 1: Normalize trailing slash
+    const normalizedPath = path.endsWith("/") ? path.slice(0, -1) : path;
 
-      if (files.length === 0) {
+    // Step 2: Exact file match (fast path)
+    let filePath = normalizedPath;
+    let urlTargetType: string | undefined;
+    let urlTarget: string | undefined;
+
+    const exactStat = normalizedPath
+      ? await this.app.vault.adapter.stat(normalizedPath)
+      : null;
+
+    if (!exactStat || exactStat.type !== "file") {
+      // Step 3: Directory listing check
+      const prefix = normalizedPath ? normalizedPath + "/" : "";
+      const hasChildren = this.app.vault
+        .getFiles()
+        .some((f) => f.path.startsWith(prefix));
+
+      if (!normalizedPath || hasChildren) {
+        const files = [
+          ...new Set(
+            this.app.vault
+              .getFiles()
+              .map((e) => e.path)
+              .filter((filename) => filename.startsWith(prefix))
+              .map((filename) => {
+                const subPath = filename.slice(prefix.length);
+                if (subPath.indexOf("/") > -1) {
+                  return subPath.slice(0, subPath.indexOf("/") + 1);
+                }
+                return subPath;
+              }),
+          ),
+        ];
+        files.sort();
+
+        if (files.length === 0) {
+          this.returnCannedResponse(res, { statusCode: 404 });
+          return;
+        }
+
+        res.json({ files: files });
+        return;
+      }
+
+      // Step 4: Walk backward to find file + target
+      const segments = normalizedPath.split("/");
+      let found = false;
+      for (let i = segments.length - 1; i >= 1; i--) {
+        const candidate = segments.slice(0, i).join("/");
+        const candidateStat = await this.app.vault.adapter.stat(candidate);
+        if (candidateStat && candidateStat.type === "file") {
+          const remainder = segments.slice(i);
+          filePath = candidate;
+          urlTargetType = remainder[0];
+          urlTarget =
+            urlTargetType === "heading"
+              ? remainder.slice(1).join("::")
+              : remainder[1];
+          found = true;
+          break;
+        }
+      }
+
+      // Step 5: 404 if nothing found
+      if (!found) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+        return;
+      }
+    }
+
+    const content = await this.app.vault.adapter.readBinary(filePath);
+    const mimeType = mime.lookup(filePath);
+
+    res.set({
+      "Content-Disposition": `attachment; filename="${encodeURI(
+        filePath,
+      ).replace(",", "%2C")}"`,
+      "Content-Type":
+        `${mimeType}` +
+        (mimeType == ContentTypes.markdown ? "; charset=utf-8" : ""),
+    });
+
+    if (req.headers.accept === ContentTypes.olrapiNoteJson) {
+      const file = this.app.vault.getAbstractFileByPath(filePath) as TFile;
+      res.setHeader("Content-Type", ContentTypes.olrapiNoteJson);
+      res.send(
+        JSON.stringify(await this.getFileMetadataObject(file), null, 2),
+      );
+      return;
+    } else if (req.headers.accept === ContentTypes.olrapiDocumentMap) {
+      const file = this.app.vault.getAbstractFileByPath(filePath) as TFile;
+      res.setHeader("Content-Type", ContentTypes.olrapiNoteJson);
+      res.send(
+        JSON.stringify(await this.getDocumentMapObject(file), null, 2),
+      );
+      return;
+    }
+
+    const targetType = urlTargetType ?? req.get("Target-Type");
+    if (targetType) {
+      if (!["heading", "block", "frontmatter"].includes(targetType)) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidTargetTypeHeader,
+        });
+        return;
+      }
+      const rawTarget =
+        urlTargetType !== undefined
+          ? urlTarget ?? ""
+          : decodeURIComponent(req.get("Target") ?? "");
+      if (!rawTarget) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.MissingTargetHeader,
+        });
+        return;
+      }
+
+      const fileContent = Buffer.from(content).toString("utf-8");
+      const documentMap = getDocumentMap(fileContent);
+      const targetDelimiter = req.get("Target-Delimiter") || "::";
+
+      if (targetType === "frontmatter") {
+        const value = documentMap.frontmatter[rawTarget];
+        if (value === undefined) {
+          this.returnCannedResponse(res, { statusCode: 404 });
+          return;
+        }
+        res.setHeader("Content-Type", ContentTypes.json);
+        res.json(value);
+        return;
+      }
+
+      const mapKey =
+        targetType === "heading"
+          ? rawTarget
+            .split(targetDelimiter)
+            .join("\u001f")
+          : rawTarget;
+
+      const entry =
+        targetType === "heading"
+          ? documentMap.heading[mapKey]
+          : documentMap.block[mapKey];
+
+      if (!entry) {
         this.returnCannedResponse(res, { statusCode: 404 });
         return;
       }
 
-      res.json({
-        files: files,
-      });
-    } else {
-      const exists = await this.app.vault.adapter.exists(path);
-      const statResult = exists
-        ? await this.app.vault.adapter.stat(path)
-        : null;
-
-      if (statResult && statResult.type === "file") {
-        const content = await this.app.vault.adapter.readBinary(path);
-        const mimeType = mime.lookup(path);
-
-        res.set({
-          "Content-Disposition": `attachment; filename="${encodeURI(
-            path,
-          ).replace(",", "%2C")}"`,
-          "Content-Type":
-            `${mimeType}` +
-            (mimeType == ContentTypes.markdown ? "; charset=utf-8" : ""),
-        });
-
-        if (req.headers.accept === ContentTypes.olrapiNoteJson) {
-          const file = this.app.vault.getAbstractFileByPath(path) as TFile;
-          res.setHeader("Content-Type", ContentTypes.olrapiNoteJson);
-          res.send(
-            JSON.stringify(await this.getFileMetadataObject(file), null, 2),
-          );
-          return;
-        } else if (req.headers.accept === ContentTypes.olrapiDocumentMap) {
-          const file = this.app.vault.getAbstractFileByPath(path) as TFile;
-          res.setHeader("Content-Type", ContentTypes.olrapiNoteJson);
-          res.send(
-            JSON.stringify(await this.getDocumentMapObject(file), null, 2),
-          );
-          return;
-        }
-
-        const targetType = req.get("Target-Type");
-        if (targetType) {
-          if (!["heading", "block", "frontmatter"].includes(targetType)) {
-            this.returnCannedResponse(res, {
-              errorCode: ErrorCode.InvalidTargetTypeHeader,
-            });
-            return;
-          }
-          const rawTarget = decodeURIComponent(req.get("Target") ?? "");
-          if (!rawTarget) {
-            this.returnCannedResponse(res, {
-              errorCode: ErrorCode.MissingTargetHeader,
-            });
-            return;
-          }
-
-          const fileContent = Buffer.from(content).toString("utf-8");
-          const documentMap = getDocumentMap(fileContent);
-          const targetDelimiter = req.get("Target-Delimiter") || "::";
-
-          if (targetType === "frontmatter") {
-            const value = documentMap.frontmatter[rawTarget];
-            if (value === undefined) {
-              this.returnCannedResponse(res, { statusCode: 404 });
-              return;
-            }
-            res.setHeader("Content-Type", ContentTypes.json);
-            res.json(value);
-            return;
-          }
-
-          const mapKey =
-            targetType === "heading"
-              ? rawTarget
-                .split(targetDelimiter)
-                .join("\u001f")
-              : rawTarget;
-
-          const entry =
-            targetType === "heading"
-              ? documentMap.heading[mapKey]
-              : documentMap.block[mapKey];
-
-          if (!entry) {
-            this.returnCannedResponse(res, { statusCode: 404 });
-            return;
-          }
-
-          const sectionContent = fileContent.substring(
-            entry.content.start,
-            entry.content.end,
-          );
-          res.setHeader("Content-Type", ContentTypes.markdown + "; charset=utf-8");
-          res.send(sectionContent);
-          return;
-        }
-
-        res.send(Buffer.from(content));
-      } else {
-        this.returnCannedResponse(res, {
-          statusCode: 404,
-        });
-        return;
-      }
+      const sectionContent = fileContent.substring(
+        entry.content.start,
+        entry.content.end,
+      );
+      res.setHeader("Content-Type", ContentTypes.markdown + "; charset=utf-8");
+      res.send(sectionContent);
+      return;
     }
+
+    res.send(Buffer.from(content));
   }
 
   async vaultGet(req: express.Request, res: express.Response): Promise<void> {
