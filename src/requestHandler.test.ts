@@ -1082,6 +1082,187 @@ describe("requestHandler", () => {
     test("unauthorized", async () => {
       await request(server).get("/tags/").expect(401);
     });
+  })
+
+    
+  describe("URL-embedded targets", () => {
+    const markdown = [
+      "---",
+      "title: Test Doc",
+      "---",
+      "# Heading1",
+      "Content under heading1",
+      "## SubHeading",
+      "Sub content",
+      "# Heading2",
+      "Content under heading2",
+      "",
+    ].join("\n");
+
+    function setFileContent(content: string): void {
+      app.vault._read = content;
+      app.vault.adapter._read = content;
+      const buf = new ArrayBuffer(content.length);
+      const view = new Uint8Array(buf);
+      for (let i = 0; i < content.length; i++) {
+        view[i] = content.charCodeAt(i);
+      }
+      app.vault.adapter._readBinary = buf;
+    }
+
+    beforeEach(() => {
+      // Only return a valid stat for the bare file path so that the
+      // walk-backward resolver correctly identifies "somefile.md" as the
+      // file and the remaining URL segments as the target.
+      app.vault.adapter._statForPath = "somefile.md";
+      setFileContent(markdown);
+    });
+
+    describe("GET", () => {
+      test("heading via URL segments returns section content", async () => {
+        const result = await request(server)
+          .get("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(200);
+
+        expect(result.text).toEqual("Content under heading2\n");
+      });
+
+      test("nested heading via URL segments", async () => {
+        const result = await request(server)
+          .get("/vault/somefile.md/heading/Heading1/SubHeading")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(200);
+
+        expect(result.text).toEqual("Sub content\n");
+      });
+
+      test("frontmatter via URL segments returns JSON value", async () => {
+        const result = await request(server)
+          .get("/vault/somefile.md/frontmatter/title")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(200);
+
+        expect(result.body).toEqual("Test Doc");
+      });
+
+      test("URL target + Target-Type header returns 422", async () => {
+        await request(server)
+          .get("/vault/somefile.md/heading/Heading1")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Target-Type", "heading")
+          .expect(422);
+      });
+
+      test("URL target + Target header returns 422", async () => {
+        await request(server)
+          .get("/vault/somefile.md/heading/Heading1")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Target", "Heading1")
+          .expect(422);
+      });
+
+      test("non-existent file in URL path returns 404", async () => {
+        app.vault.adapter._exists = false;
+
+        await request(server)
+          .get("/vault/somefile.md/heading/Heading1")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(404);
+      });
+    });
+
+    describe("PUT", () => {
+      test("replaces section content via URL target", async () => {
+        const result = await request(server)
+          .put("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("Replaced content\n")
+          .expect(200);
+
+        expect(result.text).toContain("Replaced content");
+        expect(result.text).not.toContain("Content under heading2");
+      });
+
+      test("URL target + Target-Type header returns 422", async () => {
+        await request(server)
+          .put("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Target-Type", "heading")
+          .send("content")
+          .expect(422);
+      });
+    });
+
+    describe("POST", () => {
+      test("appends to section via URL target", async () => {
+        const result = await request(server)
+          .post("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("Appended content\n")
+          .expect(200);
+
+        expect(result.text).toContain("Content under heading2");
+        expect(result.text).toContain("Appended content");
+      });
+
+      test("URL target + Target header returns 422", async () => {
+        await request(server)
+          .post("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Target", "Heading2")
+          .send("content")
+          .expect(422);
+      });
+    });
+
+    describe("PATCH", () => {
+      test("replaces section via URL target with Operation header", async () => {
+        const result = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Operation", "replace")
+          .send("Patched content\n")
+          .expect(200);
+
+        expect(result.text).toContain("Patched content");
+        expect(result.text).not.toContain("Content under heading2");
+      });
+
+      test("URL target + Target-Type header returns 422", async () => {
+        await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Operation", "replace")
+          .set("Target-Type", "heading")
+          .send("content")
+          .expect(422);
+      });
+
+      test("missing Operation header returns 400", async () => {
+        await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("content")
+          .expect(400);
+      });
+    });
+
+    describe("DELETE", () => {
+      test("targeted DELETE returns 405", async () => {
+        await request(server)
+          .delete("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(405);
+      });
+    });
   });
 
   describe("commandGet", () => {
