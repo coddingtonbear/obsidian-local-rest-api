@@ -8,12 +8,14 @@ You can retrieve a specific section of the note by providing the `Target-Type` a
 
 When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
 
-For vault file routes, you can also embed the target type and target directly in the URL path after the filename instead of using headers. The segment immediately following the filename is the target type, and the remaining segments form the target:
+You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
 
-- `/vault/notes/daily.md/heading/My%20Section` is equivalent to requesting `/vault/notes/daily.md` with `Target-Type: heading` and `Target: My%20Section`.
-- For nested headings, add additional path segments: `/vault/notes/daily.md/heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
-- `/vault/notes/daily.md/frontmatter/tags` retrieves the `tags` frontmatter field.
-- `/vault/notes/daily.md/block/abc123` retrieves the block with reference ID `abc123`.
+- `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
+- For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
+- `.../frontmatter/tags` retrieves the `tags` frontmatter field.
+- `.../block/abc123` retrieves the block with reference ID `abc123`.
+
+For example, `GET /vault/notes/daily.md/heading/Work/Meetings` returns the content of the "Meetings" subsection under "Work" in `notes/daily.md`, and `GET /periodic/daily/frontmatter/tags` returns the `tags` field from today's daily note.
 
 When URL-embedded values are present they take priority over the corresponding headers.
 

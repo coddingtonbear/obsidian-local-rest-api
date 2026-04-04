@@ -1021,7 +1021,10 @@ export default class RequestHandler {
       return;
     }
 
-    return this.redirectToVaultPath(file, req, res, this._vaultGet.bind(this));
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    const path = file.path + (suffix ? "/" + suffix : "");
+    res.set("Content-Location", encodeURI(file.path));
+    return this._vaultGet(path, req, res);
   }
 
   async periodicPut(
@@ -1117,7 +1120,10 @@ export default class RequestHandler {
       return;
     }
 
-    return this.redirectToVaultPath(file, req, res, this._vaultGet.bind(this));
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    const path = file.path + (suffix ? "/" + suffix : "");
+    res.set("Content-Location", encodeURI(file.path));
+    return this._vaultGet(path, req, res);
   }
 
   async activeFilePut(
@@ -1558,7 +1564,7 @@ export default class RequestHandler {
     this.api.use(bodyParser.raw({ type: "*/*", limit: MaximumRequestSize }));
 
     this.api
-      .route("/active/")
+      .route("/active/*")
       .get(this.activeFileGet.bind(this))
       .put(this.activeFilePut.bind(this))
       .patch(this.activeFilePatch.bind(this))
@@ -1574,14 +1580,14 @@ export default class RequestHandler {
       .delete(this.vaultDelete.bind(this));
 
     this.api
-      .route("/periodic/:period/")
+      .route("/periodic/:period/*")
       .get(this.periodicGet.bind(this))
       .put(this.periodicPut.bind(this))
       .patch(this.periodicPatch.bind(this))
       .post(this.periodicPost.bind(this))
       .delete(this.periodicDelete.bind(this));
     this.api
-      .route("/periodic/:period/:year/:month/:day/")
+      .route("/periodic/:period/:year/:month/:day/*")
       .get(this.periodicGet.bind(this))
       .put(this.periodicPut.bind(this))
       .patch(this.periodicPatch.bind(this))
