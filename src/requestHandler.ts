@@ -406,30 +406,15 @@ export default class RequestHandler {
         return;
       }
 
-      // Step 4: Walk backward to find file + target
-      const segments = normalizedPath.split("/");
-      let found = false;
-      for (let i = segments.length - 1; i >= 1; i--) {
-        const candidate = segments.slice(0, i).join("/");
-        const candidateStat = await this.app.vault.adapter.stat(candidate);
-        if (candidateStat && candidateStat.type === "file") {
-          const remainder = segments.slice(i);
-          filePath = candidate;
-          urlTargetType = remainder[0];
-          urlTarget =
-            urlTargetType === "heading"
-              ? remainder.slice(1).join("::")
-              : remainder[1];
-          found = true;
-          break;
-        }
-      }
-
-      // Step 5: 404 if nothing found
-      if (!found) {
+      // Steps 4-5: Walk backward to find file + target (404 if nothing found)
+      const resolved = await this._resolvePathAndTarget(normalizedPath);
+      if (!resolved?.targetType) {
         this.returnCannedResponse(res, { statusCode: 404 });
         return;
       }
+      filePath = resolved.filePath;
+      urlTargetType = resolved.targetType;
+      urlTarget = resolved.target;
     }
 
     const content = await this.app.vault.adapter.readBinary(filePath);
@@ -457,6 +442,13 @@ export default class RequestHandler {
       res.send(
         JSON.stringify(await this.getDocumentMapObject(file), null, 2),
       );
+      return;
+    }
+
+    if (urlTargetType !== undefined && (req.get("Target-Type") || req.get("Target"))) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.ConflictingTargetSpecification,
+      });
       return;
     }
 
@@ -531,6 +523,42 @@ export default class RequestHandler {
     return this._vaultGet(path, req, res);
   }
 
+  /** Resolves a raw path (possibly containing a URL-embedded target) into a
+   *  file path and optional target type + target string.  Returns null when no
+   *  vault file can be found at any prefix of the path. */
+  async _resolvePathAndTarget(rawPath: string): Promise<{
+    filePath: string;
+    targetType?: string;
+    target?: string;
+  } | null> {
+    const normalizedPath = rawPath.endsWith("/") ? rawPath.slice(0, -1) : rawPath;
+    if (!normalizedPath) return null;
+
+    // Exact match
+    const exactStat = await this.app.vault.adapter.stat(normalizedPath);
+    if (exactStat?.type === "file") {
+      return { filePath: normalizedPath };
+    }
+
+    // Walk backward through segments
+    const segments = normalizedPath.split("/");
+    for (let i = segments.length - 1; i >= 1; i--) {
+      const candidate = segments.slice(0, i).join("/");
+      const s = await this.app.vault.adapter.stat(candidate);
+      if (s?.type === "file") {
+        const remainder = segments.slice(i);
+        const targetType = remainder[0];
+        const target =
+          targetType === "heading"
+            ? remainder.slice(1).join("::")
+            : remainder[1];
+        return { filePath: candidate, targetType, target };
+      }
+    }
+
+    return null;
+  }
+
   async _vaultPut(
     filepath: string,
     req: express.Request,
@@ -563,11 +591,28 @@ export default class RequestHandler {
   }
 
   async vaultPut(req: express.Request, res: express.Response): Promise<void> {
-    const path = decodeURIComponent(
+    const rawPath = decodeURIComponent(
       req.path.slice(req.path.indexOf("/", 1) + 1),
     );
-
-    return this._vaultPut(path, req, res);
+    const resolved = await this._resolvePathAndTarget(rawPath);
+    if (resolved?.targetType) {
+      if (req.get("Target-Type") || req.get("Target")) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ConflictingTargetSpecification,
+        });
+        return;
+      }
+      return this._vaultPatchTargeted(
+        resolved.filePath,
+        resolved.targetType,
+        resolved.target ?? "",
+        "replace",
+        req,
+        res,
+        { createTargetIfMissing: true },
+      );
+    }
+    return this._vaultPut(rawPath, req, res);
   }
 
   async _vaultPatchV2(
@@ -772,11 +817,94 @@ export default class RequestHandler {
   }
 
   async vaultPatch(req: express.Request, res: express.Response): Promise<void> {
-    const path = decodeURIComponent(
+    const rawPath = decodeURIComponent(
       req.path.slice(req.path.indexOf("/", 1) + 1),
     );
+    const resolved = await this._resolvePathAndTarget(rawPath);
+    if (resolved?.targetType) {
+      if (req.get("Target-Type") || req.get("Target")) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ConflictingTargetSpecification,
+        });
+        return;
+      }
+      const operation = req.get("Operation");
+      if (!operation) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.MissingOperation });
+        return;
+      }
+      if (!["append", "prepend", "replace"].includes(operation)) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidOperation });
+        return;
+      }
+      return this._vaultPatchTargeted(
+        resolved.filePath,
+        resolved.targetType,
+        resolved.target ?? "",
+        operation as PatchOperation,
+        req,
+        res,
+      );
+    }
+    return this._vaultPatch(rawPath, req, res);
+  }
 
-    return this._vaultPatch(path, req, res);
+  async _vaultPatchTargeted(
+    filePath: string,
+    targetType: string,
+    target: string,
+    operation: PatchOperation,
+    req: express.Request,
+    res: express.Response,
+    extraOpts?: { createTargetIfMissing?: boolean },
+  ): Promise<void> {
+    const contentType = req.get("Content-Type");
+    const createTargetIfMissing =
+      extraOpts?.createTargetIfMissing ??
+      req.get("Create-Target-If-Missing") == "true";
+    const applyIfContentPreexists =
+      req.get("Apply-If-Content-Preexists") == "true";
+    const trimTargetWhitespace = req.get("Trim-Target-Whitespace") == "true";
+    const targetDelimiter = req.get("Target-Delimiter") || "::";
+
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    if (!(file instanceof TFile)) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
+    const fileContents = await this.app.vault.read(file);
+
+    const resolvedTarget =
+      targetType === "heading" ? target.split(targetDelimiter) : target;
+
+    const instruction: PatchInstruction = {
+      operation,
+      targetType: targetType as PatchTargetType,
+      target: resolvedTarget,
+      contentType: contentType as ContentType,
+      content: req.body,
+      applyIfContentPreexists,
+      trimTargetWhitespace,
+      createTargetIfMissing,
+    } as PatchInstruction;
+
+    try {
+      const patched = applyPatch(fileContents, instruction);
+      await this.app.vault.adapter.write(filePath, patched);
+      res.status(200).send(patched);
+    } catch (e) {
+      if (e instanceof PatchFailed) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.PatchFailed,
+          message: (e as PatchFailed).reason,
+        });
+      } else {
+        this.returnCannedResponse(res, {
+          statusCode: 500,
+          message: (e as Error).message,
+        });
+      }
+    }
   }
 
   async _vaultPost(
@@ -822,11 +950,27 @@ export default class RequestHandler {
   }
 
   async vaultPost(req: express.Request, res: express.Response): Promise<void> {
-    const path = decodeURIComponent(
+    const rawPath = decodeURIComponent(
       req.path.slice(req.path.indexOf("/", 1) + 1),
     );
-
-    return this._vaultPost(path, req, res);
+    const resolved = await this._resolvePathAndTarget(rawPath);
+    if (resolved?.targetType) {
+      if (req.get("Target-Type") || req.get("Target")) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ConflictingTargetSpecification,
+        });
+        return;
+      }
+      return this._vaultPatchTargeted(
+        resolved.filePath,
+        resolved.targetType,
+        resolved.target ?? "",
+        "append",
+        req,
+        res,
+      );
+    }
+    return this._vaultPost(rawPath, req, res);
   }
 
   async _vaultDelete(
@@ -856,11 +1000,19 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const path = decodeURIComponent(
+    const rawPath = decodeURIComponent(
       req.path.slice(req.path.indexOf("/", 1) + 1),
     );
-
-    return this._vaultDelete(path, req, res);
+    const resolved = await this._resolvePathAndTarget(rawPath);
+    if (resolved?.targetType) {
+      this.returnCannedResponse(res, {
+        statusCode: 405,
+        message:
+          "Deleting a targeted section via URL is not supported. Use PATCH with Operation: replace and an empty body instead.",
+      });
+      return;
+    }
+    return this._vaultDelete(rawPath, req, res);
   }
 
   getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
@@ -1042,7 +1194,28 @@ export default class RequestHandler {
       });
       return;
     }
-
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+      if (resolved?.targetType) {
+        if (req.get("Target-Type") || req.get("Target")) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.ConflictingTargetSpecification,
+          });
+          return;
+        }
+        res.set("Content-Location", encodeURI(file.path));
+        return this._vaultPatchTargeted(
+          resolved.filePath,
+          resolved.targetType,
+          resolved.target ?? "",
+          "replace",
+          req,
+          res,
+          { createTargetIfMissing: true },
+        );
+      }
+    }
     return this.redirectToVaultPath(file, req, res, this._vaultPut.bind(this));
   }
 
@@ -1061,7 +1234,27 @@ export default class RequestHandler {
       });
       return;
     }
-
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+      if (resolved?.targetType) {
+        if (req.get("Target-Type") || req.get("Target")) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.ConflictingTargetSpecification,
+          });
+          return;
+        }
+        res.set("Content-Location", encodeURI(file.path));
+        return this._vaultPatchTargeted(
+          resolved.filePath,
+          resolved.targetType,
+          resolved.target ?? "",
+          "append",
+          req,
+          res,
+        );
+      }
+    }
     return this.redirectToVaultPath(file, req, res, this._vaultPost.bind(this));
   }
 
@@ -1080,7 +1273,36 @@ export default class RequestHandler {
       });
       return;
     }
-
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+      if (resolved?.targetType) {
+        if (req.get("Target-Type") || req.get("Target")) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.ConflictingTargetSpecification,
+          });
+          return;
+        }
+        const operation = req.get("Operation");
+        if (!operation) {
+          this.returnCannedResponse(res, { errorCode: ErrorCode.MissingOperation });
+          return;
+        }
+        if (!["append", "prepend", "replace"].includes(operation)) {
+          this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidOperation });
+          return;
+        }
+        res.set("Content-Location", encodeURI(file.path));
+        return this._vaultPatchTargeted(
+          resolved.filePath,
+          resolved.targetType,
+          resolved.target ?? "",
+          operation as PatchOperation,
+          req,
+          res,
+        );
+      }
+    }
     return this.redirectToVaultPath(
       file,
       req,
@@ -1101,7 +1323,15 @@ export default class RequestHandler {
       });
       return;
     }
-
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      this.returnCannedResponse(res, {
+        statusCode: 405,
+        message:
+          "Deleting a targeted section via URL is not supported. Use PATCH with Operation: replace and an empty body instead.",
+      });
+      return;
+    }
     return this.redirectToVaultPath(
       file,
       req,
@@ -1135,7 +1365,28 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
-
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+      if (resolved?.targetType) {
+        if (req.get("Target-Type") || req.get("Target")) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.ConflictingTargetSpecification,
+          });
+          return;
+        }
+        res.set("Content-Location", encodeURI(file.path));
+        return this._vaultPatchTargeted(
+          resolved.filePath,
+          resolved.targetType,
+          resolved.target ?? "",
+          "replace",
+          req,
+          res,
+          { createTargetIfMissing: true },
+        );
+      }
+    }
     return this.redirectToVaultPath(file, req, res, this._vaultPut.bind(this));
   }
 
@@ -1148,7 +1399,27 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
-
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+      if (resolved?.targetType) {
+        if (req.get("Target-Type") || req.get("Target")) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.ConflictingTargetSpecification,
+          });
+          return;
+        }
+        res.set("Content-Location", encodeURI(file.path));
+        return this._vaultPatchTargeted(
+          resolved.filePath,
+          resolved.targetType,
+          resolved.target ?? "",
+          "append",
+          req,
+          res,
+        );
+      }
+    }
     return this.redirectToVaultPath(file, req, res, this._vaultPost.bind(this));
   }
 
@@ -1161,7 +1432,36 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
-
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+      if (resolved?.targetType) {
+        if (req.get("Target-Type") || req.get("Target")) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.ConflictingTargetSpecification,
+          });
+          return;
+        }
+        const operation = req.get("Operation");
+        if (!operation) {
+          this.returnCannedResponse(res, { errorCode: ErrorCode.MissingOperation });
+          return;
+        }
+        if (!["append", "prepend", "replace"].includes(operation)) {
+          this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidOperation });
+          return;
+        }
+        res.set("Content-Location", encodeURI(file.path));
+        return this._vaultPatchTargeted(
+          resolved.filePath,
+          resolved.targetType,
+          resolved.target ?? "",
+          operation as PatchOperation,
+          req,
+          res,
+        );
+      }
+    }
     return this.redirectToVaultPath(
       file,
       req,
@@ -1179,7 +1479,15 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
-
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      this.returnCannedResponse(res, {
+        statusCode: 405,
+        message:
+          "Deleting a targeted section via URL is not supported. Use PATCH with Operation: replace and an empty body instead.",
+      });
+      return;
+    }
     return this.redirectToVaultPath(
       file,
       req,
