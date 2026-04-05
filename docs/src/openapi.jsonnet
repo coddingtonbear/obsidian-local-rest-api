@@ -133,6 +133,16 @@ std.manifestYamlDoc(
         apiKeyAuth: [],
       },
     ],
+    tags: [
+      { name: 'Vault Files' },
+      { name: 'Active File' },
+      { name: 'Periodic Notes' },
+      { name: 'Vault Directories' },
+      { name: 'Search' },
+      { name: 'Commands' },
+      { name: 'Open' },
+      { name: 'System' },
+    ],
     paths: {
       '/active/': {
         get: Get {
