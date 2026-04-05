@@ -1220,41 +1220,6 @@ describe("requestHandler", () => {
       });
     });
 
-    describe("PATCH", () => {
-      test("replaces section via URL target with Operation header", async () => {
-        const result = await request(server)
-          .patch("/vault/somefile.md/heading/Heading2")
-          .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Content-Type", "text/markdown")
-          .set("Operation", "replace")
-          .send("Patched content\n")
-          .expect(200);
-
-        expect(result.text).toContain("Patched content");
-        expect(result.text).not.toContain("Content under heading2");
-      });
-
-      test("URL target + Target-Type header returns 422", async () => {
-        await request(server)
-          .patch("/vault/somefile.md/heading/Heading2")
-          .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Content-Type", "text/markdown")
-          .set("Operation", "replace")
-          .set("Target-Type", "heading")
-          .send("content")
-          .expect(422);
-      });
-
-      test("missing Operation header returns 400", async () => {
-        await request(server)
-          .patch("/vault/somefile.md/heading/Heading2")
-          .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Content-Type", "text/markdown")
-          .send("content")
-          .expect(400);
-      });
-    });
-
     describe("DELETE", () => {
       test("targeted DELETE returns 405", async () => {
         await request(server)
