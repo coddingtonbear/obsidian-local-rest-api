@@ -125,26 +125,24 @@ paths:
       description: |
         Returns the content of the currently active file in Obsidian.
         
-        # Selecting Sub-parts of your Document
+        # Targeting a Sub-part of your Document
         
-        You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
+        You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
         - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
+        - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
-        
-        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
         
         You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
         
         - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
         - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
-        - `.../frontmatter/tags` retrieves the `tags` frontmatter field.
-        - `.../block/abc123` retrieves the block with reference ID `abc123`.
-        
-        For example, `GET /vault/notes/daily.md/heading/Work/Meetings` returns the content of the "Meetings" subsection under "Work" in `notes/daily.md`, and `GET /periodic/daily/frontmatter/tags` returns the `tags` field from today's daily note.
+        - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
+        - `.../block/abc123` targets the block with reference ID `abc123`.
         
         When URL-embedded values are present they take priority over the corresponding headers.
+        
+        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
         
         # Retrieving Document Metadata
         
@@ -157,15 +155,13 @@ paths:
         If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
       parameters:
         - description: |
-            Type of section to retrieve. When specified, only the content of the
-            matching section is returned instead of the full file. Must be used
-            together with the `Target` header.
+            Type of sub-document section to target. When specified, the operation
+            applies only to the matching section rather than the whole file. Must
+            be used together with the `Target` header.
             
-            - `heading`: returns the markdown content of the section under the
-              specified heading (use `Target-Delimiter` to specify nested headings).
-            - `block`: returns the markdown content of the specified block reference.
-            - `frontmatter`: returns the value of the specified frontmatter field
-              as JSON.
+            - `heading`: a markdown heading section.
+            - `block`: a block reference.
+            - `frontmatter`: a frontmatter field.
           in: "header"
           name: "Target-Type"
           required: false
@@ -175,21 +171,21 @@ paths:
               - "block"
               - "frontmatter"
             type: "string"
-        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
-          in: "header"
-          name: "Target-Delimiter"
-          required: false
-          schema:
-            default: "::"
-            type: "string"
         - description: |
-            The section to retrieve; required when `Target-Type` is specified.
+            The section to target; required when `Target-Type` is specified.
             This value can be URL-Encoded and *must* be URL-Encoded if it
             includes non-ASCII characters.
           in: "header"
           name: "Target"
           required: false
           schema:
+            type: "string"
+        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
+          in: "header"
+          name: "Target-Delimiter"
+          required: false
+          schema:
+            default: "::"
             type: "string"
       responses:
         "200":
@@ -390,7 +386,14 @@ paths:
               - "prepend"
               - "replace"
             type: "string"
-        - description: "Type of target to patch"
+        - description: |
+            Type of sub-document section to target. When specified, the operation
+            applies only to the matching section rather than the whole file. Must
+            be used together with the `Target` header.
+            
+            - `heading`: a markdown heading section.
+            - `block`: a block reference.
+            - `frontmatter`: a frontmatter field.
           in: "header"
           name: "Target-Type"
           required: true
@@ -400,22 +403,43 @@ paths:
               - "block"
               - "frontmatter"
             type: "string"
-        - description: "Delimiter to use for nested targets (i.e. Headings)"
+        - description: |
+            The section to target; required when `Target-Type` is specified.
+            This value can be URL-Encoded and *must* be URL-Encoded if it
+            includes non-ASCII characters.
+          in: "header"
+          name: "Target"
+          required: true
+          schema:
+            type: "string"
+        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
           in: "header"
           name: "Target-Delimiter"
           required: false
           schema:
             default: "::"
             type: "string"
-        - description: |
-            Target to patch; this value can be URL-Encoded and *must*
-            be URL-Encoded if it includes non-ASCII characters.
+        - description: "If the specified Target does not exist, create it?"
           in: "header"
-          name: "Target"
-          required: true
+          name: "Create-Target-If-Missing"
+          required: false
           schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
             type: "string"
-        - description: "Trim whitespace from Target before applying patch?"
+        - description: "If patch data already exists in Target, apply patch anyway?"
+          in: "header"
+          name: "Apply-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "Trim whitespace from Target content before applying the operation?"
           in: "header"
           name: "Trim-Target-Whitespace"
           required: false
@@ -470,26 +494,35 @@ paths:
       description: |
         Appends content to the end of the currently-open note.
         
-        ## Targeting a Sub-part of the Document
+        # Targeting a Sub-part of your Document
         
-        You can append to a specific section instead of the end of the file by supplying `Target-Type` and `Target` headers (or by embedding the target in the URL path — see the GET endpoint for details on URL-path targeting).
+        You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
         - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the heading name, block reference ID, or frontmatter field name. Percent-encode any non-ASCII characters (e.g. `H%C3%A9llo` for `Héllo`).
-        - For nested headings, use `Target-Delimiter` (default `::`) to separate levels, e.g. `Heading 1::Subheading`.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
+        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+        
+        You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
+        
+        - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
+        - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
+        - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
+        - `.../block/abc123` targets the block with reference ID `abc123`.
+        
+        When URL-embedded values are present they take priority over the corresponding headers.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
         If you need `prepend` or `replace` operations, use `PATCH` instead.
       parameters:
         - description: |
-            Type of section to append to. When specified, content is appended within
-            the matching section instead of at the end of the file. Must be used
-            together with the `Target` header.
+            Type of sub-document section to target. When specified, the operation
+            applies only to the matching section rather than the whole file. Must
+            be used together with the `Target` header.
             
-            - `heading`: appends content below the specified heading.
-            - `block`: appends content after the specified block reference.
-            - `frontmatter`: appends to the value of the specified frontmatter field.
+            - `heading`: a markdown heading section.
+            - `block`: a block reference.
+            - `frontmatter`: a frontmatter field.
           in: "header"
           name: "Target-Type"
           required: false
@@ -500,7 +533,7 @@ paths:
               - "frontmatter"
             type: "string"
         - description: |
-            The section to append to; required when `Target-Type` is specified.
+            The section to target; required when `Target-Type` is specified.
             This value can be URL-Encoded and *must* be URL-Encoded if it
             includes non-ASCII characters.
           in: "header"
@@ -535,7 +568,7 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "Trim whitespace from Target content before applying patch?"
+        - description: "Trim whitespace from Target content before applying the operation?"
           in: "header"
           name: "Trim-Target-Whitespace"
           required: false
@@ -584,24 +617,33 @@ paths:
         - "Active File"
     put:
       description: |
-        ## Targeting a Sub-part of the Document
+        # Targeting a Sub-part of your Document
         
-        You can replace a specific section instead of the full file by supplying `Target-Type` and `Target` headers (or by embedding the target in the URL path — see the GET endpoint for details on URL-path targeting).
+        You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
         - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the heading name, block reference ID, or frontmatter field name. Percent-encode any non-ASCII characters (e.g. `H%C3%A9llo` for `Héllo`).
-        - For nested headings, use `Target-Delimiter` (default `::`) to separate levels, e.g. `Heading 1::Subheading`.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
+        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+        
+        You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
+        
+        - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
+        - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
+        - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
+        - `.../block/abc123` targets the block with reference ID `abc123`.
+        
+        When URL-embedded values are present they take priority over the corresponding headers.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
         - description: |
-            Type of section to replace. When specified, only the matching section is
-            replaced instead of the full file. Must be used together with the
-            `Target` header. The section is created if it does not exist.
+            Type of sub-document section to target. When specified, the operation
+            applies only to the matching section rather than the whole file. Must
+            be used together with the `Target` header.
             
-            - `heading`: replaces the content under the specified heading.
-            - `block`: replaces the specified block reference.
-            - `frontmatter`: replaces the value of the specified frontmatter field.
+            - `heading`: a markdown heading section.
+            - `block`: a block reference.
+            - `frontmatter`: a frontmatter field.
           in: "header"
           name: "Target-Type"
           required: false
@@ -612,7 +654,7 @@ paths:
               - "frontmatter"
             type: "string"
         - description: |
-            The section to replace; required when `Target-Type` is specified.
+            The section to target; required when `Target-Type` is specified.
             This value can be URL-Encoded and *must* be URL-Encoded if it
             includes non-ASCII characters.
           in: "header"
@@ -637,7 +679,7 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "Trim whitespace from Target content before applying patch?"
+        - description: "Trim whitespace from Target content before applying the operation?"
           in: "header"
           name: "Trim-Target-Whitespace"
           required: false
@@ -824,26 +866,24 @@ paths:
       description: |
         Returns the content of the current periodic note for the specified period.
         
-        # Selecting Sub-parts of your Document
+        # Targeting a Sub-part of your Document
         
-        You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
+        You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
         - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
+        - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
-        
-        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
         
         You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
         
         - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
         - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
-        - `.../frontmatter/tags` retrieves the `tags` frontmatter field.
-        - `.../block/abc123` retrieves the block with reference ID `abc123`.
-        
-        For example, `GET /vault/notes/daily.md/heading/Work/Meetings` returns the content of the "Meetings" subsection under "Work" in `notes/daily.md`, and `GET /periodic/daily/frontmatter/tags` returns the `tags` field from today's daily note.
+        - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
+        - `.../block/abc123` targets the block with reference ID `abc123`.
         
         When URL-embedded values are present they take priority over the corresponding headers.
+        
+        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
         
         # Retrieving Document Metadata
         
@@ -869,15 +909,13 @@ paths:
               - "yearly"
             type: "string"
         - description: |
-            Type of section to retrieve. When specified, only the content of the
-            matching section is returned instead of the full file. Must be used
-            together with the `Target` header.
+            Type of sub-document section to target. When specified, the operation
+            applies only to the matching section rather than the whole file. Must
+            be used together with the `Target` header.
             
-            - `heading`: returns the markdown content of the section under the
-              specified heading (use `Target-Delimiter` to specify nested headings).
-            - `block`: returns the markdown content of the specified block reference.
-            - `frontmatter`: returns the value of the specified frontmatter field
-              as JSON.
+            - `heading`: a markdown heading section.
+            - `block`: a block reference.
+            - `frontmatter`: a frontmatter field.
           in: "header"
           name: "Target-Type"
           required: false
@@ -887,21 +925,21 @@ paths:
               - "block"
               - "frontmatter"
             type: "string"
-        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
-          in: "header"
-          name: "Target-Delimiter"
-          required: false
-          schema:
-            default: "::"
-            type: "string"
         - description: |
-            The section to retrieve; required when `Target-Type` is specified.
+            The section to target; required when `Target-Type` is specified.
             This value can be URL-Encoded and *must* be URL-Encoded if it
             includes non-ASCII characters.
           in: "header"
           name: "Target"
           required: false
           schema:
+            type: "string"
+        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
+          in: "header"
+          name: "Target-Delimiter"
+          required: false
+          schema:
+            default: "::"
             type: "string"
       responses:
         "200":
@@ -1102,7 +1140,14 @@ paths:
               - "prepend"
               - "replace"
             type: "string"
-        - description: "Type of target to patch"
+        - description: |
+            Type of sub-document section to target. When specified, the operation
+            applies only to the matching section rather than the whole file. Must
+            be used together with the `Target` header.
+            
+            - `heading`: a markdown heading section.
+            - `block`: a block reference.
+            - `frontmatter`: a frontmatter field.
           in: "header"
           name: "Target-Type"
           required: true
@@ -1112,22 +1157,43 @@ paths:
               - "block"
               - "frontmatter"
             type: "string"
-        - description: "Delimiter to use for nested targets (i.e. Headings)"
+        - description: |
+            The section to target; required when `Target-Type` is specified.
+            This value can be URL-Encoded and *must* be URL-Encoded if it
+            includes non-ASCII characters.
+          in: "header"
+          name: "Target"
+          required: true
+          schema:
+            type: "string"
+        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
           in: "header"
           name: "Target-Delimiter"
           required: false
           schema:
             default: "::"
             type: "string"
-        - description: |
-            Target to patch; this value can be URL-Encoded and *must*
-            be URL-Encoded if it includes non-ASCII characters.
+        - description: "If the specified Target does not exist, create it?"
           in: "header"
-          name: "Target"
-          required: true
+          name: "Create-Target-If-Missing"
+          required: false
           schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
             type: "string"
-        - description: "Trim whitespace from Target before applying patch?"
+        - description: "If patch data already exists in Target, apply patch anyway?"
+          in: "header"
+          name: "Apply-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "Trim whitespace from Target content before applying the operation?"
           in: "header"
           name: "Trim-Target-Whitespace"
           required: false
@@ -1195,26 +1261,35 @@ paths:
       description: |
         Appends content to the current periodic note for the specified period. Note that this will create the relevant periodic note if necessary.
         
-        ## Targeting a Sub-part of the Document
+        # Targeting a Sub-part of your Document
         
-        You can append to a specific section instead of the end of the file by supplying `Target-Type` and `Target` headers (or by embedding the target in the URL path — see the GET endpoint for details on URL-path targeting).
+        You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
         - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the heading name, block reference ID, or frontmatter field name. Percent-encode any non-ASCII characters (e.g. `H%C3%A9llo` for `Héllo`).
-        - For nested headings, use `Target-Delimiter` (default `::`) to separate levels, e.g. `Heading 1::Subheading`.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
+        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+        
+        You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
+        
+        - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
+        - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
+        - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
+        - `.../block/abc123` targets the block with reference ID `abc123`.
+        
+        When URL-embedded values are present they take priority over the corresponding headers.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
         If you need `prepend` or `replace` operations, use `PATCH` instead.
       parameters:
         - description: |
-            Type of section to append to. When specified, content is appended within
-            the matching section instead of at the end of the file. Must be used
-            together with the `Target` header.
+            Type of sub-document section to target. When specified, the operation
+            applies only to the matching section rather than the whole file. Must
+            be used together with the `Target` header.
             
-            - `heading`: appends content below the specified heading.
-            - `block`: appends content after the specified block reference.
-            - `frontmatter`: appends to the value of the specified frontmatter field.
+            - `heading`: a markdown heading section.
+            - `block`: a block reference.
+            - `frontmatter`: a frontmatter field.
           in: "header"
           name: "Target-Type"
           required: false
@@ -1225,7 +1300,7 @@ paths:
               - "frontmatter"
             type: "string"
         - description: |
-            The section to append to; required when `Target-Type` is specified.
+            The section to target; required when `Target-Type` is specified.
             This value can be URL-Encoded and *must* be URL-Encoded if it
             includes non-ASCII characters.
           in: "header"
@@ -1260,7 +1335,7 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "Trim whitespace from Target content before applying patch?"
+        - description: "Trim whitespace from Target content before applying the operation?"
           in: "header"
           name: "Trim-Target-Whitespace"
           required: false
@@ -1322,24 +1397,33 @@ paths:
         - "Periodic Notes"
     put:
       description: |
-        ## Targeting a Sub-part of the Document
+        # Targeting a Sub-part of your Document
         
-        You can replace a specific section instead of the full file by supplying `Target-Type` and `Target` headers (or by embedding the target in the URL path — see the GET endpoint for details on URL-path targeting).
+        You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
         - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the heading name, block reference ID, or frontmatter field name. Percent-encode any non-ASCII characters (e.g. `H%C3%A9llo` for `Héllo`).
-        - For nested headings, use `Target-Delimiter` (default `::`) to separate levels, e.g. `Heading 1::Subheading`.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
+        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+        
+        You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
+        
+        - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
+        - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
+        - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
+        - `.../block/abc123` targets the block with reference ID `abc123`.
+        
+        When URL-embedded values are present they take priority over the corresponding headers.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
         - description: |
-            Type of section to replace. When specified, only the matching section is
-            replaced instead of the full file. Must be used together with the
-            `Target` header. The section is created if it does not exist.
+            Type of sub-document section to target. When specified, the operation
+            applies only to the matching section rather than the whole file. Must
+            be used together with the `Target` header.
             
-            - `heading`: replaces the content under the specified heading.
-            - `block`: replaces the specified block reference.
-            - `frontmatter`: replaces the value of the specified frontmatter field.
+            - `heading`: a markdown heading section.
+            - `block`: a block reference.
+            - `frontmatter`: a frontmatter field.
           in: "header"
           name: "Target-Type"
           required: false
@@ -1350,7 +1434,7 @@ paths:
               - "frontmatter"
             type: "string"
         - description: |
-            The section to replace; required when `Target-Type` is specified.
+            The section to target; required when `Target-Type` is specified.
             This value can be URL-Encoded and *must* be URL-Encoded if it
             includes non-ASCII characters.
           in: "header"
@@ -1375,7 +1459,7 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "Trim whitespace from Target content before applying patch?"
+        - description: "Trim whitespace from Target content before applying the operation?"
           in: "header"
           name: "Trim-Target-Whitespace"
           required: false
@@ -1499,26 +1583,24 @@ paths:
       description: |
         Returns the content of the periodic note for the specified period and date.
         
-        # Selecting Sub-parts of your Document
+        # Targeting a Sub-part of your Document
         
-        You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
+        You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
         - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
+        - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
-        
-        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
         
         You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
         
         - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
         - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
-        - `.../frontmatter/tags` retrieves the `tags` frontmatter field.
-        - `.../block/abc123` retrieves the block with reference ID `abc123`.
-        
-        For example, `GET /vault/notes/daily.md/heading/Work/Meetings` returns the content of the "Meetings" subsection under "Work" in `notes/daily.md`, and `GET /periodic/daily/frontmatter/tags` returns the `tags` field from today's daily note.
+        - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
+        - `.../block/abc123` targets the block with reference ID `abc123`.
         
         When URL-embedded values are present they take priority over the corresponding headers.
+        
+        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
         
         # Retrieving Document Metadata
         
@@ -1562,15 +1644,13 @@ paths:
               - "yearly"
             type: "string"
         - description: |
-            Type of section to retrieve. When specified, only the content of the
-            matching section is returned instead of the full file. Must be used
-            together with the `Target` header.
+            Type of sub-document section to target. When specified, the operation
+            applies only to the matching section rather than the whole file. Must
+            be used together with the `Target` header.
             
-            - `heading`: returns the markdown content of the section under the
-              specified heading (use `Target-Delimiter` to specify nested headings).
-            - `block`: returns the markdown content of the specified block reference.
-            - `frontmatter`: returns the value of the specified frontmatter field
-              as JSON.
+            - `heading`: a markdown heading section.
+            - `block`: a block reference.
+            - `frontmatter`: a frontmatter field.
           in: "header"
           name: "Target-Type"
           required: false
@@ -1580,21 +1660,21 @@ paths:
               - "block"
               - "frontmatter"
             type: "string"
-        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
-          in: "header"
-          name: "Target-Delimiter"
-          required: false
-          schema:
-            default: "::"
-            type: "string"
         - description: |
-            The section to retrieve; required when `Target-Type` is specified.
+            The section to target; required when `Target-Type` is specified.
             This value can be URL-Encoded and *must* be URL-Encoded if it
             includes non-ASCII characters.
           in: "header"
           name: "Target"
           required: false
           schema:
+            type: "string"
+        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
+          in: "header"
+          name: "Target-Delimiter"
+          required: false
+          schema:
+            default: "::"
             type: "string"
       responses:
         "200":
@@ -1795,7 +1875,14 @@ paths:
               - "prepend"
               - "replace"
             type: "string"
-        - description: "Type of target to patch"
+        - description: |
+            Type of sub-document section to target. When specified, the operation
+            applies only to the matching section rather than the whole file. Must
+            be used together with the `Target` header.
+            
+            - `heading`: a markdown heading section.
+            - `block`: a block reference.
+            - `frontmatter`: a frontmatter field.
           in: "header"
           name: "Target-Type"
           required: true
@@ -1805,22 +1892,43 @@ paths:
               - "block"
               - "frontmatter"
             type: "string"
-        - description: "Delimiter to use for nested targets (i.e. Headings)"
+        - description: |
+            The section to target; required when `Target-Type` is specified.
+            This value can be URL-Encoded and *must* be URL-Encoded if it
+            includes non-ASCII characters.
+          in: "header"
+          name: "Target"
+          required: true
+          schema:
+            type: "string"
+        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
           in: "header"
           name: "Target-Delimiter"
           required: false
           schema:
             default: "::"
             type: "string"
-        - description: |
-            Target to patch; this value can be URL-Encoded and *must*
-            be URL-Encoded if it includes non-ASCII characters.
+        - description: "If the specified Target does not exist, create it?"
           in: "header"
-          name: "Target"
-          required: true
+          name: "Create-Target-If-Missing"
+          required: false
           schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
             type: "string"
-        - description: "Trim whitespace from Target before applying patch?"
+        - description: "If patch data already exists in Target, apply patch anyway?"
+          in: "header"
+          name: "Apply-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "Trim whitespace from Target content before applying the operation?"
           in: "header"
           name: "Trim-Target-Whitespace"
           required: false
@@ -1906,26 +2014,35 @@ paths:
       description: |
         Appends content to the periodic note for the specified period and date. Note that this will create the relevant periodic note if necessary.
         
-        ## Targeting a Sub-part of the Document
+        # Targeting a Sub-part of your Document
         
-        You can append to a specific section instead of the end of the file by supplying `Target-Type` and `Target` headers (or by embedding the target in the URL path — see the GET endpoint for details on URL-path targeting).
+        You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
         - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the heading name, block reference ID, or frontmatter field name. Percent-encode any non-ASCII characters (e.g. `H%C3%A9llo` for `Héllo`).
-        - For nested headings, use `Target-Delimiter` (default `::`) to separate levels, e.g. `Heading 1::Subheading`.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
+        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+        
+        You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
+        
+        - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
+        - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
+        - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
+        - `.../block/abc123` targets the block with reference ID `abc123`.
+        
+        When URL-embedded values are present they take priority over the corresponding headers.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
         If you need `prepend` or `replace` operations, use `PATCH` instead.
       parameters:
         - description: |
-            Type of section to append to. When specified, content is appended within
-            the matching section instead of at the end of the file. Must be used
-            together with the `Target` header.
+            Type of sub-document section to target. When specified, the operation
+            applies only to the matching section rather than the whole file. Must
+            be used together with the `Target` header.
             
-            - `heading`: appends content below the specified heading.
-            - `block`: appends content after the specified block reference.
-            - `frontmatter`: appends to the value of the specified frontmatter field.
+            - `heading`: a markdown heading section.
+            - `block`: a block reference.
+            - `frontmatter`: a frontmatter field.
           in: "header"
           name: "Target-Type"
           required: false
@@ -1936,7 +2053,7 @@ paths:
               - "frontmatter"
             type: "string"
         - description: |
-            The section to append to; required when `Target-Type` is specified.
+            The section to target; required when `Target-Type` is specified.
             This value can be URL-Encoded and *must* be URL-Encoded if it
             includes non-ASCII characters.
           in: "header"
@@ -1971,7 +2088,7 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "Trim whitespace from Target content before applying patch?"
+        - description: "Trim whitespace from Target content before applying the operation?"
           in: "header"
           name: "Trim-Target-Whitespace"
           required: false
@@ -2051,24 +2168,33 @@ paths:
         - "Periodic Notes"
     put:
       description: |
-        ## Targeting a Sub-part of the Document
+        # Targeting a Sub-part of your Document
         
-        You can replace a specific section instead of the full file by supplying `Target-Type` and `Target` headers (or by embedding the target in the URL path — see the GET endpoint for details on URL-path targeting).
+        You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
         - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the heading name, block reference ID, or frontmatter field name. Percent-encode any non-ASCII characters (e.g. `H%C3%A9llo` for `Héllo`).
-        - For nested headings, use `Target-Delimiter` (default `::`) to separate levels, e.g. `Heading 1::Subheading`.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
+        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+        
+        You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
+        
+        - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
+        - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
+        - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
+        - `.../block/abc123` targets the block with reference ID `abc123`.
+        
+        When URL-embedded values are present they take priority over the corresponding headers.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
         - description: |
-            Type of section to replace. When specified, only the matching section is
-            replaced instead of the full file. Must be used together with the
-            `Target` header. The section is created if it does not exist.
+            Type of sub-document section to target. When specified, the operation
+            applies only to the matching section rather than the whole file. Must
+            be used together with the `Target` header.
             
-            - `heading`: replaces the content under the specified heading.
-            - `block`: replaces the specified block reference.
-            - `frontmatter`: replaces the value of the specified frontmatter field.
+            - `heading`: a markdown heading section.
+            - `block`: a block reference.
+            - `frontmatter`: a frontmatter field.
           in: "header"
           name: "Target-Type"
           required: false
@@ -2079,7 +2205,7 @@ paths:
               - "frontmatter"
             type: "string"
         - description: |
-            The section to replace; required when `Target-Type` is specified.
+            The section to target; required when `Target-Type` is specified.
             This value can be URL-Encoded and *must* be URL-Encoded if it
             includes non-ASCII characters.
           in: "header"
@@ -2104,7 +2230,7 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "Trim whitespace from Target content before applying patch?"
+        - description: "Trim whitespace from Target content before applying the operation?"
           in: "header"
           name: "Trim-Target-Whitespace"
           required: false
@@ -2467,26 +2593,24 @@ paths:
       description: |
         Returns the content of the file at the specified path in your vault should the file exist.
         
-        # Selecting Sub-parts of your Document
+        # Targeting a Sub-part of your Document
         
-        You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
+        You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
         - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
+        - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
-        
-        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
         
         You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
         
         - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
         - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
-        - `.../frontmatter/tags` retrieves the `tags` frontmatter field.
-        - `.../block/abc123` retrieves the block with reference ID `abc123`.
-        
-        For example, `GET /vault/notes/daily.md/heading/Work/Meetings` returns the content of the "Meetings" subsection under "Work" in `notes/daily.md`, and `GET /periodic/daily/frontmatter/tags` returns the `tags` field from today's daily note.
+        - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
+        - `.../block/abc123` targets the block with reference ID `abc123`.
         
         When URL-embedded values are present they take priority over the corresponding headers.
+        
+        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
         
         # Retrieving Document Metadata
         
@@ -2507,15 +2631,13 @@ paths:
             format: "path"
             type: "string"
         - description: |
-            Type of section to retrieve. When specified, only the content of the
-            matching section is returned instead of the full file. Must be used
-            together with the `Target` header.
+            Type of sub-document section to target. When specified, the operation
+            applies only to the matching section rather than the whole file. Must
+            be used together with the `Target` header.
             
-            - `heading`: returns the markdown content of the section under the
-              specified heading (use `Target-Delimiter` to specify nested headings).
-            - `block`: returns the markdown content of the specified block reference.
-            - `frontmatter`: returns the value of the specified frontmatter field
-              as JSON.
+            - `heading`: a markdown heading section.
+            - `block`: a block reference.
+            - `frontmatter`: a frontmatter field.
           in: "header"
           name: "Target-Type"
           required: false
@@ -2525,21 +2647,21 @@ paths:
               - "block"
               - "frontmatter"
             type: "string"
-        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
-          in: "header"
-          name: "Target-Delimiter"
-          required: false
-          schema:
-            default: "::"
-            type: "string"
         - description: |
-            The section to retrieve; required when `Target-Type` is specified.
+            The section to target; required when `Target-Type` is specified.
             This value can be URL-Encoded and *must* be URL-Encoded if it
             includes non-ASCII characters.
           in: "header"
           name: "Target"
           required: false
           schema:
+            type: "string"
+        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
+          in: "header"
+          name: "Target-Delimiter"
+          required: false
+          schema:
+            default: "::"
             type: "string"
       responses:
         "200":
@@ -2740,7 +2862,14 @@ paths:
               - "prepend"
               - "replace"
             type: "string"
-        - description: "Type of target to patch"
+        - description: |
+            Type of sub-document section to target. When specified, the operation
+            applies only to the matching section rather than the whole file. Must
+            be used together with the `Target` header.
+            
+            - `heading`: a markdown heading section.
+            - `block`: a block reference.
+            - `frontmatter`: a frontmatter field.
           in: "header"
           name: "Target-Type"
           required: true
@@ -2750,22 +2879,43 @@ paths:
               - "block"
               - "frontmatter"
             type: "string"
-        - description: "Delimiter to use for nested targets (i.e. Headings)"
+        - description: |
+            The section to target; required when `Target-Type` is specified.
+            This value can be URL-Encoded and *must* be URL-Encoded if it
+            includes non-ASCII characters.
+          in: "header"
+          name: "Target"
+          required: true
+          schema:
+            type: "string"
+        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
           in: "header"
           name: "Target-Delimiter"
           required: false
           schema:
             default: "::"
             type: "string"
-        - description: |
-            Target to patch; this value can be URL-Encoded and *must*
-            be URL-Encoded if it includes non-ASCII characters.
+        - description: "If the specified Target does not exist, create it?"
           in: "header"
-          name: "Target"
-          required: true
+          name: "Create-Target-If-Missing"
+          required: false
           schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
             type: "string"
-        - description: "Trim whitespace from Target before applying patch?"
+        - description: "If patch data already exists in Target, apply patch anyway?"
+          in: "header"
+          name: "Apply-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "Trim whitespace from Target content before applying the operation?"
           in: "header"
           name: "Trim-Target-Whitespace"
           required: false
@@ -2828,26 +2978,35 @@ paths:
       description: |
         Appends content to the end of an existing note. If the specified file does not yet exist, it will be created as an empty file.
         
-        ## Targeting a Sub-part of the Document
+        # Targeting a Sub-part of your Document
         
-        You can append to a specific section instead of the end of the file by supplying `Target-Type` and `Target` headers (or by embedding the target in the URL path — see the GET endpoint for details on URL-path targeting).
+        You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
         - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the heading name, block reference ID, or frontmatter field name. Percent-encode any non-ASCII characters (e.g. `H%C3%A9llo` for `Héllo`).
-        - For nested headings, use `Target-Delimiter` (default `::`) to separate levels, e.g. `Heading 1::Subheading`.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
+        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+        
+        You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
+        
+        - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
+        - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
+        - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
+        - `.../block/abc123` targets the block with reference ID `abc123`.
+        
+        When URL-embedded values are present they take priority over the corresponding headers.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
         If you need `prepend` or `replace` operations, use `PATCH` instead.
       parameters:
         - description: |
-            Type of section to append to. When specified, content is appended within
-            the matching section instead of at the end of the file. Must be used
-            together with the `Target` header.
+            Type of sub-document section to target. When specified, the operation
+            applies only to the matching section rather than the whole file. Must
+            be used together with the `Target` header.
             
-            - `heading`: appends content below the specified heading.
-            - `block`: appends content after the specified block reference.
-            - `frontmatter`: appends to the value of the specified frontmatter field.
+            - `heading`: a markdown heading section.
+            - `block`: a block reference.
+            - `frontmatter`: a frontmatter field.
           in: "header"
           name: "Target-Type"
           required: false
@@ -2858,7 +3017,7 @@ paths:
               - "frontmatter"
             type: "string"
         - description: |
-            The section to append to; required when `Target-Type` is specified.
+            The section to target; required when `Target-Type` is specified.
             This value can be URL-Encoded and *must* be URL-Encoded if it
             includes non-ASCII characters.
           in: "header"
@@ -2893,7 +3052,7 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "Trim whitespace from Target content before applying patch?"
+        - description: "Trim whitespace from Target content before applying the operation?"
           in: "header"
           name: "Trim-Target-Whitespace"
           required: false
@@ -2952,24 +3111,33 @@ paths:
       description: |
         Creates a new file in your vault or updates the content of an existing one if the specified file already exists.
         
-        ## Targeting a Sub-part of the Document
+        # Targeting a Sub-part of your Document
         
-        You can replace a specific section instead of the full file by supplying `Target-Type` and `Target` headers (or by embedding the target in the URL path — see the GET endpoint for details on URL-path targeting).
+        You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
         - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the heading name, block reference ID, or frontmatter field name. Percent-encode any non-ASCII characters (e.g. `H%C3%A9llo` for `Héllo`).
-        - For nested headings, use `Target-Delimiter` (default `::`) to separate levels, e.g. `Heading 1::Subheading`.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
+        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+        
+        You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
+        
+        - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
+        - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
+        - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
+        - `.../block/abc123` targets the block with reference ID `abc123`.
+        
+        When URL-embedded values are present they take priority over the corresponding headers.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
         - description: |
-            Type of section to replace. When specified, only the matching section is
-            replaced instead of the full file. Must be used together with the
-            `Target` header. The section is created if it does not exist.
+            Type of sub-document section to target. When specified, the operation
+            applies only to the matching section rather than the whole file. Must
+            be used together with the `Target` header.
             
-            - `heading`: replaces the content under the specified heading.
-            - `block`: replaces the specified block reference.
-            - `frontmatter`: replaces the value of the specified frontmatter field.
+            - `heading`: a markdown heading section.
+            - `block`: a block reference.
+            - `frontmatter`: a frontmatter field.
           in: "header"
           name: "Target-Type"
           required: false
@@ -2980,7 +3148,7 @@ paths:
               - "frontmatter"
             type: "string"
         - description: |
-            The section to replace; required when `Target-Type` is specified.
+            The section to target; required when `Target-Type` is specified.
             This value can be URL-Encoded and *must* be URL-Encoded if it
             includes non-ASCII characters.
           in: "header"
@@ -3005,7 +3173,7 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "Trim whitespace from Target content before applying patch?"
+        - description: "Trim whitespace from Target content before applying the operation?"
           in: "header"
           name: "Trim-Target-Whitespace"
           required: false

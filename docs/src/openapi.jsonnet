@@ -10,9 +10,10 @@ local ParamPath = import 'path.param.jsonnet';
 local ParamPeriod = import 'period.param.jsonnet';
 local ParamYear = import 'year.param.jsonnet';
 
-local GetShared = importstr 'lib/descriptions/get-shared.md';
-local PostShared = importstr 'lib/descriptions/post-shared.md';
-local PutShared = importstr 'lib/descriptions/put-shared.md';
+local TargetingShared = importstr 'lib/descriptions/targeting.md';
+local GetShared = TargetingShared + '\n' + importstr 'lib/descriptions/get-shared.md';
+local PostShared = TargetingShared + '\n' + importstr 'lib/descriptions/post-shared.md';
+local PutShared = TargetingShared + '\n' + importstr 'lib/descriptions/put-shared.md';
 local PatchDescription(fileRef) =
   'Inserts content into ' + fileRef + ' relative to a heading, block reference, or frontmatter field within that document.\n\n' + Patch.description;
 
