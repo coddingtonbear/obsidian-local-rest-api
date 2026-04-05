@@ -88,7 +88,7 @@ referenced by the block reference `2c7cfa`, you could send the following
 headers:
 
 - `Operation`: `append`
-- `TargetType`: `block`
+- `Target-Type`: `block`
 - `Target`: `2c7cfa`
 - `Content-Type`: `application/json`
 - with the request body: `[["Chicago, IL", "16"]]`
@@ -111,7 +111,7 @@ If you wanted to set the frontmatter field `alpha` to `2`, you could
 send the following headers:
 
 - `Operation`: `replace`
-- `TargetType`: `frontmatter`
+- `Target-Type`: `frontmatter`
 - `Target`: `beep`
 - with the request body `2`
 
@@ -123,12 +123,12 @@ if it doesn't already exist.
 You may find using a `Content-Type` of `application/json` to be
 particularly useful in the case of frontmatter since frontmatter
 fields' values are JSON data, and the API can be smarter about
-interpreting yoru `prepend` or `append` requests if you specify
+interpreting your `prepend` or `append` requests if you specify
 your data as JSON (particularly when appending, for example,
 list items).
 
 ## Identifying Patch Targets in a File
 
-You can issue a GET request to `/files/{path}` with an `Accept` header
+You can issue a GET request to `/vault/files/{path}` with an `Accept` header
 of `application/vnd.olrapi.document-map+json` to get a JSON object
 outlining what headings, block references, and frontmatter fields exist.

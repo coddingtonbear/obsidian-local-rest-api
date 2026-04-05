@@ -1,6 +1,6 @@
 Evaluates a provided query against each file in your vault.
 
-This endpoint supports multiple query formats.  Your query should be specified in your request's body, and will be interpreted according to the `Content-type` header you specify from the below options.Additional query formats may be added in the future.
+This endpoint supports multiple query formats.  Your query should be specified in your request's body, and will be interpreted according to the `Content-type` header you specify from the below options. Additional query formats may be added in the future.
 
 # Dataview DQL (`application/vnd.olrapi.dataview.dql+txt`)
 

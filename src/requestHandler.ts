@@ -428,7 +428,15 @@ export default class RequestHandler {
             });
             return;
           }
-          const rawTarget = decodeURIComponent(req.get("Target") ?? "");
+          let rawTarget = ""
+          try {
+            rawTarget = decodeURIComponent(req.get("Target") ?? "");
+          } catch (e) {
+            this.returnCannedResponse(res, {
+              errorCode: ErrorCode.InvalidTargetHeader,
+            });
+            return;
+          }
           if (!rawTarget) {
             this.returnCannedResponse(res, {
               errorCode: ErrorCode.MissingTargetHeader,
