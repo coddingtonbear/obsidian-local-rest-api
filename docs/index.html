@@ -43,6 +43,10 @@
         dom_id: '#swagger-ui',
         deepLinking: true,
         tagsSorter: null,
+        operationsSorter: (a, b) => {
+          const order = ['get', 'post', 'put', 'patch', 'delete'];
+          return order.indexOf(a.get('method')) - order.indexOf(b.get('method'));
+        },
         requestInterceptor: (request) => {
           if(request.url.indexOf('%2F') > -1) {
             request.url = request.url.replaceAll('%2F', '/')
