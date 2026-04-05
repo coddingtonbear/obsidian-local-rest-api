@@ -888,32 +888,6 @@ export default class RequestHandler {
     const rawPath = decodeURIComponent(
       req.path.slice(req.path.indexOf("/", 1) + 1),
     );
-    const resolved = await this._resolvePathAndTarget(rawPath);
-    if (resolved?.targetType) {
-      if (req.get("Target-Type") || req.get("Target")) {
-        this.returnCannedResponse(res, {
-          errorCode: ErrorCode.ConflictingTargetSpecification,
-        });
-        return;
-      }
-      const operation = req.get("Operation");
-      if (!operation) {
-        this.returnCannedResponse(res, { errorCode: ErrorCode.MissingOperation });
-        return;
-      }
-      if (!["append", "prepend", "replace"].includes(operation)) {
-        this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidOperation });
-        return;
-      }
-      return this._vaultPatchTargeted(
-        resolved.filePath,
-        resolved.targetType,
-        resolved.target ?? "",
-        operation as PatchOperation,
-        req,
-        res,
-      );
-    }
     return this._vaultPatch(rawPath, req, res);
   }
 
@@ -1380,36 +1354,6 @@ export default class RequestHandler {
       });
       return;
     }
-    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
-    if (suffix) {
-      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
-      if (resolved?.targetType) {
-        if (req.get("Target-Type") || req.get("Target")) {
-          this.returnCannedResponse(res, {
-            errorCode: ErrorCode.ConflictingTargetSpecification,
-          });
-          return;
-        }
-        const operation = req.get("Operation");
-        if (!operation) {
-          this.returnCannedResponse(res, { errorCode: ErrorCode.MissingOperation });
-          return;
-        }
-        if (!["append", "prepend", "replace"].includes(operation)) {
-          this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidOperation });
-          return;
-        }
-        res.set("Content-Location", encodeURI(file.path));
-        return this._vaultPatchTargeted(
-          resolved.filePath,
-          resolved.targetType,
-          resolved.target ?? "",
-          operation as PatchOperation,
-          req,
-          res,
-        );
-      }
-    }
     return this.redirectToVaultPath(
       file,
       req,
@@ -1565,36 +1509,6 @@ export default class RequestHandler {
     if (!file) {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
-    }
-    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
-    if (suffix) {
-      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
-      if (resolved?.targetType) {
-        if (req.get("Target-Type") || req.get("Target")) {
-          this.returnCannedResponse(res, {
-            errorCode: ErrorCode.ConflictingTargetSpecification,
-          });
-          return;
-        }
-        const operation = req.get("Operation");
-        if (!operation) {
-          this.returnCannedResponse(res, { errorCode: ErrorCode.MissingOperation });
-          return;
-        }
-        if (!["append", "prepend", "replace"].includes(operation)) {
-          this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidOperation });
-          return;
-        }
-        res.set("Content-Location", encodeURI(file.path));
-        return this._vaultPatchTargeted(
-          resolved.filePath,
-          resolved.targetType,
-          resolved.target ?? "",
-          operation as PatchOperation,
-          req,
-          res,
-        );
-      }
     }
     return this.redirectToVaultPath(
       file,
