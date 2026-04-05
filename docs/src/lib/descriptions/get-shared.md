@@ -1,5 +1,3 @@
-When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
-
 # Retrieving Document Metadata
 
 ## Metadata
