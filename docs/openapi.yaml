@@ -130,10 +130,21 @@ paths:
         You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
         
         - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
         When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
+        
+        You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
+        
+        - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
+        - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
+        - `.../frontmatter/tags` retrieves the `tags` frontmatter field.
+        - `.../block/abc123` retrieves the block with reference ID `abc123`.
+        
+        For example, `GET /vault/notes/daily.md/heading/Work/Meetings` returns the content of the "Meetings" subsection under "Work" in `notes/daily.md`, and `GET /periodic/daily/frontmatter/tags` returns the `tags` field from today's daily note.
+        
+        When URL-embedded values are present they take priority over the corresponding headers.
         
         # Retrieving Document Metadata
         
@@ -236,9 +247,10 @@ paths:
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
         
-        Note that this API was changed in Version 3.0 of this extension and the earlier PATCH API is now deprecated. Requests made using the previous version of this API will continue to work until Version 4.0 is released.  See https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0 for more details and migration instructions.
+        > ![note]
+        > Note that this API was changed in Version 3.0 of this extension and the earlier PATCH API is now deprecated. Requests made using the previous version of this API will continue to work until Version 4.0 is released.  See https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0 for more details and migration instructions.
         
-        # Examples
+        # How to Use & Examples
         
         All of the below examples assume you have a document that looks like
         this:
@@ -297,7 +309,7 @@ paths:
         
         - `Operation`: `append`
         - `Target-Type`: `heading`
-        - `Target`: `Heading 1::Subheading 1:1:1`
+        - `Target`: `Heading 1::Subheading 1:1:1` (percent-encode any non-ASCII characters, e.g. `H%C3%A9llo` for `Héllo`)
         - with the request body: `Hello`
         
         The above would work just fine for `prepend` or `replace`, too, of course,
@@ -323,7 +335,7 @@ paths:
         headers:
         
         - `Operation`: `append`
-        - `TargetType`: `block`
+        - `Target-Type`: `block`
         - `Target`: `2c7cfa`
         - `Content-Type`: `application/json`
         - with the request body: `[["Chicago, IL", "16"]]`
@@ -346,7 +358,7 @@ paths:
         send the following headers:
         
         - `Operation`: `replace`
-        - `TargetType`: `frontmatter`
+        - `Target-Type`: `frontmatter`
         - `Target`: `beep`
         - with the request body `2`
         
@@ -358,13 +370,13 @@ paths:
         You may find using a `Content-Type` of `application/json` to be
         particularly useful in the case of frontmatter since frontmatter
         fields' values are JSON data, and the API can be smarter about
-        interpreting yoru `prepend` or `append` requests if you specify
+        interpreting your `prepend` or `append` requests if you specify
         your data as JSON (particularly when appending, for example,
         list items).
         
         ## Identifying Patch Targets in a File
         
-        You can issue a GET request to `/files/{path}` with an `Accept` header
+        You can issue a GET request to `/vault/files/{path}` with an `Accept` header
         of `application/vnd.olrapi.document-map+json` to get a JSON object
         outlining what headings, block references, and frontmatter fields exist.
       parameters:
@@ -669,10 +681,21 @@ paths:
         You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
         
         - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
         When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
+        
+        You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
+        
+        - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
+        - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
+        - `.../frontmatter/tags` retrieves the `tags` frontmatter field.
+        - `.../block/abc123` retrieves the block with reference ID `abc123`.
+        
+        For example, `GET /vault/notes/daily.md/heading/Work/Meetings` returns the content of the "Meetings" subsection under "Work" in `notes/daily.md`, and `GET /periodic/daily/frontmatter/tags` returns the `tags` field from today's daily note.
+        
+        When URL-embedded values are present they take priority over the corresponding headers.
         
         # Retrieving Document Metadata
         
@@ -684,6 +707,19 @@ paths:
         
         If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
       parameters:
+        - description: "The name of the period for which you would like to grab a periodic note."
+          in: "path"
+          name: "period"
+          required: true
+          schema:
+            default: "daily"
+            enum:
+              - "daily"
+              - "weekly"
+              - "monthly"
+              - "quarterly"
+              - "yearly"
+            type: "string"
         - description: |
             Type of section to retrieve. When specified, only the content of the
             matching section is returned instead of the full file. Must be used
@@ -718,19 +754,6 @@ paths:
           name: "Target"
           required: false
           schema:
-            type: "string"
-        - description: "The name of the period for which you would like to grab a periodic note."
-          in: "path"
-          name: "period"
-          required: true
-          schema:
-            default: "daily"
-            enum:
-              - "daily"
-              - "weekly"
-              - "monthly"
-              - "quarterly"
-              - "yearly"
             type: "string"
       responses:
         "200":
@@ -788,9 +811,10 @@ paths:
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
         
-        Note that this API was changed in Version 3.0 of this extension and the earlier PATCH API is now deprecated. Requests made using the previous version of this API will continue to work until Version 4.0 is released.  See https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0 for more details and migration instructions.
+        > ![note]
+        > Note that this API was changed in Version 3.0 of this extension and the earlier PATCH API is now deprecated. Requests made using the previous version of this API will continue to work until Version 4.0 is released.  See https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0 for more details and migration instructions.
         
-        # Examples
+        # How to Use & Examples
         
         All of the below examples assume you have a document that looks like
         this:
@@ -849,7 +873,7 @@ paths:
         
         - `Operation`: `append`
         - `Target-Type`: `heading`
-        - `Target`: `Heading 1::Subheading 1:1:1`
+        - `Target`: `Heading 1::Subheading 1:1:1` (percent-encode any non-ASCII characters, e.g. `H%C3%A9llo` for `Héllo`)
         - with the request body: `Hello`
         
         The above would work just fine for `prepend` or `replace`, too, of course,
@@ -875,7 +899,7 @@ paths:
         headers:
         
         - `Operation`: `append`
-        - `TargetType`: `block`
+        - `Target-Type`: `block`
         - `Target`: `2c7cfa`
         - `Content-Type`: `application/json`
         - with the request body: `[["Chicago, IL", "16"]]`
@@ -898,7 +922,7 @@ paths:
         send the following headers:
         
         - `Operation`: `replace`
-        - `TargetType`: `frontmatter`
+        - `Target-Type`: `frontmatter`
         - `Target`: `beep`
         - with the request body `2`
         
@@ -910,13 +934,13 @@ paths:
         You may find using a `Content-Type` of `application/json` to be
         particularly useful in the case of frontmatter since frontmatter
         fields' values are JSON data, and the API can be smarter about
-        interpreting yoru `prepend` or `append` requests if you specify
+        interpreting your `prepend` or `append` requests if you specify
         your data as JSON (particularly when appending, for example,
         list items).
         
         ## Identifying Patch Targets in a File
         
-        You can issue a GET request to `/files/{path}` with an `Accept` header
+        You can issue a GET request to `/vault/files/{path}` with an `Accept` header
         of `application/vnd.olrapi.document-map+json` to get a JSON object
         outlining what headings, block references, and frontmatter fields exist.
       parameters:
@@ -1184,10 +1208,21 @@ paths:
         You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
         
         - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
         When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
+        
+        You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
+        
+        - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
+        - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
+        - `.../frontmatter/tags` retrieves the `tags` frontmatter field.
+        - `.../block/abc123` retrieves the block with reference ID `abc123`.
+        
+        For example, `GET /vault/notes/daily.md/heading/Work/Meetings` returns the content of the "Meetings" subsection under "Work" in `notes/daily.md`, and `GET /periodic/daily/frontmatter/tags` returns the `tags` field from today's daily note.
+        
+        When URL-embedded values are present they take priority over the corresponding headers.
         
         # Retrieving Document Metadata
         
@@ -1199,6 +1234,37 @@ paths:
         
         If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
       parameters:
+        - description: "The year of the date for which you would like to grab a periodic note."
+          in: "path"
+          name: "year"
+          required: true
+          schema:
+            type: "number"
+        - description: "The month (1-12) of the date for which you would like to grab a periodic note."
+          in: "path"
+          name: "month"
+          required: true
+          schema:
+            type: "number"
+        - description: "The day (1-31) of the date for which you would like to grab a periodic note."
+          in: "path"
+          name: "day"
+          required: true
+          schema:
+            type: "number"
+        - description: "The name of the period for which you would like to grab a periodic note."
+          in: "path"
+          name: "period"
+          required: true
+          schema:
+            default: "daily"
+            enum:
+              - "daily"
+              - "weekly"
+              - "monthly"
+              - "quarterly"
+              - "yearly"
+            type: "string"
         - description: |
             Type of section to retrieve. When specified, only the content of the
             matching section is returned instead of the full file. Must be used
@@ -1233,37 +1299,6 @@ paths:
           name: "Target"
           required: false
           schema:
-            type: "string"
-        - description: "The year of the date for which you would like to grab a periodic note."
-          in: "path"
-          name: "year"
-          required: true
-          schema:
-            type: "number"
-        - description: "The month (1-12) of the date for which you would like to grab a periodic note."
-          in: "path"
-          name: "month"
-          required: true
-          schema:
-            type: "number"
-        - description: "The day (1-31) of the date for which you would like to grab a periodic note."
-          in: "path"
-          name: "day"
-          required: true
-          schema:
-            type: "number"
-        - description: "The name of the period for which you would like to grab a periodic note."
-          in: "path"
-          name: "period"
-          required: true
-          schema:
-            default: "daily"
-            enum:
-              - "daily"
-              - "weekly"
-              - "monthly"
-              - "quarterly"
-              - "yearly"
             type: "string"
       responses:
         "200":
@@ -1321,9 +1356,10 @@ paths:
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
         
-        Note that this API was changed in Version 3.0 of this extension and the earlier PATCH API is now deprecated. Requests made using the previous version of this API will continue to work until Version 4.0 is released.  See https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0 for more details and migration instructions.
+        > ![note]
+        > Note that this API was changed in Version 3.0 of this extension and the earlier PATCH API is now deprecated. Requests made using the previous version of this API will continue to work until Version 4.0 is released.  See https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0 for more details and migration instructions.
         
-        # Examples
+        # How to Use & Examples
         
         All of the below examples assume you have a document that looks like
         this:
@@ -1382,7 +1418,7 @@ paths:
         
         - `Operation`: `append`
         - `Target-Type`: `heading`
-        - `Target`: `Heading 1::Subheading 1:1:1`
+        - `Target`: `Heading 1::Subheading 1:1:1` (percent-encode any non-ASCII characters, e.g. `H%C3%A9llo` for `Héllo`)
         - with the request body: `Hello`
         
         The above would work just fine for `prepend` or `replace`, too, of course,
@@ -1408,7 +1444,7 @@ paths:
         headers:
         
         - `Operation`: `append`
-        - `TargetType`: `block`
+        - `Target-Type`: `block`
         - `Target`: `2c7cfa`
         - `Content-Type`: `application/json`
         - with the request body: `[["Chicago, IL", "16"]]`
@@ -1431,7 +1467,7 @@ paths:
         send the following headers:
         
         - `Operation`: `replace`
-        - `TargetType`: `frontmatter`
+        - `Target-Type`: `frontmatter`
         - `Target`: `beep`
         - with the request body `2`
         
@@ -1443,13 +1479,13 @@ paths:
         You may find using a `Content-Type` of `application/json` to be
         particularly useful in the case of frontmatter since frontmatter
         fields' values are JSON data, and the API can be smarter about
-        interpreting yoru `prepend` or `append` requests if you specify
+        interpreting your `prepend` or `append` requests if you specify
         your data as JSON (particularly when appending, for example,
         list items).
         
         ## Identifying Patch Targets in a File
         
-        You can issue a GET request to `/files/{path}` with an `Accept` header
+        You can issue a GET request to `/vault/files/{path}` with an `Accept` header
         of `application/vnd.olrapi.document-map+json` to get a JSON object
         outlining what headings, block references, and frontmatter fields exist.
       parameters:
@@ -1711,7 +1747,7 @@ paths:
       description: |
         Evaluates a provided query against each file in your vault.
         
-        This endpoint supports multiple query formats.  Your query should be specified in your request's body, and will be interpreted according to the `Content-type` header you specify from the below options.Additional query formats may be added in the future.
+        This endpoint supports multiple query formats.  Your query should be specified in your request's body, and will be interpreted according to the `Content-type` header you specify from the below options. Additional query formats may be added in the future.
         
         # Dataview DQL (`application/vnd.olrapi.dataview.dql+txt`)
         
@@ -1992,10 +2028,21 @@ paths:
         You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
         
         - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
         When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
+        
+        You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
+        
+        - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
+        - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
+        - `.../frontmatter/tags` retrieves the `tags` frontmatter field.
+        - `.../block/abc123` retrieves the block with reference ID `abc123`.
+        
+        For example, `GET /vault/notes/daily.md/heading/Work/Meetings` returns the content of the "Meetings" subsection under "Work" in `notes/daily.md`, and `GET /periodic/daily/frontmatter/tags` returns the `tags` field from today's daily note.
+        
+        When URL-embedded values are present they take priority over the corresponding headers.
         
         # Retrieving Document Metadata
         
@@ -2007,6 +2054,14 @@ paths:
         
         If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
       parameters:
+        - description: |
+            Path to the relevant file (relative to your vault root).
+          in: "path"
+          name: "filename"
+          required: true
+          schema:
+            format: "path"
+            type: "string"
         - description: |
             Type of section to retrieve. When specified, only the content of the
             matching section is returned instead of the full file. Must be used
@@ -2041,14 +2096,6 @@ paths:
           name: "Target"
           required: false
           schema:
-            type: "string"
-        - description: |
-            Path to the relevant file (relative to your vault root).
-          in: "path"
-          name: "filename"
-          required: true
-          schema:
-            format: "path"
             type: "string"
       responses:
         "200":
@@ -2106,9 +2153,10 @@ paths:
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
         
-        Note that this API was changed in Version 3.0 of this extension and the earlier PATCH API is now deprecated. Requests made using the previous version of this API will continue to work until Version 4.0 is released.  See https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0 for more details and migration instructions.
+        > ![note]
+        > Note that this API was changed in Version 3.0 of this extension and the earlier PATCH API is now deprecated. Requests made using the previous version of this API will continue to work until Version 4.0 is released.  See https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0 for more details and migration instructions.
         
-        # Examples
+        # How to Use & Examples
         
         All of the below examples assume you have a document that looks like
         this:
@@ -2167,7 +2215,7 @@ paths:
         
         - `Operation`: `append`
         - `Target-Type`: `heading`
-        - `Target`: `Heading 1::Subheading 1:1:1`
+        - `Target`: `Heading 1::Subheading 1:1:1` (percent-encode any non-ASCII characters, e.g. `H%C3%A9llo` for `Héllo`)
         - with the request body: `Hello`
         
         The above would work just fine for `prepend` or `replace`, too, of course,
@@ -2193,7 +2241,7 @@ paths:
         headers:
         
         - `Operation`: `append`
-        - `TargetType`: `block`
+        - `Target-Type`: `block`
         - `Target`: `2c7cfa`
         - `Content-Type`: `application/json`
         - with the request body: `[["Chicago, IL", "16"]]`
@@ -2216,7 +2264,7 @@ paths:
         send the following headers:
         
         - `Operation`: `replace`
-        - `TargetType`: `frontmatter`
+        - `Target-Type`: `frontmatter`
         - `Target`: `beep`
         - with the request body `2`
         
@@ -2228,13 +2276,13 @@ paths:
         You may find using a `Content-Type` of `application/json` to be
         particularly useful in the case of frontmatter since frontmatter
         fields' values are JSON data, and the API can be smarter about
-        interpreting yoru `prepend` or `append` requests if you specify
+        interpreting your `prepend` or `append` requests if you specify
         your data as JSON (particularly when appending, for example,
         list items).
         
         ## Identifying Patch Targets in a File
         
-        You can issue a GET request to `/files/{path}` with an `Accept` header
+        You can issue a GET request to `/vault/files/{path}` with an `Accept` header
         of `application/vnd.olrapi.document-map+json` to get a JSON object
         outlining what headings, block references, and frontmatter fields exist.
       parameters:

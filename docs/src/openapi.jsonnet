@@ -172,7 +172,7 @@ std.manifestYamlDoc(
           ],
           summary: 'Return the content of a single file in your vault.\n',
           description: (importstr 'lib/descriptions/vault-file-get.md') + '\n' + GetShared,
-          parameters+: [ParamPath],
+          parameters: [ParamPath] + super.parameters,
         },
         put: Put {
           tags: [
@@ -314,7 +314,7 @@ std.manifestYamlDoc(
           ],
           summary: 'Get current periodic note for the specified period.\n',
           description: (importstr 'lib/descriptions/periodic-current-get.md') + '\n' + GetShared,
-          parameters+: [ParamPeriod],
+          parameters: [ParamPeriod] + super.parameters,
         },
         put: Put {
           tags: [
@@ -354,7 +354,7 @@ std.manifestYamlDoc(
           ],
           summary: 'Get the periodic note for the specified period and date.\n',
           description: (importstr 'lib/descriptions/periodic-date-get.md') + '\n' + GetShared,
-          parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
+          parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
         put: Put {
           tags: [
