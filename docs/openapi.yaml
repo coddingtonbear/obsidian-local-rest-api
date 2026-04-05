@@ -142,8 +142,6 @@ paths:
         
         When URL-embedded values are present they take priority over the corresponding headers.
         
-        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
-        
         # Retrieving Document Metadata
         
         ## Metadata
@@ -883,8 +881,6 @@ paths:
         
         When URL-embedded values are present they take priority over the corresponding headers.
         
-        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
-        
         # Retrieving Document Metadata
         
         ## Metadata
@@ -1130,6 +1126,19 @@ paths:
         of `application/vnd.olrapi.document-map+json` to get a JSON object
         outlining what headings, block references, and frontmatter fields exist.
       parameters:
+        - description: "The name of the period for which you would like to grab a periodic note."
+          in: "path"
+          name: "period"
+          required: true
+          schema:
+            default: "daily"
+            enum:
+              - "daily"
+              - "weekly"
+              - "monthly"
+              - "quarterly"
+              - "yearly"
+            type: "string"
         - description: "Patch operation to perform"
           in: "header"
           name: "Operation"
@@ -1203,19 +1212,6 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "The name of the period for which you would like to grab a periodic note."
-          in: "path"
-          name: "period"
-          required: true
-          schema:
-            default: "daily"
-            enum:
-              - "daily"
-              - "weekly"
-              - "monthly"
-              - "quarterly"
-              - "yearly"
-            type: "string"
       requestBody:
         content:
           application/json:
@@ -1282,6 +1278,19 @@ paths:
         
         If you need `prepend` or `replace` operations, use `PATCH` instead.
       parameters:
+        - description: "The name of the period for which you would like to grab a periodic note."
+          in: "path"
+          name: "period"
+          required: true
+          schema:
+            default: "daily"
+            enum:
+              - "daily"
+              - "weekly"
+              - "monthly"
+              - "quarterly"
+              - "yearly"
+            type: "string"
         - description: |
             Type of sub-document section to target. When specified, the operation
             applies only to the matching section rather than the whole file. Must
@@ -1345,19 +1354,6 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "The name of the period for which you would like to grab a periodic note."
-          in: "path"
-          name: "period"
-          required: true
-          schema:
-            default: "daily"
-            enum:
-              - "daily"
-              - "weekly"
-              - "monthly"
-              - "quarterly"
-              - "yearly"
-            type: "string"
       requestBody:
         content:
           text/markdown:
@@ -1416,6 +1412,19 @@ paths:
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
+        - description: "The name of the period for which you would like to grab a periodic note."
+          in: "path"
+          name: "period"
+          required: true
+          schema:
+            default: "daily"
+            enum:
+              - "daily"
+              - "weekly"
+              - "monthly"
+              - "quarterly"
+              - "yearly"
+            type: "string"
         - description: |
             Type of sub-document section to target. When specified, the operation
             applies only to the matching section rather than the whole file. Must
@@ -1468,19 +1477,6 @@ paths:
             enum:
               - "true"
               - "false"
-            type: "string"
-        - description: "The name of the period for which you would like to grab a periodic note."
-          in: "path"
-          name: "period"
-          required: true
-          schema:
-            default: "daily"
-            enum:
-              - "daily"
-              - "weekly"
-              - "monthly"
-              - "quarterly"
-              - "yearly"
             type: "string"
       requestBody:
         content:
@@ -1599,8 +1595,6 @@ paths:
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
         When URL-embedded values are present they take priority over the corresponding headers.
-        
-        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
         
         # Retrieving Document Metadata
         
@@ -1865,6 +1859,37 @@ paths:
         of `application/vnd.olrapi.document-map+json` to get a JSON object
         outlining what headings, block references, and frontmatter fields exist.
       parameters:
+        - description: "The year of the date for which you would like to grab a periodic note."
+          in: "path"
+          name: "year"
+          required: true
+          schema:
+            type: "number"
+        - description: "The month (1-12) of the date for which you would like to grab a periodic note."
+          in: "path"
+          name: "month"
+          required: true
+          schema:
+            type: "number"
+        - description: "The day (1-31) of the date for which you would like to grab a periodic note."
+          in: "path"
+          name: "day"
+          required: true
+          schema:
+            type: "number"
+        - description: "The name of the period for which you would like to grab a periodic note."
+          in: "path"
+          name: "period"
+          required: true
+          schema:
+            default: "daily"
+            enum:
+              - "daily"
+              - "weekly"
+              - "monthly"
+              - "quarterly"
+              - "yearly"
+            type: "string"
         - description: "Patch operation to perform"
           in: "header"
           name: "Operation"
@@ -1938,37 +1963,6 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "The year of the date for which you would like to grab a periodic note."
-          in: "path"
-          name: "year"
-          required: true
-          schema:
-            type: "number"
-        - description: "The month (1-12) of the date for which you would like to grab a periodic note."
-          in: "path"
-          name: "month"
-          required: true
-          schema:
-            type: "number"
-        - description: "The day (1-31) of the date for which you would like to grab a periodic note."
-          in: "path"
-          name: "day"
-          required: true
-          schema:
-            type: "number"
-        - description: "The name of the period for which you would like to grab a periodic note."
-          in: "path"
-          name: "period"
-          required: true
-          schema:
-            default: "daily"
-            enum:
-              - "daily"
-              - "weekly"
-              - "monthly"
-              - "quarterly"
-              - "yearly"
-            type: "string"
       requestBody:
         content:
           application/json:
@@ -2035,6 +2029,37 @@ paths:
         
         If you need `prepend` or `replace` operations, use `PATCH` instead.
       parameters:
+        - description: "The year of the date for which you would like to grab a periodic note."
+          in: "path"
+          name: "year"
+          required: true
+          schema:
+            type: "number"
+        - description: "The month (1-12) of the date for which you would like to grab a periodic note."
+          in: "path"
+          name: "month"
+          required: true
+          schema:
+            type: "number"
+        - description: "The day (1-31) of the date for which you would like to grab a periodic note."
+          in: "path"
+          name: "day"
+          required: true
+          schema:
+            type: "number"
+        - description: "The name of the period for which you would like to grab a periodic note."
+          in: "path"
+          name: "period"
+          required: true
+          schema:
+            default: "daily"
+            enum:
+              - "daily"
+              - "weekly"
+              - "monthly"
+              - "quarterly"
+              - "yearly"
+            type: "string"
         - description: |
             Type of sub-document section to target. When specified, the operation
             applies only to the matching section rather than the whole file. Must
@@ -2098,37 +2123,6 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "The year of the date for which you would like to grab a periodic note."
-          in: "path"
-          name: "year"
-          required: true
-          schema:
-            type: "number"
-        - description: "The month (1-12) of the date for which you would like to grab a periodic note."
-          in: "path"
-          name: "month"
-          required: true
-          schema:
-            type: "number"
-        - description: "The day (1-31) of the date for which you would like to grab a periodic note."
-          in: "path"
-          name: "day"
-          required: true
-          schema:
-            type: "number"
-        - description: "The name of the period for which you would like to grab a periodic note."
-          in: "path"
-          name: "period"
-          required: true
-          schema:
-            default: "daily"
-            enum:
-              - "daily"
-              - "weekly"
-              - "monthly"
-              - "quarterly"
-              - "yearly"
-            type: "string"
       requestBody:
         content:
           text/markdown:
@@ -2187,6 +2181,37 @@ paths:
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
+        - description: "The year of the date for which you would like to grab a periodic note."
+          in: "path"
+          name: "year"
+          required: true
+          schema:
+            type: "number"
+        - description: "The month (1-12) of the date for which you would like to grab a periodic note."
+          in: "path"
+          name: "month"
+          required: true
+          schema:
+            type: "number"
+        - description: "The day (1-31) of the date for which you would like to grab a periodic note."
+          in: "path"
+          name: "day"
+          required: true
+          schema:
+            type: "number"
+        - description: "The name of the period for which you would like to grab a periodic note."
+          in: "path"
+          name: "period"
+          required: true
+          schema:
+            default: "daily"
+            enum:
+              - "daily"
+              - "weekly"
+              - "monthly"
+              - "quarterly"
+              - "yearly"
+            type: "string"
         - description: |
             Type of sub-document section to target. When specified, the operation
             applies only to the matching section rather than the whole file. Must
@@ -2239,37 +2264,6 @@ paths:
             enum:
               - "true"
               - "false"
-            type: "string"
-        - description: "The year of the date for which you would like to grab a periodic note."
-          in: "path"
-          name: "year"
-          required: true
-          schema:
-            type: "number"
-        - description: "The month (1-12) of the date for which you would like to grab a periodic note."
-          in: "path"
-          name: "month"
-          required: true
-          schema:
-            type: "number"
-        - description: "The day (1-31) of the date for which you would like to grab a periodic note."
-          in: "path"
-          name: "day"
-          required: true
-          schema:
-            type: "number"
-        - description: "The name of the period for which you would like to grab a periodic note."
-          in: "path"
-          name: "period"
-          required: true
-          schema:
-            default: "daily"
-            enum:
-              - "daily"
-              - "weekly"
-              - "monthly"
-              - "quarterly"
-              - "yearly"
             type: "string"
       requestBody:
         content:
@@ -2610,8 +2604,6 @@ paths:
         
         When URL-embedded values are present they take priority over the corresponding headers.
         
-        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
-        
         # Retrieving Document Metadata
         
         ## Metadata
@@ -2852,6 +2844,14 @@ paths:
         of `application/vnd.olrapi.document-map+json` to get a JSON object
         outlining what headings, block references, and frontmatter fields exist.
       parameters:
+        - description: |
+            Path to the relevant file (relative to your vault root).
+          in: "path"
+          name: "filename"
+          required: true
+          schema:
+            format: "path"
+            type: "string"
         - description: "Patch operation to perform"
           in: "header"
           name: "Operation"
@@ -2925,14 +2925,6 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: |
-            Path to the relevant file (relative to your vault root).
-          in: "path"
-          name: "filename"
-          required: true
-          schema:
-            format: "path"
-            type: "string"
       requestBody:
         content:
           application/json:
@@ -3000,6 +2992,14 @@ paths:
         If you need `prepend` or `replace` operations, use `PATCH` instead.
       parameters:
         - description: |
+            Path to the relevant file (relative to your vault root).
+          in: "path"
+          name: "filename"
+          required: true
+          schema:
+            format: "path"
+            type: "string"
+        - description: |
             Type of sub-document section to target. When specified, the operation
             applies only to the matching section rather than the whole file. Must
             be used together with the `Target` header.
@@ -3062,14 +3062,6 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: |
-            Path to the relevant file (relative to your vault root).
-          in: "path"
-          name: "filename"
-          required: true
-          schema:
-            format: "path"
-            type: "string"
       requestBody:
         content:
           text/markdown:
@@ -3131,6 +3123,14 @@ paths:
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
         - description: |
+            Path to the relevant file (relative to your vault root).
+          in: "path"
+          name: "filename"
+          required: true
+          schema:
+            format: "path"
+            type: "string"
+        - description: |
             Type of sub-document section to target. When specified, the operation
             applies only to the matching section rather than the whole file. Must
             be used together with the `Target` header.
@@ -3182,14 +3182,6 @@ paths:
             enum:
               - "true"
               - "false"
-            type: "string"
-        - description: |
-            Path to the relevant file (relative to your vault root).
-          in: "path"
-          name: "filename"
-          required: true
-          schema:
-            format: "path"
             type: "string"
       requestBody:
         content:
