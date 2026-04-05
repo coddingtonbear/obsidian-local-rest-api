@@ -567,6 +567,53 @@ export default class RequestHandler {
     return null;
   }
 
+  /** Reads Target-Type / Target headers, validates them, and returns the
+   *  decoded values.  If either header is invalid or missing when the other is
+   *  present, an error response is sent and null is returned.  Returns
+   *  undefined (without touching the response) when neither header is present. */
+  _getHeaderTarget(
+    req: express.Request,
+    res: express.Response,
+  ): { targetType: string; target: string } | null | undefined {
+    const rawTargetType = req.get("Target-Type");
+    const rawTarget = req.get("Target");
+
+    if (!rawTargetType && !rawTarget) {
+      return undefined;
+    }
+
+    if (!rawTargetType) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingTargetTypeHeader,
+      });
+      return null;
+    }
+    if (!["heading", "block", "frontmatter"].includes(rawTargetType)) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidTargetTypeHeader,
+      });
+      return null;
+    }
+
+    let target = "";
+    try {
+      target = decodeURIComponent(rawTarget ?? "");
+    } catch {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidTargetHeader,
+      });
+      return null;
+    }
+    if (!target) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingTargetHeader,
+      });
+      return null;
+    }
+
+    return { targetType: rawTargetType, target };
+  }
+
   async _vaultPut(
     filepath: string,
     req: express.Request,
@@ -614,6 +661,19 @@ export default class RequestHandler {
         resolved.filePath,
         resolved.targetType,
         resolved.target ?? "",
+        "replace",
+        req,
+        res,
+        { createTargetIfMissing: true },
+      );
+    }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      return this._vaultPatchTargeted(
+        rawPath,
+        headerTarget.targetType,
+        headerTarget.target,
         "replace",
         req,
         res,
@@ -978,6 +1038,18 @@ export default class RequestHandler {
         res,
       );
     }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      return this._vaultPatchTargeted(
+        rawPath,
+        headerTarget.targetType,
+        headerTarget.target,
+        "append",
+        req,
+        res,
+      );
+    }
     return this._vaultPost(rawPath, req, res);
   }
 
@@ -1224,6 +1296,20 @@ export default class RequestHandler {
         );
       }
     }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      res.set("Content-Location", encodeURI(file.path));
+      return this._vaultPatchTargeted(
+        file.path,
+        headerTarget.targetType,
+        headerTarget.target,
+        "replace",
+        req,
+        res,
+        { createTargetIfMissing: true },
+      );
+    }
     return this.redirectToVaultPath(file, req, res, this._vaultPut.bind(this));
   }
 
@@ -1262,6 +1348,19 @@ export default class RequestHandler {
           res,
         );
       }
+    }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      res.set("Content-Location", encodeURI(file.path));
+      return this._vaultPatchTargeted(
+        file.path,
+        headerTarget.targetType,
+        headerTarget.target,
+        "append",
+        req,
+        res,
+      );
     }
     return this.redirectToVaultPath(file, req, res, this._vaultPost.bind(this));
   }
@@ -1395,6 +1494,20 @@ export default class RequestHandler {
         );
       }
     }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      res.set("Content-Location", encodeURI(file.path));
+      return this._vaultPatchTargeted(
+        file.path,
+        headerTarget.targetType,
+        headerTarget.target,
+        "replace",
+        req,
+        res,
+        { createTargetIfMissing: true },
+      );
+    }
     return this.redirectToVaultPath(file, req, res, this._vaultPut.bind(this));
   }
 
@@ -1427,6 +1540,19 @@ export default class RequestHandler {
           res,
         );
       }
+    }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      res.set("Content-Location", encodeURI(file.path));
+      return this._vaultPatchTargeted(
+        file.path,
+        headerTarget.targetType,
+        headerTarget.target,
+        "append",
+        req,
+        res,
+      );
     }
     return this.redirectToVaultPath(file, req, res, this._vaultPost.bind(this));
   }

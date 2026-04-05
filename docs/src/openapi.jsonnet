@@ -12,6 +12,7 @@ local ParamYear = import 'year.param.jsonnet';
 
 local GetShared = importstr 'lib/descriptions/get-shared.md';
 local PostShared = importstr 'lib/descriptions/post-shared.md';
+local PutShared = importstr 'lib/descriptions/put-shared.md';
 local PatchDescription(fileRef) =
   'Inserts content into ' + fileRef + ' relative to a heading, block reference, or frontmatter field within that document.\n\n' + Patch.description;
 
@@ -143,6 +144,7 @@ std.manifestYamlDoc(
             'Active File',
           ],
           summary: 'Update the content of the active file open in Obsidian.\n',
+          description: PutShared,
         },
         post: Post {
           tags: [
@@ -179,7 +181,7 @@ std.manifestYamlDoc(
             'Vault Files',
           ],
           summary: 'Create a new file in your vault or update the content of an existing one.\n',
-          description: 'Creates a new file in your vault or updates the content of an existing one if the specified file already exists.\n',
+          description: 'Creates a new file in your vault or updates the content of an existing one if the specified file already exists.\n\n' + PutShared,
           parameters+: [ParamPath],
         },
         post: Post {
@@ -321,6 +323,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Update the content of the current periodic note for the specified period.\n',
+          description: PutShared,
           parameters+: [ParamPeriod],
         },
         post: Post {
@@ -361,6 +364,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Update the content of the periodic note for the specified period and date.\n',
+          description: PutShared,
           parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
         post: Post {
