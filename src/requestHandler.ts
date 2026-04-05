@@ -460,10 +460,18 @@ export default class RequestHandler {
         });
         return;
       }
-      const rawTarget =
-        urlTargetType !== undefined
-          ? urlTarget ?? ""
-          : decodeURIComponent(req.get("Target") ?? "");
+      let rawTarget = "";
+      try {
+        rawTarget =
+          urlTargetType !== undefined
+            ? urlTarget ?? ""
+            : decodeURIComponent(req.get("Target") ?? "");
+      } catch {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidTargetHeader,
+        });
+        return;
+      }
       if (!rawTarget) {
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.MissingTargetHeader,
