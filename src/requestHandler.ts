@@ -428,15 +428,7 @@ export default class RequestHandler {
             });
             return;
           }
-          let rawTarget = ""
-          try {
-            rawTarget = decodeURIComponent(req.get("Target") ?? "");
-          } catch (e) {
-            this.returnCannedResponse(res, {
-              errorCode: ErrorCode.InvalidTargetHeader,
-            });
-            return;
-          }
+          const rawTarget = decodeURIComponent(req.get("Target") ?? "");
           if (!rawTarget) {
             this.returnCannedResponse(res, {
               errorCode: ErrorCode.MissingTargetHeader,
