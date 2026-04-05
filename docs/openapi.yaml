@@ -384,6 +384,36 @@ paths:
               - "prepend"
               - "replace"
             type: "string"
+        - description: "If the specified Target does not exist, create it?"
+          in: "header"
+          name: "Create-Target-If-Missing"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "If patch data already exists in Target, apply patch anyway?"
+          in: "header"
+          name: "Apply-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "Trim whitespace from Target content before applying the operation?"
+          in: "header"
+          name: "Trim-Target-Whitespace"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
         - description: |
             Type of sub-document section to target. When specified, the operation
             applies only to the matching section rather than the whole file. Must
@@ -416,36 +446,6 @@ paths:
           required: false
           schema:
             default: "::"
-            type: "string"
-        - description: "If the specified Target does not exist, create it?"
-          in: "header"
-          name: "Create-Target-If-Missing"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
-          in: "header"
-          name: "Apply-If-Content-Preexists"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "Trim whitespace from Target content before applying the operation?"
-          in: "header"
-          name: "Trim-Target-Whitespace"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
             type: "string"
       requestBody:
         content:
@@ -513,6 +513,36 @@ paths:
         
         If you need `prepend` or `replace` operations, use `PATCH` instead.
       parameters:
+        - description: "If the specified Target does not exist, create it?"
+          in: "header"
+          name: "Create-Target-If-Missing"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "If patch data already exists in Target, apply patch anyway?"
+          in: "header"
+          name: "Apply-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "Trim whitespace from Target content before applying the operation?"
+          in: "header"
+          name: "Trim-Target-Whitespace"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
         - description: |
             Type of sub-document section to target. When specified, the operation
             applies only to the matching section rather than the whole file. Must
@@ -545,36 +575,6 @@ paths:
           required: false
           schema:
             default: "::"
-            type: "string"
-        - description: "If the specified Target does not exist, create it?"
-          in: "header"
-          name: "Create-Target-If-Missing"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
-          in: "header"
-          name: "Apply-If-Content-Preexists"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "Trim whitespace from Target content before applying the operation?"
-          in: "header"
-          name: "Trim-Target-Whitespace"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
             type: "string"
       requestBody:
         content:
@@ -634,6 +634,26 @@ paths:
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
+        - description: "If patch data already exists in Target, apply patch anyway?"
+          in: "header"
+          name: "Apply-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "Trim whitespace from Target content before applying the operation?"
+          in: "header"
+          name: "Trim-Target-Whitespace"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
         - description: |
             Type of sub-document section to target. When specified, the operation
             applies only to the matching section rather than the whole file. Must
@@ -666,26 +686,6 @@ paths:
           required: false
           schema:
             default: "::"
-            type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
-          in: "header"
-          name: "Apply-If-Content-Preexists"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "Trim whitespace from Target content before applying the operation?"
-          in: "header"
-          name: "Trim-Target-Whitespace"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
             type: "string"
       requestBody:
         content:
@@ -1149,6 +1149,36 @@ paths:
               - "prepend"
               - "replace"
             type: "string"
+        - description: "If the specified Target does not exist, create it?"
+          in: "header"
+          name: "Create-Target-If-Missing"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "If patch data already exists in Target, apply patch anyway?"
+          in: "header"
+          name: "Apply-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "Trim whitespace from Target content before applying the operation?"
+          in: "header"
+          name: "Trim-Target-Whitespace"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
         - description: |
             Type of sub-document section to target. When specified, the operation
             applies only to the matching section rather than the whole file. Must
@@ -1181,36 +1211,6 @@ paths:
           required: false
           schema:
             default: "::"
-            type: "string"
-        - description: "If the specified Target does not exist, create it?"
-          in: "header"
-          name: "Create-Target-If-Missing"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
-          in: "header"
-          name: "Apply-If-Content-Preexists"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "Trim whitespace from Target content before applying the operation?"
-          in: "header"
-          name: "Trim-Target-Whitespace"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
             type: "string"
       requestBody:
         content:
@@ -1291,6 +1291,36 @@ paths:
               - "quarterly"
               - "yearly"
             type: "string"
+        - description: "If the specified Target does not exist, create it?"
+          in: "header"
+          name: "Create-Target-If-Missing"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "If patch data already exists in Target, apply patch anyway?"
+          in: "header"
+          name: "Apply-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "Trim whitespace from Target content before applying the operation?"
+          in: "header"
+          name: "Trim-Target-Whitespace"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
         - description: |
             Type of sub-document section to target. When specified, the operation
             applies only to the matching section rather than the whole file. Must
@@ -1323,36 +1353,6 @@ paths:
           required: false
           schema:
             default: "::"
-            type: "string"
-        - description: "If the specified Target does not exist, create it?"
-          in: "header"
-          name: "Create-Target-If-Missing"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
-          in: "header"
-          name: "Apply-If-Content-Preexists"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "Trim whitespace from Target content before applying the operation?"
-          in: "header"
-          name: "Trim-Target-Whitespace"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
             type: "string"
       requestBody:
         content:
@@ -1425,6 +1425,26 @@ paths:
               - "quarterly"
               - "yearly"
             type: "string"
+        - description: "If patch data already exists in Target, apply patch anyway?"
+          in: "header"
+          name: "Apply-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "Trim whitespace from Target content before applying the operation?"
+          in: "header"
+          name: "Trim-Target-Whitespace"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
         - description: |
             Type of sub-document section to target. When specified, the operation
             applies only to the matching section rather than the whole file. Must
@@ -1457,26 +1477,6 @@ paths:
           required: false
           schema:
             default: "::"
-            type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
-          in: "header"
-          name: "Apply-If-Content-Preexists"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "Trim whitespace from Target content before applying the operation?"
-          in: "header"
-          name: "Trim-Target-Whitespace"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
             type: "string"
       requestBody:
         content:
@@ -1900,6 +1900,36 @@ paths:
               - "prepend"
               - "replace"
             type: "string"
+        - description: "If the specified Target does not exist, create it?"
+          in: "header"
+          name: "Create-Target-If-Missing"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "If patch data already exists in Target, apply patch anyway?"
+          in: "header"
+          name: "Apply-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "Trim whitespace from Target content before applying the operation?"
+          in: "header"
+          name: "Trim-Target-Whitespace"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
         - description: |
             Type of sub-document section to target. When specified, the operation
             applies only to the matching section rather than the whole file. Must
@@ -1932,36 +1962,6 @@ paths:
           required: false
           schema:
             default: "::"
-            type: "string"
-        - description: "If the specified Target does not exist, create it?"
-          in: "header"
-          name: "Create-Target-If-Missing"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
-          in: "header"
-          name: "Apply-If-Content-Preexists"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "Trim whitespace from Target content before applying the operation?"
-          in: "header"
-          name: "Trim-Target-Whitespace"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
             type: "string"
       requestBody:
         content:
@@ -2060,6 +2060,36 @@ paths:
               - "quarterly"
               - "yearly"
             type: "string"
+        - description: "If the specified Target does not exist, create it?"
+          in: "header"
+          name: "Create-Target-If-Missing"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "If patch data already exists in Target, apply patch anyway?"
+          in: "header"
+          name: "Apply-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "Trim whitespace from Target content before applying the operation?"
+          in: "header"
+          name: "Trim-Target-Whitespace"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
         - description: |
             Type of sub-document section to target. When specified, the operation
             applies only to the matching section rather than the whole file. Must
@@ -2092,36 +2122,6 @@ paths:
           required: false
           schema:
             default: "::"
-            type: "string"
-        - description: "If the specified Target does not exist, create it?"
-          in: "header"
-          name: "Create-Target-If-Missing"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
-          in: "header"
-          name: "Apply-If-Content-Preexists"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "Trim whitespace from Target content before applying the operation?"
-          in: "header"
-          name: "Trim-Target-Whitespace"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
             type: "string"
       requestBody:
         content:
@@ -2212,6 +2212,26 @@ paths:
               - "quarterly"
               - "yearly"
             type: "string"
+        - description: "If patch data already exists in Target, apply patch anyway?"
+          in: "header"
+          name: "Apply-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "Trim whitespace from Target content before applying the operation?"
+          in: "header"
+          name: "Trim-Target-Whitespace"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
         - description: |
             Type of sub-document section to target. When specified, the operation
             applies only to the matching section rather than the whole file. Must
@@ -2244,26 +2264,6 @@ paths:
           required: false
           schema:
             default: "::"
-            type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
-          in: "header"
-          name: "Apply-If-Content-Preexists"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "Trim whitespace from Target content before applying the operation?"
-          in: "header"
-          name: "Trim-Target-Whitespace"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
             type: "string"
       requestBody:
         content:
@@ -2555,8 +2555,7 @@ paths:
   "/vault/{filename}":
     delete:
       parameters:
-        - description: |
-            Path to the relevant file (relative to your vault root).
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to a sub-part of the document to return; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
           name: "filename"
           required: true
@@ -2614,8 +2613,7 @@ paths:
         
         If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
       parameters:
-        - description: |
-            Path to the relevant file (relative to your vault root).
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to a sub-part of the document to return; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
           name: "filename"
           required: true
@@ -2844,8 +2842,7 @@ paths:
         of `application/vnd.olrapi.document-map+json` to get a JSON object
         outlining what headings, block references, and frontmatter fields exist.
       parameters:
-        - description: |
-            Path to the relevant file (relative to your vault root).
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to a sub-part of the document to return; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
           name: "filename"
           required: true
@@ -2861,6 +2858,36 @@ paths:
               - "append"
               - "prepend"
               - "replace"
+            type: "string"
+        - description: "If the specified Target does not exist, create it?"
+          in: "header"
+          name: "Create-Target-If-Missing"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "If patch data already exists in Target, apply patch anyway?"
+          in: "header"
+          name: "Apply-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "Trim whitespace from Target content before applying the operation?"
+          in: "header"
+          name: "Trim-Target-Whitespace"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
             type: "string"
         - description: |
             Type of sub-document section to target. When specified, the operation
@@ -2894,36 +2921,6 @@ paths:
           required: false
           schema:
             default: "::"
-            type: "string"
-        - description: "If the specified Target does not exist, create it?"
-          in: "header"
-          name: "Create-Target-If-Missing"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
-          in: "header"
-          name: "Apply-If-Content-Preexists"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "Trim whitespace from Target content before applying the operation?"
-          in: "header"
-          name: "Trim-Target-Whitespace"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
             type: "string"
       requestBody:
         content:
@@ -2991,13 +2988,42 @@ paths:
         
         If you need `prepend` or `replace` operations, use `PATCH` instead.
       parameters:
-        - description: |
-            Path to the relevant file (relative to your vault root).
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to a sub-part of the document to return; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
           name: "filename"
           required: true
           schema:
             format: "path"
+            type: "string"
+        - description: "If the specified Target does not exist, create it?"
+          in: "header"
+          name: "Create-Target-If-Missing"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "If patch data already exists in Target, apply patch anyway?"
+          in: "header"
+          name: "Apply-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "Trim whitespace from Target content before applying the operation?"
+          in: "header"
+          name: "Trim-Target-Whitespace"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
             type: "string"
         - description: |
             Type of sub-document section to target. When specified, the operation
@@ -3031,36 +3057,6 @@ paths:
           required: false
           schema:
             default: "::"
-            type: "string"
-        - description: "If the specified Target does not exist, create it?"
-          in: "header"
-          name: "Create-Target-If-Missing"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
-          in: "header"
-          name: "Apply-If-Content-Preexists"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "Trim whitespace from Target content before applying the operation?"
-          in: "header"
-          name: "Trim-Target-Whitespace"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
             type: "string"
       requestBody:
         content:
@@ -3122,13 +3118,32 @@ paths:
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
-        - description: |
-            Path to the relevant file (relative to your vault root).
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to a sub-part of the document to return; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
           name: "filename"
           required: true
           schema:
             format: "path"
+            type: "string"
+        - description: "If patch data already exists in Target, apply patch anyway?"
+          in: "header"
+          name: "Apply-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "Trim whitespace from Target content before applying the operation?"
+          in: "header"
+          name: "Trim-Target-Whitespace"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
             type: "string"
         - description: |
             Type of sub-document section to target. When specified, the operation
@@ -3162,26 +3177,6 @@ paths:
           required: false
           schema:
             default: "::"
-            type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
-          in: "header"
-          name: "Apply-If-Content-Preexists"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "Trim whitespace from Target content before applying the operation?"
-          in: "header"
-          name: "Trim-Target-Whitespace"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
             type: "string"
       requestBody:
         content:

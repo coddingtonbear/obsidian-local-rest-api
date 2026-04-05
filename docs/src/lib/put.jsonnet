@@ -6,11 +6,11 @@ local T = import 'targeting.params.jsonnet';
   ],
   summary: 'Update the content of the active file open in Obsidian.\n',
   parameters: [
+    T.applyIfContentPreexists,
+    T.trimTargetWhitespace,
     T.targetType,
     T.target,
     T.targetDelimiter,
-    T.applyIfContentPreexists,
-    T.trimTargetWhitespace,
   ],
   requestBody: {
     description: 'Content of the file you would like to upload.',

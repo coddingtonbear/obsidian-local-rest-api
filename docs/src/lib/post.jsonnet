@@ -2,12 +2,12 @@ local T = import 'targeting.params.jsonnet';
 
 {
   parameters: [
-    T.targetType,
-    T.target,
-    T.targetDelimiter,
     T.createTargetIfMissing,
     T.applyIfContentPreexists,
     T.trimTargetWhitespace,
+    T.targetType,
+    T.target,
+    T.targetDelimiter,
   ],
   requestBody: {
     description: 'Content you would like to append.',
