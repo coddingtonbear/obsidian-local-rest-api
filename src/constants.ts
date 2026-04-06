@@ -44,6 +44,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.PatchFailed]:
     "The patch you provided could not be applied to the target content.",
   [ErrorCode.InvalidSearch]: "The search query you provided is not valid.",
+  [ErrorCode.ConflictingTargetSpecification]:
+    "Target type/target specified in both URL path and request headers. Use one or the other.",
   [ErrorCode.ErrorPreparingSimpleSearch]:
     "Error encountered while calling Obsidian `prepareSimpleSearch` API.",
 };

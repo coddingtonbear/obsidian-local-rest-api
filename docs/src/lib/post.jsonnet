@@ -1,5 +1,14 @@
+local T = import 'targeting.params.jsonnet';
+
 {
-  parameters: [],
+  parameters: [
+    T.createTargetIfMissing,
+    T.applyIfContentPreexists,
+    T.trimTargetWhitespace,
+    T.targetType,
+    T.target,
+    T.targetDelimiter,
+  ],
   requestBody: {
     description: 'Content you would like to append.',
     required: true,
@@ -13,8 +22,18 @@
     },
   },
   responses: {
+    '200': {
+      description: 'Success; targeted section updated. The full updated file content is returned.',
+      content: {
+        'text/markdown': {
+          schema: {
+            type: 'string',
+          },
+        },
+      },
+    },
     '204': {
-      description: 'Success',
+      description: 'Success; content appended to end of file.',
     },
     '400': {
       description: 'Bad Request',

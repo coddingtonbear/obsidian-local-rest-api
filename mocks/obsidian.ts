@@ -24,12 +24,16 @@ class DataAdapter {
   _writeBinary: [string, ArrayBuffer];
   _remove: [string];
   _stat = new Stat();
+  /** When set, stat() returns _stat only for this exact path and null for all others. */
+  _statForPath?: string;
 
   async exists(path: string): Promise<boolean> {
     return this._exists;
   }
 
-  async stat(path: string): Promise<Stat> {
+  async stat(path: string): Promise<Stat | null> {
+    if (!this._exists) return null;
+    if (this._statForPath !== undefined && path !== this._statForPath) return null;
     return this._stat;
   }
 

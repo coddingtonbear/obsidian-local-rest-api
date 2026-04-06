@@ -360,132 +360,172 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    if (!path || path.endsWith("/")) {
-      const files = [
-        ...new Set(
-          this.app.vault
-            .getFiles()
-            .map((e) => e.path)
-            .filter((filename) => filename.startsWith(path))
-            .map((filename) => {
-              const subPath = filename.slice(path.length);
-              if (subPath.indexOf("/") > -1) {
-                return subPath.slice(0, subPath.indexOf("/") + 1);
-              }
-              return subPath;
-            }),
-        ),
-      ];
-      files.sort();
+    // Step 1: Normalize trailing slash
+    const normalizedPath = path.endsWith("/") ? path.slice(0, -1) : path;
 
-      if (files.length === 0) {
+    // Step 2: Exact file match (fast path)
+    let filePath = normalizedPath;
+    let urlTargetType: string | undefined;
+    let urlTarget: string | undefined;
+
+    let exactStat = null;
+    try {
+      exactStat = normalizedPath
+        ? await this.app.vault.adapter.stat(normalizedPath)
+        : null;
+    } catch {
+      // ENOTDIR: a path segment is a file, not a directory — treat as no match.
+    }
+
+    if (!exactStat || exactStat.type !== "file") {
+      // Step 3: Directory listing check
+      const prefix = normalizedPath ? normalizedPath + "/" : "";
+      const hasChildren = this.app.vault
+        .getFiles()
+        .some((f) => f.path.startsWith(prefix));
+
+      if (!normalizedPath || hasChildren) {
+        const files = [
+          ...new Set(
+            this.app.vault
+              .getFiles()
+              .map((e) => e.path)
+              .filter((filename) => filename.startsWith(prefix))
+              .map((filename) => {
+                const subPath = filename.slice(prefix.length);
+                if (subPath.indexOf("/") > -1) {
+                  return subPath.slice(0, subPath.indexOf("/") + 1);
+                }
+                return subPath;
+              }),
+          ),
+        ];
+        files.sort();
+
+        if (files.length === 0) {
+          this.returnCannedResponse(res, { statusCode: 404 });
+          return;
+        }
+
+        res.json({ files: files });
+        return;
+      }
+
+      // Steps 4-5: Walk backward to find file + target (404 if nothing found)
+      const resolved = await this._resolvePathAndTarget(normalizedPath);
+      if (!resolved?.targetType) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+        return;
+      }
+      filePath = resolved.filePath;
+      urlTargetType = resolved.targetType;
+      urlTarget = resolved.target;
+    }
+
+    const content = await this.app.vault.adapter.readBinary(filePath);
+    const mimeType = mime.lookup(filePath);
+
+    res.set({
+      "Content-Disposition": `attachment; filename="${encodeURI(
+        filePath,
+      ).replace(",", "%2C")}"`,
+      "Content-Type":
+        `${mimeType}` +
+        (mimeType == ContentTypes.markdown ? "; charset=utf-8" : ""),
+    });
+
+    if (req.headers.accept === ContentTypes.olrapiNoteJson) {
+      const file = this.app.vault.getAbstractFileByPath(filePath) as TFile;
+      res.setHeader("Content-Type", ContentTypes.olrapiNoteJson);
+      res.send(
+        JSON.stringify(await this.getFileMetadataObject(file), null, 2),
+      );
+      return;
+    } else if (req.headers.accept === ContentTypes.olrapiDocumentMap) {
+      const file = this.app.vault.getAbstractFileByPath(filePath) as TFile;
+      res.setHeader("Content-Type", ContentTypes.olrapiDocumentMap);
+      res.send(
+        JSON.stringify(await this.getDocumentMapObject(file), null, 2),
+      );
+      return;
+    }
+
+    if (urlTargetType !== undefined && (req.get("Target-Type") || req.get("Target"))) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.ConflictingTargetSpecification,
+      });
+      return;
+    }
+
+    const targetType = urlTargetType ?? req.get("Target-Type");
+    if (targetType) {
+      if (!["heading", "block", "frontmatter"].includes(targetType)) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidTargetTypeHeader,
+        });
+        return;
+      }
+      let rawTarget = "";
+      try {
+        rawTarget =
+          urlTargetType !== undefined
+            ? urlTarget ?? ""
+            : decodeURIComponent(req.get("Target") ?? "");
+      } catch {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidTargetHeader,
+        });
+        return;
+      }
+      if (!rawTarget) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.MissingTargetHeader,
+        });
+        return;
+      }
+
+      const fileContent = Buffer.from(content).toString("utf-8");
+      const documentMap = getDocumentMap(fileContent);
+      const targetDelimiter = req.get("Target-Delimiter") || "::";
+
+      if (targetType === "frontmatter") {
+        const value = documentMap.frontmatter[rawTarget];
+        if (value === undefined) {
+          this.returnCannedResponse(res, { statusCode: 404 });
+          return;
+        }
+        res.setHeader("Content-Type", ContentTypes.json);
+        res.json(value);
+        return;
+      }
+
+      const mapKey =
+        targetType === "heading"
+          ? rawTarget
+            .split(targetDelimiter)
+            .join("\u001f")
+          : rawTarget;
+
+      const entry =
+        targetType === "heading"
+          ? documentMap.heading[mapKey]
+          : documentMap.block[mapKey];
+
+      if (!entry) {
         this.returnCannedResponse(res, { statusCode: 404 });
         return;
       }
 
-      res.json({
-        files: files,
-      });
-    } else {
-      const exists = await this.app.vault.adapter.exists(path);
-      const statResult = exists
-        ? await this.app.vault.adapter.stat(path)
-        : null;
-
-      if (statResult && statResult.type === "file") {
-        const content = await this.app.vault.adapter.readBinary(path);
-        const mimeType = mime.lookup(path);
-
-        res.set({
-          "Content-Disposition": `attachment; filename="${encodeURI(
-            path,
-          ).replace(",", "%2C")}"`,
-          "Content-Type":
-            `${mimeType}` +
-            (mimeType == ContentTypes.markdown ? "; charset=utf-8" : ""),
-        });
-
-        if (req.headers.accept === ContentTypes.olrapiNoteJson) {
-          const file = this.app.vault.getAbstractFileByPath(path) as TFile;
-          res.setHeader("Content-Type", ContentTypes.olrapiNoteJson);
-          res.send(
-            JSON.stringify(await this.getFileMetadataObject(file), null, 2),
-          );
-          return;
-        } else if (req.headers.accept === ContentTypes.olrapiDocumentMap) {
-          const file = this.app.vault.getAbstractFileByPath(path) as TFile;
-          res.setHeader("Content-Type", ContentTypes.olrapiNoteJson);
-          res.send(
-            JSON.stringify(await this.getDocumentMapObject(file), null, 2),
-          );
-          return;
-        }
-
-        const targetType = req.get("Target-Type");
-        if (targetType) {
-          if (!["heading", "block", "frontmatter"].includes(targetType)) {
-            this.returnCannedResponse(res, {
-              errorCode: ErrorCode.InvalidTargetTypeHeader,
-            });
-            return;
-          }
-          const rawTarget = decodeURIComponent(req.get("Target") ?? "");
-          if (!rawTarget) {
-            this.returnCannedResponse(res, {
-              errorCode: ErrorCode.MissingTargetHeader,
-            });
-            return;
-          }
-
-          const fileContent = Buffer.from(content).toString("utf-8");
-          const documentMap = getDocumentMap(fileContent);
-          const targetDelimiter = req.get("Target-Delimiter") || "::";
-
-          if (targetType === "frontmatter") {
-            const value = documentMap.frontmatter[rawTarget];
-            if (value === undefined) {
-              this.returnCannedResponse(res, { statusCode: 404 });
-              return;
-            }
-            res.setHeader("Content-Type", ContentTypes.json);
-            res.json(value);
-            return;
-          }
-
-          const mapKey =
-            targetType === "heading"
-              ? rawTarget
-                .split(targetDelimiter)
-                .join("\u001f")
-              : rawTarget;
-
-          const entry =
-            targetType === "heading"
-              ? documentMap.heading[mapKey]
-              : documentMap.block[mapKey];
-
-          if (!entry) {
-            this.returnCannedResponse(res, { statusCode: 404 });
-            return;
-          }
-
-          const sectionContent = fileContent.substring(
-            entry.content.start,
-            entry.content.end,
-          );
-          res.setHeader("Content-Type", ContentTypes.markdown + "; charset=utf-8");
-          res.send(sectionContent);
-          return;
-        }
-
-        res.send(Buffer.from(content));
-      } else {
-        this.returnCannedResponse(res, {
-          statusCode: 404,
-        });
-        return;
-      }
+      const sectionContent = fileContent.substring(
+        entry.content.start,
+        entry.content.end,
+      );
+      res.setHeader("Content-Type", ContentTypes.markdown + "; charset=utf-8");
+      res.send(sectionContent);
+      return;
     }
+
+    res.send(Buffer.from(content));
   }
 
   async vaultGet(req: express.Request, res: express.Response): Promise<void> {
@@ -494,6 +534,101 @@ export default class RequestHandler {
     );
 
     return this._vaultGet(path, req, res);
+  }
+
+  /** Resolves a raw path (possibly containing a URL-embedded target) into a
+   *  file path and optional target type + target string.  Returns null when no
+   *  vault file can be found at any prefix of the path. */
+  async _resolvePathAndTarget(rawPath: string): Promise<{
+    filePath: string;
+    targetType?: string;
+    target?: string;
+  } | null> {
+    const normalizedPath = rawPath.endsWith("/") ? rawPath.slice(0, -1) : rawPath;
+    if (!normalizedPath) return null;
+
+    // Exact match
+    let exactStat = null;
+    try {
+      exactStat = await this.app.vault.adapter.stat(normalizedPath);
+    } catch {
+      // ENOTDIR (or similar) means a path component is a file, not a directory;
+      // fall through to the backward walk which will find the actual file.
+    }
+    if (exactStat?.type === "file") {
+      return { filePath: normalizedPath };
+    }
+
+    // Walk backward through segments
+    const segments = normalizedPath.split("/");
+    for (let i = segments.length - 1; i >= 1; i--) {
+      const candidate = segments.slice(0, i).join("/");
+      let s = null;
+      try {
+        s = await this.app.vault.adapter.stat(candidate);
+      } catch {
+        // ENOTDIR: a path component is a file; keep walking backward.
+        continue;
+      }
+      if (s?.type === "file") {
+        const remainder = segments.slice(i);
+        const targetType = remainder[0];
+        const target =
+          targetType === "heading"
+            ? remainder.slice(1).join("::")
+            : remainder[1];
+        return { filePath: candidate, targetType, target };
+      }
+    }
+
+    return null;
+  }
+
+  /** Reads Target-Type / Target headers, validates them, and returns the
+   *  decoded values.  If either header is invalid or missing when the other is
+   *  present, an error response is sent and null is returned.  Returns
+   *  undefined (without touching the response) when neither header is present. */
+  _getHeaderTarget(
+    req: express.Request,
+    res: express.Response,
+  ): { targetType: string; target: string } | null | undefined {
+    const rawTargetType = req.get("Target-Type");
+    const rawTarget = req.get("Target");
+
+    if (!rawTargetType && !rawTarget) {
+      return undefined;
+    }
+
+    if (!rawTargetType) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingTargetTypeHeader,
+      });
+      return null;
+    }
+    if (!["heading", "block", "frontmatter"].includes(rawTargetType)) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidTargetTypeHeader,
+      });
+      return null;
+    }
+
+    let target = "";
+    try {
+      target = decodeURIComponent(rawTarget ?? "");
+    } catch {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidTargetHeader,
+      });
+      return null;
+    }
+    if (!target) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingTargetHeader,
+      });
+      return null;
+    }
+
+    return { targetType: rawTargetType, target };
   }
 
   async _vaultPut(
@@ -528,11 +663,50 @@ export default class RequestHandler {
   }
 
   async vaultPut(req: express.Request, res: express.Response): Promise<void> {
-    const path = decodeURIComponent(
+    const rawPath = decodeURIComponent(
       req.path.slice(req.path.indexOf("/", 1) + 1),
     );
-
-    return this._vaultPut(path, req, res);
+    const resolved = await this._resolvePathAndTarget(rawPath);
+    if (resolved === null) {
+      if (
+        rawPath
+          .split("/")
+          .some((s) => ["heading", "block", "frontmatter"].includes(s))
+      ) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+        return;
+      }
+    } else if (resolved.targetType) {
+      if (req.get("Target-Type") || req.get("Target")) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ConflictingTargetSpecification,
+        });
+        return;
+      }
+      return this._vaultPatchTargeted(
+        resolved.filePath,
+        resolved.targetType,
+        resolved.target ?? "",
+        "replace",
+        req,
+        res,
+        { createTargetIfMissing: true },
+      );
+    }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      return this._vaultPatchTargeted(
+        rawPath,
+        headerTarget.targetType,
+        headerTarget.target,
+        "replace",
+        req,
+        res,
+        { createTargetIfMissing: true },
+      );
+    }
+    return this._vaultPut(rawPath, req, res);
   }
 
   async _vaultPatchV2(
@@ -737,11 +911,81 @@ export default class RequestHandler {
   }
 
   async vaultPatch(req: express.Request, res: express.Response): Promise<void> {
-    const path = decodeURIComponent(
+    const rawPath = decodeURIComponent(
       req.path.slice(req.path.indexOf("/", 1) + 1),
     );
+    return this._vaultPatch(rawPath, req, res);
+  }
 
-    return this._vaultPatch(path, req, res);
+  async _vaultPatchTargeted(
+    filePath: string,
+    targetType: string,
+    target: string,
+    operation: PatchOperation,
+    req: express.Request,
+    res: express.Response,
+    extraOpts?: { createTargetIfMissing?: boolean },
+  ): Promise<void> {
+    const contentType = req.get("Content-Type");
+    const createTargetIfMissing =
+      extraOpts?.createTargetIfMissing ??
+      req.get("Create-Target-If-Missing") == "true";
+    const applyIfContentPreexists =
+      req.get("Apply-If-Content-Preexists") == "true";
+    const trimTargetWhitespace = req.get("Trim-Target-Whitespace") == "true";
+    const targetDelimiter = req.get("Target-Delimiter") || "::";
+
+    if (!["heading", "block", "frontmatter"].includes(targetType)) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidTargetTypeHeader,
+      });
+      return;
+    }
+    if (!target) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingTargetHeader,
+      });
+      return;
+    }
+
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    if (!(file instanceof TFile)) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
+    const fileContents = await this.app.vault.read(file);
+
+    const resolvedTarget =
+      targetType === "heading" ? target.split(targetDelimiter) : target;
+
+    const instruction: PatchInstruction = {
+      operation,
+      targetType: targetType as PatchTargetType,
+      target: resolvedTarget,
+      contentType: contentType as ContentType,
+      content: req.body,
+      applyIfContentPreexists,
+      trimTargetWhitespace,
+      createTargetIfMissing,
+    } as PatchInstruction;
+
+    try {
+      const patched = applyPatch(fileContents, instruction);
+      await this.app.vault.adapter.write(filePath, patched);
+      res.status(200).send(patched);
+    } catch (e) {
+      if (e instanceof PatchFailed) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.PatchFailed,
+          message: (e as PatchFailed).reason,
+        });
+      } else {
+        this.returnCannedResponse(res, {
+          statusCode: 500,
+          message: (e as Error).message,
+        });
+      }
+    }
   }
 
   async _vaultPost(
@@ -787,11 +1031,48 @@ export default class RequestHandler {
   }
 
   async vaultPost(req: express.Request, res: express.Response): Promise<void> {
-    const path = decodeURIComponent(
+    const rawPath = decodeURIComponent(
       req.path.slice(req.path.indexOf("/", 1) + 1),
     );
-
-    return this._vaultPost(path, req, res);
+    const resolved = await this._resolvePathAndTarget(rawPath);
+    if (resolved === null) {
+      if (
+        rawPath
+          .split("/")
+          .some((s) => ["heading", "block", "frontmatter"].includes(s))
+      ) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+        return;
+      }
+    } else if (resolved.targetType) {
+      if (req.get("Target-Type") || req.get("Target")) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ConflictingTargetSpecification,
+        });
+        return;
+      }
+      return this._vaultPatchTargeted(
+        resolved.filePath,
+        resolved.targetType,
+        resolved.target ?? "",
+        "append",
+        req,
+        res,
+      );
+    }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      return this._vaultPatchTargeted(
+        rawPath,
+        headerTarget.targetType,
+        headerTarget.target,
+        "append",
+        req,
+        res,
+      );
+    }
+    return this._vaultPost(rawPath, req, res);
   }
 
   async _vaultDelete(
@@ -821,11 +1102,19 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const path = decodeURIComponent(
+    const rawPath = decodeURIComponent(
       req.path.slice(req.path.indexOf("/", 1) + 1),
     );
-
-    return this._vaultDelete(path, req, res);
+    const resolved = await this._resolvePathAndTarget(rawPath);
+    if (resolved?.targetType) {
+      this.returnCannedResponse(res, {
+        statusCode: 405,
+        message:
+          "Deleting a targeted section via URL is not supported. Use PATCH with Operation: replace and an empty body instead.",
+      });
+      return;
+    }
+    return this._vaultDelete(rawPath, req, res);
   }
 
   getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
@@ -986,7 +1275,10 @@ export default class RequestHandler {
       return;
     }
 
-    return this.redirectToVaultPath(file, req, res, this._vaultGet.bind(this));
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    const path = file.path + (suffix ? "/" + suffix : "");
+    res.set("Content-Location", encodeURI(file.path));
+    return this._vaultGet(path, req, res);
   }
 
   async periodicPut(
@@ -1004,7 +1296,42 @@ export default class RequestHandler {
       });
       return;
     }
-
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+      if (resolved?.targetType) {
+        if (req.get("Target-Type") || req.get("Target")) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.ConflictingTargetSpecification,
+          });
+          return;
+        }
+        res.set("Content-Location", encodeURI(file.path));
+        return this._vaultPatchTargeted(
+          resolved.filePath,
+          resolved.targetType,
+          resolved.target ?? "",
+          "replace",
+          req,
+          res,
+          { createTargetIfMissing: true },
+        );
+      }
+    }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      res.set("Content-Location", encodeURI(file.path));
+      return this._vaultPatchTargeted(
+        file.path,
+        headerTarget.targetType,
+        headerTarget.target,
+        "replace",
+        req,
+        res,
+        { createTargetIfMissing: true },
+      );
+    }
     return this.redirectToVaultPath(file, req, res, this._vaultPut.bind(this));
   }
 
@@ -1023,7 +1350,40 @@ export default class RequestHandler {
       });
       return;
     }
-
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+      if (resolved?.targetType) {
+        if (req.get("Target-Type") || req.get("Target")) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.ConflictingTargetSpecification,
+          });
+          return;
+        }
+        res.set("Content-Location", encodeURI(file.path));
+        return this._vaultPatchTargeted(
+          resolved.filePath,
+          resolved.targetType,
+          resolved.target ?? "",
+          "append",
+          req,
+          res,
+        );
+      }
+    }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      res.set("Content-Location", encodeURI(file.path));
+      return this._vaultPatchTargeted(
+        file.path,
+        headerTarget.targetType,
+        headerTarget.target,
+        "append",
+        req,
+        res,
+      );
+    }
     return this.redirectToVaultPath(file, req, res, this._vaultPost.bind(this));
   }
 
@@ -1042,7 +1402,6 @@ export default class RequestHandler {
       });
       return;
     }
-
     return this.redirectToVaultPath(
       file,
       req,
@@ -1063,7 +1422,15 @@ export default class RequestHandler {
       });
       return;
     }
-
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      this.returnCannedResponse(res, {
+        statusCode: 405,
+        message:
+          "Deleting a targeted section via URL is not supported. Use PATCH with Operation: replace and an empty body instead.",
+      });
+      return;
+    }
     return this.redirectToVaultPath(
       file,
       req,
@@ -1082,7 +1449,10 @@ export default class RequestHandler {
       return;
     }
 
-    return this.redirectToVaultPath(file, req, res, this._vaultGet.bind(this));
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    const path = file.path + (suffix ? "/" + suffix : "");
+    res.set("Content-Location", encodeURI(file.path));
+    return this._vaultGet(path, req, res);
   }
 
   async activeFilePut(
@@ -1094,7 +1464,42 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
-
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+      if (resolved?.targetType) {
+        if (req.get("Target-Type") || req.get("Target")) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.ConflictingTargetSpecification,
+          });
+          return;
+        }
+        res.set("Content-Location", encodeURI(file.path));
+        return this._vaultPatchTargeted(
+          resolved.filePath,
+          resolved.targetType,
+          resolved.target ?? "",
+          "replace",
+          req,
+          res,
+          { createTargetIfMissing: true },
+        );
+      }
+    }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      res.set("Content-Location", encodeURI(file.path));
+      return this._vaultPatchTargeted(
+        file.path,
+        headerTarget.targetType,
+        headerTarget.target,
+        "replace",
+        req,
+        res,
+        { createTargetIfMissing: true },
+      );
+    }
     return this.redirectToVaultPath(file, req, res, this._vaultPut.bind(this));
   }
 
@@ -1107,7 +1512,40 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
-
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+      if (resolved?.targetType) {
+        if (req.get("Target-Type") || req.get("Target")) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.ConflictingTargetSpecification,
+          });
+          return;
+        }
+        res.set("Content-Location", encodeURI(file.path));
+        return this._vaultPatchTargeted(
+          resolved.filePath,
+          resolved.targetType,
+          resolved.target ?? "",
+          "append",
+          req,
+          res,
+        );
+      }
+    }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      res.set("Content-Location", encodeURI(file.path));
+      return this._vaultPatchTargeted(
+        file.path,
+        headerTarget.targetType,
+        headerTarget.target,
+        "append",
+        req,
+        res,
+      );
+    }
     return this.redirectToVaultPath(file, req, res, this._vaultPost.bind(this));
   }
 
@@ -1120,7 +1558,6 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
-
     return this.redirectToVaultPath(
       file,
       req,
@@ -1138,7 +1575,15 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
-
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      this.returnCannedResponse(res, {
+        statusCode: 405,
+        message:
+          "Deleting a targeted section via URL is not supported. Use PATCH with Operation: replace and an empty body instead.",
+      });
+      return;
+    }
     return this.redirectToVaultPath(
       file,
       req,
@@ -1523,7 +1968,7 @@ export default class RequestHandler {
     this.api.use(bodyParser.raw({ type: "*/*", limit: MaximumRequestSize }));
 
     this.api
-      .route("/active/")
+      .route("/active/*")
       .get(this.activeFileGet.bind(this))
       .put(this.activeFilePut.bind(this))
       .patch(this.activeFilePatch.bind(this))
@@ -1539,14 +1984,14 @@ export default class RequestHandler {
       .delete(this.vaultDelete.bind(this));
 
     this.api
-      .route("/periodic/:period/")
+      .route("/periodic/:period/*")
       .get(this.periodicGet.bind(this))
       .put(this.periodicPut.bind(this))
       .patch(this.periodicPatch.bind(this))
       .post(this.periodicPost.bind(this))
       .delete(this.periodicDelete.bind(this));
     this.api
-      .route("/periodic/:period/:year/:month/:day/")
+      .route("/periodic/:period/:year/:month/:day/*")
       .get(this.periodicGet.bind(this))
       .put(this.periodicPut.bind(this))
       .patch(this.periodicPatch.bind(this))

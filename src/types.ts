@@ -24,6 +24,7 @@ export enum ErrorCode {
   PeriodDoesNotExist = 40460,
   PeriodicNoteDoesNotExist = 40461,
   RequestMethodValidOnlyForFiles = 40510,
+  ConflictingTargetSpecification = 42200,
   ErrorPreparingSimpleSearch = 50010,
 }
 

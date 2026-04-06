@@ -10,8 +10,10 @@ local ParamPath = import 'path.param.jsonnet';
 local ParamPeriod = import 'period.param.jsonnet';
 local ParamYear = import 'year.param.jsonnet';
 
-local GetShared = importstr 'lib/descriptions/get-shared.md';
-local PostShared = importstr 'lib/descriptions/post-shared.md';
+local TargetingShared = importstr 'lib/descriptions/targeting.md';
+local GetShared = TargetingShared + '\n' + importstr 'lib/descriptions/get-shared.md';
+local PostShared = TargetingShared + '\n' + importstr 'lib/descriptions/post-shared.md';
+local PutShared = TargetingShared + '\n' + importstr 'lib/descriptions/put-shared.md';
 local PatchDescription(fileRef) =
   'Inserts content into ' + fileRef + ' relative to a heading, block reference, or frontmatter field within that document.\n\n' + Patch.description;
 
@@ -131,6 +133,16 @@ std.manifestYamlDoc(
         apiKeyAuth: [],
       },
     ],
+    tags: [
+      { name: 'Vault Files' },
+      { name: 'Active File' },
+      { name: 'Periodic Notes' },
+      { name: 'Vault Directories' },
+      { name: 'Search' },
+      { name: 'Commands' },
+      { name: 'Open' },
+      { name: 'System' },
+    ],
     paths: {
       '/active/': {
         get: Get {
@@ -143,6 +155,7 @@ std.manifestYamlDoc(
             'Active File',
           ],
           summary: 'Update the content of the active file open in Obsidian.\n',
+          description: PutShared,
         },
         post: Post {
           tags: [
@@ -172,15 +185,15 @@ std.manifestYamlDoc(
           ],
           summary: 'Return the content of a single file in your vault.\n',
           description: (importstr 'lib/descriptions/vault-file-get.md') + '\n' + GetShared,
-          parameters+: [ParamPath],
+          parameters: [ParamPath] + super.parameters,
         },
         put: Put {
           tags: [
             'Vault Files',
           ],
           summary: 'Create a new file in your vault or update the content of an existing one.\n',
-          description: 'Creates a new file in your vault or updates the content of an existing one if the specified file already exists.\n',
-          parameters+: [ParamPath],
+          description: 'Creates a new file in your vault or updates the content of an existing one if the specified file already exists.\n\n' + PutShared,
+          parameters: [ParamPath] + super.parameters,
         },
         post: Post {
           tags: [
@@ -188,7 +201,7 @@ std.manifestYamlDoc(
           ],
           summary: 'Append content to a new or existing file.\n',
           description: (importstr 'lib/descriptions/vault-file-post.md') + '\n' + PostShared,
-          parameters+: [ParamPath],
+          parameters: [ParamPath] + super.parameters,
         },
         patch: Patch {
           tags: [
@@ -196,7 +209,7 @@ std.manifestYamlDoc(
           ],
           summary: 'Partially update content in an existing note.\n',
           description: PatchDescription('an existing note'),
-          parameters+: [ParamPath],
+          parameters: [ParamPath] + super.parameters,
         },
         delete: Delete {
           tags: [
@@ -314,14 +327,15 @@ std.manifestYamlDoc(
           ],
           summary: 'Get current periodic note for the specified period.\n',
           description: (importstr 'lib/descriptions/periodic-current-get.md') + '\n' + GetShared,
-          parameters+: [ParamPeriod],
+          parameters: [ParamPeriod] + super.parameters,
         },
         put: Put {
           tags: [
             'Periodic Notes',
           ],
           summary: 'Update the content of the current periodic note for the specified period.\n',
-          parameters+: [ParamPeriod],
+          description: PutShared,
+          parameters: [ParamPeriod] + super.parameters,
         },
         post: Post {
           tags: [
@@ -329,7 +343,7 @@ std.manifestYamlDoc(
           ],
           summary: 'Append content to the current periodic note for the specified period.\n',
           description: (importstr 'lib/descriptions/periodic-current-post.md') + '\n' + PostShared,
-          parameters+: [ParamPeriod],
+          parameters: [ParamPeriod] + super.parameters,
         },
         patch: Patch {
           tags: [
@@ -337,7 +351,7 @@ std.manifestYamlDoc(
           ],
           summary: 'Partially update content in the current periodic note for the specified period.\n',
           description: PatchDescription('the current periodic note for the specified period'),
-          parameters+: [ParamPeriod],
+          parameters: [ParamPeriod] + super.parameters,
         },
         delete: Delete {
           tags: [
@@ -354,14 +368,15 @@ std.manifestYamlDoc(
           ],
           summary: 'Get the periodic note for the specified period and date.\n',
           description: (importstr 'lib/descriptions/periodic-date-get.md') + '\n' + GetShared,
-          parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
+          parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
         put: Put {
           tags: [
             'Periodic Notes',
           ],
           summary: 'Update the content of the periodic note for the specified period and date.\n',
-          parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
+          description: PutShared,
+          parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
         post: Post {
           tags: [
@@ -369,7 +384,7 @@ std.manifestYamlDoc(
           ],
           summary: 'Append content to the periodic note for the specified period and date.\n',
           description: (importstr 'lib/descriptions/periodic-date-post.md') + '\n' + PostShared,
-          parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
+          parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
         patch: Patch {
           tags: [
@@ -377,7 +392,7 @@ std.manifestYamlDoc(
           ],
           summary: 'Partially update content in the periodic note for the specified period and date.\n',
           description: PatchDescription('a periodic note for the specified period and date'),
-          parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
+          parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
         delete: Delete {
           tags: [
