@@ -667,7 +667,16 @@ export default class RequestHandler {
       req.path.slice(req.path.indexOf("/", 1) + 1),
     );
     const resolved = await this._resolvePathAndTarget(rawPath);
-    if (resolved?.targetType) {
+    if (resolved === null) {
+      if (
+        rawPath
+          .split("/")
+          .some((s) => ["heading", "block", "frontmatter"].includes(s))
+      ) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+        return;
+      }
+    } else if (resolved.targetType) {
       if (req.get("Target-Type") || req.get("Target")) {
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.ConflictingTargetSpecification,
@@ -926,6 +935,19 @@ export default class RequestHandler {
     const trimTargetWhitespace = req.get("Trim-Target-Whitespace") == "true";
     const targetDelimiter = req.get("Target-Delimiter") || "::";
 
+    if (!["heading", "block", "frontmatter"].includes(targetType)) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidTargetTypeHeader,
+      });
+      return;
+    }
+    if (!target) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingTargetHeader,
+      });
+      return;
+    }
+
     const file = this.app.vault.getAbstractFileByPath(filePath);
     if (!(file instanceof TFile)) {
       this.returnCannedResponse(res, { statusCode: 404 });
@@ -1013,7 +1035,16 @@ export default class RequestHandler {
       req.path.slice(req.path.indexOf("/", 1) + 1),
     );
     const resolved = await this._resolvePathAndTarget(rawPath);
-    if (resolved?.targetType) {
+    if (resolved === null) {
+      if (
+        rawPath
+          .split("/")
+          .some((s) => ["heading", "block", "frontmatter"].includes(s))
+      ) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+        return;
+      }
+    } else if (resolved.targetType) {
       if (req.get("Target-Type") || req.get("Target")) {
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.ConflictingTargetSpecification,

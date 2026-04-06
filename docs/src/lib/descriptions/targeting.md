@@ -13,4 +13,4 @@ You can also embed the target type and target directly in the URL path after the
 - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
 - `.../block/abc123` targets the block with reference ID `abc123`.
 
-When URL-embedded values are present they take priority over the corresponding headers.
+Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
