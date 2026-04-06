@@ -443,7 +443,7 @@ export default class RequestHandler {
       return;
     } else if (req.headers.accept === ContentTypes.olrapiDocumentMap) {
       const file = this.app.vault.getAbstractFileByPath(filePath) as TFile;
-      res.setHeader("Content-Type", ContentTypes.olrapiNoteJson);
+      res.setHeader("Content-Type", ContentTypes.olrapiDocumentMap);
       res.send(
         JSON.stringify(await this.getDocumentMapObject(file), null, 2),
       );
