@@ -368,9 +368,14 @@ export default class RequestHandler {
     let urlTargetType: string | undefined;
     let urlTarget: string | undefined;
 
-    const exactStat = normalizedPath
-      ? await this.app.vault.adapter.stat(normalizedPath)
-      : null;
+    let exactStat = null;
+    try {
+      exactStat = normalizedPath
+        ? await this.app.vault.adapter.stat(normalizedPath)
+        : null;
+    } catch {
+      // ENOTDIR: a path segment is a file, not a directory — treat as no match.
+    }
 
     if (!exactStat || exactStat.type !== "file") {
       // Step 3: Directory listing check
@@ -543,7 +548,13 @@ export default class RequestHandler {
     if (!normalizedPath) return null;
 
     // Exact match
-    const exactStat = await this.app.vault.adapter.stat(normalizedPath);
+    let exactStat = null;
+    try {
+      exactStat = await this.app.vault.adapter.stat(normalizedPath);
+    } catch {
+      // ENOTDIR (or similar) means a path component is a file, not a directory;
+      // fall through to the backward walk which will find the actual file.
+    }
     if (exactStat?.type === "file") {
       return { filePath: normalizedPath };
     }
@@ -552,7 +563,13 @@ export default class RequestHandler {
     const segments = normalizedPath.split("/");
     for (let i = segments.length - 1; i >= 1; i--) {
       const candidate = segments.slice(0, i).join("/");
-      const s = await this.app.vault.adapter.stat(candidate);
+      let s = null;
+      try {
+        s = await this.app.vault.adapter.stat(candidate);
+      } catch {
+        // ENOTDIR: a path component is a file; keep walking backward.
+        continue;
+      }
       if (s?.type === "file") {
         const remainder = segments.slice(i);
         const targetType = remainder[0];
