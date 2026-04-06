@@ -27,7 +27,7 @@
         deepLinking: true,
         tagsSorter: null,
         operationsSorter: (a, b) => {
-          const order = ['get', 'post', 'put', 'patch', 'delete'];
+          const order = ['get', 'post', 'put', 'patch', 'delete', 'move'];
           return order.indexOf(a.get('method')) - order.indexOf(b.get('method'));
         },
         requestInterceptor: (request) => {
@@ -37,6 +37,7 @@
           console.log(request)
           return request
         },
+        supportedSubmitMethods: ['get', 'post', 'put', 'patch', 'delete', 'move'],
         presets: [
           SwaggerUIBundle.presets.apis,
           SwaggerUIStandalonePreset
