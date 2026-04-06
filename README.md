@@ -7,7 +7,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
 ## What you can do
 
 - **Read, create, update, or delete notes** — full CRUD on any file in your vault, including binary files
-- **Surgically patch notes** — append, prepend, or replace content within a specific heading, block reference, or frontmatter field without touching the rest of the file
+- **Surgically access parts of a note** — read, write, or patch a particular heading, block reference, or frontmatter field without touching the rest of the file.
 - **Access the active file** — read or write whatever note is currently open in Obsidian
 - **Work with periodic notes** — get or create daily, weekly, monthly, quarterly, and yearly notes
 - **Search your vault** — simple full-text search, [Dataview DQL](https://blacksmithgu.github.io/obsidian-dataview/) queries, or [JsonLogic](https://jsonlogic.com/) expressions
@@ -34,7 +34,11 @@ curl -k -H "Authorization: Bearer <your-api-key>" \
 curl -k -H "Authorization: Bearer <your-api-key>" \
   https://127.0.0.1:27124/vault/path/to/note.md
 
-# Append a line to a specific heading
+# Read a specific heading (URL-embedded target)
+curl -k -H "Authorization: Bearer <your-api-key>" \
+  https://127.0.0.1:27124/vault/path/to/note.md/heading/My%20Section
+
+# Append a line to a specific heading (PATCH with headers)
 curl -k -X PATCH \
   -H "Authorization: Bearer <your-api-key>" \
   -H "Operation: append" \
@@ -84,6 +88,60 @@ curl -k -X PATCH \
 ```
 
 See the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for the full list of request headers and options.
+
+## Targeting specific sections
+
+You can read or write a specific part of a note — a heading, block reference, or frontmatter field — without fetching or replacing the whole file. This works on GET, PUT, POST, and PATCH requests.
+
+There are two ways to specify the target:
+
+**Headers** — add `Target-Type` and `Target` to any request:
+
+```sh
+# Read the content under a specific heading
+curl -k -H "Authorization: Bearer <your-api-key>" \
+  -H "Target-Type: heading" \
+  -H "Target: My Section" \
+  https://127.0.0.1:27124/vault/path/to/note.md
+
+# Read a frontmatter field
+curl -k -H "Authorization: Bearer <your-api-key>" \
+  -H "Target-Type: frontmatter" \
+  -H "Target: status" \
+  https://127.0.0.1:27124/vault/path/to/note.md
+```
+
+**URL path segments** (GET, PUT, and POST only) — append `/<target-type>/<target>` after the filename:
+
+```sh
+# Read a specific heading
+curl -k -H "Authorization: Bearer <your-api-key>" \
+  https://127.0.0.1:27124/vault/path/to/note.md/heading/My%20Section
+
+# Read a nested heading (levels separated by ::)
+curl -k -H "Authorization: Bearer <your-api-key>" \
+  https://127.0.0.1:27124/vault/path/to/note.md/heading/Work/Meetings
+
+# Read a frontmatter field
+curl -k -H "Authorization: Bearer <your-api-key>" \
+  https://127.0.0.1:27124/vault/path/to/note.md/frontmatter/status
+
+# Replace the content of a heading via PUT
+curl -k -X PUT \
+  -H "Authorization: Bearer <your-api-key>" \
+  -H "Content-Type: text/plain" \
+  --data "Updated content" \
+  https://127.0.0.1:27124/vault/path/to/note.md/heading/My%20Section
+
+# Append to a heading via POST
+curl -k -X POST \
+  -H "Authorization: Bearer <your-api-key>" \
+  -H "Content-Type: text/plain" \
+  --data "Appended content" \
+  https://127.0.0.1:27124/vault/path/to/note.md/heading/My%20Section
+```
+
+Supported target types: `heading`, `block`, `frontmatter`. Supplying both URL-embedded targets and the equivalent headers on the same request returns `422 Unprocessable Entity`.
 
 ## Searching
 
