@@ -10,13 +10,18 @@ local ParamPath = import 'path.param.jsonnet';
 local ParamPeriod = import 'period.param.jsonnet';
 local ParamYear = import 'year.param.jsonnet';
 
+local GetShared = importstr 'lib/descriptions/get-shared.md';
+local PostShared = importstr 'lib/descriptions/post-shared.md';
+local PatchDescription(fileRef) =
+  'Inserts content into ' + fileRef + ' relative to a heading, block reference, or frontmatter field within that document.\n\n' + Patch.description;
+
 
 std.manifestYamlDoc(
   {
     openapi: '3.0.2',
     info: {
       title: 'Local REST API for Obsidian',
-      description: "You can use this interface for trying out your Local REST API in Obsidian.\n\nBefore trying the below tools, you will want to make sure you press the \"Authorize\" button below and provide the API Key you are shown when you open the \"Local REST API\" section of your Obsidian settings.  All requests to the API require a valid API Key; so you won't get very far without doing that.\n\nWhen using this tool you may see browser security warnings due to your browser not trusting the self-signed certificate the plugin will generate on its first run.  If you do, you can make those errors disappear by adding the certificate as a \"Trusted Certificate\" in your browser or operating system's settings.\n",
+      description: importstr 'lib/descriptions/info.md',
       version: '1.0',
     },
     servers: [
@@ -131,7 +136,7 @@ std.manifestYamlDoc(
         get: Get {
           tags: ['Active File'],
           summary: 'Return the content of the active file open in Obsidian.\n',
-          description: 'Returns the content of the currently active file in Obsidian.\n\nIf you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.  See "responses" below for details.\n',
+          description: (importstr 'lib/descriptions/active-get.md') + '\n' + GetShared,
         },
         put: Put {
           tags: [
@@ -144,14 +149,14 @@ std.manifestYamlDoc(
             'Active File',
           ],
           summary: 'Append content to the active file open in Obsidian.\n',
-          description: "Appends content to the end of the currently-open note.\n\nIf you would like to insert text relative to a particular heading instead of appending to the end of the file, see 'patch'.\n",
+          description: (importstr 'lib/descriptions/active-post.md') + '\n' + PostShared,
         },
         patch: Patch {
           tags: [
             'Active File',
           ],
           summary: 'Partially update content in the currently open note.\n',
-          description: 'Inserts content into the currently-open note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
+          description: PatchDescription('the currently-open note'),
         },
         delete: Delete {
           tags: [
@@ -166,7 +171,7 @@ std.manifestYamlDoc(
             'Vault Files',
           ],
           summary: 'Return the content of a single file in your vault.\n',
-          description: 'Returns the content of the file at the specified path in your vault should the file exist.\n\nIf you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.\n\nIf you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist.  See "responses" below for details.\n',
+          description: (importstr 'lib/descriptions/vault-file-get.md') + '\n' + GetShared,
           parameters+: [ParamPath],
         },
         put: Put {
@@ -182,7 +187,7 @@ std.manifestYamlDoc(
             'Vault Files',
           ],
           summary: 'Append content to a new or existing file.\n',
-          description: "Appends content to the end of an existing note. If the specified file does not yet exist, it will be created as an empty file.\n\nIf you would like to insert text relative to a particular heading, block reference, or frontmatter field instead of appending to the end of the file, see 'patch'.\n",
+          description: (importstr 'lib/descriptions/vault-file-post.md') + '\n' + PostShared,
           parameters+: [ParamPath],
         },
         patch: Patch {
@@ -190,7 +195,7 @@ std.manifestYamlDoc(
             'Vault Files',
           ],
           summary: 'Partially update content in an existing note.\n',
-          description: 'Inserts content into an existing note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
+          description: PatchDescription('an existing note'),
           parameters+: [ParamPath],
         },
         delete: Delete {
@@ -207,7 +212,7 @@ std.manifestYamlDoc(
             'Vault Directories',
           ],
           summary: 'List files that exist in the root of your vault.\n',
-          description: 'Lists files in the root directory of your vault.\n\nNote: that this is exactly the same API endpoint as the below "List files that exist in the specified directory." and exists here only due to a quirk of this particular interactive tool.\n',
+          description: importstr 'lib/descriptions/vault-list.md',
           responses: {
             '200': {
               description: 'Success',
@@ -308,6 +313,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Get current periodic note for the specified period.\n',
+          description: (importstr 'lib/descriptions/periodic-current-get.md') + '\n' + GetShared,
           parameters+: [ParamPeriod],
         },
         put: Put {
@@ -322,7 +328,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Append content to the current periodic note for the specified period.\n',
-          description: 'Note that this will create the relevant periodic note if necessary.\n',
+          description: (importstr 'lib/descriptions/periodic-current-post.md') + '\n' + PostShared,
           parameters+: [ParamPeriod],
         },
         patch: Patch {
@@ -330,7 +336,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Partially update content in the current periodic note for the specified period.\n',
-          description: 'Inserts content into the current periodic note for the specified period relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
+          description: PatchDescription('the current periodic note for the specified period'),
           parameters+: [ParamPeriod],
         },
         delete: Delete {
@@ -347,6 +353,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Get the periodic note for the specified period and date.\n',
+          description: (importstr 'lib/descriptions/periodic-date-get.md') + '\n' + GetShared,
           parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
         put: Put {
@@ -361,7 +368,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Append content to the periodic note for the specified period and date.\n',
-          description: 'This will create the relevant periodic note if necessary.\n',
+          description: (importstr 'lib/descriptions/periodic-date-post.md') + '\n' + PostShared,
           parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
         patch: Patch {
@@ -369,7 +376,7 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Partially update content in the periodic note for the specified period and date.\n',
-          description: 'Inserts content into a periodic note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
+          description: PatchDescription('a periodic note for the specified period and date'),
           parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
         delete: Delete {
@@ -516,7 +523,7 @@ std.manifestYamlDoc(
             'Search',
           ],
           summary: 'Search for documents matching a specified search query\n',
-          description: "Evaluates a provided query against each file in your vault.\n\nThis endpoint supports multiple query formats.  Your query should be specified in your request's body, and will be interpreted according to the `Content-type` header you specify from the below options.Additional query formats may be added in the future.\n\n# Dataview DQL (`application/vnd.olrapi.dataview.dql+txt`)\n\nAccepts a `TABLE`-type Dataview query as a text string.  See [Dataview](https://blacksmithgu.github.io/obsidian-dataview/query/queries/)'s query documentation for information on how to construct a query.\n\n# JsonLogic (`application/vnd.olrapi.jsonlogic+json`)\n\nAccepts a JsonLogic query specified as JSON.  See [JsonLogic](https://jsonlogic.com/operations.html)'s documentation for information about the base set of operators available, but in addition to those operators the following operators are available:\n\n- `glob: [PATTERN, VALUE]`: Returns `true` if a string matches a glob pattern.  E.g.: `{\"glob\": [\"*.foo\", \"bar.foo\"]}` is `true` and `{\"glob\": [\"*.bar\", \"bar.foo\"]}` is `false`.\n- `regexp: [PATTERN, VALUE]`: Returns `true` if a string matches a regular expression.  E.g.: `{\"regexp\": [\".*\\.foo\", \"bar.foo\"]` is `true` and `{\"regexp\": [\".*\\.bar\", \"bar.foo\"]}` is `false`.\n\nReturns only non-falsy results.  \"Non-falsy\" here treats the following values as \"falsy\":\n\n- `false`\n- `null` or `undefined`\n- `0`\n- `[]`\n- `{}`\n\nFiles are represented as an object having the schema described\nin the Schema named 'NoteJson' at the bottom of this page.\nUnderstanding the shape of a JSON object from a schema can be\ntricky; so you may find it helpful to examine the generated metadata\nfor individual files in your vault to understand exactly what values\nare returned.  To see that, access the `GET` `/vault/{filePath}`\nroute setting the header:\n`Accept: application/vnd.olrapi.note+json`.  See examples below\nfor working examples of queries performing common search operations.\n",
+          description: importstr 'lib/descriptions/search-post.md',
           requestBody: {
             required: true,
             content: {

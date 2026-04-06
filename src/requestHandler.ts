@@ -344,10 +344,10 @@ export default class RequestHandler {
       certificateInfo:
         this.requestIsAuthenticated(req) && certificate
           ? {
-              validityDays: getCertificateValidityDays(certificate),
-              regenerateRecommended:
-                !getCertificateIsUptoStandards(certificate),
-            }
+            validityDays: getCertificateValidityDays(certificate),
+            regenerateRecommended:
+              !getCertificateIsUptoStandards(certificate),
+          }
           : undefined,
       apiExtensions: this.requestIsAuthenticated(req)
         ? this.apiExtensions.map(({ manifest }) => manifest)
@@ -418,6 +418,63 @@ export default class RequestHandler {
           res.send(
             JSON.stringify(await this.getDocumentMapObject(file), null, 2),
           );
+          return;
+        }
+
+        const targetType = req.get("Target-Type");
+        if (targetType) {
+          if (!["heading", "block", "frontmatter"].includes(targetType)) {
+            this.returnCannedResponse(res, {
+              errorCode: ErrorCode.InvalidTargetTypeHeader,
+            });
+            return;
+          }
+          const rawTarget = decodeURIComponent(req.get("Target") ?? "");
+          if (!rawTarget) {
+            this.returnCannedResponse(res, {
+              errorCode: ErrorCode.MissingTargetHeader,
+            });
+            return;
+          }
+
+          const fileContent = Buffer.from(content).toString("utf-8");
+          const documentMap = getDocumentMap(fileContent);
+          const targetDelimiter = req.get("Target-Delimiter") || "::";
+
+          if (targetType === "frontmatter") {
+            const value = documentMap.frontmatter[rawTarget];
+            if (value === undefined) {
+              this.returnCannedResponse(res, { statusCode: 404 });
+              return;
+            }
+            res.setHeader("Content-Type", ContentTypes.json);
+            res.json(value);
+            return;
+          }
+
+          const mapKey =
+            targetType === "heading"
+              ? rawTarget
+                .split(targetDelimiter)
+                .join("\u001f")
+              : rawTarget;
+
+          const entry =
+            targetType === "heading"
+              ? documentMap.heading[mapKey]
+              : documentMap.block[mapKey];
+
+          if (!entry) {
+            this.returnCannedResponse(res, { statusCode: 404 });
+            return;
+          }
+
+          const sectionContent = fileContent.substring(
+            entry.content.start,
+            entry.content.end,
+          );
+          res.setHeader("Content-Type", ContentTypes.markdown + "; charset=utf-8");
+          res.send(sectionContent);
           return;
         }
 

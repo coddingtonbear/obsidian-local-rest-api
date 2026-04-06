@@ -125,11 +125,67 @@ paths:
       description: |
         Returns the content of the currently active file in Obsidian.
         
-        If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.  See "responses" below for details.
-      parameters: []
+        # Selecting Sub-parts of your Document
+        
+        You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
+        
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve.
+        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+        
+        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
+        
+        # Retrieving Document Metadata
+        
+        ## Metadata
+        
+        If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.
+        
+        ## Document Map
+        
+        If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
+      parameters:
+        - description: |
+            Type of section to retrieve. When specified, only the content of the
+            matching section is returned instead of the full file. Must be used
+            together with the `Target` header.
+            
+            - `heading`: returns the markdown content of the section under the
+              specified heading (use `Target-Delimiter` to specify nested headings).
+            - `block`: returns the markdown content of the specified block reference.
+            - `frontmatter`: returns the value of the specified frontmatter field
+              as JSON.
+          in: "header"
+          name: "Target-Type"
+          required: false
+          schema:
+            enum:
+              - "heading"
+              - "block"
+              - "frontmatter"
+            type: "string"
+        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
+          in: "header"
+          name: "Target-Delimiter"
+          required: false
+          schema:
+            default: "::"
+            type: "string"
+        - description: |
+            The section to retrieve; required when `Target-Type` is specified.
+            This value can be URL-Encoded and *must* be URL-Encoded if it
+            includes non-ASCII characters.
+          in: "header"
+          name: "Target"
+          required: false
+          schema:
+            type: "string"
       responses:
         "200":
           content:
+            application/json:
+              description: "Returned when `Target-Type` is `frontmatter`; the JSON value of the specified frontmatter field."
+              schema: {}
             "application/vnd.olrapi.document-map+json":
               schema:
                 properties:
@@ -169,14 +225,14 @@ paths:
                 type: "string"
           description: "Success"
         "404":
-          description: "File does not exist"
+          description: "File or target section does not exist"
       summary: |
         Return the content of the active file open in Obsidian.
       tags:
         - "Active File"
     patch:
       description: |
-        Inserts content into the currently-open note relative to a heading, block refeerence, or frontmatter field within that document.
+        Inserts content into the currently-open note relative to a heading, block reference, or frontmatter field within that document.
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
         
@@ -402,7 +458,7 @@ paths:
       description: |
         Appends content to the end of the currently-open note.
         
-        If you would like to insert text relative to a particular heading instead of appending to the end of the file, see 'patch'.
+        If you would like to insert text relative to a particular heading, block reference, or frontmatter field instead of appending to the end of the file, see 'patch'.
       parameters: []
       requestBody:
         content:
@@ -605,7 +661,64 @@ paths:
       tags:
         - "Periodic Notes"
     get:
+      description: |
+        Returns the content of the current periodic note for the specified period.
+        
+        # Selecting Sub-parts of your Document
+        
+        You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
+        
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve.
+        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+        
+        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
+        
+        # Retrieving Document Metadata
+        
+        ## Metadata
+        
+        If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.
+        
+        ## Document Map
+        
+        If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
       parameters:
+        - description: |
+            Type of section to retrieve. When specified, only the content of the
+            matching section is returned instead of the full file. Must be used
+            together with the `Target` header.
+            
+            - `heading`: returns the markdown content of the section under the
+              specified heading (use `Target-Delimiter` to specify nested headings).
+            - `block`: returns the markdown content of the specified block reference.
+            - `frontmatter`: returns the value of the specified frontmatter field
+              as JSON.
+          in: "header"
+          name: "Target-Type"
+          required: false
+          schema:
+            enum:
+              - "heading"
+              - "block"
+              - "frontmatter"
+            type: "string"
+        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
+          in: "header"
+          name: "Target-Delimiter"
+          required: false
+          schema:
+            default: "::"
+            type: "string"
+        - description: |
+            The section to retrieve; required when `Target-Type` is specified.
+            This value can be URL-Encoded and *must* be URL-Encoded if it
+            includes non-ASCII characters.
+          in: "header"
+          name: "Target"
+          required: false
+          schema:
+            type: "string"
         - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
           name: "period"
@@ -622,6 +735,9 @@ paths:
       responses:
         "200":
           content:
+            application/json:
+              description: "Returned when `Target-Type` is `frontmatter`; the JSON value of the specified frontmatter field."
+              schema: {}
             "application/vnd.olrapi.document-map+json":
               schema:
                 properties:
@@ -661,14 +777,14 @@ paths:
                 type: "string"
           description: "Success"
         "404":
-          description: "File does not exist"
+          description: "File or target section does not exist"
       summary: |
         Get current periodic note for the specified period.
       tags:
         - "Periodic Notes"
     patch:
       description: |
-        Inserts content into the current periodic note for the specified period relative to a heading, block refeerence, or frontmatter field within that document.
+        Inserts content into the current periodic note for the specified period relative to a heading, block reference, or frontmatter field within that document.
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
         
@@ -905,7 +1021,9 @@ paths:
         - "Periodic Notes"
     post:
       description: |
-        Note that this will create the relevant periodic note if necessary.
+        Appends content to the current periodic note for the specified period. Note that this will create the relevant periodic note if necessary.
+        
+        If you would like to insert text relative to a particular heading, block reference, or frontmatter field instead of appending to the end of the file, see 'patch'.
       parameters:
         - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
@@ -1058,7 +1176,64 @@ paths:
       tags:
         - "Periodic Notes"
     get:
+      description: |
+        Returns the content of the periodic note for the specified period and date.
+        
+        # Selecting Sub-parts of your Document
+        
+        You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
+        
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve.
+        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+        
+        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
+        
+        # Retrieving Document Metadata
+        
+        ## Metadata
+        
+        If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.
+        
+        ## Document Map
+        
+        If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
       parameters:
+        - description: |
+            Type of section to retrieve. When specified, only the content of the
+            matching section is returned instead of the full file. Must be used
+            together with the `Target` header.
+            
+            - `heading`: returns the markdown content of the section under the
+              specified heading (use `Target-Delimiter` to specify nested headings).
+            - `block`: returns the markdown content of the specified block reference.
+            - `frontmatter`: returns the value of the specified frontmatter field
+              as JSON.
+          in: "header"
+          name: "Target-Type"
+          required: false
+          schema:
+            enum:
+              - "heading"
+              - "block"
+              - "frontmatter"
+            type: "string"
+        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
+          in: "header"
+          name: "Target-Delimiter"
+          required: false
+          schema:
+            default: "::"
+            type: "string"
+        - description: |
+            The section to retrieve; required when `Target-Type` is specified.
+            This value can be URL-Encoded and *must* be URL-Encoded if it
+            includes non-ASCII characters.
+          in: "header"
+          name: "Target"
+          required: false
+          schema:
+            type: "string"
         - description: "The year of the date for which you would like to grab a periodic note."
           in: "path"
           name: "year"
@@ -1093,6 +1268,9 @@ paths:
       responses:
         "200":
           content:
+            application/json:
+              description: "Returned when `Target-Type` is `frontmatter`; the JSON value of the specified frontmatter field."
+              schema: {}
             "application/vnd.olrapi.document-map+json":
               schema:
                 properties:
@@ -1132,14 +1310,14 @@ paths:
                 type: "string"
           description: "Success"
         "404":
-          description: "File does not exist"
+          description: "File or target section does not exist"
       summary: |
         Get the periodic note for the specified period and date.
       tags:
         - "Periodic Notes"
     patch:
       description: |
-        Inserts content into a periodic note relative to a heading, block refeerence, or frontmatter field within that document.
+        Inserts content into a periodic note for the specified period and date relative to a heading, block reference, or frontmatter field within that document.
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
         
@@ -1394,7 +1572,9 @@ paths:
         - "Periodic Notes"
     post:
       description: |
-        This will create the relevant periodic note if necessary.
+        Appends content to the periodic note for the specified period and date. Note that this will create the relevant periodic note if necessary.
+        
+        If you would like to insert text relative to a particular heading, block reference, or frontmatter field instead of appending to the end of the file, see 'patch'.
       parameters:
         - description: "The year of the date for which you would like to grab a periodic note."
           in: "path"
@@ -1807,10 +1987,61 @@ paths:
       description: |
         Returns the content of the file at the specified path in your vault should the file exist.
         
+        # Selecting Sub-parts of your Document
+        
+        You can retrieve a specific section of the note by providing the `Target-Type` and `Target` headers:
+        
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target` to the name of the heading, block reference, or frontmatter field to retrieve.
+        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+        
+        When `Target-Type` is `frontmatter`, the response is `application/json`. Otherwise the section content is returned as `text/markdown`.
+        
+        # Retrieving Document Metadata
+        
+        ## Metadata
+        
         If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.
         
-        If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist.  See "responses" below for details.
+        ## Document Map
+        
+        If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
       parameters:
+        - description: |
+            Type of section to retrieve. When specified, only the content of the
+            matching section is returned instead of the full file. Must be used
+            together with the `Target` header.
+            
+            - `heading`: returns the markdown content of the section under the
+              specified heading (use `Target-Delimiter` to specify nested headings).
+            - `block`: returns the markdown content of the specified block reference.
+            - `frontmatter`: returns the value of the specified frontmatter field
+              as JSON.
+          in: "header"
+          name: "Target-Type"
+          required: false
+          schema:
+            enum:
+              - "heading"
+              - "block"
+              - "frontmatter"
+            type: "string"
+        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
+          in: "header"
+          name: "Target-Delimiter"
+          required: false
+          schema:
+            default: "::"
+            type: "string"
+        - description: |
+            The section to retrieve; required when `Target-Type` is specified.
+            This value can be URL-Encoded and *must* be URL-Encoded if it
+            includes non-ASCII characters.
+          in: "header"
+          name: "Target"
+          required: false
+          schema:
+            type: "string"
         - description: |
             Path to the relevant file (relative to your vault root).
           in: "path"
@@ -1822,6 +2053,9 @@ paths:
       responses:
         "200":
           content:
+            application/json:
+              description: "Returned when `Target-Type` is `frontmatter`; the JSON value of the specified frontmatter field."
+              schema: {}
             "application/vnd.olrapi.document-map+json":
               schema:
                 properties:
@@ -1861,14 +2095,14 @@ paths:
                 type: "string"
           description: "Success"
         "404":
-          description: "File does not exist"
+          description: "File or target section does not exist"
       summary: |
         Return the content of a single file in your vault.
       tags:
         - "Vault Files"
     patch:
       description: |
-        Inserts content into an existing note relative to a heading, block refeerence, or frontmatter field within that document.
+        Inserts content into an existing note relative to a heading, block reference, or frontmatter field within that document.
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
         

@@ -190,6 +190,224 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("vaultGet section retrieval", () => {
+    const markdownWithHeadings = [
+      "---",
+      "title: Test Doc",
+      "---",
+      "# Heading1",
+      "Content under heading1",
+      "## SubHeading",
+      "Sub content",
+      "# Heading2",
+      "Content under heading2",
+      "",
+    ].join("\n");
+
+    const markdownWithBlock = [
+      "# Heading1",
+      "Some content",
+      "Block content ^myblock",
+      "# Heading2",
+      "More content",
+      "",
+    ].join("\n");
+
+    function setFileContent(content: string): void {
+      app.vault.adapter._read = content;
+      // readBinary is used by the default GET path
+      const buf = new ArrayBuffer(content.length);
+      const view = new Uint8Array(buf);
+      for (let i = 0; i < content.length; i++) {
+        view[i] = content.charCodeAt(i);
+      }
+      app.vault.adapter._readBinary = buf;
+    }
+
+    test("heading section returns only that heading's content", async () => {
+      setFileContent(markdownWithHeadings);
+
+      const result = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading2")
+        .expect(200);
+
+      expect(result.text).toEqual("Content under heading2\n");
+    });
+
+    test("nested heading section via delimiter", async () => {
+      setFileContent(markdownWithHeadings);
+
+      const result = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1::SubHeading")
+        .expect(200);
+
+      expect(result.text).toEqual("Sub content\n");
+    });
+
+    test("nested heading with custom delimiter", async () => {
+      setFileContent(markdownWithHeadings);
+
+      const result = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1||SubHeading")
+        .set("Target-Delimiter", "||")
+        .expect(200);
+
+      expect(result.text).toEqual("Sub content\n");
+    });
+
+    test("block reference returns block content", async () => {
+      setFileContent(markdownWithBlock);
+
+      const result = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "block")
+        .set("Target", "myblock")
+        .expect(200);
+
+      expect(result.text).toEqual("Some content\nBlock content");
+    });
+
+    test("frontmatter field returns value as JSON", async () => {
+      setFileContent(markdownWithHeadings);
+
+      const result = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Target-Type", "frontmatter")
+        .set("Target", "title")
+        .expect(200);
+
+      expect(result.body).toEqual("Test Doc");
+    });
+
+    test("non-existent heading returns 404", async () => {
+      setFileContent(markdownWithHeadings);
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "NoSuchHeading")
+        .expect(404);
+    });
+
+    test("non-existent block returns 404", async () => {
+      setFileContent(markdownWithBlock);
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "block")
+        .set("Target", "nonexistent")
+        .expect(404);
+    });
+
+    test("non-existent frontmatter field returns 404", async () => {
+      setFileContent(markdownWithHeadings);
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Target-Type", "frontmatter")
+        .set("Target", "nonexistent")
+        .expect(404);
+    });
+
+    test("Target-Type without Target returns 400", async () => {
+      setFileContent(markdownWithHeadings);
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "heading")
+        .expect(400);
+    });
+
+    test("invalid Target-Type returns 400", async () => {
+      setFileContent(markdownWithHeadings);
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "invalid")
+        .set("Target", "something")
+        .expect(400);
+    });
+
+    test("invalid Target-Type without Target still returns 400 for bad type", async () => {
+      setFileContent(markdownWithHeadings);
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "invalid")
+        .expect(400);
+    });
+
+    test("non-existent file returns 404", async () => {
+      app.vault.adapter._exists = false;
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1")
+        .expect(404);
+    });
+
+    test("directory path ignores section headers", async () => {
+      const rootFile = new TFile();
+      rootFile.path = "rootFile.md";
+      app.vault._files = [rootFile];
+
+      const result = await request(server)
+        .get("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1")
+        .expect(200);
+
+      expect(result.body.files).toEqual(["rootFile.md"]);
+    });
+
+    test("heading section with parent includes nested content", async () => {
+      setFileContent(markdownWithHeadings);
+
+      const result = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1")
+        .expect(200);
+
+      // Heading1's content includes everything down to Heading2
+      expect(result.text).toContain("Content under heading1");
+      expect(result.text).toContain("Sub content");
+      expect(result.text).not.toContain("Content under heading2");
+    });
+  });
+
   describe("vaultPut", () => {
     test("directory", async () => {
       await request(server)

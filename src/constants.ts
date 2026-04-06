@@ -40,6 +40,7 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.MissingOperation]: "No 'Operation' header was provided.",
   [ErrorCode.InvalidOperation]:
     "The 'Operation' header you provided was invalid.",
+  [ErrorCode.InvalidTargetHeader]: "The 'Target' header you provided was invalid.",
   [ErrorCode.PatchFailed]:
     "The patch you provided could not be applied to the target content.",
   [ErrorCode.InvalidSearch]: "The search query you provided is not valid.",
