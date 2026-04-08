@@ -405,7 +405,7 @@ export default class RequestHandler {
         ];
         files.sort();
 
-        if (files.length === 0) {
+        if (files.length === 0 && normalizedPath) {
           this.returnCannedResponse(res, { statusCode: 404 });
           return;
         }
