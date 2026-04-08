@@ -25,11 +25,9 @@ import path from "path";
 import {
   applyPatch,
   getDocumentMap,
-  ContentType,
   PatchFailed,
   PatchInstruction,
   PatchOperation,
-  PatchTargetType,
 } from "markdown-patch";
 
 import {
@@ -57,6 +55,11 @@ import {
   ERROR_CODE_MESSAGES,
   MaximumRequestSize,
 } from "./constants";
+import {
+  isContentType,
+  isPatchOperation,
+  isPatchTargetType,
+} from "./typeGuards";
 import LocalRestApiPublicApi from "./api";
 
 // Import openapi.yaml as a string
@@ -837,7 +840,7 @@ export default class RequestHandler {
       });
       return;
     }
-    if (!["heading", "block", "frontmatter"].includes(targetType)) {
+    if (!isPatchTargetType(targetType)) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidTargetTypeHeader,
       });
@@ -849,9 +852,15 @@ export default class RequestHandler {
       });
       return;
     }
-    if (!["append", "prepend", "replace"].includes(operation)) {
+    if (!isPatchOperation(operation)) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidOperation,
+      });
+      return;
+    }
+    if (!isContentType(contentType)) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidContentType,
       });
       return;
     }
@@ -863,10 +872,10 @@ export default class RequestHandler {
     }
 
     const instruction: PatchInstruction = {
-      operation: operation as PatchOperation,
-      targetType: targetType as PatchTargetType,
+      operation,
+      targetType,
       target,
-      contentType: contentType as ContentType,
+      contentType,
       content: req.body,
       applyIfContentPreexists,
       trimTargetWhitespace,
@@ -935,9 +944,15 @@ export default class RequestHandler {
     const trimTargetWhitespace = req.get("Trim-Target-Whitespace") == "true";
     const targetDelimiter = req.get("Target-Delimiter") || "::";
 
-    if (!["heading", "block", "frontmatter"].includes(targetType)) {
+    if (!isPatchTargetType(targetType)) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidTargetTypeHeader,
+      });
+      return;
+    }
+    if (!isContentType(contentType)) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidContentType,
       });
       return;
     }
@@ -960,9 +975,9 @@ export default class RequestHandler {
 
     const instruction: PatchInstruction = {
       operation,
-      targetType: targetType as PatchTargetType,
+      targetType,
       target: resolvedTarget,
-      contentType: contentType as ContentType,
+      contentType,
       content: req.body,
       applyIfContentPreexists,
       trimTargetWhitespace,
