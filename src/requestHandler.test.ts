@@ -116,8 +116,20 @@ describe("requestHandler", () => {
     test("directory empty", async () => {
       app.vault._files = [];
 
-      await request(server)
+      const result = await request(server)
         .get("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.files).toEqual([]);
+    });
+
+    test("empty subdirectory returns 404", async () => {
+      app.vault._files = [];
+      app.vault.adapter._exists = false;
+
+      await request(server)
+        .get("/vault/nonexistent/")
         .set("Authorization", `Bearer ${API_KEY}`)
         .expect(404);
     });
