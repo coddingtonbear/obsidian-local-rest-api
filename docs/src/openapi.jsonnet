@@ -145,14 +145,16 @@ std.manifestYamlDoc(
     ],
     paths: {
       '/active/': {
+        additionalOperations: {
+          MOVE: Get {
+            tags: ['Active File'],
+            summary: 'TEST Return the content of the active file open in Obsidian.\n',
+            description: (importstr 'lib/descriptions/active-get.md') + '\n' + GetShared,
+          },
+        },
         get: Get {
           tags: ['Active File'],
           summary: 'Return the content of the active file open in Obsidian.\n',
-          description: (importstr 'lib/descriptions/active-get.md') + '\n' + GetShared,
-        },
-        move: Get {
-          tags: ['Active File'],
-          summary: 'TEST Return the content of the active file open in Obsidian.\n',
           description: (importstr 'lib/descriptions/active-get.md') + '\n' + GetShared,
         },
         put: Put {

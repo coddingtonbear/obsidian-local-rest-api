@@ -99,6 +99,121 @@ paths:
       tags:
         - "System"
   /active/:
+    additionalOperations:
+      MOVE:
+        description: |
+          Returns the content of the currently active file in Obsidian.
+          
+          # Targeting a Sub-part of your Document
+          
+          You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
+          
+          - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+          - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
+          - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
+          
+          You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
+          
+          - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
+          - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
+          - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
+          - `.../block/abc123` targets the block with reference ID `abc123`.
+          
+          Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
+          
+          # Retrieving Document Metadata
+          
+          ## Metadata
+          
+          If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.
+          
+          ## Document Map
+          
+          If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
+        parameters:
+          - description: |
+              Type of sub-document section to target. When specified, the operation
+              applies only to the matching section rather than the whole file. Must
+              be used together with the `Target` header.
+              
+              - `heading`: a markdown heading section.
+              - `block`: a block reference.
+              - `frontmatter`: a frontmatter field.
+            in: "header"
+            name: "Target-Type"
+            required: false
+            schema:
+              enum:
+                - "heading"
+                - "block"
+                - "frontmatter"
+              type: "string"
+          - description: |
+              The section to target; required when `Target-Type` is specified.
+              This value can be URL-Encoded and *must* be URL-Encoded if it
+              includes non-ASCII characters.
+            in: "header"
+            name: "Target"
+            required: false
+            schema:
+              type: "string"
+          - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
+            in: "header"
+            name: "Target-Delimiter"
+            required: false
+            schema:
+              default: "::"
+              type: "string"
+        responses:
+          "200":
+            content:
+              application/json:
+                description: "Returned when `Target-Type` is `frontmatter`; the JSON value of the specified frontmatter field."
+                schema: {}
+              "application/vnd.olrapi.document-map+json":
+                schema:
+                  properties:
+                    blocks:
+                      example:
+                        - "^blockref1"
+                        - "^anotherBlockRef"
+                      items:
+                        type: "string"
+                      type: "array"
+                    frontmatterFields:
+                      example:
+                        - "title"
+                        - "tags"
+                        - "dateCreated"
+                      items:
+                        type: "string"
+                      type: "array"
+                    headings:
+                      example:
+                        - "Heading 1"
+                        - "Heading 1::Subhead of Heading 1"
+                        - "Heading 2"
+                      items:
+                        type: "string"
+                      type: "array"
+                  type: "object"
+              "application/vnd.olrapi.note+json":
+                schema:
+                  "$ref": "#/components/schemas/NoteJson"
+              text/markdown:
+                schema:
+                  example: |
+                    # This is my document
+                    
+                    something else here
+                  type: "string"
+            description: "Success"
+          "404":
+            description: "File or target section does not exist"
+        summary: |
+          TEST Return the content of the active file open in Obsidian.
+        tags:
+          - "Active File"
     delete:
       parameters: []
       responses:
@@ -233,120 +348,6 @@ paths:
           description: "File or target section does not exist"
       summary: |
         Return the content of the active file open in Obsidian.
-      tags:
-        - "Active File"
-    move:
-      description: |
-        Returns the content of the currently active file in Obsidian.
-        
-        # Targeting a Sub-part of your Document
-        
-        You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
-        
-        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
-        - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
-        - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
-        
-        You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
-        
-        - `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
-        - For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
-        - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
-        - `.../block/abc123` targets the block with reference ID `abc123`.
-        
-        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
-        
-        # Retrieving Document Metadata
-        
-        ## Metadata
-        
-        If you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.
-        
-        ## Document Map
-        
-        If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
-      parameters:
-        - description: |
-            Type of sub-document section to target. When specified, the operation
-            applies only to the matching section rather than the whole file. Must
-            be used together with the `Target` header.
-            
-            - `heading`: a markdown heading section.
-            - `block`: a block reference.
-            - `frontmatter`: a frontmatter field.
-          in: "header"
-          name: "Target-Type"
-          required: false
-          schema:
-            enum:
-              - "heading"
-              - "block"
-              - "frontmatter"
-            type: "string"
-        - description: |
-            The section to target; required when `Target-Type` is specified.
-            This value can be URL-Encoded and *must* be URL-Encoded if it
-            includes non-ASCII characters.
-          in: "header"
-          name: "Target"
-          required: false
-          schema:
-            type: "string"
-        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
-          in: "header"
-          name: "Target-Delimiter"
-          required: false
-          schema:
-            default: "::"
-            type: "string"
-      responses:
-        "200":
-          content:
-            application/json:
-              description: "Returned when `Target-Type` is `frontmatter`; the JSON value of the specified frontmatter field."
-              schema: {}
-            "application/vnd.olrapi.document-map+json":
-              schema:
-                properties:
-                  blocks:
-                    example:
-                      - "^blockref1"
-                      - "^anotherBlockRef"
-                    items:
-                      type: "string"
-                    type: "array"
-                  frontmatterFields:
-                    example:
-                      - "title"
-                      - "tags"
-                      - "dateCreated"
-                    items:
-                      type: "string"
-                    type: "array"
-                  headings:
-                    example:
-                      - "Heading 1"
-                      - "Heading 1::Subhead of Heading 1"
-                      - "Heading 2"
-                    items:
-                      type: "string"
-                    type: "array"
-                type: "object"
-            "application/vnd.olrapi.note+json":
-              schema:
-                "$ref": "#/components/schemas/NoteJson"
-            text/markdown:
-              schema:
-                example: |
-                  # This is my document
-                  
-                  something else here
-                type: "string"
-          description: "Success"
-        "404":
-          description: "File or target section does not exist"
-      summary: |
-        TEST Return the content of the active file open in Obsidian.
       tags:
         - "Active File"
     patch:
