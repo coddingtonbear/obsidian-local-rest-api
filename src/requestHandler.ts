@@ -1459,17 +1459,21 @@ export default class RequestHandler {
   }
 
   /**
-   * Returns the currently active file, or the last known active file if no
-   * file is currently active. Also sets an `X-Obsidian-Note-Active` header on
-   * the response to indicate which case applies.
+   * Returns the currently active file. When no file is active and the request
+   * includes `?use-last-active=true`, falls back to the last known active file.
+   * Sets an `X-Obsidian-Note-Active` response header indicating whether the
+   * returned file is currently the active one (`true`) or a fallback (`false`).
    */
-  getEffectiveActiveFile(res: express.Response): TFile | null {
+  getEffectiveActiveFile(
+    req: express.Request,
+    res: express.Response,
+  ): TFile | null {
     const current = this.app.workspace.getActiveFile();
     if (current) {
       res.set("X-Obsidian-Note-Active", "true");
       return current;
     }
-    if (this.lastActiveFile) {
+    if (req.query["use-last-active"] === "true" && this.lastActiveFile) {
       res.set("X-Obsidian-Note-Active", "false");
       return this.lastActiveFile;
     }
@@ -1480,7 +1484,7 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const file = this.getEffectiveActiveFile(res);
+    const file = this.getEffectiveActiveFile(req, res);
     if (!file) {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
@@ -1496,7 +1500,7 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const file = this.getEffectiveActiveFile(res);
+    const file = this.getEffectiveActiveFile(req, res);
     if (!file) {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
@@ -1544,7 +1548,7 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const file = this.getEffectiveActiveFile(res);
+    const file = this.getEffectiveActiveFile(req, res);
     if (!file) {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
@@ -1590,7 +1594,7 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const file = this.getEffectiveActiveFile(res);
+    const file = this.getEffectiveActiveFile(req, res);
     if (!file) {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
@@ -1607,7 +1611,7 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const file = this.getEffectiveActiveFile(res);
+    const file = this.getEffectiveActiveFile(req, res);
     if (!file) {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
