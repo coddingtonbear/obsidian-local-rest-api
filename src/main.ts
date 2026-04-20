@@ -218,6 +218,7 @@ export default class LocalRestApi extends Plugin {
   }
 
   onunload() {
+    this.requestHandler.teardown();
     if (this.secureServer) {
       this.secureServer.close();
     }

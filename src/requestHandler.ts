@@ -4,6 +4,7 @@ import {
   App,
   CachedMetadata,
   Command,
+  EventRef,
   PluginManifest,
   prepareSimpleSearch,
   TFile,
@@ -76,6 +77,9 @@ export default class RequestHandler {
     manifest: PluginManifest;
     api: LocalRestApiPublicApi;
   }[] = [];
+
+  lastActiveFile: TFile | null = null;
+  private activeFileEventRef: EventRef | null = null;
 
   constructor(
     app: App,
@@ -1454,11 +1458,29 @@ export default class RequestHandler {
     );
   }
 
+  /**
+   * Returns the currently active file, or the last known active file if no
+   * file is currently active. Also sets an `X-Obsidian-Note-Active` header on
+   * the response to indicate which case applies.
+   */
+  getEffectiveActiveFile(res: express.Response): TFile | null {
+    const current = this.app.workspace.getActiveFile();
+    if (current) {
+      res.set("X-Obsidian-Note-Active", "true");
+      return current;
+    }
+    if (this.lastActiveFile) {
+      res.set("X-Obsidian-Note-Active", "false");
+      return this.lastActiveFile;
+    }
+    return null;
+  }
+
   async activeFileGet(
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const file = this.app.workspace.getActiveFile();
+    const file = this.getEffectiveActiveFile(res);
     if (!file) {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
@@ -1474,7 +1496,7 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const file = this.app.workspace.getActiveFile();
+    const file = this.getEffectiveActiveFile(res);
     if (!file) {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
@@ -1522,7 +1544,7 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const file = this.app.workspace.getActiveFile();
+    const file = this.getEffectiveActiveFile(res);
     if (!file) {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
@@ -1568,7 +1590,7 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const file = this.app.workspace.getActiveFile();
+    const file = this.getEffectiveActiveFile(res);
     if (!file) {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
@@ -1585,7 +1607,7 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const file = this.app.workspace.getActiveFile();
+    const file = this.getEffectiveActiveFile(res);
     if (!file) {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
@@ -1937,7 +1959,29 @@ export default class RequestHandler {
     return;
   }
 
+  teardown() {
+    if (this.activeFileEventRef) {
+      this.app.workspace.offref(this.activeFileEventRef);
+      this.activeFileEventRef = null;
+    }
+  }
+
   setupRouter() {
+    this.activeFileEventRef = this.app.workspace.on(
+      "file-open",
+      (file: TFile | null) => {
+        if (file) {
+          this.lastActiveFile = file;
+        }
+      },
+    );
+
+    // Capture any file that is already open at setup time
+    const currentFile = this.app.workspace.getActiveFile();
+    if (currentFile) {
+      this.lastActiveFile = currentFile;
+    }
+
     this.api.use((req, res, next) => {
       const originalSend = res.send;
       res.send = function (body, ...args) {
