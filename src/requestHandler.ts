@@ -2021,7 +2021,10 @@ export default class RequestHandler {
     this.api.route("/search/").post(this.searchQueryPost.bind(this));
     this.api.route("/search/simple/").post(this.searchSimplePost.bind(this));
 
-    this.api.route("/open/*").post(this.openPost.bind(this));
+    this.api
+      .route("/open/*")
+      .get(this.openPost.bind(this))
+      .post(this.openPost.bind(this));
 
     this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
     this.api.get("/openapi.yaml", this.openapiYamlGet.bind(this));
