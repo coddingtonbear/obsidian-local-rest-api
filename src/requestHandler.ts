@@ -1885,6 +1885,27 @@ export default class RequestHandler {
     res.json();
   }
 
+  async openGet(req: express.Request, res: express.Response): Promise<void> {
+    const path = decodeURIComponent(
+      req.path.slice(req.path.indexOf("/", 1) + 1),
+    );
+
+    const query = queryString.parseUrl(req.originalUrl, {
+      parseBooleans: true,
+    }).query;
+    const newLeaf = Boolean(query.newLeaf);
+
+    this.app.workspace.openLinkText(path, "/", newLeaf);
+
+    res.setHeader("Content-Type", "text/html");
+    res.send(
+      `<html><head><title>Opening in Obsidian…</title></head><body>` +
+      `<script>window.close();</script>` +
+      `<p>Opening <strong>${path}</strong> in Obsidian. You may close this tab.</p>` +
+      `</body></html>`,
+    );
+  }
+
   async certificateGet(
     req: express.Request,
     res: express.Response,
@@ -2029,7 +2050,7 @@ export default class RequestHandler {
 
     this.api
       .route("/open/*")
-      .get(this.openPost.bind(this))
+      .get(this.openGet.bind(this))
       .post(this.openPost.bind(this));
 
     this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
