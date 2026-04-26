@@ -152,6 +152,12 @@ export default class RequestHandler {
       return true;
     }
 
+    // Allow API key as a query parameter for GET requests so that plain
+    // hyperlinks (which cannot carry headers) can authenticate.
+    if (req.method === "GET" && req.query.apiKey === this.settings.apiKey) {
+      return true;
+    }
+
     return false;
   }
 
@@ -1879,6 +1885,27 @@ export default class RequestHandler {
     res.json();
   }
 
+  async openGet(req: express.Request, res: express.Response): Promise<void> {
+    const path = decodeURIComponent(
+      req.path.slice(req.path.indexOf("/", 1) + 1),
+    );
+
+    const query = queryString.parseUrl(req.originalUrl, {
+      parseBooleans: true,
+    }).query;
+    const newLeaf = Boolean(query.newLeaf);
+
+    this.app.workspace.openLinkText(path, "/", newLeaf);
+
+    res.setHeader("Content-Type", "text/html");
+    res.send(
+      `<html><head><title>Opening in Obsidian…</title></head><body>` +
+      `<script>window.close();</script>` +
+      `<p>Opening <strong>${path}</strong> in Obsidian. You may close this tab.</p>` +
+      `</body></html>`,
+    );
+  }
+
   async certificateGet(
     req: express.Request,
     res: express.Response,
@@ -2021,7 +2048,10 @@ export default class RequestHandler {
     this.api.route("/search/").post(this.searchQueryPost.bind(this));
     this.api.route("/search/simple/").post(this.searchSimplePost.bind(this));
 
-    this.api.route("/open/*").post(this.openPost.bind(this));
+    this.api
+      .route("/open/*")
+      .get(this.openGet.bind(this))
+      .post(this.openPost.bind(this));
 
     this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
     this.api.get("/openapi.yaml", this.openapiYamlGet.bind(this));

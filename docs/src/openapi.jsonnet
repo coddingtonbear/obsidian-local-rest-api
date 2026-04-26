@@ -721,6 +721,39 @@ std.manifestYamlDoc(
         },
       },
       '/open/{filename}': {
+        get: {
+          tags: [
+            'Open',
+          ],
+          summary: 'Open the specified document in the Obsidian user interface.\n',
+          description: 'Opens the specified document in Obsidian. Identical to the POST\nvariant but usable as a plain hyperlink (e.g. from a browser or\nchat interface) without requiring a request body or special HTTP\nmethod.\n\nNote: Obsidian will create a new document at the path you have\nspecified if such a document did not already exist.\n',
+          parameters: [
+            {
+              name: 'filename',
+              'in': 'path',
+              description: 'Path to the file to return (relative to your vault root).\n',
+              required: true,
+              schema: {
+                type: 'string',
+                format: 'path',
+              },
+            },
+            {
+              name: 'newLeaf',
+              'in': 'query',
+              description: 'Open this as a new leaf?',
+              required: false,
+              schema: {
+                type: 'boolean',
+              },
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'Success',
+            },
+          },
+        },
         post: {
           tags: [
             'Open',
