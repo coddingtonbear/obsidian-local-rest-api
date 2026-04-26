@@ -152,6 +152,12 @@ export default class RequestHandler {
       return true;
     }
 
+    // Allow API key as a query parameter for GET requests so that plain
+    // hyperlinks (which cannot carry headers) can authenticate.
+    if (req.method === "GET" && req.query.apiKey === this.settings.apiKey) {
+      return true;
+    }
+
     return false;
   }
 
