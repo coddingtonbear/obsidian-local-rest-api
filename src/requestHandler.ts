@@ -1999,14 +1999,14 @@ export default class RequestHandler {
       .delete(this.vaultDelete.bind(this));
 
     this.api
-      .route("/periodic/:period/*")
+      .route("/periodic/:period/:year(\\d{4})/:month(\\d{1,2})/:day(\\d{1,2})/*")
       .get(this.periodicGet.bind(this))
       .put(this.periodicPut.bind(this))
       .patch(this.periodicPatch.bind(this))
       .post(this.periodicPost.bind(this))
       .delete(this.periodicDelete.bind(this));
     this.api
-      .route("/periodic/:period/:year/:month/:day/*")
+      .route("/periodic/:period/*")
       .get(this.periodicGet.bind(this))
       .put(this.periodicPut.bind(this))
       .patch(this.periodicPatch.bind(this))
