@@ -1779,7 +1779,7 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const dataviewApi = getDataviewAPI();
+    const dataviewApi = getDataviewAPI(this.app);
 
     const handlers: Record<string, () => Promise<SearchJsonResponseItem[]>> = {
       [ContentTypes.dataviewDql]: async () => {
