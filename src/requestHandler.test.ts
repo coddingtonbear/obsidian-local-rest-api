@@ -1,6 +1,19 @@
 import http from "http";
 import request from "supertest";
 
+// Mock McpHandler so tests don't load the MCP SDK (which bundles ESM-only zod)
+jest.mock("./mcpHandler", () => ({
+  McpHandler: jest.fn().mockImplementation(() => ({
+    handleSse: jest.fn().mockImplementation((_req: unknown, res: { writeHead: (...a: unknown[]) => void; end: () => void }) => {
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.end();
+    }),
+    handlePost: jest.fn().mockImplementation((_req: unknown, res: { status: (c: number) => { json: (b: unknown) => void } }) => {
+      res.status(404).json({ error: "Session not found" });
+    }),
+  })),
+}));
+
 import RequestHandler from "./requestHandler";
 import { LocalRestApiSettings } from "./types";
 import { CERT_NAME } from "./constants";
@@ -1672,6 +1685,32 @@ describe("requestHandler", () => {
         .post("/search/simple/")
         .set("Authorization", `Bearer ${API_KEY}`)
         .expect(400);
+    });
+  });
+
+  describe("/mcp/ routes", () => {
+    test("GET /mcp/ without auth returns 401", async () => {
+      await request(server).get("/mcp/").expect(401);
+    });
+
+    test("POST /mcp/ without auth returns 401", async () => {
+      await request(server).post("/mcp/").expect(401);
+    });
+
+    test("GET /mcp/ with valid auth reaches McpHandler.handleSse", async () => {
+      const result = await request(server)
+        .get("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(result.headers["content-type"]).toMatch(/text\/event-stream/);
+    });
+
+    test("POST /mcp/ with valid auth but unknown sessionId returns 404", async () => {
+      const result = await request(server)
+        .post("/mcp/?sessionId=nonexistent")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(404);
+      expect(result.body.error).toBe("Session not found");
     });
   });
 

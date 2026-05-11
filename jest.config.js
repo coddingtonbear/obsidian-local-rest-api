@@ -6,9 +6,12 @@ module.exports = {
     obsidian: "<rootDir>/mocks/obsidian.ts",
     // Marked is ESM-only; point Jest at the UMD build so CommonJS transforms work.
     "^marked$": "<rootDir>/node_modules/marked/lib/marked.umd.js",
-    // McpHandler imports the MCP SDK which bundles ESM-only zod internals that
-    // jest (CommonJS) can't load. Since no tests exercise MCP, mock it entirely.
-    "^.+/mcpHandler$": "<rootDir>/mocks/mcpHandler.ts",
+    // Jest 27 doesn't support package.json exports maps, so deep .js paths in the
+    // MCP SDK (e.g. @modelcontextprotocol/sdk/server/mcp.js) must be resolved
+    // explicitly to the CJS dist. Tests that load McpHandler mock the SDK classes
+    // directly so the ESM-only zod internals bundled with the SDK are never touched.
+    "^@modelcontextprotocol/sdk/(.+)\\.js$":
+      "<rootDir>/node_modules/@modelcontextprotocol/sdk/dist/cjs/$1.js",
   },
   globals: {
     "ts-jest": {

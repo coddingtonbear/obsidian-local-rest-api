@@ -1491,7 +1491,15 @@ export default class RequestHandler {
 
     const mcpRouter = express.Router();
     mcpRouter.use(cors());
-    mcpRouter.use(this.authenticationMiddleware.bind(this));
+    mcpRouter.use((req, res, next) => {
+      if (!this.requestIsAuthenticated(req)) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ApiKeyAuthorizationRequired,
+        });
+        return;
+      }
+      next();
+    });
     mcpRouter.get("/", async (req, res) => this.mcpHandler.handleSse(req, res));
     mcpRouter.post("/", async (req, res) =>
       this.mcpHandler.handlePost(req, res),
