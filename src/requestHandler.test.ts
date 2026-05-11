@@ -1689,7 +1689,7 @@ describe("requestHandler", () => {
 
       // Access the private method via the handler instance
       // @ts-ignore: Accessing private method for testing
-      const result = await handler.waitForFileCache(testFile);
+      const result = await handler.operations.waitForFileCache(testFile);
 
       expect(result).not.toBeNull();
       expect(result?.frontmatter?.title).toBe("Test");
@@ -1703,7 +1703,7 @@ describe("requestHandler", () => {
       app.metadataCache._getFileCache = null;
 
       // @ts-ignore: Accessing private method for testing
-      const cachePromise = handler.waitForFileCache(testFile, 5000);
+      const cachePromise = handler.operations.waitForFileCache(testFile, 5000);
 
       // Simulate cache becoming available after a short delay
       setTimeout(() => {
@@ -1732,7 +1732,7 @@ describe("requestHandler", () => {
       app.metadataCache._getFileCache = null;
 
       // @ts-ignore: Accessing private method for testing
-      const cachePromise = handler.waitForFileCache(testFile, 200);
+      const cachePromise = handler.operations.waitForFileCache(testFile, 200);
 
       // Emit change for a different file - should be ignored
       setTimeout(() => {
@@ -1764,7 +1764,7 @@ describe("requestHandler", () => {
 
       // Use a very short timeout for the test
       // @ts-ignore: Accessing private method for testing
-      const result = await handler.waitForFileCache(testFile, 100);
+      const result = await handler.operations.waitForFileCache(testFile, 100);
 
       // Should return null (timeout reached without cache becoming available)
       expect(result).toBeNull();
@@ -1778,7 +1778,7 @@ describe("requestHandler", () => {
       app.metadataCache._getFileCache = null;
 
       // @ts-ignore: Accessing private method for testing
-      const cachePromise = handler.waitForFileCache(testFile, 5000);
+      const cachePromise = handler.operations.waitForFileCache(testFile, 5000);
 
       // Simulate cache becoming available
       setTimeout(() => {
@@ -1805,7 +1805,7 @@ describe("requestHandler", () => {
       app.metadataCache._getFileCache = null;
 
       // @ts-ignore: Accessing private method for testing
-      await handler.waitForFileCache(testFile, 100);
+      await handler.operations.waitForFileCache(testFile, 100);
 
       // Check that the listener was removed after timeout
       const listeners = app.metadataCache._listeners.get("changed") || [];
