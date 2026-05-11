@@ -7,9 +7,12 @@ const mockConnect = jest.fn().mockResolvedValue(undefined);
 const mockHandlePostMessage = jest.fn().mockResolvedValue(undefined);
 const mockSseSessionId = "test-session-id";
 
+const mockResource = jest.fn();
+
 jest.mock("@modelcontextprotocol/sdk/server/mcp.js", () => ({
   McpServer: jest.fn().mockImplementation(() => ({
     tool: mockTool,
+    resource: mockResource,
     connect: mockConnect,
   })),
 }));
@@ -110,6 +113,15 @@ describe("McpHandler", () => {
     ops = makeMockOps();
     // Construction registers all tools via registerTools()
     new McpHandler(ops);
+  });
+
+  // ---- resource registration ----------------------------------------------
+
+  test("registers the openapi-spec resource", () => {
+    expect(mockResource).toHaveBeenCalledTimes(1);
+    const [name, uri] = mockResource.mock.calls[0] as [string, string];
+    expect(name).toBe("openapi-spec");
+    expect(uri).toBe("obsidian://local-rest-api/openapi.yaml");
   });
 
   // ---- tool registration --------------------------------------------------
