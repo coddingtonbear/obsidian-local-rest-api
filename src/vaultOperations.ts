@@ -11,7 +11,6 @@ import path from "path";
 import {
   applyPatch,
   getDocumentMap,
-  PatchFailed,
   PatchInstruction,
   PatchOperation,
   PatchTargetType,
