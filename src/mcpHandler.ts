@@ -88,8 +88,6 @@ export class McpHandler {
   }
 
   private registerTools(): void {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore TS2589: type inference depth limit with zod generics in TS 4.7
     this.mcpServer.tool(
       "vault_list",
       "List files and subdirectories inside a vault directory. " +
@@ -146,7 +144,6 @@ export class McpHandler {
       },
     );
 
-    // @ts-ignore TS2589: type inference depth limit with zod generics in TS 4.7
     this.mcpServer.tool(
       "vault_patch",
       "Patch a specific section of a vault file by targeting a heading, block reference, or frontmatter field.\n\n" +
@@ -317,7 +314,6 @@ export class McpHandler {
       },
     );
 
-    // @ts-ignore TS2589: type inference depth limit with zod generics in TS 4.7
     this.mcpServer.tool(
       "search_query",
       "Search vault files using a JsonLogic query evaluated against each note's metadata.\n\n" +

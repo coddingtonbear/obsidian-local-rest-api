@@ -6,7 +6,8 @@
   "types": "main.d.ts",
   "scripts": {
     "dev": "node esbuild.config.mjs",
-    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "build": "node esbuild.config.mjs production",
+    "typecheck": "node --max-old-space-size=6144 node_modules/.bin/tsc -noEmit -skipLibCheck",
     "build-docs": "jsonnet -J docs/src/lib/ -S docs/src/openapi.jsonnet -o docs/openapi.yaml",
     "serve-docs": "npx serve docs",
     "version": "node version-bump.mjs && git add manifest.json versions.json",
@@ -35,7 +36,7 @@
     "supertest": "^6.2.2",
     "ts-jest": "27",
     "tslib": "2.4.0",
-    "typescript": "^4.7.4",
+    "typescript": "^5.9.3",
     "zod": "^3.24.2"
   },
   "dependencies": {
