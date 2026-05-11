@@ -16,6 +16,13 @@ import {
   PatchOperation,
   PatchTargetType,
 } from "markdown-patch";
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const jsonLogic = require("json-logic-js") as {
+  apply: (logic: unknown, data?: unknown) => unknown;
+  add_operation: (name: string, code: (...args: unknown[]) => unknown) => void;
+};
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const WildcardRegexp = require("glob-to-regexp") as (pattern: string) => RegExp;
 
 import {
   DocumentMapObject,
@@ -23,12 +30,32 @@ import {
   FileMetadataObject,
   PeriodicNoteInterface,
   SearchContext,
+  SearchJsonResponseItem,
   SearchResponseItem,
 } from "./types";
 import { toArrayBuffer } from "./utils";
 
 export class VaultOperations {
-  constructor(readonly app: App) {}
+  constructor(readonly app: App) {
+    jsonLogic.add_operation(
+      "glob",
+      (pattern: string | undefined, field: string | undefined) => {
+        if (typeof field === "string" && typeof pattern === "string") {
+          return WildcardRegexp(pattern).test(field);
+        }
+        return false;
+      },
+    );
+    jsonLogic.add_operation(
+      "regexp",
+      (pattern: string | undefined, field: string | undefined) => {
+        if (typeof field === "string" && typeof pattern === "string") {
+          return new RegExp(pattern).test(field);
+        }
+        return false;
+      },
+    );
+  }
 
   private waitForFileCache(
     file: TFile,
@@ -439,6 +466,36 @@ export class VaultOperations {
 
     results.sort((a, b) => ((a.score ?? 0) > (b.score ?? 0) ? 1 : -1));
     return results;
+  }
+
+  async searchJsonLogic(
+    query: unknown,
+  ): Promise<SearchJsonResponseItem[]> {
+    const results: SearchJsonResponseItem[] = [];
+
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fileContext = await this.getFileMetadataObject(file);
+
+      try {
+        const fileResult = jsonLogic.apply(query, fileContext);
+
+        if (this.isTruthy(fileResult)) {
+          results.push({ filename: file.path, result: fileResult });
+        }
+      } catch (e) {
+        const error = e as Error;
+        throw new Error(`${error.message} (while processing ${file.path})`);
+      }
+    }
+
+    return results;
+  }
+
+  private isTruthy(value: unknown): boolean {
+    if (value === undefined || value === null) return false;
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === "object") return Object.keys(value).length > 0;
+    return Boolean(value);
   }
 
   getAllTags(): Array<{ name: string; count: number }> {

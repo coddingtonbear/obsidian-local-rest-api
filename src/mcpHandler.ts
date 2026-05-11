@@ -317,6 +317,32 @@ export class McpHandler {
       },
     );
 
+    // @ts-ignore TS2589: type inference depth limit with zod generics in TS 4.7
+    this.mcpServer.tool(
+      "search_query",
+      "Search vault files using a JsonLogic query evaluated against each note's metadata.\n\n" +
+        "The query is a JSON object following the JsonLogic spec (https://jsonlogic.com/operations.html). " +
+        "It is evaluated against a NoteJson object for each file; files where the result is truthy are returned.\n\n" +
+        "Each NoteJson has: path (string), content (string), tags (string[]), frontmatter (object), stat ({ctime, mtime, size}).\n\n" +
+        "Extra operators available beyond standard JsonLogic:\n" +
+        "- {\"glob\": [\"*.foo\", {\"var\": \"path\"}]} — glob pattern match\n" +
+        "- {\"regexp\": [\"^daily/\", {\"var\": \"path\"}]} — regular expression match\n\n" +
+        "Returns an array of {filename, result} objects where result is the truthy value the query produced for that file.\n\n" +
+        "Examples:\n" +
+        "- Find by tag: {\"in\": [\"myTag\", {\"var\": \"tags\"}]}\n" +
+        "- Find by frontmatter field: {\"==\": [{\"var\": \"frontmatter.status\"}, \"done\"]}\n" +
+        "- Find by path glob: {\"glob\": [\"journal/*\", {\"var\": \"path\"}]}",
+      {
+        query: z
+          .any()
+          .describe("JsonLogic query object to evaluate against each note"),
+      },
+      async ({ query }) => {
+        const results = await this.ops.searchJsonLogic(query);
+        return this.text(results);
+      },
+    );
+
     this.mcpServer.tool(
       "search_simple",
       "Search vault files using Obsidian's built-in simple search. " +

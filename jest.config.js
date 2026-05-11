@@ -17,6 +17,7 @@ module.exports = {
     "ts-jest": {
       tsconfig: "tsconfig.test.json",
       diagnostics: false,
+      isolatedModules: true,
     },
   },
   transform: {

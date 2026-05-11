@@ -12,10 +12,8 @@ import http from "http";
 import cors from "cors";
 import mime from "mime-types";
 import bodyParser from "body-parser";
-import jsonLogic from "json-logic-js";
 import responseTime from "response-time";
 import queryString from "query-string";
-import WildcardRegexp from "glob-to-regexp";
 import {
   getDocumentMap,
   PatchFailed,
@@ -86,27 +84,6 @@ export default class RequestHandler {
     this.mcpHandler = new McpHandler(this.operations);
 
     this.api.set("json spaces", 2);
-
-    jsonLogic.add_operation(
-      "glob",
-      (pattern: string | undefined, field: string | undefined) => {
-        if (typeof field === "string" && typeof pattern === "string") {
-          const glob = WildcardRegexp(pattern);
-          return glob.test(field);
-        }
-        return false;
-      },
-    );
-    jsonLogic.add_operation(
-      "regexp",
-      (pattern: string | undefined, field: string | undefined) => {
-        if (typeof field === "string" && typeof pattern === "string") {
-          const rex = new RegExp(pattern);
-          return rex.test(field);
-        }
-        return false;
-      },
-    );
   }
 
   registerApiExtension(manifest: PluginManifest): LocalRestApiPublicApi {
@@ -1356,27 +1333,7 @@ export default class RequestHandler {
         return results;
       },
       [ContentTypes.jsonLogic]: async () => {
-        const results: SearchJsonResponseItem[] = [];
-
-        for (const file of this.app.vault.getMarkdownFiles()) {
-          const fileContext = await this.getFileMetadataObject(file);
-
-          try {
-            const fileResult = jsonLogic.apply(req.body, fileContext);
-
-            if (this.valueIsSaneTruthy(fileResult)) {
-              results.push({
-                filename: file.path,
-                result: fileResult,
-              });
-            }
-          } catch (e) {
-            const error = e as Error;
-            throw new Error(`${error.message} (while processing ${file.path})`);
-          }
-        }
-
-        return results;
+        return this.operations.searchJsonLogic(req.body);
       },
     };
     const contentType = req.headers["content-type"];

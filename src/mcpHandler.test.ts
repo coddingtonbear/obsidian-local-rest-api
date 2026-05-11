@@ -9,6 +9,14 @@ const mockSseSessionId = "test-session-id";
 
 const mockResource = jest.fn();
 
+// Prevent ts-jest from compiling vaultOperations.ts (which pulls in json-logic-js
+// with a deeply recursive RulesLogic type that OOMs TypeScript 4.7). The real
+// VaultOperations is never instantiated in these tests — makeMockOps() provides
+// a plain object with the same surface.
+jest.mock("./vaultOperations", () => ({
+  VaultOperations: jest.fn(),
+}));
+
 jest.mock("@modelcontextprotocol/sdk/server/mcp.js", () => ({
   McpServer: jest.fn().mockImplementation(() => ({
     tool: mockTool,
@@ -64,6 +72,9 @@ function makeMockOps() {
     appendFileContent: jest.fn().mockResolvedValue(undefined),
     patchFileSection: jest.fn().mockResolvedValue("patched content"),
     deleteVaultFile: jest.fn().mockResolvedValue(undefined),
+    searchJsonLogic: jest
+      .fn()
+      .mockResolvedValue([{ filename: "a.md", result: true }]),
     simpleSearch: jest
       .fn()
       .mockResolvedValue([{ filename: "a.md", score: 1, matches: [] }]),
@@ -126,8 +137,8 @@ describe("McpHandler", () => {
 
   // ---- tool registration --------------------------------------------------
 
-  test("registers all 17 tools", () => {
-    expect(mockTool).toHaveBeenCalledTimes(17);
+  test("registers all 18 tools", () => {
+    expect(mockTool).toHaveBeenCalledTimes(18);
     const names = mockTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -143,6 +154,7 @@ describe("McpHandler", () => {
         "periodic_note_read",
         "periodic_note_write",
         "periodic_note_append",
+        "search_query",
         "search_simple",
         "tags_list",
         "commands_list",
@@ -306,6 +318,18 @@ describe("McpHandler", () => {
     const cb = getToolCallback("periodic_note_append");
     await cb({ period: "monthly", content: "- item" });
     expect(ops.appendFileContent).toHaveBeenCalledWith("test.md", "- item");
+  });
+
+  // ---- search_query -------------------------------------------------------
+
+  test("search_query calls searchJsonLogic and returns results", async () => {
+    const cb = getToolCallback("search_query");
+    const query = { in: ["myTag", { var: "tags" }] };
+    const result = await cb({ query });
+    expect(ops.searchJsonLogic).toHaveBeenCalledWith(query);
+    expect(parseText(result)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ filename: "a.md" })]),
+    );
   });
 
   // ---- search_simple ------------------------------------------------------
