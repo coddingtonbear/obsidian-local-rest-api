@@ -12,3 +12,7 @@ jobs:
       run: npm i
     - name: Run tests
       run: npm test
+    - name: Build
+      run: npm run build
+    - name: Type check
+      run: npm run typecheck
