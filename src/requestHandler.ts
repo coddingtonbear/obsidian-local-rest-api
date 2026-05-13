@@ -19,6 +19,7 @@ import {
   PatchFailed,
   PatchOperation,
 } from "markdown-patch";
+import { SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/sdk/types.js";
 
 import {
   CannedResponse,
@@ -1474,8 +1475,7 @@ export default class RequestHandler {
     });
     mcpRouter.use((req, res, next) => {
       const version = req.headers["mcp-protocol-version"] as string | undefined;
-      const supported = ["2025-06-18", "2025-03-26"];
-      if (version !== undefined && !supported.includes(version)) {
+      if (version !== undefined && !SUPPORTED_PROTOCOL_VERSIONS.includes(version)) {
         res.status(400).json({ error: `Unsupported MCP-Protocol-Version: ${version}` });
         return;
       }
