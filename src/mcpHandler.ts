@@ -360,7 +360,7 @@ export class McpHandler {
     this.mcpServer.tool(
       "tags_list",
       "Return all tags used across the vault, each with a usage count. " +
-        "Tag names include the leading '#'.",
+        "Tag names do not include the leading '#'.",
       {},
       async () => {
         return this.text({ tags: this.ops.getAllTags() });
