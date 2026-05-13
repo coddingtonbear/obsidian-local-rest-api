@@ -48,7 +48,11 @@ import {
   isPatchTargetType,
 } from "./typeGuards";
 import LocalRestApiPublicApi from "./api";
-import { FileNotFoundError, VaultOperations } from "./vaultOperations";
+import {
+  CommandNotFoundError,
+  FileNotFoundError,
+  VaultOperations,
+} from "./vaultOperations";
 import { McpHandler } from "./mcpHandler";
 
 // Import openapi.yaml as a string
@@ -1253,8 +1257,15 @@ export default class RequestHandler {
   ): Promise<void> {
     try {
       this.operations.executeCommand(req.params.commandId);
-    } catch {
-      this.returnCannedResponse(res, { statusCode: 404 });
+    } catch (err) {
+      if (err instanceof CommandNotFoundError) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+      } else {
+        this.returnCannedResponse(res, {
+          statusCode: 500,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
       return;
     }
     this.returnCannedResponse(res, { statusCode: 204 });

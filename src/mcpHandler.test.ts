@@ -36,6 +36,7 @@ jest.mock("@modelcontextprotocol/sdk/server/sse.js", () => ({
 }));
 
 import { McpHandler } from "./mcpHandler";
+import { ErrorCode } from "./types";
 import { TFile } from "../mocks/obsidian";
 
 // ---------------------------------------------------------------------------
@@ -295,9 +296,11 @@ describe("McpHandler", () => {
   });
 
   test("periodic_note_read throws when note does not exist", async () => {
-    ops.periodicGetNote.mockReturnValue([null, "PeriodicNoteDoesNotExist"]);
+    ops.periodicGetNote.mockReturnValue([null, ErrorCode.PeriodicNoteDoesNotExist]);
     const cb = getToolCallback("periodic_note_read");
-    await expect(cb({ period: "daily" })).rejects.toThrow();
+    await expect(cb({ period: "daily" })).rejects.toThrow(
+      `Periodic note not found: ${ErrorCode.PeriodicNoteDoesNotExist}`,
+    );
   });
 
   // ---- periodic_note_write ------------------------------------------------

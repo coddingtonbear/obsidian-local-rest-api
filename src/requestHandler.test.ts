@@ -1317,6 +1317,29 @@ describe("requestHandler", () => {
       expect(app._executeCommandById).toEqual([arbitraryCommand.id]);
     });
 
+    test("command not found returns 404", async () => {
+      await request(server)
+        .post(`/commands/nonexistent-command/`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(404);
+    });
+
+    test("command execution error returns 500", async () => {
+      const arbitraryCommand = new Command();
+      arbitraryCommand.id = "beep";
+      arbitraryCommand.name = "boop";
+
+      app.commands.commands[arbitraryCommand.id] = arbitraryCommand;
+      app.commands.executeCommandById = () => {
+        throw new Error("command crashed");
+      };
+
+      await request(server)
+        .post(`/commands/${arbitraryCommand.id}/`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(500);
+    });
+
     test("unauthorized", async () => {
       const arbitraryCommand = new Command();
       arbitraryCommand.id = "beep";

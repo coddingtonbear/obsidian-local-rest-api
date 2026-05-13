@@ -24,6 +24,7 @@ const jsonLogic = require("json-logic-js") as {
 const WildcardRegexp = require("glob-to-regexp") as (pattern: string) => RegExp;
 
 export class FileNotFoundError extends Error {}
+export class CommandNotFoundError extends Error {}
 
 import {
   DocumentMapObject,
@@ -538,7 +539,7 @@ export class VaultOperations {
   executeCommand(commandId: string): void {
     const cmd = this.app.commands.commands[commandId];
     if (!cmd) {
-      throw new Error(`Command not found: ${commandId}`);
+      throw new CommandNotFoundError(`Command not found: ${commandId}`);
     }
     this.app.commands.executeCommandById(commandId);
   }
