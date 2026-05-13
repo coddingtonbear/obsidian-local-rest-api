@@ -1,8 +1,11 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "types": ["jest", "node"],
+    "isolatedModules": true,
     "paths": {
       "obsidian": ["./mocks/obsidian.ts"]
     }
-  }
+  },
+  "exclude": []
 }

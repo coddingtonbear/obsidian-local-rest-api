@@ -13,15 +13,8 @@ module.exports = {
     "^@modelcontextprotocol/sdk/(.+)\\.js$":
       "<rootDir>/node_modules/@modelcontextprotocol/sdk/dist/cjs/$1.js",
   },
-  globals: {
-    "ts-jest": {
-      tsconfig: "tsconfig.test.json",
-      diagnostics: false,
-      isolatedModules: true,
-    },
-  },
   transform: {
-    "\\.ts$": ["ts-jest"],
-    "\\.ya?ml$": "jest-raw-loader",
+    "\\.ts$": ["ts-jest", { tsconfig: "tsconfig.test.json", diagnostics: false }],
+    "\\.ya?ml$": "<rootDir>/jest-raw-transformer.js",
   },
 };
