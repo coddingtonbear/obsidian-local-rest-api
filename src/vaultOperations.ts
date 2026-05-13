@@ -23,6 +23,8 @@ const jsonLogic = require("json-logic-js") as {
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const WildcardRegexp = require("glob-to-regexp") as (pattern: string) => RegExp;
 
+export class FileNotFoundError extends Error {}
+
 import {
   DocumentMapObject,
   ErrorCode,
@@ -279,7 +281,7 @@ export class VaultOperations {
   ): Promise<string> {
     const file = this.app.vault.getAbstractFileByPath(filePath);
     if (!(file instanceof TFile)) {
-      throw new Error(`File not found: ${filePath}`);
+      throw new FileNotFoundError(`File not found: ${filePath}`);
     }
     const fileContents = await this.app.vault.read(file);
 

@@ -714,6 +714,20 @@ describe("requestHandler", () => {
         .expect(404);
     });
 
+    test("non-existing file via V3 (Target-Type header) returns 404", async () => {
+      app.vault._getAbstractFileByPath = null;
+
+      await request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1")
+        .set("Operation", "append")
+        .send("new content")
+        .expect(404);
+    });
+
     test("unauthorized", async () => {
       const arbitraryFilePath = "somefile.md";
       const arbitraryBytes = "bytes";

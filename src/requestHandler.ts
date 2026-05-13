@@ -48,7 +48,7 @@ import {
   isPatchTargetType,
 } from "./typeGuards";
 import LocalRestApiPublicApi from "./api";
-import { VaultOperations } from "./vaultOperations";
+import { FileNotFoundError, VaultOperations } from "./vaultOperations";
 import { McpHandler } from "./mcpHandler";
 
 // Import openapi.yaml as a string
@@ -664,7 +664,9 @@ export default class RequestHandler {
       );
       res.status(200).send(patched);
     } catch (e) {
-      if (e instanceof PatchFailed) {
+      if (e instanceof FileNotFoundError) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+      } else if (e instanceof PatchFailed) {
         this.returnCannedResponse(res, { errorCode: ErrorCode.PatchFailed, message: e.reason });
       } else {
         this.returnCannedResponse(res, { statusCode: 500, message: (e as Error).message });
@@ -735,7 +737,9 @@ export default class RequestHandler {
       );
       res.status(200).send(patched);
     } catch (e) {
-      if (e instanceof PatchFailed) {
+      if (e instanceof FileNotFoundError) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+      } else if (e instanceof PatchFailed) {
         this.returnCannedResponse(res, { errorCode: ErrorCode.PatchFailed, message: (e as PatchFailed).reason });
       } else {
         this.returnCannedResponse(res, { statusCode: 500, message: (e as Error).message });
