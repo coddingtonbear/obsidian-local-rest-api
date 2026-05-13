@@ -22,12 +22,14 @@ npm run test:integration
 
 ### Commit message format
 
-Use [Conventional Commits](https://www.conventionalcommits.org/) format:
+Use a plain imperative subject line (no `type:` prefix). Always include a `Co-Authored-By` trailer crediting the AI assistant that helped author the commit.
 
 ```
 Short imperative description
 
 Longer description of what this work is, why these changes were made, and any decisions, trade-offs, and known limitations that may be useful to future readers.
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 ```
 
 ## Keeping REST, MCP, and Documentation in Sync
