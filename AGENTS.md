@@ -1,5 +1,35 @@
 # Agent Instructions
 
+## Commit Process
+
+### Commit cadence
+
+Commit frequently in small, self-contained increments. Each commit must leave the repository in a working state — no broken builds, no failing unit tests. A commit that fixes a bug, a commit that adds a test, and a commit that updates documentation are all valid atomic units. Do not batch unrelated changes into a single commit.
+
+### Running tests before committing
+
+Run the unit test suite before every commit:
+
+```
+npm test
+```
+
+Integration tests require a live Obsidian instance with the plugin's insecure HTTP server enabled and `OBSIDIAN_API_KEY` set. Run them when Obsidian is available, and always run them before pushing changes that touch endpoint behavior:
+
+```
+npm run test:integration
+```
+
+### Commit message format
+
+Use [Conventional Commits](https://www.conventionalcommits.org/) format:
+
+```
+Short imperative description
+
+Longer description of what this work is, why these changes were made, and any decisions, trade-offs, and known limitations that may be useful to future readers.
+```
+
 ## Keeping REST, MCP, and Documentation in Sync
 
 This project has several parallel representations of each API capability that must be kept consistent. When any one changes, the others must be updated in the same commit.
@@ -43,7 +73,6 @@ Before marking any endpoint-related change complete:
 - [ ] Unit tests in `src/requestHandler.test.ts` and/or `src/mcpHandler.test.ts` cover the changed behavior
 - [ ] Integration tests in `src/integration/` cover the changed behavior
 
----
 
 ## Release Process
 
