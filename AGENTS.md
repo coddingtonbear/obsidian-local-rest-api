@@ -1,5 +1,50 @@
 # Agent Instructions
 
+## Keeping REST, MCP, and Documentation in Sync
+
+This project has several parallel representations of each API capability that must be kept consistent. When any one changes, the others must be updated in the same commit.
+
+| Layer | Files |
+|---|---|
+| REST API implementation | `src/requestHandler.ts` |
+| MCP tool definitions | `src/mcpHandler.ts` |
+| OpenAPI docs (source) | `docs/src/openapi.jsonnet`, `docs/src/lib/descriptions/*.md` |
+| OpenAPI docs (compiled) | `docs/openapi.yaml` |
+| Unit tests | `src/requestHandler.test.ts`, `src/mcpHandler.test.ts` |
+| Integration tests | `src/integration/*.test.ts` |
+
+### When changing a REST endpoint
+
+Any of the following changes requires updates across multiple layers:
+
+- **New parameter** — add it to the route handler in `src/requestHandler.ts`, add the corresponding Zod field to the matching `mcpServer.tool()` call in `src/mcpHandler.ts`, document it in the relevant Jsonnet source under `docs/src/`, and add test coverage in both the relevant unit test file and the relevant `src/integration/*.test.ts` file.
+- **Removed or renamed parameter** — mirror the removal/rename across all layers.
+- **Changed behavior or response format** — update the OpenAPI description in `docs/src/lib/descriptions/` and the MCP tool description string in `src/mcpHandler.ts` so both REST and MCP clients receive accurate documentation.
+- **New endpoint entirely** — all layers need additions: route handler, MCP tool, Jsonnet operation block, regenerated `docs/openapi.yaml`, and test coverage in both the unit and integration test files.
+
+### Regenerating the compiled OpenAPI spec
+
+`docs/openapi.yaml` is generated from the Jsonnet source and must be regenerated after any change to `docs/src/`:
+
+```
+npm run build-docs
+```
+
+Stage the resulting `docs/openapi.yaml` alongside any Jsonnet changes. `src/mcpHandler.ts` imports this file directly, so a stale compiled spec means MCP clients receive outdated API documentation.
+
+### Checklist
+
+Before marking any endpoint-related change complete:
+
+- [ ] `src/requestHandler.ts` implements the behavior
+- [ ] `src/mcpHandler.ts` exposes matching parameters and an accurate description
+- [ ] `docs/src/` Jsonnet/Markdown reflects the change
+- [ ] `docs/openapi.yaml` has been regenerated (`npm run build-docs`)
+- [ ] Unit tests in `src/requestHandler.test.ts` and/or `src/mcpHandler.test.ts` cover the changed behavior
+- [ ] Integration tests in `src/integration/` cover the changed behavior
+
+---
+
 ## Release Process
 
 Releases are performed on the `main` branch after all feature branches have been merged.
