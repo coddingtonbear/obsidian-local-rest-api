@@ -393,23 +393,7 @@ export class VaultOperations {
       const now = (window as any).moment(Date.now());
 
       file = await period.create(now);
-
-      const metadataCachePromise = new Promise<CachedMetadata | null>(
-        (resolve) => {
-          let cache: CachedMetadata | null = null;
-
-          const interval: ReturnType<typeof setInterval> = setInterval(() => {
-            if (file) {
-              cache = this.app.metadataCache.getFileCache(file);
-              if (cache) {
-                clearInterval(interval);
-                resolve(cache);
-              }
-            }
-          }, 100);
-        },
-      );
-      await metadataCachePromise;
+      await this.waitForFileCache(file);
     } else if (err) {
       return [null, err];
     }
