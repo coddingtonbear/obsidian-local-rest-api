@@ -205,7 +205,7 @@ export class McpHandler {
           target,
           operation as PatchOperation,
           content,
-          contentType ?? "text/plain",
+          contentType ?? "text/markdown",
           { createTargetIfMissing, trimTargetWhitespace, targetDelimiter },
         );
         return this.text({ message: "OK" });

@@ -264,7 +264,7 @@ describe("vault_patch tool", () => {
     expect(body.content).not.toContain(TERM_DELTA);
   });
 
-  test("replaces a frontmatter field (JSON content type)", async () => {
+  test("replaces a frontmatter field", async () => {
     await client.callTool({
       name: "vault_patch",
       arguments: {
@@ -272,12 +272,12 @@ describe("vault_patch tool", () => {
         targetType: "frontmatter",
         target: "title",
         operation: "replace",
-        content: JSON.stringify("MCP Patched Title"),
-        contentType: "application/json",
+        // Pass the plain string value — patchFileSection stores content directly
+        // in the frontmatter object; the REST API parses JSON first but the MCP
+        // tool does not, so JSON.stringify would store the encoded string literally.
+        content: "MCP Patched Title",
       },
     });
-    // patchFileSection awaits the metadata cache before returning, so
-    // frontmatter is safe to check immediately via vault_read.
     const body = jsonOf<any>(
       await client.callTool({ name: "vault_read", arguments: { path: TEST_PATH } })
     );
