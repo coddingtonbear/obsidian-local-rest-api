@@ -1,5 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 import {
   API_KEY,
@@ -31,17 +31,8 @@ function makeClient(): Client {
   return new Client({ name: "integration-test", version: "1.0.0" });
 }
 
-function makeTransport(): SSEClientTransport {
-  return new SSEClientTransport(new URL(`${BASE_URL}/mcp/`), {
-    // Inject auth into the SSE GET request via a custom fetch wrapper.
-    eventSourceInit: {
-      fetch: (url, init) =>
-        globalThis.fetch(url as string, {
-          ...init,
-          headers: { ...(init?.headers ?? {}), Authorization: `Bearer ${API_KEY}` },
-        } as RequestInit),
-    },
-    // Inject auth into the recurring JSON-RPC POST requests.
+function makeTransport(): StreamableHTTPClientTransport {
+  return new StreamableHTTPClientTransport(new URL(`${BASE_URL}/mcp`), {
     requestInit: {
       headers: { Authorization: `Bearer ${API_KEY}` },
     },

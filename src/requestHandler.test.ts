@@ -4,12 +4,8 @@ import request from "supertest";
 // Mock McpHandler so tests don't load the MCP SDK (which bundles ESM-only zod)
 jest.mock("./mcpHandler", () => ({
   McpHandler: jest.fn().mockImplementation(() => ({
-    handleSse: jest.fn().mockImplementation((_req: unknown, res: { writeHead: (...a: unknown[]) => void; end: () => void }) => {
-      res.writeHead(200, { "Content-Type": "text/event-stream" });
-      res.end();
-    }),
-    handlePost: jest.fn().mockImplementation((_req: unknown, res: { status: (c: number) => { json: (b: unknown) => void } }) => {
-      res.status(404).json({ error: "Session not found" });
+    handleRequest: jest.fn().mockImplementation((_req: unknown, res: { status: (c: number) => { json: (b: unknown) => void } }) => {
+      res.status(200).json({ ok: true });
     }),
   })),
 }));
@@ -1734,20 +1730,19 @@ describe("requestHandler", () => {
       await request(server).post("/mcp/").expect(401);
     });
 
-    test("GET /mcp/ with valid auth reaches McpHandler.handleSse", async () => {
-      const result = await request(server)
-        .get("/mcp/")
+    test("POST /mcp/ with valid auth reaches McpHandler.handleRequest", async () => {
+      await request(server)
+        .post("/mcp/")
         .set("Authorization", `Bearer ${API_KEY}`)
         .expect(200);
-      expect(result.headers["content-type"]).toMatch(/text\/event-stream/);
     });
 
-    test("POST /mcp/ with valid auth but unknown sessionId returns 404", async () => {
-      const result = await request(server)
-        .post("/mcp/?sessionId=nonexistent")
+    test("GET /mcp/ with valid auth and session ID reaches McpHandler.handleRequest", async () => {
+      await request(server)
+        .get("/mcp/")
         .set("Authorization", `Bearer ${API_KEY}`)
-        .expect(404);
-      expect(result.body.error).toBe("Session not found");
+        .set("Mcp-Session-Id", "some-session-id")
+        .expect(200);
     });
   });
 

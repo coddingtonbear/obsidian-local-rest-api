@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import express from "express";
 import { TFile } from "obsidian";
@@ -12,7 +13,7 @@ const PERIODS = ["daily", "weekly", "monthly", "quarterly", "yearly"] as const;
 
 export class McpHandler {
   private readonly mcpServer: McpServer;
-  private readonly transports: Map<string, SSEServerTransport> = new Map();
+  private readonly transports: Map<string, StreamableHTTPServerTransport> = new Map();
 
   constructor(private readonly ops: VaultOperations) {
     this.mcpServer = new McpServer({
@@ -23,27 +24,33 @@ export class McpHandler {
     this.registerTools();
   }
 
-  async handleSse(
+  async handleRequest(
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const transport = new SSEServerTransport("/mcp/", res);
-    this.transports.set(transport.sessionId, transport);
-    req.on("close", () => this.transports.delete(transport.sessionId));
-    await this.mcpServer.connect(transport);
-  }
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
-  async handlePost(
-    req: express.Request,
-    res: express.Response,
-  ): Promise<void> {
-    const sessionId = req.query.sessionId as string;
+    if (!sessionId) {
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (id) => {
+          this.transports.set(id, transport);
+        },
+      });
+      transport.onclose = () => {
+        if (transport.sessionId) this.transports.delete(transport.sessionId);
+      };
+      await this.mcpServer.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+      return;
+    }
+
     const transport = this.transports.get(sessionId);
     if (!transport) {
       res.status(404).json({ error: "Session not found" });
       return;
     }
-    await transport.handlePostMessage(req, res);
+    await transport.handleRequest(req, res, req.body);
   }
 
   private text(data: unknown) {

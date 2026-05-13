@@ -1472,10 +1472,8 @@ export default class RequestHandler {
       }
       next();
     });
-    mcpRouter.get("/", async (req, res) => this.mcpHandler.handleSse(req, res));
-    mcpRouter.post("/", async (req, res) =>
-      this.mcpHandler.handlePost(req, res),
-    );
+    mcpRouter.use(express.json());
+    mcpRouter.all("/", async (req, res) => this.mcpHandler.handleRequest(req, res));
     this.api.use("/mcp", mcpRouter);
 
     this.api.use(this.authenticationMiddleware.bind(this));

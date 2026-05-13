@@ -4,8 +4,8 @@
 
 const mockTool = jest.fn();
 const mockConnect = jest.fn().mockResolvedValue(undefined);
-const mockHandlePostMessage = jest.fn().mockResolvedValue(undefined);
-const mockSseSessionId = "test-session-id";
+const mockTransportHandleRequest = jest.fn().mockResolvedValue(undefined);
+const mockNewSessionId = "new-session-id";
 
 const mockResource = jest.fn();
 
@@ -25,14 +25,18 @@ jest.mock("@modelcontextprotocol/sdk/server/mcp.js", () => ({
   })),
 }));
 
-jest.mock("@modelcontextprotocol/sdk/server/sse.js", () => ({
-  SSEServerTransport: jest.fn().mockImplementation(() => ({
-    sessionId: mockSseSessionId,
-    handlePostMessage: mockHandlePostMessage,
-    start: jest.fn().mockResolvedValue(undefined),
-    close: jest.fn().mockResolvedValue(undefined),
-    send: jest.fn().mockResolvedValue(undefined),
-  })),
+jest.mock("@modelcontextprotocol/sdk/server/streamableHttp.js", () => ({
+  StreamableHTTPServerTransport: jest.fn().mockImplementation((opts: { onsessioninitialized?: (id: string) => void }) => {
+    const transport = {
+      sessionId: mockNewSessionId,
+      handleRequest: mockTransportHandleRequest,
+      onclose: undefined as (() => void) | undefined,
+    };
+    // Defer so the outer `const transport = new ...` assignment completes first,
+    // matching the real SDK which only calls this after processing the initialize message.
+    Promise.resolve().then(() => opts?.onsessioninitialized?.(mockNewSessionId));
+    return transport;
+  }),
 }));
 
 import { McpHandler } from "./mcpHandler";
@@ -394,55 +398,61 @@ describe("McpHandler", () => {
     expect(parseText(result).message).toBe("OK");
   });
 
-  // ---- handlePost ---------------------------------------------------------
+  // ---- handleRequest ------------------------------------------------------
 
-  describe("handlePost", () => {
-    test("returns 404 when session is not found", async () => {
+  describe("handleRequest", () => {
+    test("returns 404 when session ID is unknown", async () => {
       const mcp = new McpHandler(ops);
       const mockRes = {
         status: jest.fn().mockReturnThis(),
         json: jest.fn(),
       };
       // @ts-ignore: using partial mock
-      await mcp.handlePost(
-        { query: { sessionId: "unknown" } },
+      await mcp.handleRequest(
+        { headers: { "mcp-session-id": "unknown" } },
         mockRes,
       );
       expect(mockRes.status).toHaveBeenCalledWith(404);
     });
 
-    test("delegates to transport when session exists", async () => {
-      const { SSEServerTransport } = jest.requireMock(
-        "@modelcontextprotocol/sdk/server/sse.js",
+    test("creates new transport and delegates when no session ID header", async () => {
+      const { StreamableHTTPServerTransport } = jest.requireMock(
+        "@modelcontextprotocol/sdk/server/streamableHttp.js",
       );
       const mcp = new McpHandler(ops);
 
-      // Simulate an established SSE session
-      const mockReqSse = {
-        on: jest.fn(),
-      };
-      const mockResSse = {
-        writeHead: jest.fn(),
-        write: jest.fn(),
-        end: jest.fn(),
-        setHeader: jest.fn(),
-        getHeader: jest.fn(),
-        on: jest.fn(),
-      };
+      const mockReq = { headers: {}, body: { jsonrpc: "2.0", method: "initialize" } };
+      const mockRes = {};
       // @ts-ignore
-      await mcp.handleSse(mockReqSse, mockResSse);
+      await mcp.handleRequest(mockReq, mockRes);
 
-      const transport = SSEServerTransport.mock.results[0].value;
+      expect(StreamableHTTPServerTransport).toHaveBeenCalledTimes(1);
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+      const transport = StreamableHTTPServerTransport.mock.results[0].value;
+      expect(transport.handleRequest).toHaveBeenCalledWith(mockReq, mockRes, mockReq.body);
+    });
 
-      const mockReqPost = { query: { sessionId: mockSseSessionId } };
-      const mockResPost = {};
-      // @ts-ignore
-      await mcp.handlePost(mockReqPost, mockResPost);
-
-      expect(transport.handlePostMessage).toHaveBeenCalledWith(
-        mockReqPost,
-        mockResPost,
+    test("delegates to existing transport when session ID matches", async () => {
+      const { StreamableHTTPServerTransport } = jest.requireMock(
+        "@modelcontextprotocol/sdk/server/streamableHttp.js",
       );
+      const mcp = new McpHandler(ops);
+
+      // Initialize: POST without session ID registers the transport via onsessioninitialized
+      const initReq = { headers: {}, body: undefined };
+      const initRes = {};
+      // @ts-ignore
+      await mcp.handleRequest(initReq, initRes);
+
+      // Subsequent request with the assigned session ID
+      const mockReq2 = { headers: { "mcp-session-id": mockNewSessionId } };
+      const mockRes2 = {};
+      // @ts-ignore
+      await mcp.handleRequest(mockReq2, mockRes2);
+
+      const transport = StreamableHTTPServerTransport.mock.results[0].value;
+      expect(transport.handleRequest).toHaveBeenCalledTimes(2);
+      expect(transport.handleRequest).toHaveBeenLastCalledWith(mockReq2, mockRes2, undefined);
     });
   });
 });
