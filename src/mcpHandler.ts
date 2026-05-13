@@ -13,7 +13,7 @@ const PERIODS = ["daily", "weekly", "monthly", "quarterly", "yearly"] as const;
 
 export class McpHandler {
   // typed as `any` to avoid TypeScript heap OOM when evaluating the MCP SDK's complex
-  // ToolCallback<Args extends ZodRawShape> generics across the 16 tool registrations below
+  // ToolCallback<Args extends ZodRawShape> generics across the 18 tool registrations below
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private readonly mcpServer: any;
   private readonly transports: Map<string, StreamableHTTPServerTransport> = new Map();
