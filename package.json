@@ -11,7 +11,8 @@
     "build-docs": "jsonnet -J docs/src/lib/ -S docs/src/openapi.jsonnet -o docs/openapi.yaml",
     "serve-docs": "npx serve docs",
     "version": "node version-bump.mjs && git add manifest.json versions.json",
-    "test": "jest"
+    "test": "jest",
+    "test:integration": "jest --config jest.integration.config.js --runInBand"
   },
   "keywords": [],
   "author": "",
