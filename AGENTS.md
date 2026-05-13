@@ -6,6 +6,10 @@
 
 Commit frequently in small, self-contained increments. Each commit must leave the repository in a working state — no broken builds, no failing unit tests. A commit that fixes a bug, a commit that adds a test, and a commit that updates documentation are all valid atomic units. Do not batch unrelated changes into a single commit.
 
+### Push Automatically
+
+After making any particular commit, you can feel free to push that branch to the remote.
+
 ### Running tests before committing
 
 Run the unit test suite before every commit:
