@@ -832,6 +832,15 @@ std.manifestYamlDoc(
                 type: 'string',
               },
             },
+            {
+              name: 'MCP-Protocol-Version',
+              'in': 'header',
+              description: 'MCP protocol version negotiated during initialization (e.g. `2025-06-18`). Required on all requests after initialization. Unrecognised values are rejected with 400.',
+              required: false,
+              schema: {
+                type: 'string',
+              },
+            },
           ],
           responses: {
             '200': {
@@ -840,6 +849,16 @@ std.manifestYamlDoc(
                 'text/event-stream': {
                   schema: {
                     type: 'string',
+                  },
+                },
+              },
+            },
+            '400': {
+              description: 'Unsupported MCP-Protocol-Version.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
                   },
                 },
               },
@@ -875,6 +894,15 @@ std.manifestYamlDoc(
               name: 'Mcp-Session-Id',
               'in': 'header',
               description: 'Session ID returned by the server on initialization. Omit for the initial `initialize` request; required for all subsequent requests.',
+              required: false,
+              schema: {
+                type: 'string',
+              },
+            },
+            {
+              name: 'MCP-Protocol-Version',
+              'in': 'header',
+              description: 'MCP protocol version negotiated during initialization (e.g. `2025-06-18`). Required on all requests after initialization. Unrecognised values are rejected with 400.',
               required: false,
               schema: {
                 type: 'string',
@@ -984,6 +1012,16 @@ std.manifestYamlDoc(
                   description: 'Session ID assigned by the server. Present only on the `initialize` response.',
                   schema: {
                     type: 'string',
+                  },
+                },
+              },
+            },
+            '400': {
+              description: 'Unsupported MCP-Protocol-Version.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
                   },
                 },
               },

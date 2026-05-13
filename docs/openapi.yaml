@@ -790,6 +790,12 @@ paths:
           required: true
           schema:
             type: "string"
+        - description: "MCP protocol version negotiated during initialization (e.g. `2025-06-18`). Required on all requests after initialization. Unrecognised values are rejected with 400."
+          in: "header"
+          name: "MCP-Protocol-Version"
+          required: false
+          schema:
+            type: "string"
       responses:
         "200":
           content:
@@ -797,6 +803,12 @@ paths:
               schema:
                 type: "string"
           description: "SSE stream opened. The server pushes JSON-RPC messages as server-sent events."
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Unsupported MCP-Protocol-Version."
         "401":
           content:
             application/json:
@@ -818,6 +830,8 @@ paths:
         Interact with this plugin's MCP server using the [Streamable HTTP transport](https://modelcontextprotocol.io/docs/concepts/transports#streamable-http).
         
         Point any MCP-compatible client (Claude Code, Cursor, or any MCP SDK client that supports the Streamable HTTP transport) at this endpoint and pass your API key as a bearer token. Send an `initialize` request via `POST /mcp/` to start a session; the server returns a session ID in the `Mcp-Session-Id` response header. Include that header on all subsequent requests.
+        
+        Include the `MCP-Protocol-Version` header on all requests after initialization, set to the protocol version negotiated during the `initialize` exchange (e.g. `2025-06-18`). Requests with an unrecognized version value are rejected with `400 Bad Request`.
         
         ## Available tools
         
@@ -851,6 +865,12 @@ paths:
         - description: "Session ID returned by the server on initialization. Omit for the initial `initialize` request; required for all subsequent requests."
           in: "header"
           name: "Mcp-Session-Id"
+          required: false
+          schema:
+            type: "string"
+        - description: "MCP protocol version negotiated during initialization (e.g. `2025-06-18`). Required on all requests after initialization. Unrecognised values are rejected with 400."
+          in: "header"
+          name: "MCP-Protocol-Version"
           required: false
           schema:
             type: "string"
@@ -939,6 +959,12 @@ paths:
               description: "Session ID assigned by the server. Present only on the `initialize` response."
               schema:
                 type: "string"
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Unsupported MCP-Protocol-Version."
         "401":
           content:
             application/json:

@@ -1472,6 +1472,15 @@ export default class RequestHandler {
       }
       next();
     });
+    mcpRouter.use((req, res, next) => {
+      const version = req.headers["mcp-protocol-version"] as string | undefined;
+      const supported = ["2025-06-18", "2025-03-26"];
+      if (version !== undefined && !supported.includes(version)) {
+        res.status(400).json({ error: `Unsupported MCP-Protocol-Version: ${version}` });
+        return;
+      }
+      next();
+    });
     mcpRouter.use(express.json());
     mcpRouter.all("/", async (req, res) => this.mcpHandler.handleRequest(req, res));
     this.api.use("/mcp", mcpRouter);

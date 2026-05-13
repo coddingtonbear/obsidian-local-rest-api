@@ -1744,6 +1744,45 @@ describe("requestHandler", () => {
         .set("Mcp-Session-Id", "some-session-id")
         .expect(200);
     });
+
+    test("POST /mcp/ with unsupported MCP-Protocol-Version returns 400", async () => {
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MCP-Protocol-Version", "9999-01-01")
+        .expect(400);
+    });
+
+    test("GET /mcp/ with unsupported MCP-Protocol-Version returns 400", async () => {
+      await request(server)
+        .get("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MCP-Protocol-Version", "9999-01-01")
+        .expect(400);
+    });
+
+    test("POST /mcp/ with MCP-Protocol-Version 2025-06-18 passes through", async () => {
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MCP-Protocol-Version", "2025-06-18")
+        .expect(200);
+    });
+
+    test("POST /mcp/ with MCP-Protocol-Version 2025-03-26 passes through", async () => {
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MCP-Protocol-Version", "2025-03-26")
+        .expect(200);
+    });
+
+    test("POST /mcp/ without MCP-Protocol-Version passes through", async () => {
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+    });
   });
 
   describe("waitForFileCache", () => {
