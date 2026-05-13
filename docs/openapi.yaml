@@ -140,7 +140,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         # Retrieving Document Metadata
         
@@ -507,7 +507,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
@@ -630,7 +630,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
@@ -779,6 +779,99 @@ paths:
         Execute a command.
       tags:
         - "Commands"
+  /mcp/:
+    get:
+      description: |
+        Establishes a Server-Sent Events (SSE) stream for the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/).
+        
+        Point any MCP-compatible client (Claude Desktop, Cursor, or any MCP SDK client) at this endpoint with your API key as the bearer token. On connection the server emits an `endpoint` SSE event containing the POST URL including the session ID; the client then sends JSON-RPC 2.0 messages to `POST /mcp/?sessionId=<id>`.
+        
+        ## Available tools
+        
+        | Tool | Description |
+        |---|---|
+        | `vault_list` | List files and subdirectories inside a vault directory |
+        | `vault_read` | Read a file's full content, frontmatter, tags, and stat |
+        | `vault_write` | Create or overwrite a vault file |
+        | `vault_append` | Append content to the end of a vault file |
+        | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
+        | `vault_delete` | Delete a vault file |
+        | `active_file_read` | Read the file currently open in Obsidian |
+        | `active_file_write` | Overwrite the file currently open in Obsidian |
+        | `active_file_append` | Append content to the file currently open in Obsidian |
+        | `periodic_note_read` | Read the current periodic note (daily, weekly, monthly, quarterly, yearly) |
+        | `periodic_note_write` | Write (or create) the current periodic note |
+        | `periodic_note_append` | Append content to the current periodic note |
+        | `search_query` | Search using a JsonLogic query evaluated against each note's metadata |
+        | `search_simple` | Full-text search using Obsidian's built-in search |
+        | `tags_list` | List all tags across the vault with usage counts |
+        | `commands_list` | List all registered Obsidian commands |
+        | `command_execute` | Execute an Obsidian command by ID |
+        | `open_file` | Open a file in the Obsidian UI |
+        
+        ## Available resources
+        
+        | URI | Description |
+        |---|---|
+        | `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API |
+      responses:
+        "200":
+          content:
+            text/event-stream:
+              schema:
+                type: "string"
+          description: "SSE stream established. The server emits an `endpoint` event containing the POST URL with session ID."
+        "401":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "API key required."
+      summary: |
+        Establish an MCP (Model Context Protocol) SSE connection.
+      tags:
+        - "MCP"
+    post:
+      description: |
+        Send a JSON-RPC 2.0 message to an existing MCP session. The `sessionId` query parameter must match a session ID received from `GET /mcp/`.
+      parameters:
+        - description: "The session ID received in the SSE `endpoint` event from `GET /mcp/`."
+          in: "query"
+          name: "sessionId"
+          required: true
+          schema:
+            type: "string"
+      requestBody:
+        content:
+          application/json:
+            example:
+              id: 1
+              jsonrpc: "2.0"
+              method: "tools/list"
+              params: {}
+            schema:
+              description: "A JSON-RPC 2.0 request message."
+              type: "object"
+        required: true
+      responses:
+        "200":
+          description: "Message accepted."
+        "401":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "API key required."
+        "404":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Session not found."
+      summary: |
+        Send a JSON-RPC 2.0 message to an active MCP session.
+      tags:
+        - "MCP"
   /obsidian-local-rest-api.crt:
     get:
       responses:
@@ -879,7 +972,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         # Retrieving Document Metadata
         
@@ -1272,7 +1365,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
@@ -1408,7 +1501,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
@@ -1594,7 +1687,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         # Retrieving Document Metadata
         
@@ -2023,7 +2116,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
@@ -2177,7 +2270,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
@@ -2555,7 +2648,7 @@ paths:
   "/vault/{filename}":
     delete:
       parameters:
-        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to a sub-part of the document to return; see \"Targeting a Sub-part of your Document\" for details."
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
           name: "filename"
           required: true
@@ -2601,7 +2694,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         # Retrieving Document Metadata
         
@@ -2613,7 +2706,7 @@ paths:
         
         If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
       parameters:
-        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to a sub-part of the document to return; see \"Targeting a Sub-part of your Document\" for details."
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
           name: "filename"
           required: true
@@ -2842,7 +2935,7 @@ paths:
         of `application/vnd.olrapi.document-map+json` to get a JSON object
         outlining what headings, block references, and frontmatter fields exist.
       parameters:
-        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to a sub-part of the document to return; see \"Targeting a Sub-part of your Document\" for details."
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
           name: "filename"
           required: true
@@ -2982,13 +3075,13 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
         If you need `prepend` or `replace` operations, use `PATCH` instead.
       parameters:
-        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to a sub-part of the document to return; see \"Targeting a Sub-part of your Document\" for details."
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
           name: "filename"
           required: true
@@ -3114,11 +3207,11 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
-        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to a sub-part of the document to return; see \"Targeting a Sub-part of your Document\" for details."
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
           name: "filename"
           required: true
@@ -3288,3 +3381,4 @@ tags:
   - name: "Commands"
   - name: "Open"
   - name: "System"
+  - name: "MCP"

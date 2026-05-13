@@ -1,4 +1,4 @@
-# Local REST API for Obsidian
+# Local REST API and MCP Server for Obsidian
 
 Give your scripts, browser extensions, and AI agents a direct line into your Obsidian vault via a secure, authenticated REST API.
 
@@ -14,6 +14,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
 - **List and execute commands** — trigger any Obsidian command as if you'd used the command palette
 - **Query tags** — list all tags across your vault with usage counts
 - **Open files in Obsidian** — tell Obsidian to open a specific note in its UI
+- **Connect AI agents via MCP** — all vault operations are exposed as tools through a built-in [Model Context Protocol](https://modelcontextprotocol.io/) server at `/mcp/`, compatible with Claude Desktop, Cursor, and any MCP client
 - **Extend the API** — other plugins can register their own routes via the [API extension interface](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension)
 
 All requests are served over HTTPS with a self-signed certificate and gated behind API key authentication.
@@ -66,6 +67,7 @@ To avoid certificate warnings, you can download and trust the certificate from `
 | `/tags/` | GET | List all tags with usage counts |
 | `/open/{path}` | POST | Open a file in the Obsidian UI |
 | `/` | GET | Server status and authentication check |
+| `/mcp/` | GET POST | MCP (Model Context Protocol) SSE server — connect AI agents directly to your vault |
 
 For full request/response details, see the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/).
 
@@ -151,6 +153,47 @@ Supported target types: `heading`, `block`, `frontmatter`. Supplying both URL-em
 
 - `application/vnd.olrapi.dataview.dql+txt` — run a [Dataview TABLE query](https://blacksmithgu.github.io/obsidian-dataview/) and get back matching files with field values
 - `application/vnd.olrapi.jsonlogic+json` — evaluate a [JsonLogic](https://jsonlogic.com/) expression against each note's metadata (frontmatter, tags, path, content)
+
+## MCP (Model Context Protocol)
+
+The plugin includes a built-in MCP server at `/mcp/` so AI agents and MCP-compatible clients can interact with your vault without hand-crafting HTTP requests.
+
+**Transport:** Server-Sent Events (SSE) — same API key authentication required.
+
+### Connecting a client
+
+Connect your MCP client to `https://127.0.0.1:27124/mcp/` and pass your API key as a bearer token. The exact config syntax varies by client; consult your client's documentation for SSE-based remote MCP servers.
+
+> **TLS note:** Your client must trust the plugin's self-signed certificate. You can download and trust it from `https://127.0.0.1:27124/obsidian-local-rest-api-certificate.crt`, or configure your client to skip TLS verification for `127.0.0.1`.
+
+### Available tools
+
+| Tool | Description |
+|---|---|
+| `vault_list` | List files and subdirectories inside a vault directory |
+| `vault_read` | Read a file's content, frontmatter, tags, and stat |
+| `vault_write` | Create or overwrite a vault file |
+| `vault_append` | Append content to the end of a vault file |
+| `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
+| `vault_delete` | Delete a vault file |
+| `active_file_read` | Read the file currently open in Obsidian |
+| `active_file_write` | Overwrite the file currently open in Obsidian |
+| `active_file_append` | Append content to the file currently open in Obsidian |
+| `periodic_note_read` | Read the current periodic note (`daily`, `weekly`, `monthly`, `quarterly`, `yearly`) |
+| `periodic_note_write` | Write (or create) the current periodic note |
+| `periodic_note_append` | Append content to the current periodic note |
+| `search_query` | Search using a [JsonLogic](https://jsonlogic.com/) query against note metadata |
+| `search_simple` | Full-text search using Obsidian's built-in search |
+| `tags_list` | List all tags across the vault with usage counts |
+| `commands_list` | List all registered Obsidian commands |
+| `command_execute` | Execute an Obsidian command by ID |
+| `open_file` | Open a file in the Obsidian UI |
+
+### Available resources
+
+| URI | Description |
+|---|---|
+| `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API |
 
 ## Contributing
 

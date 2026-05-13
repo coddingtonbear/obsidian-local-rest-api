@@ -142,6 +142,7 @@ std.manifestYamlDoc(
       { name: 'Commands' },
       { name: 'Open' },
       { name: 'System' },
+      { name: 'MCP' },
     ],
     paths: {
       '/active/': {
@@ -812,6 +813,93 @@ std.manifestYamlDoc(
           responses: {
             '200': {
               description: 'Success',
+            },
+          },
+        },
+      },
+      '/mcp/': {
+        get: {
+          tags: ['MCP'],
+          summary: 'Establish an MCP (Model Context Protocol) SSE connection.\n',
+          description: importstr 'lib/descriptions/mcp.md',
+          responses: {
+            '200': {
+              description: 'SSE stream established. The server emits an `endpoint` event containing the POST URL with session ID.',
+              content: {
+                'text/event-stream': {
+                  schema: {
+                    type: 'string',
+                  },
+                },
+              },
+            },
+            '401': {
+              description: 'API key required.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                },
+              },
+            },
+          },
+        },
+        post: {
+          tags: ['MCP'],
+          summary: 'Send a JSON-RPC 2.0 message to an active MCP session.\n',
+          description: 'Send a JSON-RPC 2.0 message to an existing MCP session. The `sessionId` query parameter must match a session ID received from `GET /mcp/`.\n',
+          parameters: [
+            {
+              name: 'sessionId',
+              'in': 'query',
+              description: 'The session ID received in the SSE `endpoint` event from `GET /mcp/`.',
+              required: true,
+              schema: {
+                type: 'string',
+              },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  description: 'A JSON-RPC 2.0 request message.',
+                },
+                example: {
+                  jsonrpc: '2.0',
+                  id: 1,
+                  method: 'tools/list',
+                  params: {},
+                },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: 'Message accepted.',
+            },
+            '404': {
+              description: 'Session not found.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                },
+              },
+            },
+            '401': {
+              description: 'API key required.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                },
+              },
             },
           },
         },
