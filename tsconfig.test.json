@@ -7,5 +7,5 @@
       "obsidian": ["./mocks/obsidian.ts"]
     }
   },
-  "exclude": []
+  "exclude": ["node_modules"]
 }
