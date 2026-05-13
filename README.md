@@ -21,7 +21,9 @@ All requests are served over HTTPS with a self-signed certificate and gated behi
 
 ## Quick start
 
-After installing and enabling the plugin, open **Settings → Local REST API** to find your API key and certificate. Then try:
+After installing and enabling the plugin, open **Settings → Local REST API** to find your API key and certificate.
+
+### REST API
 
 ```sh
 # Check the server is running (no auth required)
@@ -51,6 +53,82 @@ curl -k -X PATCH \
 ```
 
 To avoid certificate warnings, you can download and trust the certificate from `https://127.0.0.1:27124/obsidian-local-rest-api-certificate.crt`, or point your HTTP client at it directly.
+
+### MCP clients
+
+The MCP server runs at `https://127.0.0.1:27124/mcp/` and requires the same API key as a bearer token. Because the plugin uses a self-signed certificate, you may need to either trust the certificate in your OS/client, or use the plain HTTP endpoint at `http://127.0.0.1:27123/mcp/` (enable it under **Settings → Local REST API → Enable HTTP server**).
+
+#### Claude Desktop
+
+Claude Desktop does not natively support HTTP/SSE MCP servers, but you can bridge it with [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) (requires Node.js). Add the following to `claude_desktop_config.json`:
+
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "obsidian": {
+      "command": "npx",
+      "args": [
+        "mcp-remote@latest",
+        "https://127.0.0.1:27124/mcp/",
+        "--header",
+        "Authorization: Bearer <your-api-key>"
+      ]
+    }
+  }
+}
+```
+
+Restart Claude Desktop after saving the file.
+
+#### Claude Code
+
+Claude Code has native HTTP MCP support. The quickest way to add the server is via the CLI:
+
+```sh
+claude mcp add --transport http obsidian https://127.0.0.1:27124/mcp/ \
+  --header "Authorization: Bearer <your-api-key>"
+```
+
+Or add it manually to `.mcp.json` in your project root (project-scoped) or configure it user-wide via `claude mcp add --scope user`:
+
+```json
+{
+  "mcpServers": {
+    "obsidian": {
+      "type": "http",
+      "url": "https://127.0.0.1:27124/mcp/",
+      "headers": {
+        "Authorization": "Bearer <your-api-key>"
+      }
+    }
+  }
+}
+```
+
+#### Cursor
+
+Cursor has native SSE support. Add the following to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project-specific):
+
+```json
+{
+  "mcpServers": {
+    "obsidian": {
+      "url": "https://127.0.0.1:27124/mcp/",
+      "transport": "sse",
+      "headers": {
+        "Authorization": "Bearer <your-api-key>"
+      }
+    }
+  }
+}
+```
+
+#### Other clients
+
+Any MCP client that supports SSE transport can connect to `https://127.0.0.1:27124/mcp/` with an `Authorization: Bearer <your-api-key>` header. Consult your client's documentation for the exact configuration format.
 
 ## API overview
 
