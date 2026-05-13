@@ -18,6 +18,12 @@ import {
   FM_PRIORITY_VALUE,
   TAG_FIXTURE,
   HEADING_DELTA,
+  HEADING_ALPHA,
+  HEADING_SUB,
+  BLOCK_BETA,
+  FM_TITLE,
+  FM_PRIORITY,
+  TERM_SUB,
 } from "./fixtures";
 
 // A separate temp path so vault_write / vault_delete tests don't touch the shared fixture.
@@ -143,6 +149,94 @@ describe("vault_read tool", () => {
   test("returns isError for non-existent file", async () => {
     const result = await client.callTool({
       name: "vault_read",
+      arguments: { path: `${TEST_DIR}/no-such-file.md` },
+    });
+    expect(result.isError).toBe(true);
+  });
+
+  test("returns heading section content when targetType=heading", async () => {
+    const result = await client.callTool({
+      name: "vault_read",
+      arguments: { path: TEST_PATH, targetType: "heading", target: HEADING_ALPHA },
+    });
+    const text = textOf(result);
+    expect(text).toContain(TERM_ALPHA);
+    expect(text).not.toContain(TERM_DELTA);
+  });
+
+  test("returns nested heading section using :: delimiter", async () => {
+    const result = await client.callTool({
+      name: "vault_read",
+      arguments: {
+        path: TEST_PATH,
+        targetType: "heading",
+        target: `${HEADING_ALPHA}::${HEADING_SUB}`,
+      },
+    });
+    const text = textOf(result);
+    expect(text).toContain(TERM_SUB);
+    expect(text).not.toContain(TERM_ALPHA);
+  });
+
+  test("returns block content when targetType=block", async () => {
+    const result = await client.callTool({
+      name: "vault_read",
+      arguments: { path: TEST_PATH, targetType: "block", target: BLOCK_BETA },
+    });
+    const text = textOf(result);
+    expect(typeof text).toBe("string");
+    expect(text.length).toBeGreaterThan(0);
+  });
+
+  test("returns frontmatter value when targetType=frontmatter", async () => {
+    const result = await client.callTool({
+      name: "vault_read",
+      arguments: { path: TEST_PATH, targetType: "frontmatter", target: FM_TITLE },
+    });
+    expect(textOf(result)).toBe(FM_TITLE_VALUE);
+  });
+
+  test("returns numeric frontmatter value when targetType=frontmatter", async () => {
+    const result = await client.callTool({
+      name: "vault_read",
+      arguments: { path: TEST_PATH, targetType: "frontmatter", target: FM_PRIORITY },
+    });
+    expect(JSON.parse(textOf(result))).toBe(FM_PRIORITY_VALUE);
+  });
+
+  test("returns isError when heading target is not found", async () => {
+    const result = await client.callTool({
+      name: "vault_read",
+      arguments: { path: TEST_PATH, targetType: "heading", target: "NoSuchHeading" },
+    });
+    expect(result.isError).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// vault_get_document_map
+// ---------------------------------------------------------------------------
+
+describe("vault_get_document_map tool", () => {
+  test("returns headings, blocks, and frontmatterFields for fixture", async () => {
+    const result = await client.callTool({
+      name: "vault_get_document_map",
+      arguments: { path: TEST_PATH },
+    });
+    const body = jsonOf<any>(result);
+    expect(Array.isArray(body.headings)).toBe(true);
+    expect(Array.isArray(body.blocks)).toBe(true);
+    expect(Array.isArray(body.frontmatterFields)).toBe(true);
+    expect(body.headings).toContain(HEADING_ALPHA);
+    expect(body.headings.some((h: string) => h.includes(HEADING_SUB))).toBe(true);
+    expect(body.blocks).toContain(BLOCK_BETA);
+    expect(body.frontmatterFields).toContain(FM_TITLE);
+    expect(body.frontmatterFields).toContain(FM_PRIORITY);
+  });
+
+  test("returns isError for non-existent file", async () => {
+    const result = await client.callTool({
+      name: "vault_get_document_map",
       arguments: { path: `${TEST_DIR}/no-such-file.md` },
     });
     expect(result.isError).toBe(true);
@@ -417,6 +511,19 @@ describe("active_file_read tool", () => {
   });
 });
 
+describe("active_file_get_document_map tool", () => {
+  activeTest("returns document map for the active file", async () => {
+    const result = await client.callTool({
+      name: "active_file_get_document_map",
+      arguments: {},
+    });
+    const body = jsonOf<any>(result);
+    expect(Array.isArray(body.headings)).toBe(true);
+    expect(Array.isArray(body.blocks)).toBe(true);
+    expect(Array.isArray(body.frontmatterFields)).toBe(true);
+  });
+});
+
 describe("active_file_append tool", () => {
   activeTest("appends to active file and returns OK", async () => {
     const result = await client.callTool({
@@ -453,6 +560,19 @@ describe("periodic_note_read tool", () => {
     const body = jsonOf<any>(result);
     expect(typeof body.path).toBe("string");
     expect(typeof body.content).toBe("string");
+  });
+});
+
+describe("periodic_note_get_document_map tool", () => {
+  periodicTest("returns document map for the daily note", async () => {
+    const result = await client.callTool({
+      name: "periodic_note_get_document_map",
+      arguments: { period: "daily" },
+    });
+    const body = jsonOf<any>(result);
+    expect(Array.isArray(body.headings)).toBe(true);
+    expect(Array.isArray(body.blocks)).toBe(true);
+    expect(Array.isArray(body.frontmatterFields)).toBe(true);
   });
 });
 

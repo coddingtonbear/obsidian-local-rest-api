@@ -73,6 +73,12 @@ function makeMockOps() {
       stat: { ctime: 0, mtime: 0, size: 0 },
       path: mockFile.path,
     }),
+    getDocumentMapObject: jest.fn().mockResolvedValue({
+      headings: ["Alpha", "Alpha::Subsection"],
+      blocks: ["beta-block"],
+      frontmatterFields: ["title", "priority"],
+    }),
+    readFileSection: jest.fn().mockResolvedValue("section content"),
     writeFileContent: jest.fn().mockResolvedValue(undefined),
     appendFileContent: jest.fn().mockResolvedValue(undefined),
     patchFileSection: jest.fn().mockResolvedValue("patched content"),
@@ -142,8 +148,8 @@ describe("McpHandler", () => {
 
   // ---- tool registration --------------------------------------------------
 
-  test("registers all 18 tools", () => {
-    expect(mockTool).toHaveBeenCalledTimes(18);
+  test("registers all 21 tools", () => {
+    expect(mockTool).toHaveBeenCalledTimes(21);
     const names = mockTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -153,10 +159,13 @@ describe("McpHandler", () => {
         "vault_append",
         "vault_patch",
         "vault_delete",
+        "vault_get_document_map",
         "active_file_read",
+        "active_file_get_document_map",
         "active_file_write",
         "active_file_append",
         "periodic_note_read",
+        "periodic_note_get_document_map",
         "periodic_note_write",
         "periodic_note_append",
         "search_query",
@@ -205,6 +214,57 @@ describe("McpHandler", () => {
       await expect(cb({ path: "missing.md" })).rejects.toThrow(
         "File not found",
       );
+    });
+
+    test("calls readFileSection when targetType and target are provided", async () => {
+      const cb = getToolCallback("vault_read");
+      const result = await cb({ path: "test.md", targetType: "heading", target: "Alpha" });
+      expect(ops.readFileSection).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "test.md" }),
+        "heading",
+        "Alpha",
+        undefined,
+      );
+      expect(ops.getFileMetadataObject).not.toHaveBeenCalled();
+      expect(parseText(result)).toBe("section content");
+    });
+
+    test("passes targetDelimiter to readFileSection", async () => {
+      const cb = getToolCallback("vault_read");
+      await cb({ path: "test.md", targetType: "heading", target: "A>B", targetDelimiter: ">" });
+      expect(ops.readFileSection).toHaveBeenCalledWith(
+        expect.anything(),
+        "heading",
+        "A>B",
+        ">",
+      );
+    });
+
+    test("falls back to full metadata when target is omitted", async () => {
+      const cb = getToolCallback("vault_read");
+      await cb({ path: "test.md", targetType: "heading" });
+      expect(ops.readFileSection).not.toHaveBeenCalled();
+      expect(ops.getFileMetadataObject).toHaveBeenCalled();
+    });
+  });
+
+  // ---- vault_get_document_map ---------------------------------------------
+
+  describe("vault_get_document_map", () => {
+    test("calls getDocumentMapObject and returns the map", async () => {
+      const cb = getToolCallback("vault_get_document_map");
+      const result = await cb({ path: "test.md" });
+      expect(ops.getDocumentMapObject).toHaveBeenCalled();
+      const body = parseText(result);
+      expect(body.headings).toEqual(["Alpha", "Alpha::Subsection"]);
+      expect(body.blocks).toEqual(["beta-block"]);
+      expect(body.frontmatterFields).toEqual(["title", "priority"]);
+    });
+
+    test("throws when file is not found", async () => {
+      ops.app.vault.getAbstractFileByPath.mockReturnValue(null);
+      const cb = getToolCallback("vault_get_document_map");
+      await expect(cb({ path: "missing.md" })).rejects.toThrow("File not found");
     });
   });
 
@@ -260,18 +320,46 @@ describe("McpHandler", () => {
 
   // ---- active_file_read ---------------------------------------------------
 
-  test("active_file_read returns metadata for the active file", async () => {
-    const cb = getToolCallback("active_file_read");
-    const result = await cb({});
-    expect(ops.app.workspace.getActiveFile).toHaveBeenCalled();
-    expect(ops.getFileMetadataObject).toHaveBeenCalled();
-    expect(parseText(result).path).toBe("test.md");
+  describe("active_file_read", () => {
+    test("returns metadata for the active file", async () => {
+      const cb = getToolCallback("active_file_read");
+      const result = await cb({});
+      expect(ops.app.workspace.getActiveFile).toHaveBeenCalled();
+      expect(ops.getFileMetadataObject).toHaveBeenCalled();
+      expect(parseText(result).path).toBe("test.md");
+    });
+
+    test("throws when no file is active", async () => {
+      ops.app.workspace.getActiveFile.mockReturnValue(null);
+      const cb = getToolCallback("active_file_read");
+      await expect(cb({})).rejects.toThrow("No active file");
+    });
+
+    test("calls readFileSection when targetType and target are provided", async () => {
+      const cb = getToolCallback("active_file_read");
+      const result = await cb({ targetType: "frontmatter", target: "title" });
+      expect(ops.readFileSection).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "test.md" }),
+        "frontmatter",
+        "title",
+        undefined,
+      );
+      expect(ops.getFileMetadataObject).not.toHaveBeenCalled();
+      expect(parseText(result)).toBe("section content");
+    });
   });
 
-  test("active_file_read throws when no file is active", async () => {
-    ops.app.workspace.getActiveFile.mockReturnValue(null);
-    const cb = getToolCallback("active_file_read");
-    await expect(cb({})).rejects.toThrow("No active file");
+  // ---- active_file_get_document_map ---------------------------------------
+
+  test("active_file_get_document_map calls getDocumentMapObject for the active file", async () => {
+    const cb = getToolCallback("active_file_get_document_map");
+    const result = await cb({});
+    expect(ops.app.workspace.getActiveFile).toHaveBeenCalled();
+    expect(ops.getDocumentMapObject).toHaveBeenCalled();
+    const body = parseText(result);
+    expect(Array.isArray(body.headings)).toBe(true);
+    expect(Array.isArray(body.blocks)).toBe(true);
+    expect(Array.isArray(body.frontmatterFields)).toBe(true);
   });
 
   // ---- active_file_write --------------------------------------------------
@@ -292,19 +380,53 @@ describe("McpHandler", () => {
 
   // ---- periodic_note_read -------------------------------------------------
 
-  test("periodic_note_read returns daily note metadata", async () => {
-    const cb = getToolCallback("periodic_note_read");
-    const result = await cb({ period: "daily" });
-    expect(ops.periodicGetNote).toHaveBeenCalledWith("daily", expect.any(Number));
-    expect(parseText(result).path).toBe("test.md");
+  describe("periodic_note_read", () => {
+    test("returns daily note metadata", async () => {
+      const cb = getToolCallback("periodic_note_read");
+      const result = await cb({ period: "daily" });
+      expect(ops.periodicGetNote).toHaveBeenCalledWith("daily", expect.any(Number));
+      expect(parseText(result).path).toBe("test.md");
+    });
+
+    test("throws when note does not exist", async () => {
+      ops.periodicGetNote.mockReturnValue([null, ErrorCode.PeriodicNoteDoesNotExist]);
+      const cb = getToolCallback("periodic_note_read");
+      await expect(cb({ period: "daily" })).rejects.toThrow(
+        `Periodic note not found: ${ErrorCode.PeriodicNoteDoesNotExist}`,
+      );
+    });
+
+    test("calls readFileSection when targetType and target are provided", async () => {
+      const cb = getToolCallback("periodic_note_read");
+      const result = await cb({ period: "daily", targetType: "block", target: "beta-block" });
+      expect(ops.readFileSection).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "test.md" }),
+        "block",
+        "beta-block",
+        undefined,
+      );
+      expect(ops.getFileMetadataObject).not.toHaveBeenCalled();
+      expect(parseText(result)).toBe("section content");
+    });
   });
 
-  test("periodic_note_read throws when note does not exist", async () => {
+  // ---- periodic_note_get_document_map -------------------------------------
+
+  test("periodic_note_get_document_map calls getDocumentMapObject for the period", async () => {
+    const cb = getToolCallback("periodic_note_get_document_map");
+    const result = await cb({ period: "daily" });
+    expect(ops.periodicGetNote).toHaveBeenCalledWith("daily", expect.any(Number));
+    expect(ops.getDocumentMapObject).toHaveBeenCalled();
+    const body = parseText(result);
+    expect(Array.isArray(body.headings)).toBe(true);
+    expect(Array.isArray(body.blocks)).toBe(true);
+    expect(Array.isArray(body.frontmatterFields)).toBe(true);
+  });
+
+  test("periodic_note_get_document_map throws when note does not exist", async () => {
     ops.periodicGetNote.mockReturnValue([null, ErrorCode.PeriodicNoteDoesNotExist]);
-    const cb = getToolCallback("periodic_note_read");
-    await expect(cb({ period: "daily" })).rejects.toThrow(
-      `Periodic note not found: ${ErrorCode.PeriodicNoteDoesNotExist}`,
-    );
+    const cb = getToolCallback("periodic_note_get_document_map");
+    await expect(cb({ period: "daily" })).rejects.toThrow("Periodic note not found");
   });
 
   // ---- periodic_note_write ------------------------------------------------

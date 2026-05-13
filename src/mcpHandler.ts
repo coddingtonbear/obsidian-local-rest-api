@@ -115,11 +115,45 @@ export class McpHandler {
       "Read a vault file's content and metadata. " +
         "Returns a JSON object with: content (full markdown text), path, " +
         "tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), " +
-        "and stat ({ctime, mtime, size}). Throws if the file does not exist.",
-      { path: z.string().describe("File path relative to vault root") },
-      async ({ path }: { path: string }) => {
+        "and stat ({ctime, mtime, size}). Throws if the file does not exist.\n\n" +
+        "When targetType and target are both provided, returns only the matched section " +
+        "as a plain string (markdown) or JSON value (frontmatter) instead of the full object. " +
+        "Use vault_get_document_map first to discover available targets.",
+      {
+        path: z.string().describe("File path relative to vault root"),
+        targetType: z
+          .enum(["heading", "block", "frontmatter"])
+          .optional()
+          .describe("Type of section to extract: 'heading', 'block' reference, or 'frontmatter' key"),
+        target: z
+          .string()
+          .optional()
+          .describe(
+            "Section to extract. Heading text, block reference ID (without '^'), or frontmatter key. " +
+              "Separate nested heading levels with '::' (e.g. 'Heading 1::Subheading').",
+          ),
+        targetDelimiter: z
+          .string()
+          .optional()
+          .describe("Delimiter for nested heading paths (default: '::')"),
+      },
+      async ({
+        path,
+        targetType,
+        target,
+        targetDelimiter,
+      }: {
+        path: string;
+        targetType?: "heading" | "block" | "frontmatter";
+        target?: string;
+        targetDelimiter?: string;
+      }) => {
         const file = this.ops.app.vault.getAbstractFileByPath(path);
         if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
+        if (targetType && target) {
+          const section = await this.ops.readFileSection(file, targetType, target, targetDelimiter);
+          return this.text(section);
+        }
         const meta = await this.ops.getFileMetadataObject(file);
         return this.text(meta);
       },
@@ -245,15 +279,75 @@ export class McpHandler {
     );
 
     this.mcpServer.tool(
+      "vault_get_document_map",
+      "Return the structure of a vault file as a document map: the list of heading paths, " +
+        "block reference IDs, and frontmatter field names present in the file. " +
+        "Use this before vault_read or vault_patch with targeting to discover what targets are available " +
+        "without parsing the full markdown content yourself.",
+      { path: z.string().describe("File path relative to vault root") },
+      async ({ path }: { path: string }) => {
+        const file = this.ops.app.vault.getAbstractFileByPath(path);
+        if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
+        const map = await this.ops.getDocumentMapObject(file);
+        return this.text(map);
+      },
+    );
+
+    this.mcpServer.tool(
       "active_file_read",
       "Read the content and metadata of the file currently open in Obsidian. " +
         "Returns the same JSON shape as vault_read: content, path, tags, frontmatter, stat. " +
-        "Throws if no file is active.",
+        "Throws if no file is active.\n\n" +
+        "When targetType and target are both provided, returns only the matched section " +
+        "as a plain string (markdown) or JSON value (frontmatter) instead of the full object. " +
+        "Use active_file_get_document_map first to discover available targets.",
+      {
+        targetType: z
+          .enum(["heading", "block", "frontmatter"])
+          .optional()
+          .describe("Type of section to extract: 'heading', 'block' reference, or 'frontmatter' key"),
+        target: z
+          .string()
+          .optional()
+          .describe(
+            "Section to extract. Heading text, block reference ID (without '^'), or frontmatter key. " +
+              "Separate nested heading levels with '::' (e.g. 'Heading 1::Subheading').",
+          ),
+        targetDelimiter: z
+          .string()
+          .optional()
+          .describe("Delimiter for nested heading paths (default: '::')"),
+      },
+      async ({
+        targetType,
+        target,
+        targetDelimiter,
+      }: {
+        targetType?: "heading" | "block" | "frontmatter";
+        target?: string;
+        targetDelimiter?: string;
+      }) => {
+        const file = this.getActiveFile();
+        if (targetType && target) {
+          const section = await this.ops.readFileSection(file, targetType, target, targetDelimiter);
+          return this.text(section);
+        }
+        const meta = await this.ops.getFileMetadataObject(file);
+        return this.text(meta);
+      },
+    );
+
+    this.mcpServer.tool(
+      "active_file_get_document_map",
+      "Return the structure of the file currently open in Obsidian as a document map: " +
+        "the list of heading paths, block reference IDs, and frontmatter field names. " +
+        "Use this before active_file_read or active_file_patch with targeting to discover " +
+        "what targets are available. Throws if no file is active.",
       {},
       async () => {
         const file = this.getActiveFile();
-        const meta = await this.ops.getFileMetadataObject(file);
-        return this.text(meta);
+        const map = await this.ops.getDocumentMapObject(file);
+        return this.text(map);
       },
     );
 
@@ -284,7 +378,58 @@ export class McpHandler {
       "Read the content and metadata of the current periodic note for the given period " +
         "(daily, weekly, monthly, quarterly, or yearly). " +
         "Requires the Periodic Notes or Calendar plugin to be installed and configured. " +
-        "Throws if the note for the current period does not exist yet.",
+        "Throws if the note for the current period does not exist yet.\n\n" +
+        "When targetType and target are both provided, returns only the matched section " +
+        "as a plain string (markdown) or JSON value (frontmatter) instead of the full object. " +
+        "Use periodic_note_get_document_map first to discover available targets.",
+      {
+        period: z
+          .enum(PERIODS)
+          .describe("Periodic note period: 'daily', 'weekly', 'monthly', 'quarterly', or 'yearly'"),
+        targetType: z
+          .enum(["heading", "block", "frontmatter"])
+          .optional()
+          .describe("Type of section to extract: 'heading', 'block' reference, or 'frontmatter' key"),
+        target: z
+          .string()
+          .optional()
+          .describe(
+            "Section to extract. Heading text, block reference ID (without '^'), or frontmatter key. " +
+              "Separate nested heading levels with '::' (e.g. 'Heading 1::Subheading').",
+          ),
+        targetDelimiter: z
+          .string()
+          .optional()
+          .describe("Delimiter for nested heading paths (default: '::')"),
+      },
+      async ({
+        period,
+        targetType,
+        target,
+        targetDelimiter,
+      }: {
+        period: typeof PERIODS[number];
+        targetType?: "heading" | "block" | "frontmatter";
+        target?: string;
+        targetDelimiter?: string;
+      }) => {
+        const [file, err] = this.ops.periodicGetNote(period, Date.now());
+        if (err || !file) throw new Error(`Periodic note not found: ${err}`);
+        if (targetType && target) {
+          const section = await this.ops.readFileSection(file, targetType, target, targetDelimiter);
+          return this.text(section);
+        }
+        const meta = await this.ops.getFileMetadataObject(file);
+        return this.text(meta);
+      },
+    );
+
+    this.mcpServer.tool(
+      "periodic_note_get_document_map",
+      "Return the structure of the current periodic note for the given period as a document map: " +
+        "the list of heading paths, block reference IDs, and frontmatter field names. " +
+        "Use this before periodic_note_read or periodic_note_patch with targeting to discover " +
+        "what targets are available. Throws if the note for the current period does not exist yet.",
       {
         period: z
           .enum(PERIODS)
@@ -293,8 +438,8 @@ export class McpHandler {
       async ({ period }: { period: typeof PERIODS[number] }) => {
         const [file, err] = this.ops.periodicGetNote(period, Date.now());
         if (err || !file) throw new Error(`Periodic note not found: ${err}`);
-        const meta = await this.ops.getFileMetadataObject(file);
-        return this.text(meta);
+        const map = await this.ops.getDocumentMapObject(file);
+        return this.text(map);
       },
     );
 

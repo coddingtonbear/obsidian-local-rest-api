@@ -117,6 +117,37 @@ export class VaultOperations {
     };
   }
 
+  async readFileSection(
+    file: TFile,
+    targetType: string,
+    target: string,
+    targetDelimiter = "::",
+  ): Promise<unknown> {
+    const content = await this.app.vault.adapter.read(file.path);
+    const documentMap = getDocumentMap(content);
+
+    if (targetType === "frontmatter") {
+      const value = documentMap.frontmatter[target];
+      if (value === undefined)
+        throw new Error(`Frontmatter key not found: ${target}`);
+      return value;
+    }
+
+    const mapKey =
+      targetType === "heading"
+        ? target.split(targetDelimiter).join("\x1f")
+        : target;
+
+    const entry =
+      targetType === "heading"
+        ? documentMap.heading[mapKey]
+        : documentMap.block[mapKey];
+
+    if (!entry) throw new Error(`${targetType} not found: ${target}`);
+
+    return content.substring(entry.content.start, entry.content.end);
+  }
+
   async getFileMetadataObject(file: TFile): Promise<FileMetadataObject> {
     const cache = await this.waitForFileCache(file);
 
