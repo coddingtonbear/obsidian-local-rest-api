@@ -10,7 +10,7 @@ export const DEFAULT_SETTINGS: LocalRestApiSettings = {
 
 export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.ApiKeyAuthorizationRequired]:
-    "Authorization required.  Find your API Key in the 'Local REST API' section of your Obsidian settings.",
+    "Authorization required.  Find your API Key in the 'Local REST API & MCP Server' section of your Obsidian settings.",
   [ErrorCode.ContentTypeSpecificationRequired]:
     "Content-Type header required; this API accepts data in multiple content-types and you must indicate the content-type of your request body via the Content-Type header.",
   [ErrorCode.InvalidContentType]:
