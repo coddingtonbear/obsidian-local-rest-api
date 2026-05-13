@@ -177,7 +177,7 @@ export class McpHandler {
         operation: z
           .enum(["replace", "prepend", "append"])
           .describe("How to apply the content: replace the section, prepend before it, or append after it"),
-        content: z.string().describe("Content to apply"),
+        content: z.unknown().describe("Content to apply. For contentType 'text/markdown' pass a string. For contentType 'application/json' you may pass a native JSON value (number, boolean, array, object) and it will be serialised automatically."),
         contentType: z
           .string()
           .optional()
@@ -213,18 +213,20 @@ export class McpHandler {
         targetType: PatchTargetType;
         target: string;
         operation: PatchOperation;
-        content: string;
+        content: unknown;
         contentType?: string;
         createTargetIfMissing?: boolean;
         trimTargetWhitespace?: boolean;
         targetDelimiter?: string;
       }) => {
+        const contentStr =
+          typeof content === "string" ? content : JSON.stringify(content);
         await this.ops.patchFileSection(
           path,
           targetType,
           target,
           operation,
-          content,
+          contentStr,
           contentType ?? "text/markdown",
           { createTargetIfMissing, trimTargetWhitespace, targetDelimiter },
         );
