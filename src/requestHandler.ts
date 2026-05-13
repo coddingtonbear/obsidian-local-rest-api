@@ -832,8 +832,12 @@ export default class RequestHandler {
     }
     try {
       await this.operations.deleteVaultFile(path);
-    } catch {
-      this.returnCannedResponse(res, { statusCode: 404 });
+    } catch (e) {
+      if (e instanceof FileNotFoundError) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+      } else {
+        this.returnCannedResponse(res, { statusCode: 500 });
+      }
       return;
     }
     this.returnCannedResponse(res, { statusCode: 204 });

@@ -259,7 +259,7 @@ export class VaultOperations {
   async deleteVaultFile(filePath: string): Promise<void> {
     const pathExists = await this.app.vault.adapter.exists(filePath);
     if (!pathExists) {
-      throw new Error(`File not found: ${filePath}`);
+      throw new FileNotFoundError(`File not found: ${filePath}`);
     }
     await this.app.vault.adapter.remove(filePath);
   }
