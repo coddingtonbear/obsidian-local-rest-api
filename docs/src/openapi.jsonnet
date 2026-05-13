@@ -867,12 +867,90 @@ std.manifestYamlDoc(
                 schema: {
                   type: 'object',
                   description: 'A JSON-RPC 2.0 request message.',
+                  required: ['jsonrpc', 'method'],
+                  properties: {
+                    jsonrpc: {
+                      type: 'string',
+                      enum: ['2.0'],
+                      description: 'JSON-RPC version. Must be "2.0".',
+                    },
+                    id: {
+                      oneOf: [{ type: 'string' }, { type: 'number' }],
+                      description: 'Request identifier. Include for calls that expect a response; omit for notifications.',
+                    },
+                    method: {
+                      type: 'string',
+                      description: 'MCP method to invoke.',
+                      enum: [
+                        'initialize',
+                        'tools/list',
+                        'tools/call',
+                        'resources/list',
+                        'resources/read',
+                        'prompts/list',
+                        'prompts/get',
+                        'ping',
+                      ],
+                    },
+                    params: {
+                      type: 'object',
+                      description: 'Method-specific parameters.',
+                    },
+                  },
                 },
-                example: {
-                  jsonrpc: '2.0',
-                  id: 1,
-                  method: 'tools/list',
-                  params: {},
+                examples: {
+                  list_tools: {
+                    summary: 'List all available MCP tools',
+                    value: {
+                      jsonrpc: '2.0',
+                      id: 1,
+                      method: 'tools/list',
+                      params: {},
+                    },
+                  },
+                  call_vault_read: {
+                    summary: 'Read a vault file (tools/call)',
+                    value: {
+                      jsonrpc: '2.0',
+                      id: 2,
+                      method: 'tools/call',
+                      params: {
+                        name: 'vault_read',
+                        arguments: {
+                          path: 'path/to/note.md',
+                        },
+                      },
+                    },
+                  },
+                  call_vault_patch: {
+                    summary: 'Patch a heading in a vault file (tools/call)',
+                    value: {
+                      jsonrpc: '2.0',
+                      id: 3,
+                      method: 'tools/call',
+                      params: {
+                        name: 'vault_patch',
+                        arguments: {
+                          path: 'path/to/note.md',
+                          targetType: 'heading',
+                          target: 'My Section',
+                          operation: 'append',
+                          content: 'New line of content\n',
+                        },
+                      },
+                    },
+                  },
+                  read_openapi_resource: {
+                    summary: 'Read the OpenAPI spec resource (resources/read)',
+                    value: {
+                      jsonrpc: '2.0',
+                      id: 4,
+                      method: 'resources/read',
+                      params: {
+                        uri: 'obsidian://local-rest-api/openapi.yaml',
+                      },
+                    },
+                  },
                 },
               },
             },

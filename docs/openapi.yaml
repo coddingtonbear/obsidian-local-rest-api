@@ -844,13 +844,78 @@ paths:
       requestBody:
         content:
           application/json:
-            example:
-              id: 1
-              jsonrpc: "2.0"
-              method: "tools/list"
-              params: {}
+            examples:
+              call_vault_patch:
+                summary: "Patch a heading in a vault file (tools/call)"
+                value:
+                  id: 3
+                  jsonrpc: "2.0"
+                  method: "tools/call"
+                  params:
+                    arguments:
+                      content: |
+                        New line of content
+                      operation: "append"
+                      path: "path/to/note.md"
+                      target: "My Section"
+                      targetType: "heading"
+                    name: "vault_patch"
+              call_vault_read:
+                summary: "Read a vault file (tools/call)"
+                value:
+                  id: 2
+                  jsonrpc: "2.0"
+                  method: "tools/call"
+                  params:
+                    arguments:
+                      path: "path/to/note.md"
+                    name: "vault_read"
+              list_tools:
+                summary: "List all available MCP tools"
+                value:
+                  id: 1
+                  jsonrpc: "2.0"
+                  method: "tools/list"
+                  params: {}
+              read_openapi_resource:
+                summary: "Read the OpenAPI spec resource (resources/read)"
+                value:
+                  id: 4
+                  jsonrpc: "2.0"
+                  method: "resources/read"
+                  params:
+                    uri: "obsidian://local-rest-api/openapi.yaml"
             schema:
               description: "A JSON-RPC 2.0 request message."
+              properties:
+                id:
+                  description: "Request identifier. Include for calls that expect a response; omit for notifications."
+                  oneOf:
+                    - type: "string"
+                    - type: "number"
+                jsonrpc:
+                  description: "JSON-RPC version. Must be \"2.0\"."
+                  enum:
+                    - "2.0"
+                  type: "string"
+                method:
+                  description: "MCP method to invoke."
+                  enum:
+                    - "initialize"
+                    - "tools/list"
+                    - "tools/call"
+                    - "resources/list"
+                    - "resources/read"
+                    - "prompts/list"
+                    - "prompts/get"
+                    - "ping"
+                  type: "string"
+                params:
+                  description: "Method-specific parameters."
+                  type: "object"
+              required:
+                - "jsonrpc"
+                - "method"
               type: "object"
         required: true
       responses:
