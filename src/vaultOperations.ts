@@ -111,7 +111,7 @@ export class VaultOperations {
     return {
       headings: Object.keys(documentMap.heading)
         .filter((h) => h)
-        .map((h) => h.split("").join("::")),
+        .map((h) => h.split("\x1f").join("::")),
       blocks: Object.keys(documentMap.block),
       frontmatterFields: Object.keys(documentMap.frontmatter),
     };
