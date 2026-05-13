@@ -12,7 +12,10 @@ import openapiYaml from "../docs/openapi.yaml";
 const PERIODS = ["daily", "weekly", "monthly", "quarterly", "yearly"] as const;
 
 export class McpHandler {
-  private readonly mcpServer: McpServer;
+  // typed as `any` to avoid TypeScript heap OOM when evaluating the MCP SDK's complex
+  // ToolCallback<Args extends ZodRawShape> generics across the 16 tool registrations below
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private readonly mcpServer: any;
   private readonly transports: Map<string, StreamableHTTPServerTransport> = new Map();
 
   constructor(private readonly ops: VaultOperations) {
@@ -82,7 +85,7 @@ export class McpHandler {
           "Contains complete request/response schemas, parameter descriptions, " +
           "and usage examples for every endpoint.",
       },
-      async (uri) => ({
+      async (uri: URL) => ({
         contents: [
           {
             uri: uri.href,
@@ -101,7 +104,7 @@ export class McpHandler {
         "Returns an array of names; directory entries end with '/'. " +
         "Omit path or pass an empty string to list the vault root.",
       { path: z.string().optional().describe("Directory path relative to vault root (default: root)") },
-      async ({ path }) => {
+      async ({ path }: { path?: string }) => {
         const files = await this.ops.listVaultDirectory(path ?? "");
         return this.text({ files });
       },
@@ -114,7 +117,7 @@ export class McpHandler {
         "tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), " +
         "and stat ({ctime, mtime, size}). Throws if the file does not exist.",
       { path: z.string().describe("File path relative to vault root") },
-      async ({ path }) => {
+      async ({ path }: { path: string }) => {
         const file = this.ops.app.vault.getAbstractFileByPath(path);
         if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
         const meta = await this.ops.getFileMetadataObject(file);
@@ -131,7 +134,7 @@ export class McpHandler {
         path: z.string().describe("File path relative to vault root"),
         content: z.string().describe("Full file content (markdown text)"),
       },
-      async ({ path, content }) => {
+      async ({ path, content }: { path: string; content: string }) => {
         await this.ops.writeFileContent(path, content);
         return this.text({ message: "OK" });
       },
@@ -145,7 +148,7 @@ export class McpHandler {
         path: z.string().describe("File path relative to vault root"),
         content: z.string().describe("Content to append"),
       },
-      async ({ path, content }) => {
+      async ({ path, content }: { path: string; content: string }) => {
         await this.ops.appendFileContent(path, content);
         return this.text({ message: "OK" });
       },
@@ -205,12 +208,22 @@ export class McpHandler {
         createTargetIfMissing,
         trimTargetWhitespace,
         targetDelimiter,
+      }: {
+        path: string;
+        targetType: PatchTargetType;
+        target: string;
+        operation: PatchOperation;
+        content: string;
+        contentType?: string;
+        createTargetIfMissing?: boolean;
+        trimTargetWhitespace?: boolean;
+        targetDelimiter?: string;
       }) => {
         await this.ops.patchFileSection(
           path,
-          targetType as PatchTargetType,
+          targetType,
           target,
-          operation as PatchOperation,
+          operation,
           content,
           contentType ?? "text/markdown",
           { createTargetIfMissing, trimTargetWhitespace, targetDelimiter },
@@ -223,7 +236,7 @@ export class McpHandler {
       "vault_delete",
       "Delete a file from the vault. Throws if the file does not exist.",
       { path: z.string().describe("File path relative to vault root") },
-      async ({ path }) => {
+      async ({ path }: { path: string }) => {
         await this.ops.deleteVaultFile(path);
         return this.text({ message: "OK" });
       },
@@ -246,7 +259,7 @@ export class McpHandler {
       "active_file_write",
       "Overwrite the content of the file currently open in Obsidian. Throws if no file is active.",
       { content: z.string().describe("New full file content (markdown text)") },
-      async ({ content }) => {
+      async ({ content }: { content: string }) => {
         const file = this.getActiveFile();
         await this.ops.writeFileContent(file.path, content);
         return this.text({ message: "OK" });
@@ -257,7 +270,7 @@ export class McpHandler {
       "active_file_append",
       "Append content to the end of the file currently open in Obsidian. Throws if no file is active.",
       { content: z.string().describe("Content to append") },
-      async ({ content }) => {
+      async ({ content }: { content: string }) => {
         const file = this.getActiveFile();
         await this.ops.appendFileContent(file.path, content);
         return this.text({ message: "OK" });
@@ -275,7 +288,7 @@ export class McpHandler {
           .enum(PERIODS)
           .describe("Periodic note period: 'daily', 'weekly', 'monthly', 'quarterly', or 'yearly'"),
       },
-      async ({ period }) => {
+      async ({ period }: { period: typeof PERIODS[number] }) => {
         const [file, err] = this.ops.periodicGetNote(period, Date.now());
         if (err || !file) throw new Error(`Periodic note not found: ${err}`);
         const meta = await this.ops.getFileMetadataObject(file);
@@ -291,7 +304,7 @@ export class McpHandler {
         period: z.enum(PERIODS).describe("Periodic note period: 'daily', 'weekly', 'monthly', 'quarterly', or 'yearly'"),
         content: z.string().describe("New full file content (markdown text)"),
       },
-      async ({ period, content }) => {
+      async ({ period, content }: { period: typeof PERIODS[number]; content: string }) => {
         const [file, err] = await this.ops.periodicGetOrCreateNote(
           period,
           Date.now(),
@@ -310,7 +323,7 @@ export class McpHandler {
         period: z.enum(PERIODS).describe("Periodic note period: 'daily', 'weekly', 'monthly', 'quarterly', or 'yearly'"),
         content: z.string().describe("Content to append"),
       },
-      async ({ period, content }) => {
+      async ({ period, content }: { period: typeof PERIODS[number]; content: string }) => {
         const [file, err] = await this.ops.periodicGetOrCreateNote(
           period,
           Date.now(),
@@ -340,7 +353,7 @@ export class McpHandler {
           .any()
           .describe("JsonLogic query object to evaluate against each note"),
       },
-      async ({ query }) => {
+      async ({ query }: { query: unknown }) => {
         const results = await this.ops.searchJsonLogic(query);
         return this.text(results);
       },
@@ -358,7 +371,7 @@ export class McpHandler {
           .optional()
           .describe("Number of characters of surrounding context to return per match (default: 100)"),
       },
-      async ({ query, contextLength }) => {
+      async ({ query, contextLength }: { query: string; contextLength?: number }) => {
         const results = await this.ops.simpleSearch(query, contextLength);
         return this.text(results);
       },
@@ -391,7 +404,7 @@ export class McpHandler {
         "Use commands_list to discover available command IDs. " +
         "Throws if the command ID does not exist.",
       { commandId: z.string().describe("The command ID to execute (e.g. 'editor:toggle-bold')") },
-      async ({ commandId }) => {
+      async ({ commandId }: { commandId: string }) => {
         this.ops.executeCommand(commandId);
         return this.text({ message: "OK" });
       },
@@ -406,7 +419,7 @@ export class McpHandler {
         path: z.string().describe("File path relative to vault root"),
         newLeaf: z.boolean().optional().describe("Open in a new leaf/pane (default: false)"),
       },
-      async ({ path, newLeaf }) => {
+      async ({ path, newLeaf }: { path: string; newLeaf?: boolean }) => {
         this.ops.openVaultFile(path, newLeaf);
         return this.text({ message: "OK" });
       },
