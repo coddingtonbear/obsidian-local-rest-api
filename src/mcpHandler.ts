@@ -352,7 +352,7 @@ export class McpHandler {
         "- Find by path glob: {\"glob\": [\"journal/*\", {\"var\": \"path\"}]}",
       {
         query: z
-          .any()
+          .record(z.unknown())
           .describe("JsonLogic query object to evaluate against each note"),
       },
       async ({ query }: { query: unknown }) => {
