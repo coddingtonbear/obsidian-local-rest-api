@@ -450,7 +450,7 @@ export class VaultOperations {
       }
     }
 
-    results.sort((a, b) => ((a.score ?? 0) > (b.score ?? 0) ? 1 : -1));
+    results.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     return results;
   }
 
