@@ -1,4 +1,4 @@
-const BASE_URL = (process.env.OBSIDIAN_HOST ?? "http://localhost:27123").replace(/\/$/, "");
+export const BASE_URL = (process.env.OBSIDIAN_HOST ?? "http://localhost:27123").replace(/\/$/, "");
 export const API_KEY = process.env.OBSIDIAN_API_KEY ?? "";
 
 if (!API_KEY) {
