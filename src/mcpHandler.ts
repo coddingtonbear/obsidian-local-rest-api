@@ -133,7 +133,7 @@ export class McpHandler {
     this.mcpServer.tool(
       "vault_append",
       "Append content to the end of a vault file. " +
-        "The file must already exist.",
+        "Creates the file if it does not already exist.",
       {
         path: z.string().describe("File path relative to vault root"),
         content: z.string().describe("Content to append"),
