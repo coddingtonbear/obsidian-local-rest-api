@@ -1,6 +1,6 @@
-Establishes a Server-Sent Events (SSE) stream for the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/).
+Interact with this plugin's MCP server using the [Streamable HTTP transport](https://modelcontextprotocol.io/docs/concepts/transports#streamable-http).
 
-Point any MCP-compatible client (Claude Desktop, Cursor, or any MCP SDK client) at this endpoint with your API key as the bearer token. On connection the server emits an `endpoint` SSE event containing the POST URL including the session ID; the client then sends JSON-RPC 2.0 messages to `POST /mcp/?sessionId=<id>`.
+Point any MCP-compatible client (Claude Code, Cursor, or any MCP SDK client that supports the Streamable HTTP transport) at this endpoint and pass your API key as a bearer token. Send an `initialize` request via `POST /mcp/` to start a session; the server returns a session ID in the `Mcp-Session-Id` response header. Include that header on all subsequent requests.
 
 ## Available tools
 

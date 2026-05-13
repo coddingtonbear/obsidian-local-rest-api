@@ -820,15 +820,36 @@ std.manifestYamlDoc(
       '/mcp/': {
         get: {
           tags: ['MCP'],
-          summary: 'Establish an MCP (Model Context Protocol) SSE connection.\n',
-          description: importstr 'lib/descriptions/mcp.md',
+          summary: 'Open a server-sent events stream for an existing MCP session.\n',
+          description: 'Opens a long-lived SSE stream so the server can push messages to the client for an existing session. Requires the session ID returned by the `initialize` response.\n',
+          parameters: [
+            {
+              name: 'Mcp-Session-Id',
+              'in': 'header',
+              description: 'Session ID returned by the server on initialization.',
+              required: true,
+              schema: {
+                type: 'string',
+              },
+            },
+          ],
           responses: {
             '200': {
-              description: 'SSE stream established. The server emits an `endpoint` event containing the POST URL with session ID.',
+              description: 'SSE stream opened. The server pushes JSON-RPC messages as server-sent events.',
               content: {
                 'text/event-stream': {
                   schema: {
                     type: 'string',
+                  },
+                },
+              },
+            },
+            '404': {
+              description: 'Session not found.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
                   },
                 },
               },
@@ -847,14 +868,14 @@ std.manifestYamlDoc(
         },
         post: {
           tags: ['MCP'],
-          summary: 'Send a JSON-RPC 2.0 message to an active MCP session.\n',
-          description: 'Send a JSON-RPC 2.0 message to an existing MCP session. The `sessionId` query parameter must match a session ID received from `GET /mcp/`.\n',
+          summary: 'Send a JSON-RPC 2.0 message to the MCP server.\n',
+          description: importstr 'lib/descriptions/mcp.md',
           parameters: [
             {
-              name: 'sessionId',
-              'in': 'query',
-              description: 'The session ID received in the SSE `endpoint` event from `GET /mcp/`.',
-              required: true,
+              name: 'Mcp-Session-Id',
+              'in': 'header',
+              description: 'Session ID returned by the server on initialization. Omit for the initial `initialize` request; required for all subsequent requests.',
+              required: false,
               schema: {
                 type: 'string',
               },
@@ -957,7 +978,15 @@ std.manifestYamlDoc(
           },
           responses: {
             '200': {
-              description: 'Message accepted.',
+              description: 'Message handled. Response body contains the JSON-RPC result, or may be empty for notifications. On session initialization the `Mcp-Session-Id` response header contains the new session ID.',
+              headers: {
+                'Mcp-Session-Id': {
+                  description: 'Session ID assigned by the server. Present only on the `initialize` response.',
+                  schema: {
+                    type: 'string',
+                  },
+                },
+              },
             },
             '404': {
               description: 'Session not found.',

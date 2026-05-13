@@ -782,9 +782,42 @@ paths:
   /mcp/:
     get:
       description: |
-        Establishes a Server-Sent Events (SSE) stream for the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/).
+        Opens a long-lived SSE stream so the server can push messages to the client for an existing session. Requires the session ID returned by the `initialize` response.
+      parameters:
+        - description: "Session ID returned by the server on initialization."
+          in: "header"
+          name: "Mcp-Session-Id"
+          required: true
+          schema:
+            type: "string"
+      responses:
+        "200":
+          content:
+            text/event-stream:
+              schema:
+                type: "string"
+          description: "SSE stream opened. The server pushes JSON-RPC messages as server-sent events."
+        "401":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "API key required."
+        "404":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Session not found."
+      summary: |
+        Open a server-sent events stream for an existing MCP session.
+      tags:
+        - "MCP"
+    post:
+      description: |
+        Interact with this plugin's MCP server using the [Streamable HTTP transport](https://modelcontextprotocol.io/docs/concepts/transports#streamable-http).
         
-        Point any MCP-compatible client (Claude Desktop, Cursor, or any MCP SDK client) at this endpoint with your API key as the bearer token. On connection the server emits an `endpoint` SSE event containing the POST URL including the session ID; the client then sends JSON-RPC 2.0 messages to `POST /mcp/?sessionId=<id>`.
+        Point any MCP-compatible client (Claude Code, Cursor, or any MCP SDK client that supports the Streamable HTTP transport) at this endpoint and pass your API key as a bearer token. Send an `initialize` request via `POST /mcp/` to start a session; the server returns a session ID in the `Mcp-Session-Id` response header. Include that header on all subsequent requests.
         
         ## Available tools
         
@@ -814,31 +847,11 @@ paths:
         | URI | Description |
         |---|---|
         | `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API |
-      responses:
-        "200":
-          content:
-            text/event-stream:
-              schema:
-                type: "string"
-          description: "SSE stream established. The server emits an `endpoint` event containing the POST URL with session ID."
-        "401":
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-          description: "API key required."
-      summary: |
-        Establish an MCP (Model Context Protocol) SSE connection.
-      tags:
-        - "MCP"
-    post:
-      description: |
-        Send a JSON-RPC 2.0 message to an existing MCP session. The `sessionId` query parameter must match a session ID received from `GET /mcp/`.
       parameters:
-        - description: "The session ID received in the SSE `endpoint` event from `GET /mcp/`."
-          in: "query"
-          name: "sessionId"
-          required: true
+        - description: "Session ID returned by the server on initialization. Omit for the initial `initialize` request; required for all subsequent requests."
+          in: "header"
+          name: "Mcp-Session-Id"
+          required: false
           schema:
             type: "string"
       requestBody:
@@ -920,7 +933,12 @@ paths:
         required: true
       responses:
         "200":
-          description: "Message accepted."
+          description: "Message handled. Response body contains the JSON-RPC result, or may be empty for notifications. On session initialization the `Mcp-Session-Id` response header contains the new session ID."
+          headers:
+            Mcp-Session-Id:
+              description: "Session ID assigned by the server. Present only on the `initialize` response."
+              schema:
+                type: "string"
         "401":
           content:
             application/json:
@@ -934,7 +952,7 @@ paths:
                 "$ref": "#/components/schemas/Error"
           description: "Session not found."
       summary: |
-        Send a JSON-RPC 2.0 message to an active MCP session.
+        Send a JSON-RPC 2.0 message to the MCP server.
       tags:
         - "MCP"
   /obsidian-local-rest-api.crt:

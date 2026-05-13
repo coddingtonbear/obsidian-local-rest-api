@@ -58,31 +58,6 @@ To avoid certificate warnings, you can download and trust the certificate from `
 
 The MCP server runs at `https://127.0.0.1:27124/mcp/` and requires the same API key as a bearer token. Because the plugin uses a self-signed certificate, you may need to either trust the certificate in your OS/client, or use the plain HTTP endpoint at `http://127.0.0.1:27123/mcp/` (enable it under **Settings → Local REST API → Enable HTTP server**).
 
-#### Claude Desktop
-
-Claude Desktop does not natively support HTTP/SSE MCP servers, but you can bridge it with [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) (requires Node.js). Add the following to `claude_desktop_config.json`:
-
-- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "obsidian": {
-      "command": "npx",
-      "args": [
-        "mcp-remote@latest",
-        "https://127.0.0.1:27124/mcp/",
-        "--header",
-        "Authorization: Bearer <your-api-key>"
-      ]
-    }
-  }
-}
-```
-
-Restart Claude Desktop after saving the file.
-
 #### Claude Code
 
 Claude Code has native HTTP MCP support. The quickest way to add the server is via the CLI:
@@ -108,16 +83,40 @@ Or add it manually to `.mcp.json` in your project root (project-scoped) or confi
 }
 ```
 
+#### Claude Desktop
+
+Claude Desktop does not natively support remote HTTP MCP servers, but you can bridge it with [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) (requires Node.js). Add the following to `claude_desktop_config.json`:
+
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "obsidian": {
+      "command": "npx",
+      "args": [
+        "mcp-remote@latest",
+        "https://127.0.0.1:27124/mcp/",
+        "--header",
+        "Authorization: Bearer <your-api-key>"
+      ]
+    }
+  }
+}
+```
+
+Restart Claude Desktop after saving the file.
+
 #### Cursor
 
-Cursor has native SSE support. Add the following to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project-specific):
+Cursor supports the Streamable HTTP MCP transport. Add the following to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project-specific):
 
 ```json
 {
   "mcpServers": {
     "obsidian": {
       "url": "https://127.0.0.1:27124/mcp/",
-      "transport": "sse",
       "headers": {
         "Authorization": "Bearer <your-api-key>"
       }
@@ -128,7 +127,7 @@ Cursor has native SSE support. Add the following to `~/.cursor/mcp.json` (global
 
 #### Other clients
 
-Any MCP client that supports SSE transport can connect to `https://127.0.0.1:27124/mcp/` with an `Authorization: Bearer <your-api-key>` header. Consult your client's documentation for the exact configuration format.
+Any MCP client that supports the Streamable HTTP transport can connect to `https://127.0.0.1:27124/mcp/` with an `Authorization: Bearer <your-api-key>` header. Consult your client's documentation for the exact configuration format.
 
 ## API overview
 
@@ -145,7 +144,7 @@ Any MCP client that supports SSE transport can connect to `https://127.0.0.1:271
 | `/tags/` | GET | List all tags with usage counts |
 | `/open/{path}` | POST | Open a file in the Obsidian UI |
 | `/` | GET | Server status and authentication check |
-| `/mcp/` | GET POST | MCP (Model Context Protocol) SSE server — connect AI agents directly to your vault |
+| `/mcp/` | GET POST | MCP (Model Context Protocol) server — connect AI agents directly to your vault |
 
 For full request/response details, see the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/).
 
@@ -236,11 +235,11 @@ Supported target types: `heading`, `block`, `frontmatter`. Supplying both URL-em
 
 The plugin includes a built-in MCP server at `/mcp/` so AI agents and MCP-compatible clients can interact with your vault without hand-crafting HTTP requests.
 
-**Transport:** Server-Sent Events (SSE) — same API key authentication required.
+**Transport:** Streamable HTTP — same API key authentication required.
 
 ### Connecting a client
 
-Connect your MCP client to `https://127.0.0.1:27124/mcp/` and pass your API key as a bearer token. The exact config syntax varies by client; consult your client's documentation for SSE-based remote MCP servers.
+Connect your MCP client to `https://127.0.0.1:27124/mcp/` and pass your API key as a bearer token. The exact config syntax varies by client; consult your client's documentation for Streamable HTTP remote MCP servers.
 
 > **TLS note:** Your client must trust the plugin's self-signed certificate. You can download and trust it from `https://127.0.0.1:27124/obsidian-local-rest-api-certificate.crt`, or configure your client to skip TLS verification for `127.0.0.1`.
 
