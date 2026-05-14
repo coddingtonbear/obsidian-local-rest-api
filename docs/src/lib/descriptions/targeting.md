@@ -2,7 +2,7 @@
 
 You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
 
-- Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+- Set `Target-Type` to `heading`, `block`, or `frontmatter`. When `Target-Type` is `heading`, the operation applies to the body content *beneath* that heading line — the heading line itself (`## My Section`) is not part of the section and should not appear in the patched content.
 - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
 - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
 

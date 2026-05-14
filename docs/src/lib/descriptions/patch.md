@@ -68,6 +68,8 @@ you could send a request with the following headers:
 The above would work just fine for `prepend` or `replace`, too, of course,
 but with different results.
 
+> **Note:** The heading line itself (`### Subsubheading 1:1:1`) is not part of the section content. When using `replace`, supply only the body text that should appear beneath the heading — do not include the heading line in the request body, or it will be duplicated.
+
 ## Append, Prepend, or Replace Content to a Block Reference
 
 If you wanted to append the content "Hello" below the block referenced by

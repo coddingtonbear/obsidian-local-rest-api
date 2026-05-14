@@ -195,7 +195,7 @@ export class McpHandler {
     this.mcpServer.tool(
       "vault_patch",
       "Patch a specific section of a vault file by targeting a heading, block reference, or frontmatter field.\n\n" +
-        "- targetType: 'heading' targets a markdown heading section; 'block' targets a block reference (the ID after '^'); 'frontmatter' targets a YAML front-matter key.\n" +
+        "- targetType: 'heading' targets the content beneath a markdown heading (the heading line itself is not part of the section and must not appear in the supplied content); 'block' targets a block reference (the ID after '^'); 'frontmatter' targets a YAML front-matter key.\n" +
         "- target: the heading text, block ID, or frontmatter key. For nested headings use '::' as delimiter (e.g. 'Heading 1::Subheading'); customise with targetDelimiter.\n" +
         "- operation: 'append' adds content after the section, 'prepend' adds before, 'replace' replaces entirely.\n" +
         "- contentType: 'text/markdown' (default) treats content as markdown. 'application/json' parses it as JSON — useful for setting typed frontmatter values or appending rows to a table (pass a 2-D array of row cells).\n" +

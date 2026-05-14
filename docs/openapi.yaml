@@ -129,7 +129,7 @@ paths:
         
         You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
-        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`. When `Target-Type` is `heading`, the operation applies to the body content *beneath* that heading line — the heading line itself (`## My Section`) is not part of the section and should not appear in the patched content.
         - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
@@ -308,6 +308,8 @@ paths:
         
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
+        
+        > **Note:** The heading line itself (`### Subsubheading 1:1:1`) is not part of the section content. When using `replace`, supply only the body text that should appear beneath the heading — do not include the heading line in the request body, or it will be duplicated.
         
         ## Append, Prepend, or Replace Content to a Block Reference
         
@@ -530,7 +532,7 @@ paths:
         
         You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
-        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`. When `Target-Type` is `heading`, the operation applies to the body content *beneath* that heading line — the heading line itself (`## My Section`) is not part of the section and should not appear in the patched content.
         - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
@@ -653,7 +655,7 @@ paths:
         
         You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
-        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`. When `Target-Type` is `heading`, the operation applies to the body content *beneath* that heading line — the heading line itself (`## My Section`) is not part of the section and should not appear in the patched content.
         - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
@@ -1101,7 +1103,7 @@ paths:
         
         You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
-        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`. When `Target-Type` is `heading`, the operation applies to the body content *beneath* that heading line — the heading line itself (`## My Section`) is not part of the section and should not appear in the patched content.
         - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
@@ -1293,6 +1295,8 @@ paths:
         
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
+        
+        > **Note:** The heading line itself (`### Subsubheading 1:1:1`) is not part of the section content. When using `replace`, supply only the body text that should appear beneath the heading — do not include the heading line in the request body, or it will be duplicated.
         
         ## Append, Prepend, or Replace Content to a Block Reference
         
@@ -1528,7 +1532,7 @@ paths:
         
         You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
-        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`. When `Target-Type` is `heading`, the operation applies to the body content *beneath* that heading line — the heading line itself (`## My Section`) is not part of the section and should not appear in the patched content.
         - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
@@ -1664,7 +1668,7 @@ paths:
         
         You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
-        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`. When `Target-Type` is `heading`, the operation applies to the body content *beneath* that heading line — the heading line itself (`## My Section`) is not part of the section and should not appear in the patched content.
         - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
@@ -1850,7 +1854,7 @@ paths:
         
         You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
-        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`. When `Target-Type` is `heading`, the operation applies to the body content *beneath* that heading line — the heading line itself (`## My Section`) is not part of the section and should not appear in the patched content.
         - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
@@ -2060,6 +2064,8 @@ paths:
         
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
+        
+        > **Note:** The heading line itself (`### Subsubheading 1:1:1`) is not part of the section content. When using `replace`, supply only the body text that should appear beneath the heading — do not include the heading line in the request body, or it will be duplicated.
         
         ## Append, Prepend, or Replace Content to a Block Reference
         
@@ -2313,7 +2319,7 @@ paths:
         
         You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
-        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`. When `Target-Type` is `heading`, the operation applies to the body content *beneath* that heading line — the heading line itself (`## My Section`) is not part of the section and should not appear in the patched content.
         - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
@@ -2467,7 +2473,7 @@ paths:
         
         You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
-        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`. When `Target-Type` is `heading`, the operation applies to the body content *beneath* that heading line — the heading line itself (`## My Section`) is not part of the section and should not appear in the patched content.
         - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
@@ -2891,7 +2897,7 @@ paths:
         
         You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
-        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`. When `Target-Type` is `heading`, the operation applies to the body content *beneath* that heading line — the heading line itself (`## My Section`) is not part of the section and should not appear in the patched content.
         - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
@@ -3077,6 +3083,8 @@ paths:
         
         The above would work just fine for `prepend` or `replace`, too, of course,
         but with different results.
+        
+        > **Note:** The heading line itself (`### Subsubheading 1:1:1`) is not part of the section content. When using `replace`, supply only the body text that should appear beneath the heading — do not include the heading line in the request body, or it will be duplicated.
         
         ## Append, Prepend, or Replace Content to a Block Reference
         
@@ -3306,7 +3314,7 @@ paths:
         
         You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
-        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`. When `Target-Type` is `heading`, the operation applies to the body content *beneath* that heading line — the heading line itself (`## My Section`) is not part of the section and should not appear in the patched content.
         - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
@@ -3438,7 +3446,7 @@ paths:
         
         You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
         
-        - Set `Target-Type` to `heading`, `block`, or `frontmatter`.
+        - Set `Target-Type` to `heading`, `block`, or `frontmatter`. When `Target-Type` is `heading`, the operation applies to the body content *beneath* that heading line — the heading line itself (`## My Section`) is not part of the section and should not appear in the patched content.
         - Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
         - For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
         
