@@ -157,8 +157,6 @@ export default class LocalRestApi extends Plugin {
       );
     }
 
-    console.log("[REST API] Added new API extension", pluginManifest);
-
     return this.requestHandler.registerApiExtension(pluginManifest);
   }
 
@@ -190,12 +188,6 @@ export default class LocalRestApi extends Plugin {
         this.settings.port,
         this.settings.bindingHost ?? DefaultBindingHost
       );
-
-      console.log(
-        `[REST API] Listening on https://${
-          this.settings.bindingHost ?? DefaultBindingHost
-        }:${this.settings.port}/`
-      );
     }
 
     if (this.insecureServer) {
@@ -207,12 +199,6 @@ export default class LocalRestApi extends Plugin {
       this.insecureServer.listen(
         this.settings.insecurePort,
         this.settings.bindingHost ?? DefaultBindingHost
-      );
-
-      console.log(
-        `[REST API] Listening on http://${
-          this.settings.bindingHost ?? DefaultBindingHost
-        }:${this.settings.insecurePort}/`
       );
     }
   }
