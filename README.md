@@ -56,7 +56,7 @@ To avoid certificate warnings, you can download and trust the certificate from `
 
 ### MCP clients
 
-The MCP server runs at `https://127.0.0.1:27124/mcp/` and requires the same API key as a bearer token. Because the plugin uses a self-signed certificate, you may need to either trust the certificate in your OS/client, or use the plain HTTP endpoint at `http://127.0.0.1:27123/mcp/` (enable it under **Settings → Local REST API → Enable HTTP server**).
+The MCP server runs at `https://127.0.0.1:27124/mcp/` and requires that you provide your bearer token for authentication via an `Authorization` header (i.e. `Authorization: Bearer <your-api-key>`). Because the plugin uses a self-signed certificate, you may need to either trust the certificate in your OS/client, or use the plain HTTP endpoint at `http://127.0.0.1:27123/mcp/` (enable it under **Settings → Local REST API → Enable HTTP server**).
 
 #### Claude Code
 
@@ -235,13 +235,17 @@ Supported target types: `heading`, `block`, `frontmatter`. Supplying both URL-em
 
 The plugin includes a built-in MCP server at `/mcp/` so AI agents and MCP-compatible clients can interact with your vault without hand-crafting HTTP requests.
 
-**Transport:** Streamable HTTP — same API key authentication required.
+**Transport:** Streamable HTTP — API key authentication required.
 
 ### Connecting a client
 
 Connect your MCP client to `https://127.0.0.1:27124/mcp/` and pass your API key as a bearer token. The exact config syntax varies by client; consult your client's documentation for Streamable HTTP remote MCP servers.
 
-> **TLS note:** Your client must trust the plugin's self-signed certificate. You can download and trust it from `https://127.0.0.1:27124/obsidian-local-rest-api-certificate.crt`, or configure your client to skip TLS verification for `127.0.0.1`.
+> [!NOTE]
+> To connect to the MCP server securely, your client must trust the plugin's self-signed certificate. You can download and trust it from `https://127.0.0.1:27124/obsidian-local-rest-api-certificate.crt`, or configure your client to skip TLS verification for `127.0.0.1`.
+>
+> If trusting a certificate is not possible in your environment, you can connect insecurely using `http://127.0.0.1:27123/mcp/`
+> instead of `https://127.0.0.1:27124/mcp/` if you have enabled the HTTP endpoint under **Settings → Local REST API → Enable HTTP server**.
 
 ### Available tools
 
