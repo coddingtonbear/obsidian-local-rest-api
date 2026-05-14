@@ -379,7 +379,13 @@ export class McpHandler {
     this.mcpServer.tool(
       "tags_list",
       "Return all tags used across the vault, each with a usage count. " +
-        "Tag names do not include the leading '#'.",
+        "Tag names do not include the leading '#'. " +
+        "This tool is read-only. To add a tag to a specific file, use vault_patch with " +
+        "targetType 'frontmatter', target 'tags', operation 'append', contentType 'application/json', " +
+        "and content [\"tag-name\"] (set createTargetIfMissing to true if the file may have no tags yet). " +
+        "To remove a tag, read the current tags list with vault_read, filter client-side, then replace " +
+        "the whole field with vault_patch using operation 'replace'. " +
+        "For full examples, read the OpenAPI spec resource at obsidian://local-rest-api/openapi.yaml.",
       {},
       async () => {
         return this.text({ tags: this.ops.getAllTags() });
