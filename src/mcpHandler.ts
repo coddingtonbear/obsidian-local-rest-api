@@ -8,6 +8,7 @@ import { TFile } from "obsidian";
 import { VaultOperations } from "./vaultOperations";
 import { PatchOperation, PatchTargetType } from "markdown-patch";
 import openapiYaml from "../docs/openapi.yaml";
+import { ERROR_CODE_MESSAGES } from "./constants";
 
 const PERIODS = ["daily", "weekly", "monthly", "quarterly", "yearly"] as const;
 
@@ -328,7 +329,10 @@ export class McpHandler {
       },
       async ({ period }: { period: typeof PERIODS[number] }) => {
         const [file, err] = await this.ops.periodicGetOrCreateNote(period, Date.now());
-        if (err || !file) throw new Error(`Could not get or create periodic note: ${err}`);
+        if (err || !file)
+          throw new Error(
+            `Could not get or create periodic note: ${err != null ? ERROR_CODE_MESSAGES[err] : "unknown error"}`,
+          );
         return this.text({ path: file.path });
       },
     );
