@@ -44,6 +44,7 @@ This project has several parallel representations of each API capability that mu
 |---|---|
 | REST API implementation | `src/requestHandler.ts` |
 | MCP tool definitions | `src/mcpHandler.ts` |
+| Project Readme | `README.md` |
 | OpenAPI docs (source) | `docs/src/openapi.jsonnet`, `docs/src/lib/descriptions/*.md` |
 | OpenAPI docs (compiled) | `docs/openapi.yaml` |
 | Unit tests | `src/requestHandler.test.ts`, `src/mcpHandler.test.ts` |
