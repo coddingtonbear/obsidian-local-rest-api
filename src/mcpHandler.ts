@@ -6,7 +6,7 @@ import express from "express";
 import { TFile } from "obsidian";
 
 import { VaultOperations } from "./vaultOperations";
-import { PatchOperation, PatchTargetType } from "markdown-patch";
+import { PatchFailed, PatchOperation, PatchTargetType } from "markdown-patch";
 import openapiYaml from "../docs/openapi.yaml";
 import { ERROR_CODE_MESSAGES } from "./constants";
 
@@ -265,15 +265,22 @@ export class McpHandler {
         rejectIfContentPreexists?: boolean;
         targetDelimiter?: string;
       }) => {
-        await this.ops.patchFileSection(
-          path,
-          targetType,
-          target,
-          operation,
-          content,
-          contentType ?? "text/markdown",
-          { createTargetIfMissing, trimTargetWhitespace, rejectIfContentPreexists, targetDelimiter },
-        );
+        try {
+          await this.ops.patchFileSection(
+            path,
+            targetType,
+            target,
+            operation,
+            content,
+            contentType ?? "text/markdown",
+            { createTargetIfMissing, trimTargetWhitespace, rejectIfContentPreexists, targetDelimiter },
+          );
+        } catch (e) {
+          if (e instanceof PatchFailed) {
+            throw new Error(e.reason);
+          }
+          throw e;
+        }
         return this.text({ message: "OK" });
       },
     );

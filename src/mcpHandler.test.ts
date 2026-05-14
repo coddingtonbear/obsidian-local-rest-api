@@ -42,6 +42,7 @@ jest.mock("@modelcontextprotocol/sdk/server/streamableHttp.js", () => ({
 import { McpHandler } from "./mcpHandler";
 import { ErrorCode } from "./types";
 import { TFile } from "../mocks/obsidian";
+import { PatchFailed, PatchFailureReason } from "markdown-patch";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -351,6 +352,25 @@ describe("McpHandler", () => {
       "application/json",
       expect.objectContaining({}),
     );
+  });
+
+  test("vault_patch surfaces PatchFailed reason as error message", async () => {
+    const cb = getToolCallback("vault_patch");
+    ops.patchFileSection.mockRejectedValueOnce(
+      new PatchFailed(PatchFailureReason.InvalidTarget, {} as any, null),
+    );
+    await expect(
+      cb({ path: "out.md", targetType: "heading", target: "NoSuch", operation: "append", content: "x" }),
+    ).rejects.toThrow(PatchFailureReason.InvalidTarget);
+  });
+
+  test("vault_patch re-throws non-PatchFailed errors unchanged", async () => {
+    const cb = getToolCallback("vault_patch");
+    const boom = new Error("disk full");
+    ops.patchFileSection.mockRejectedValueOnce(boom);
+    await expect(
+      cb({ path: "out.md", targetType: "heading", target: "Alpha", operation: "append", content: "x" }),
+    ).rejects.toThrow("disk full");
   });
 
   // ---- vault_delete -------------------------------------------------------
