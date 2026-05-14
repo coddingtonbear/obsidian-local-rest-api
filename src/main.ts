@@ -47,7 +47,7 @@ export default class LocalRestApi extends Plugin {
         .update(forge.random.getBytesSync(128))
         .digest()
         .toHex();
-      this.saveSettings();
+      await this.saveSettings();
     }
     if (!this.settings.crypto) {
       const expiry = new Date();
@@ -140,7 +140,7 @@ export default class LocalRestApi extends Plugin {
         privateKey: pki.privateKeyToPem(keypair.privateKey),
         publicKey: pki.publicKeyToPem(keypair.publicKey),
       };
-      this.saveSettings();
+      await this.saveSettings();
     }
 
     this.addSettingTab(new LocalRestApiSettingTab(this.app, this));
@@ -433,7 +433,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           .onChange((value) => {
             const originalValue = this.plugin.settings.enableInsecureServer;
             this.plugin.settings.enableInsecureServer = value;
-            this.plugin.saveSettings();
+            void this.plugin.saveSettings();
             this.plugin.refreshServerState();
             // If our target value differs,
             if (value !== originalValue) {
@@ -456,7 +456,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           .onClick(() => {
             delete this.plugin.settings.apiKey;
             delete this.plugin.settings.crypto;
-            this.plugin.saveSettings();
+            void this.plugin.saveSettings();
             this.plugin.unload();
             this.plugin.load();
           });
@@ -474,7 +474,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           .setButtonText("Re-generate Certificates")
           .onClick(() => {
             delete this.plugin.settings.crypto;
-            this.plugin.saveSettings();
+            void this.plugin.saveSettings();
             this.plugin.unload();
             this.plugin.load();
           });
@@ -492,7 +492,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           .setButtonText("Restore Defaults")
           .onClick(() => {
             this.plugin.settings = Object.assign({}, DEFAULT_SETTINGS);
-            this.plugin.saveSettings();
+            void this.plugin.saveSettings();
             this.plugin.unload();
             this.plugin.load();
           });
@@ -555,7 +555,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             .onChange((value) => {
               const originalValue = this.plugin.settings.enableSecureServer;
               this.plugin.settings.enableSecureServer = value;
-              this.plugin.saveSettings();
+              void this.plugin.saveSettings();
               this.plugin.refreshServerState();
               if (value !== originalValue) {
                 this.display();
@@ -573,7 +573,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           cb
             .onChange((value) => {
               this.plugin.settings.port = parseInt(value, 10);
-              this.plugin.saveSettings();
+              void this.plugin.saveSettings();
               this.plugin.refreshServerState();
             })
             .setValue(this.plugin.settings.port.toString())
@@ -585,7 +585,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           cb
             .onChange((value) => {
               this.plugin.settings.insecurePort = parseInt(value, 10);
-              this.plugin.saveSettings();
+              void this.plugin.saveSettings();
               this.plugin.refreshServerState();
             })
             .setValue(this.plugin.settings.insecurePort.toString())
@@ -594,7 +594,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       new Setting(containerEl).setName("API Key").addText((cb) => {
         cb.onChange((value) => {
           this.plugin.settings.apiKey = value;
-          this.plugin.saveSettings();
+          void this.plugin.saveSettings();
           this.plugin.refreshServerState();
         }).setValue(this.plugin.settings.apiKey);
       });
@@ -616,7 +616,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           cb
             .onChange((value) => {
               this.plugin.settings.subjectAltNames = value;
-              this.plugin.saveSettings();
+              void this.plugin.saveSettings();
             })
             .setValue(this.plugin.settings.subjectAltNames)
         );
@@ -624,7 +624,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         cb
           .onChange((value) => {
             this.plugin.settings.crypto.cert = value;
-            this.plugin.saveSettings();
+            void this.plugin.saveSettings();
             this.plugin.refreshServerState();
           })
           .setValue(this.plugin.settings.crypto.cert)
@@ -633,7 +633,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         cb
           .onChange((value) => {
             this.plugin.settings.crypto.publicKey = value;
-            this.plugin.saveSettings();
+            void this.plugin.saveSettings();
             this.plugin.refreshServerState();
           })
           .setValue(this.plugin.settings.crypto.publicKey)
@@ -642,7 +642,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         cb
           .onChange((value) => {
             this.plugin.settings.crypto.privateKey = value;
-            this.plugin.saveSettings();
+            void this.plugin.saveSettings();
             this.plugin.refreshServerState();
           })
           .setValue(this.plugin.settings.crypto.privateKey)
@@ -654,7 +654,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           } else {
             delete this.plugin.settings.authorizationHeaderName;
           }
-          this.plugin.saveSettings();
+          void this.plugin.saveSettings();
           this.plugin.refreshServerState();
         }).setValue(
           this.plugin.settings.authorizationHeaderName ??
@@ -668,7 +668,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           } else {
             delete this.plugin.settings.bindingHost;
           }
-          this.plugin.saveSettings();
+          void this.plugin.saveSettings();
           this.plugin.refreshServerState();
         }).setValue(this.plugin.settings.bindingHost ?? DefaultBindingHost);
       });
