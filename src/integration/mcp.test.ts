@@ -502,45 +502,11 @@ const activeRun =
   process.env.OBSIDIAN_ACTIVE_FILE.length > 0;
 const activeTest = activeRun ? test : test.skip;
 
-describe("active_file_read tool", () => {
-  activeTest("returns path and content of active file", async () => {
-    const result = await client.callTool({ name: "active_file_read", arguments: {} });
+describe("active_file_get_path tool", () => {
+  activeTest("returns vault-relative path of active file", async () => {
+    const result = await client.callTool({ name: "active_file_get_path", arguments: {} });
     const body = jsonOf<any>(result);
     expect(typeof body.path).toBe("string");
-    expect(typeof body.content).toBe("string");
-  });
-});
-
-describe("active_file_get_document_map tool", () => {
-  activeTest("returns document map for the active file", async () => {
-    const result = await client.callTool({
-      name: "active_file_get_document_map",
-      arguments: {},
-    });
-    const body = jsonOf<any>(result);
-    expect(Array.isArray(body.headings)).toBe(true);
-    expect(Array.isArray(body.blocks)).toBe(true);
-    expect(Array.isArray(body.frontmatterFields)).toBe(true);
-  });
-});
-
-describe("active_file_append tool", () => {
-  activeTest("appends to active file and returns OK", async () => {
-    const result = await client.callTool({
-      name: "active_file_append",
-      arguments: { content: "mcp-active-append\n" },
-    });
-    expect(jsonOf<any>(result).message).toBe("OK");
-  });
-});
-
-describe("active_file_write tool", () => {
-  activeTest("overwrites active file and returns OK", async () => {
-    const result = await client.callTool({
-      name: "active_file_write",
-      arguments: { content: "# MCP Active Write Test\n\nOverwritten by MCP test.\n" },
-    });
-    expect(jsonOf<any>(result).message).toBe("OK");
   });
 });
 
@@ -551,50 +517,13 @@ describe("active_file_write tool", () => {
 const periodicTest =
   process.env.OBSIDIAN_PERIODIC_NOTES === "true" ? test : test.skip;
 
-describe("periodic_note_read tool", () => {
-  periodicTest("reads daily note path and content", async () => {
+describe("periodic_note_get_path tool", () => {
+  periodicTest("returns vault-relative path of the daily note", async () => {
     const result = await client.callTool({
-      name: "periodic_note_read",
+      name: "periodic_note_get_path",
       arguments: { period: "daily" },
     });
     const body = jsonOf<any>(result);
     expect(typeof body.path).toBe("string");
-    expect(typeof body.content).toBe("string");
-  });
-});
-
-describe("periodic_note_get_document_map tool", () => {
-  periodicTest("returns document map for the daily note", async () => {
-    const result = await client.callTool({
-      name: "periodic_note_get_document_map",
-      arguments: { period: "daily" },
-    });
-    const body = jsonOf<any>(result);
-    expect(Array.isArray(body.headings)).toBe(true);
-    expect(Array.isArray(body.blocks)).toBe(true);
-    expect(Array.isArray(body.frontmatterFields)).toBe(true);
-  });
-});
-
-describe("periodic_note_write tool", () => {
-  periodicTest("writes daily note and returns OK", async () => {
-    const result = await client.callTool({
-      name: "periodic_note_write",
-      arguments: {
-        period: "daily",
-        content: "# MCP Daily Note Test\n\nWritten by MCP integration test.\n",
-      },
-    });
-    expect(jsonOf<any>(result).message).toBe("OK");
-  });
-});
-
-describe("periodic_note_append tool", () => {
-  periodicTest("appends to daily note and returns OK", async () => {
-    const result = await client.callTool({
-      name: "periodic_note_append",
-      arguments: { period: "daily", content: "mcp-periodic-append\n" },
-    });
-    expect(jsonOf<any>(result).message).toBe("OK");
   });
 });

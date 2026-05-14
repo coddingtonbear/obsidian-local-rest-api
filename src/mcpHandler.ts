@@ -294,190 +294,35 @@ export class McpHandler {
     );
 
     this.mcpServer.tool(
-      "active_file_read",
-      "Read the content and metadata of the file currently open in Obsidian. " +
-        "Returns the same JSON shape as vault_read: content, path, tags, frontmatter, stat. " +
-        "Throws if no file is active.\n\n" +
-        "When targetType and target are both provided, returns only the matched section " +
-        "as a plain string (markdown) or JSON value (frontmatter) instead of the full object. " +
-        "Use active_file_get_document_map first to discover available targets.",
-      {
-        targetType: z
-          .enum(["heading", "block", "frontmatter"])
-          .optional()
-          .describe("Type of section to extract: 'heading', 'block' reference, or 'frontmatter' key"),
-        target: z
-          .string()
-          .optional()
-          .describe(
-            "Section to extract. Heading text, block reference ID (without '^'), or frontmatter key. " +
-              "Separate nested heading levels with '::' (e.g. 'Heading 1::Subheading').",
-          ),
-        targetDelimiter: z
-          .string()
-          .optional()
-          .describe("Delimiter for nested heading paths (default: '::')"),
-      },
-      async ({
-        targetType,
-        target,
-        targetDelimiter,
-      }: {
-        targetType?: "heading" | "block" | "frontmatter";
-        target?: string;
-        targetDelimiter?: string;
-      }) => {
-        const file = this.getActiveFile();
-        if (targetType && target) {
-          const section = await this.ops.readFileSection(file, targetType, target, targetDelimiter);
-          return this.text(section);
-        }
-        const meta = await this.ops.getFileMetadataObject(file);
-        return this.text(meta);
-      },
-    );
-
-    this.mcpServer.tool(
-      "active_file_get_document_map",
-      "Return the structure of the file currently open in Obsidian as a document map: " +
-        "the list of heading paths, block reference IDs, and frontmatter field names. " +
-        "Use this before active_file_read or active_file_patch with targeting to discover " +
-        "what targets are available. Throws if no file is active.",
+      "active_file_get_path",
+      "Return the vault-relative path of the file currently open in Obsidian. " +
+        "Use this path with vault_read, vault_write, vault_append, vault_patch, " +
+        "vault_get_document_map, or vault_delete to operate on the active file. " +
+        "Throws if no file is active.",
       {},
       async () => {
         const file = this.getActiveFile();
-        const map = await this.ops.getDocumentMapObject(file);
-        return this.text(map);
+        return this.text({ path: file.path });
       },
     );
 
     this.mcpServer.tool(
-      "active_file_write",
-      "Overwrite the content of the file currently open in Obsidian. Throws if no file is active.",
-      { content: z.string().describe("New full file content (markdown text)") },
-      async ({ content }: { content: string }) => {
-        const file = this.getActiveFile();
-        await this.ops.writeFileContent(file.path, content);
-        return this.text({ message: "OK" });
-      },
-    );
-
-    this.mcpServer.tool(
-      "active_file_append",
-      "Append content to the end of the file currently open in Obsidian. Throws if no file is active.",
-      { content: z.string().describe("Content to append") },
-      async ({ content }: { content: string }) => {
-        const file = this.getActiveFile();
-        await this.ops.appendFileContent(file.path, content);
-        return this.text({ message: "OK" });
-      },
-    );
-
-    this.mcpServer.tool(
-      "periodic_note_read",
-      "Read the content and metadata of the current periodic note for the given period " +
+      "periodic_note_get_path",
+      "Return the vault-relative path of the current periodic note for the given period " +
         "(daily, weekly, monthly, quarterly, or yearly). " +
+        "Creates the note file if it does not already exist, applying any configured template. " +
         "Requires the Periodic Notes or Calendar plugin to be installed and configured. " +
-        "Throws if the note for the current period does not exist yet.\n\n" +
-        "When targetType and target are both provided, returns only the matched section " +
-        "as a plain string (markdown) or JSON value (frontmatter) instead of the full object. " +
-        "Use periodic_note_get_document_map first to discover available targets.",
-      {
-        period: z
-          .enum(PERIODS)
-          .describe("Periodic note period: 'daily', 'weekly', 'monthly', 'quarterly', or 'yearly'"),
-        targetType: z
-          .enum(["heading", "block", "frontmatter"])
-          .optional()
-          .describe("Type of section to extract: 'heading', 'block' reference, or 'frontmatter' key"),
-        target: z
-          .string()
-          .optional()
-          .describe(
-            "Section to extract. Heading text, block reference ID (without '^'), or frontmatter key. " +
-              "Separate nested heading levels with '::' (e.g. 'Heading 1::Subheading').",
-          ),
-        targetDelimiter: z
-          .string()
-          .optional()
-          .describe("Delimiter for nested heading paths (default: '::')"),
-      },
-      async ({
-        period,
-        targetType,
-        target,
-        targetDelimiter,
-      }: {
-        period: typeof PERIODS[number];
-        targetType?: "heading" | "block" | "frontmatter";
-        target?: string;
-        targetDelimiter?: string;
-      }) => {
-        const [file, err] = this.ops.periodicGetNote(period, Date.now());
-        if (err || !file) throw new Error(`Periodic note not found: ${err}`);
-        if (targetType && target) {
-          const section = await this.ops.readFileSection(file, targetType, target, targetDelimiter);
-          return this.text(section);
-        }
-        const meta = await this.ops.getFileMetadataObject(file);
-        return this.text(meta);
-      },
-    );
-
-    this.mcpServer.tool(
-      "periodic_note_get_document_map",
-      "Return the structure of the current periodic note for the given period as a document map: " +
-        "the list of heading paths, block reference IDs, and frontmatter field names. " +
-        "Use this before periodic_note_read or periodic_note_patch with targeting to discover " +
-        "what targets are available. Throws if the note for the current period does not exist yet.",
+        "Use the returned path with vault_read, vault_write, vault_append, vault_patch, " +
+        "or vault_get_document_map to operate on the note.",
       {
         period: z
           .enum(PERIODS)
           .describe("Periodic note period: 'daily', 'weekly', 'monthly', 'quarterly', or 'yearly'"),
       },
       async ({ period }: { period: typeof PERIODS[number] }) => {
-        const [file, err] = this.ops.periodicGetNote(period, Date.now());
-        if (err || !file) throw new Error(`Periodic note not found: ${err}`);
-        const map = await this.ops.getDocumentMapObject(file);
-        return this.text(map);
-      },
-    );
-
-    this.mcpServer.tool(
-      "periodic_note_write",
-      "Write (or create) the current periodic note for the given period. " +
-        "Creates the note file if it does not already exist.",
-      {
-        period: z.enum(PERIODS).describe("Periodic note period: 'daily', 'weekly', 'monthly', 'quarterly', or 'yearly'"),
-        content: z.string().describe("New full file content (markdown text)"),
-      },
-      async ({ period, content }: { period: typeof PERIODS[number]; content: string }) => {
-        const [file, err] = await this.ops.periodicGetOrCreateNote(
-          period,
-          Date.now(),
-        );
+        const [file, err] = await this.ops.periodicGetOrCreateNote(period, Date.now());
         if (err || !file) throw new Error(`Could not get or create periodic note: ${err}`);
-        await this.ops.writeFileContent(file.path, content);
-        return this.text({ message: "OK" });
-      },
-    );
-
-    this.mcpServer.tool(
-      "periodic_note_append",
-      "Append content to the current periodic note for the given period. " +
-        "Creates the note file if it does not already exist.",
-      {
-        period: z.enum(PERIODS).describe("Periodic note period: 'daily', 'weekly', 'monthly', 'quarterly', or 'yearly'"),
-        content: z.string().describe("Content to append"),
-      },
-      async ({ period, content }: { period: typeof PERIODS[number]; content: string }) => {
-        const [file, err] = await this.ops.periodicGetOrCreateNote(
-          period,
-          Date.now(),
-        );
-        if (err || !file) throw new Error(`Could not get or create periodic note: ${err}`);
-        await this.ops.appendFileContent(file.path, content);
-        return this.text({ message: "OK" });
+        return this.text({ path: file.path });
       },
     );
 

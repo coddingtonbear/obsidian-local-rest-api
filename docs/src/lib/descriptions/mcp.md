@@ -14,12 +14,9 @@ Include the `MCP-Protocol-Version` header on all requests after initialization, 
 | `vault_append` | Append content to the end of a vault file |
 | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
 | `vault_delete` | Delete a vault file |
-| `active_file_read` | Read the file currently open in Obsidian |
-| `active_file_write` | Overwrite the file currently open in Obsidian |
-| `active_file_append` | Append content to the file currently open in Obsidian |
-| `periodic_note_read` | Read the current periodic note (daily, weekly, monthly, quarterly, yearly) |
-| `periodic_note_write` | Write (or create) the current periodic note |
-| `periodic_note_append` | Append content to the current periodic note |
+| `vault_get_document_map` | List the headings, block references, and frontmatter fields in a file |
+| `active_file_get_path` | Return the vault path of the file currently open in Obsidian |
+| `periodic_note_get_path` | Return the vault path of the current periodic note (daily, weekly, monthly, quarterly, yearly) |
 | `search_query` | Search using a JsonLogic query evaluated against each note's metadata |
 | `search_simple` | Full-text search using Obsidian's built-in search |
 | `tags_list` | List all tags across the vault with usage counts |
