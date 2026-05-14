@@ -310,7 +310,7 @@ describe("McpHandler", () => {
     );
   });
 
-  test("vault_patch passes applyIfContentPreexists to patchFileSection", async () => {
+  test("vault_patch passes rejectIfContentPreexists to patchFileSection", async () => {
     const cb = getToolCallback("vault_patch");
     await cb({
       path: "out.md",
@@ -318,7 +318,7 @@ describe("McpHandler", () => {
       target: "Introduction",
       operation: "append",
       content: "new text",
-      applyIfContentPreexists: true,
+      rejectIfContentPreexists: true,
     });
     expect(ops.patchFileSection).toHaveBeenCalledWith(
       "out.md",
@@ -327,7 +327,7 @@ describe("McpHandler", () => {
       "append",
       "new text",
       "text/markdown",
-      expect.objectContaining({ applyIfContentPreexists: true }),
+      expect.objectContaining({ rejectIfContentPreexists: true }),
     );
   });
 

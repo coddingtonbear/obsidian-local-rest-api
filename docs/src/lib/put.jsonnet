@@ -6,7 +6,7 @@ local T = import 'targeting.params.jsonnet';
   ],
   summary: 'Update the content of the active file open in Obsidian.\n',
   parameters: [
-    T.applyIfContentPreexists,
+    T.rejectIfContentPreexists,
     T.trimTargetWhitespace,
     T.targetType,
     T.target,

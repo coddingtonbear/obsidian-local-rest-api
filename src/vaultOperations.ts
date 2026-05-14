@@ -306,7 +306,7 @@ export class VaultOperations {
     contentType: string,
     options?: {
       createTargetIfMissing?: boolean;
-      applyIfContentPreexists?: boolean;
+      rejectIfContentPreexists?: boolean;
       trimTargetWhitespace?: boolean;
       targetDelimiter?: string;
     },
@@ -327,7 +327,7 @@ export class VaultOperations {
       target: resolvedTarget,
       contentType,
       content,
-      applyIfContentPreexists: options?.applyIfContentPreexists ?? false,
+      rejectIfContentPreexists: options?.rejectIfContentPreexists ?? false,
       trimTargetWhitespace: options?.trimTargetWhitespace ?? false,
       createTargetIfMissing: options?.createTargetIfMissing ?? false,
     } as PatchInstruction;

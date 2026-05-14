@@ -60,10 +60,10 @@
       default: 'false',
     },
   },
-  applyIfContentPreexists: {
-    name: 'Apply-If-Content-Preexists',
+  rejectIfContentPreexists: {
+    name: 'Reject-If-Content-Preexists',
     'in': 'header',
-    description: 'If patch data already exists in Target, apply patch anyway?',
+    description: 'If patch data already exists in Target, reject the patch?',
     required: false,
     schema: {
       type: 'string',

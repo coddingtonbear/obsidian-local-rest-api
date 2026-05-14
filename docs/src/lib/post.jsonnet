@@ -3,7 +3,7 @@ local T = import 'targeting.params.jsonnet';
 {
   parameters: [
     T.createTargetIfMissing,
-    T.applyIfContentPreexists,
+    T.rejectIfContentPreexists,
     T.trimTargetWhitespace,
     T.targetType,
     T.target,

@@ -632,8 +632,8 @@ export default class RequestHandler {
     const rawTarget = decodeURIComponent(req.get("Target") ?? "");
     const contentType = req.get("Content-Type");
     const createTargetIfMissing = req.get("Create-Target-If-Missing") == "true";
-    const applyIfContentPreexists =
-      req.get("Apply-If-Content-Preexists") == "true";
+    const rejectIfContentPreexists =
+      req.get("Reject-If-Content-Preexists") == "true";
     const trimTargetWhitespace = req.get("Trim-Target-Whitespace") == "true";
     const targetDelimiter = req.get("Target-Delimiter") || "::";
 
@@ -665,7 +665,7 @@ export default class RequestHandler {
     try {
       const patched = await this.operations.patchFileSection(
         path, targetType, rawTarget, operation, req.body, contentType,
-        { createTargetIfMissing, applyIfContentPreexists, trimTargetWhitespace, targetDelimiter },
+        { createTargetIfMissing, rejectIfContentPreexists, trimTargetWhitespace, targetDelimiter },
       );
       res.status(200).send(patched);
     } catch (e) {
@@ -717,8 +717,8 @@ export default class RequestHandler {
     const createTargetIfMissing =
       extraOpts?.createTargetIfMissing ??
       req.get("Create-Target-If-Missing") == "true";
-    const applyIfContentPreexists =
-      req.get("Apply-If-Content-Preexists") == "true";
+    const rejectIfContentPreexists =
+      req.get("Reject-If-Content-Preexists") == "true";
     const trimTargetWhitespace = req.get("Trim-Target-Whitespace") == "true";
     const targetDelimiter = req.get("Target-Delimiter") || "::";
 
@@ -738,7 +738,7 @@ export default class RequestHandler {
     try {
       const patched = await this.operations.patchFileSection(
         filePath, targetType, target, operation, req.body, contentType,
-        { createTargetIfMissing, applyIfContentPreexists, trimTargetWhitespace, targetDelimiter },
+        { createTargetIfMissing, rejectIfContentPreexists, trimTargetWhitespace, targetDelimiter },
       );
       res.status(200).send(patched);
     } catch (e) {

@@ -428,9 +428,9 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
+        - description: "If patch data already exists in Target, reject the patch?"
           in: "header"
-          name: "Apply-If-Content-Preexists"
+          name: "Reject-If-Content-Preexists"
           required: false
           schema:
             default: "false"
@@ -557,9 +557,9 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
+        - description: "If patch data already exists in Target, reject the patch?"
           in: "header"
-          name: "Apply-If-Content-Preexists"
+          name: "Reject-If-Content-Preexists"
           required: false
           schema:
             default: "false"
@@ -668,9 +668,9 @@ paths:
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
-        - description: "If patch data already exists in Target, apply patch anyway?"
+        - description: "If patch data already exists in Target, reject the patch?"
           in: "header"
-          name: "Apply-If-Content-Preexists"
+          name: "Reject-If-Content-Preexists"
           required: false
           schema:
             default: "false"
@@ -1426,9 +1426,9 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
+        - description: "If patch data already exists in Target, reject the patch?"
           in: "header"
-          name: "Apply-If-Content-Preexists"
+          name: "Reject-If-Content-Preexists"
           required: false
           schema:
             default: "false"
@@ -1568,9 +1568,9 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
+        - description: "If patch data already exists in Target, reject the patch?"
           in: "header"
-          name: "Apply-If-Content-Preexists"
+          name: "Reject-If-Content-Preexists"
           required: false
           schema:
             default: "false"
@@ -1692,9 +1692,9 @@ paths:
               - "quarterly"
               - "yearly"
             type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
+        - description: "If patch data already exists in Target, reject the patch?"
           in: "header"
-          name: "Apply-If-Content-Preexists"
+          name: "Reject-If-Content-Preexists"
           required: false
           schema:
             default: "false"
@@ -2211,9 +2211,9 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
+        - description: "If patch data already exists in Target, reject the patch?"
           in: "header"
-          name: "Apply-If-Content-Preexists"
+          name: "Reject-If-Content-Preexists"
           required: false
           schema:
             default: "false"
@@ -2371,9 +2371,9 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
+        - description: "If patch data already exists in Target, reject the patch?"
           in: "header"
-          name: "Apply-If-Content-Preexists"
+          name: "Reject-If-Content-Preexists"
           required: false
           schema:
             default: "false"
@@ -2513,9 +2513,9 @@ paths:
               - "quarterly"
               - "yearly"
             type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
+        - description: "If patch data already exists in Target, reject the patch?"
           in: "header"
-          name: "Apply-If-Content-Preexists"
+          name: "Reject-If-Content-Preexists"
           required: false
           schema:
             default: "false"
@@ -3204,9 +3204,9 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
+        - description: "If patch data already exists in Target, reject the patch?"
           in: "header"
-          name: "Apply-If-Content-Preexists"
+          name: "Reject-If-Content-Preexists"
           required: false
           schema:
             default: "false"
@@ -3340,9 +3340,9 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
+        - description: "If patch data already exists in Target, reject the patch?"
           in: "header"
-          name: "Apply-If-Content-Preexists"
+          name: "Reject-If-Content-Preexists"
           required: false
           schema:
             default: "false"
@@ -3460,9 +3460,9 @@ paths:
           schema:
             format: "path"
             type: "string"
-        - description: "If patch data already exists in Target, apply patch anyway?"
+        - description: "If patch data already exists in Target, reject the patch?"
           in: "header"
-          name: "Apply-If-Content-Preexists"
+          name: "Reject-If-Content-Preexists"
           required: false
           schema:
             default: "false"

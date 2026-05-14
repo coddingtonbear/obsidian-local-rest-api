@@ -17,7 +17,7 @@ local T = import 'targeting.params.jsonnet';
       },
     },
     T.createTargetIfMissing,
-    T.applyIfContentPreexists,
+    T.rejectIfContentPreexists,
     T.trimTargetWhitespace,
     T.targetType { required: true },
     T.target { required: true },

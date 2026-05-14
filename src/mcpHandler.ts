@@ -201,7 +201,7 @@ export class McpHandler {
         "- contentType: 'text/markdown' (default) treats content as markdown. 'application/json' parses it as JSON — useful for setting typed frontmatter values or appending rows to a table (pass a 2-D array of row cells).\n" +
         "- createTargetIfMissing: set to true to create the heading or frontmatter key if it does not exist yet.\n" +
         "- trimTargetWhitespace: strip leading/trailing whitespace from the target section before patching.\n" +
-        "- applyIfContentPreexists: skip the patch if the content string already appears in the target section — use this as an idempotency guard so a retry does not duplicate content.\n\n" +
+        "- rejectIfContentPreexists: fail the patch if the content string already appears in the target section — use this as an idempotency guard so a retry does not duplicate content.\n\n" +
         "To discover valid heading names and block IDs before patching, call vault_get_document_map first.",
       {
         path: z.string().describe("File path relative to vault root"),
@@ -233,10 +233,10 @@ export class McpHandler {
           .boolean()
           .optional()
           .describe("Trim whitespace from the target section before applying the operation (default: false)"),
-        applyIfContentPreexists: z
+        rejectIfContentPreexists: z
           .boolean()
           .optional()
-          .describe("If true, skip the patch when the content already appears in the target section (default: false). Use to make append/prepend operations idempotent on retry."),
+          .describe("If true, fail the patch when the content already appears in the target section (default: false). Use to make append/prepend operations idempotent on retry."),
         targetDelimiter: z
           .string()
           .optional()
@@ -251,7 +251,7 @@ export class McpHandler {
         contentType,
         createTargetIfMissing,
         trimTargetWhitespace,
-        applyIfContentPreexists,
+        rejectIfContentPreexists,
         targetDelimiter,
       }: {
         path: string;
@@ -262,7 +262,7 @@ export class McpHandler {
         contentType?: string;
         createTargetIfMissing?: boolean;
         trimTargetWhitespace?: boolean;
-        applyIfContentPreexists?: boolean;
+        rejectIfContentPreexists?: boolean;
         targetDelimiter?: string;
       }) => {
         await this.ops.patchFileSection(
@@ -272,7 +272,7 @@ export class McpHandler {
           operation,
           content,
           contentType ?? "text/markdown",
-          { createTargetIfMissing, trimTargetWhitespace, applyIfContentPreexists, targetDelimiter },
+          { createTargetIfMissing, trimTargetWhitespace, rejectIfContentPreexists, targetDelimiter },
         );
         return this.text({ message: "OK" });
       },
