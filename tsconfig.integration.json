@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["jest", "node"],
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+  "exclude": [],
+  "include": ["src/integration/**/*.ts"]
+}

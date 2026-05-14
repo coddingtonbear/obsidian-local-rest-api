@@ -127,6 +127,40 @@ interpreting your `prepend` or `append` requests if you specify
 your data as JSON (particularly when appending, for example,
 list items).
 
+## Adding and Removing Tags
+
+Obsidian stores tags in two places: the `tags` frontmatter field and as
+inline `#tag` syntax in the document body. You can manage frontmatter tags
+with the PATCH API.
+
+### Adding a tag
+
+To add the tag `project/active` to a document's frontmatter `tags` list:
+
+- `Operation`: `append`
+- `Target-Type`: `frontmatter`
+- `Target`: `tags`
+- `Content-Type`: `application/json`
+- `Create-Target-If-Missing`: `true`
+- with the request body: `["project/active"]`
+
+Passing an array as `application/json` tells the API to merge individual
+items into the existing list rather than replace the whole field.
+`Create-Target-If-Missing` ensures the `tags` key is created when the
+document has no frontmatter tags yet.
+
+### Removing a tag
+
+There is no direct "remove item from list" operation. To remove a tag,
+first read the current tags via GET (or `vault_read` in the MCP API),
+filter out the unwanted tag client-side, then replace the entire field:
+
+- `Operation`: `replace`
+- `Target-Type`: `frontmatter`
+- `Target`: `tags`
+- `Content-Type`: `application/json`
+- with the request body: `["remaining-tag-1", "remaining-tag-2"]`
+
 ## Identifying Patch Targets in a File
 
 You can issue a GET request to `/vault/files/{path}` with an `Accept` header

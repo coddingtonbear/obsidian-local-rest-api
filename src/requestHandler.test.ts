@@ -1,6 +1,15 @@
 import http from "http";
 import request from "supertest";
 
+// Mock McpHandler so tests don't load the MCP SDK (which bundles ESM-only zod)
+jest.mock("./mcpHandler", () => ({
+  McpHandler: jest.fn().mockImplementation(() => ({
+    handleRequest: jest.fn().mockImplementation((_req: unknown, res: { status: (c: number) => { json: (b: unknown) => void } }) => {
+      res.status(200).json({ ok: true });
+    }),
+  })),
+}));
+
 import RequestHandler from "./requestHandler";
 import { LocalRestApiSettings } from "./types";
 import { CERT_NAME } from "./constants";
@@ -701,6 +710,20 @@ describe("requestHandler", () => {
         .expect(404);
     });
 
+    test("non-existing file via V3 (Target-Type header) returns 404", async () => {
+      app.vault._getAbstractFileByPath = null;
+
+      await request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1")
+        .set("Operation", "append")
+        .send("new content")
+        .expect(404);
+    });
+
     test("unauthorized", async () => {
       const arbitraryFilePath = "somefile.md";
       const arbitraryBytes = "bytes";
@@ -1290,6 +1313,29 @@ describe("requestHandler", () => {
       expect(app._executeCommandById).toEqual([arbitraryCommand.id]);
     });
 
+    test("command not found returns 404", async () => {
+      await request(server)
+        .post(`/commands/nonexistent-command/`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(404);
+    });
+
+    test("command execution error returns 500", async () => {
+      const arbitraryCommand = new Command();
+      arbitraryCommand.id = "beep";
+      arbitraryCommand.name = "boop";
+
+      app.commands.commands[arbitraryCommand.id] = arbitraryCommand;
+      app.commands.executeCommandById = () => {
+        throw new Error("command crashed");
+      };
+
+      await request(server)
+        .post(`/commands/${arbitraryCommand.id}/`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(500);
+    });
+
     test("unauthorized", async () => {
       const arbitraryCommand = new Command();
       arbitraryCommand.id = "beep";
@@ -1675,6 +1721,70 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("/mcp/ routes", () => {
+    test("GET /mcp/ without auth returns 401", async () => {
+      await request(server).get("/mcp/").expect(401);
+    });
+
+    test("POST /mcp/ without auth returns 401", async () => {
+      await request(server).post("/mcp/").expect(401);
+    });
+
+    test("POST /mcp/ with valid auth reaches McpHandler.handleRequest", async () => {
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+    });
+
+    test("GET /mcp/ with valid auth and session ID reaches McpHandler.handleRequest", async () => {
+      await request(server)
+        .get("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Mcp-Session-Id", "some-session-id")
+        .expect(200);
+    });
+
+    test("POST /mcp/ with unsupported MCP-Protocol-Version returns 400", async () => {
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MCP-Protocol-Version", "9999-01-01")
+        .expect(400);
+    });
+
+    test("GET /mcp/ with unsupported MCP-Protocol-Version returns 400", async () => {
+      await request(server)
+        .get("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MCP-Protocol-Version", "9999-01-01")
+        .expect(400);
+    });
+
+    test("POST /mcp/ with MCP-Protocol-Version 2025-06-18 passes through", async () => {
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MCP-Protocol-Version", "2025-06-18")
+        .expect(200);
+    });
+
+    test("POST /mcp/ with MCP-Protocol-Version 2025-03-26 passes through", async () => {
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MCP-Protocol-Version", "2025-03-26")
+        .expect(200);
+    });
+
+    test("POST /mcp/ without MCP-Protocol-Version passes through", async () => {
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+    });
+  });
+
   describe("waitForFileCache", () => {
     test("returns immediately if cache is already available", async () => {
       const testFile = new TFile();
@@ -1689,7 +1799,7 @@ describe("requestHandler", () => {
 
       // Access the private method via the handler instance
       // @ts-ignore: Accessing private method for testing
-      const result = await handler.waitForFileCache(testFile);
+      const result = await handler.operations.waitForFileCache(testFile);
 
       expect(result).not.toBeNull();
       expect(result?.frontmatter?.title).toBe("Test");
@@ -1703,7 +1813,7 @@ describe("requestHandler", () => {
       app.metadataCache._getFileCache = null;
 
       // @ts-ignore: Accessing private method for testing
-      const cachePromise = handler.waitForFileCache(testFile, 5000);
+      const cachePromise = handler.operations.waitForFileCache(testFile, 5000);
 
       // Simulate cache becoming available after a short delay
       setTimeout(() => {
@@ -1732,7 +1842,7 @@ describe("requestHandler", () => {
       app.metadataCache._getFileCache = null;
 
       // @ts-ignore: Accessing private method for testing
-      const cachePromise = handler.waitForFileCache(testFile, 200);
+      const cachePromise = handler.operations.waitForFileCache(testFile, 200);
 
       // Emit change for a different file - should be ignored
       setTimeout(() => {
@@ -1764,7 +1874,7 @@ describe("requestHandler", () => {
 
       // Use a very short timeout for the test
       // @ts-ignore: Accessing private method for testing
-      const result = await handler.waitForFileCache(testFile, 100);
+      const result = await handler.operations.waitForFileCache(testFile, 100);
 
       // Should return null (timeout reached without cache becoming available)
       expect(result).toBeNull();
@@ -1778,7 +1888,7 @@ describe("requestHandler", () => {
       app.metadataCache._getFileCache = null;
 
       // @ts-ignore: Accessing private method for testing
-      const cachePromise = handler.waitForFileCache(testFile, 5000);
+      const cachePromise = handler.operations.waitForFileCache(testFile, 5000);
 
       // Simulate cache becoming available
       setTimeout(() => {
@@ -1805,7 +1915,7 @@ describe("requestHandler", () => {
       app.metadataCache._getFileCache = null;
 
       // @ts-ignore: Accessing private method for testing
-      await handler.waitForFileCache(testFile, 100);
+      await handler.operations.waitForFileCache(testFile, 100);
 
       // Check that the listener was removed after timeout
       const listeners = app.metadataCache._listeners.get("changed") || [];

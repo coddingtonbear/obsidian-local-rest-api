@@ -1,4 +1,4 @@
-# Local REST API for Obsidian
+# Local REST API and MCP Server for Obsidian
 
 Give your scripts, browser extensions, and AI agents a direct line into your Obsidian vault via a secure, authenticated REST API.
 
@@ -14,13 +14,16 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
 - **List and execute commands** — trigger any Obsidian command as if you'd used the command palette
 - **Query tags** — list all tags across your vault with usage counts
 - **Open files in Obsidian** — tell Obsidian to open a specific note in its UI
+- **Connect AI agents via MCP** — all vault operations are exposed as tools through a built-in [Model Context Protocol](https://modelcontextprotocol.io/) server at `/mcp/`, compatible with Claude Desktop, Cursor, and any MCP client
 - **Extend the API** — other plugins can register their own routes via the [API extension interface](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension)
 
 All requests are served over HTTPS with a self-signed certificate and gated behind API key authentication.
 
 ## Quick start
 
-After installing and enabling the plugin, open **Settings → Local REST API** to find your API key and certificate. Then try:
+After installing and enabling the plugin, open **Settings → Local REST API** to find your API key and certificate.
+
+### REST API
 
 ```sh
 # Check the server is running (no auth required)
@@ -51,6 +54,81 @@ curl -k -X PATCH \
 
 To avoid certificate warnings, you can download and trust the certificate from `https://127.0.0.1:27124/obsidian-local-rest-api-certificate.crt`, or point your HTTP client at it directly.
 
+### MCP clients
+
+The MCP server runs at `https://127.0.0.1:27124/mcp/` and requires that you provide your bearer token for authentication via an `Authorization` header (i.e. `Authorization: Bearer <your-api-key>`). Because the plugin uses a self-signed certificate, you may need to either trust the certificate in your OS/client, or use the plain HTTP endpoint at `http://127.0.0.1:27123/mcp/` (enable it under **Settings → Local REST API → Enable HTTP server**).
+
+#### Claude Code
+
+Claude Code has native HTTP MCP support. The quickest way to add the server is via the CLI:
+
+```sh
+claude mcp add --transport http obsidian https://127.0.0.1:27124/mcp/ \
+  --header "Authorization: Bearer <your-api-key>"
+```
+
+Or add it manually to `.mcp.json` in your project root (project-scoped) or configure it user-wide via `claude mcp add --scope user`:
+
+```json
+{
+  "mcpServers": {
+    "obsidian": {
+      "type": "http",
+      "url": "https://127.0.0.1:27124/mcp/",
+      "headers": {
+        "Authorization": "Bearer <your-api-key>"
+      }
+    }
+  }
+}
+```
+
+#### Claude Desktop
+
+Claude Desktop does not natively support remote HTTP MCP servers, but you can bridge it with [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) (requires Node.js). Add the following to `claude_desktop_config.json`:
+
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "obsidian": {
+      "command": "npx",
+      "args": [
+        "mcp-remote@latest",
+        "https://127.0.0.1:27124/mcp/",
+        "--header",
+        "Authorization: Bearer <your-api-key>"
+      ]
+    }
+  }
+}
+```
+
+Restart Claude Desktop after saving the file.
+
+#### Cursor
+
+Cursor supports the Streamable HTTP MCP transport. Add the following to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project-specific):
+
+```json
+{
+  "mcpServers": {
+    "obsidian": {
+      "url": "https://127.0.0.1:27124/mcp/",
+      "headers": {
+        "Authorization": "Bearer <your-api-key>"
+      }
+    }
+  }
+}
+```
+
+#### Other clients
+
+Any MCP client that supports the Streamable HTTP transport can connect to `https://127.0.0.1:27124/mcp/` with an `Authorization: Bearer <your-api-key>` header. Consult your client's documentation for the exact configuration format.
+
 ## API overview
 
 | Endpoint | Methods | Description |
@@ -66,6 +144,7 @@ To avoid certificate warnings, you can download and trust the certificate from `
 | `/tags/` | GET | List all tags with usage counts |
 | `/open/{path}` | POST | Open a file in the Obsidian UI |
 | `/` | GET | Server status and authentication check |
+| `/mcp/` | GET POST | MCP (Model Context Protocol) server — connect AI agents directly to your vault |
 
 For full request/response details, see the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/).
 
@@ -151,6 +230,48 @@ Supported target types: `heading`, `block`, `frontmatter`. Supplying both URL-em
 
 - `application/vnd.olrapi.dataview.dql+txt` — run a [Dataview TABLE query](https://blacksmithgu.github.io/obsidian-dataview/) and get back matching files with field values
 - `application/vnd.olrapi.jsonlogic+json` — evaluate a [JsonLogic](https://jsonlogic.com/) expression against each note's metadata (frontmatter, tags, path, content)
+
+## MCP (Model Context Protocol)
+
+The plugin includes a built-in MCP server at `/mcp/` so AI agents and MCP-compatible clients can interact with your vault without hand-crafting HTTP requests.
+
+**Transport:** Streamable HTTP — API key authentication required.
+
+### Connecting a client
+
+Connect your MCP client to `https://127.0.0.1:27124/mcp/` and pass your API key as a bearer token. The exact config syntax varies by client; consult your client's documentation for Streamable HTTP remote MCP servers.
+
+> [!NOTE]
+> To connect to the MCP server securely, your client must trust the plugin's self-signed certificate. You can download and trust it from `https://127.0.0.1:27124/obsidian-local-rest-api-certificate.crt`, or configure your client to skip TLS verification for `127.0.0.1`.
+>
+> If trusting a certificate is not possible in your environment, you can connect insecurely using `http://127.0.0.1:27123/mcp/`
+> instead of `https://127.0.0.1:27124/mcp/` if you have enabled the HTTP endpoint under **Settings → Local REST API → Enable HTTP server**.
+
+### Available tools
+
+| Tool | Description |
+|---|---|
+| `vault_list` | List files and subdirectories inside a vault directory |
+| `vault_read` | Read a file's content, frontmatter, tags, and stat |
+| `vault_write` | Create or overwrite a vault file |
+| `vault_append` | Append content to the end of a vault file |
+| `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
+| `vault_delete` | Delete a vault file |
+| `vault_get_document_map` | List the headings, block references, and frontmatter fields in a file |
+| `active_file_get_path` | Return the vault path of the file currently open in Obsidian |
+| `periodic_note_get_path` | Return the vault path of the current periodic note (`daily`, `weekly`, `monthly`, `quarterly`, `yearly`) |
+| `search_query` | Search using a [JsonLogic](https://jsonlogic.com/) query against note metadata |
+| `search_simple` | Full-text search using Obsidian's built-in search |
+| `tag_list` | List all tags across the vault with usage counts |
+| `command_list` | List all registered Obsidian commands |
+| `command_execute` | Execute an Obsidian command by ID |
+| `open_file` | Open a file in the Obsidian UI |
+
+### Available resources
+
+| URI | Description |
+|---|---|
+| `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API |
 
 ## Contributing
 

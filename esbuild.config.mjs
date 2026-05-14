@@ -46,7 +46,7 @@ esbuild
     ],
     format: "cjs",
     watch: !prod,
-    target: "es6",
+    target: "es2020",
     logLevel: "info",
     sourcemap: prod ? false : "inline",
     treeShaking: true,

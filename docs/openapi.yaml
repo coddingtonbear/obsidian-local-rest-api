@@ -140,7 +140,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         # Retrieving Document Metadata
         
@@ -368,6 +368,40 @@ paths:
         your data as JSON (particularly when appending, for example,
         list items).
         
+        ## Adding and Removing Tags
+        
+        Obsidian stores tags in two places: the `tags` frontmatter field and as
+        inline `#tag` syntax in the document body. You can manage frontmatter tags
+        with the PATCH API.
+        
+        ### Adding a tag
+        
+        To add the tag `project/active` to a document's frontmatter `tags` list:
+        
+        - `Operation`: `append`
+        - `Target-Type`: `frontmatter`
+        - `Target`: `tags`
+        - `Content-Type`: `application/json`
+        - `Create-Target-If-Missing`: `true`
+        - with the request body: `["project/active"]`
+        
+        Passing an array as `application/json` tells the API to merge individual
+        items into the existing list rather than replace the whole field.
+        `Create-Target-If-Missing` ensures the `tags` key is created when the
+        document has no frontmatter tags yet.
+        
+        ### Removing a tag
+        
+        There is no direct "remove item from list" operation. To remove a tag,
+        first read the current tags via GET (or `vault_read` in the MCP API),
+        filter out the unwanted tag client-side, then replace the entire field:
+        
+        - `Operation`: `replace`
+        - `Target-Type`: `frontmatter`
+        - `Target`: `tags`
+        - `Content-Type`: `application/json`
+        - with the request body: `["remaining-tag-1", "remaining-tag-2"]`
+        
         ## Identifying Patch Targets in a File
         
         You can issue a GET request to `/vault/files/{path}` with an `Accept` header
@@ -507,7 +541,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
@@ -630,7 +664,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
@@ -779,6 +813,205 @@ paths:
         Execute a command.
       tags:
         - "Commands"
+  /mcp/:
+    get:
+      description: |
+        Opens a long-lived SSE stream so the server can push messages to the client for an existing session. Requires the session ID returned by the `initialize` response.
+      parameters:
+        - description: "Session ID returned by the server on initialization."
+          in: "header"
+          name: "Mcp-Session-Id"
+          required: true
+          schema:
+            type: "string"
+        - description: "MCP protocol version negotiated during initialization (e.g. `2025-06-18`). Required on all requests after initialization. Unrecognised values are rejected with 400."
+          in: "header"
+          name: "MCP-Protocol-Version"
+          required: false
+          schema:
+            type: "string"
+      responses:
+        "200":
+          content:
+            text/event-stream:
+              schema:
+                type: "string"
+          description: "SSE stream opened. The server pushes JSON-RPC messages as server-sent events."
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Unsupported MCP-Protocol-Version."
+        "401":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "API key required."
+        "404":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Session not found."
+      summary: |
+        Open a server-sent events stream for an existing MCP session.
+      tags:
+        - "MCP"
+    post:
+      description: |
+        Interact with this plugin's MCP server using the [Streamable HTTP transport](https://modelcontextprotocol.io/docs/concepts/transports#streamable-http).
+        
+        Point any MCP-compatible client (Claude Code, Cursor, or any MCP SDK client that supports the Streamable HTTP transport) at this endpoint and pass your API key as a bearer token. Send an `initialize` request via `POST /mcp/` to start a session; the server returns a session ID in the `Mcp-Session-Id` response header. Include that header on all subsequent requests.
+        
+        Include the `MCP-Protocol-Version` header on all requests after initialization, set to the protocol version negotiated during the `initialize` exchange (e.g. `2025-06-18`). Requests with an unrecognized version value are rejected with `400 Bad Request`.
+        
+        ## Available tools
+        
+        | Tool | Description |
+        |---|---|
+        | `vault_list` | List files and subdirectories inside a vault directory |
+        | `vault_read` | Read a file's full content, frontmatter, tags, and stat |
+        | `vault_write` | Create or overwrite a vault file |
+        | `vault_append` | Append content to the end of a vault file |
+        | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
+        | `vault_delete` | Delete a vault file |
+        | `vault_get_document_map` | List the headings, block references, and frontmatter fields in a file |
+        | `active_file_get_path` | Return the vault path of the file currently open in Obsidian |
+        | `periodic_note_get_path` | Return the vault path of the current periodic note (daily, weekly, monthly, quarterly, yearly) |
+        | `search_query` | Search using a JsonLogic query evaluated against each note's metadata |
+        | `search_simple` | Full-text search using Obsidian's built-in search |
+        | `tag_list` | List all tags across the vault with usage counts |
+        | `command_list` | List all registered Obsidian commands |
+        | `command_execute` | Execute an Obsidian command by ID |
+        | `open_file` | Open a file in the Obsidian UI |
+        
+        ## Available resources
+        
+        | URI | Description |
+        |---|---|
+        | `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API |
+      parameters:
+        - description: "Session ID returned by the server on initialization. Omit for the initial `initialize` request; required for all subsequent requests."
+          in: "header"
+          name: "Mcp-Session-Id"
+          required: false
+          schema:
+            type: "string"
+        - description: "MCP protocol version negotiated during initialization (e.g. `2025-06-18`). Required on all requests after initialization. Unrecognised values are rejected with 400."
+          in: "header"
+          name: "MCP-Protocol-Version"
+          required: false
+          schema:
+            type: "string"
+      requestBody:
+        content:
+          application/json:
+            examples:
+              call_vault_patch:
+                summary: "Patch a heading in a vault file (tools/call)"
+                value:
+                  id: 3
+                  jsonrpc: "2.0"
+                  method: "tools/call"
+                  params:
+                    arguments:
+                      content: |
+                        New line of content
+                      operation: "append"
+                      path: "path/to/note.md"
+                      target: "My Section"
+                      targetType: "heading"
+                    name: "vault_patch"
+              call_vault_read:
+                summary: "Read a vault file (tools/call)"
+                value:
+                  id: 2
+                  jsonrpc: "2.0"
+                  method: "tools/call"
+                  params:
+                    arguments:
+                      path: "path/to/note.md"
+                    name: "vault_read"
+              list_tools:
+                summary: "List all available MCP tools"
+                value:
+                  id: 1
+                  jsonrpc: "2.0"
+                  method: "tools/list"
+                  params: {}
+              read_openapi_resource:
+                summary: "Read the OpenAPI spec resource (resources/read)"
+                value:
+                  id: 4
+                  jsonrpc: "2.0"
+                  method: "resources/read"
+                  params:
+                    uri: "obsidian://local-rest-api/openapi.yaml"
+            schema:
+              description: "A JSON-RPC 2.0 request message."
+              properties:
+                id:
+                  description: "Request identifier. Include for calls that expect a response; omit for notifications."
+                  oneOf:
+                    - type: "string"
+                    - type: "number"
+                jsonrpc:
+                  description: "JSON-RPC version. Must be \"2.0\"."
+                  enum:
+                    - "2.0"
+                  type: "string"
+                method:
+                  description: "MCP method to invoke."
+                  enum:
+                    - "initialize"
+                    - "tools/list"
+                    - "tools/call"
+                    - "resources/list"
+                    - "resources/read"
+                    - "prompts/list"
+                    - "prompts/get"
+                    - "ping"
+                  type: "string"
+                params:
+                  description: "Method-specific parameters."
+                  type: "object"
+              required:
+                - "jsonrpc"
+                - "method"
+              type: "object"
+        required: true
+      responses:
+        "200":
+          description: "Message handled. Response body contains the JSON-RPC result, or may be empty for notifications. On session initialization the `Mcp-Session-Id` response header contains the new session ID."
+          headers:
+            Mcp-Session-Id:
+              description: "Session ID assigned by the server. Present only on the `initialize` response."
+              schema:
+                type: "string"
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Unsupported MCP-Protocol-Version."
+        "401":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "API key required."
+        "404":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Session not found."
+      summary: |
+        Send a JSON-RPC 2.0 message to the MCP server.
+      tags:
+        - "MCP"
   /obsidian-local-rest-api.crt:
     get:
       responses:
@@ -879,7 +1112,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         # Retrieving Document Metadata
         
@@ -1120,6 +1353,40 @@ paths:
         your data as JSON (particularly when appending, for example,
         list items).
         
+        ## Adding and Removing Tags
+        
+        Obsidian stores tags in two places: the `tags` frontmatter field and as
+        inline `#tag` syntax in the document body. You can manage frontmatter tags
+        with the PATCH API.
+        
+        ### Adding a tag
+        
+        To add the tag `project/active` to a document's frontmatter `tags` list:
+        
+        - `Operation`: `append`
+        - `Target-Type`: `frontmatter`
+        - `Target`: `tags`
+        - `Content-Type`: `application/json`
+        - `Create-Target-If-Missing`: `true`
+        - with the request body: `["project/active"]`
+        
+        Passing an array as `application/json` tells the API to merge individual
+        items into the existing list rather than replace the whole field.
+        `Create-Target-If-Missing` ensures the `tags` key is created when the
+        document has no frontmatter tags yet.
+        
+        ### Removing a tag
+        
+        There is no direct "remove item from list" operation. To remove a tag,
+        first read the current tags via GET (or `vault_read` in the MCP API),
+        filter out the unwanted tag client-side, then replace the entire field:
+        
+        - `Operation`: `replace`
+        - `Target-Type`: `frontmatter`
+        - `Target`: `tags`
+        - `Content-Type`: `application/json`
+        - with the request body: `["remaining-tag-1", "remaining-tag-2"]`
+        
         ## Identifying Patch Targets in a File
         
         You can issue a GET request to `/vault/files/{path}` with an `Accept` header
@@ -1272,7 +1539,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
@@ -1408,7 +1675,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
@@ -1594,7 +1861,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         # Retrieving Document Metadata
         
@@ -1853,6 +2120,40 @@ paths:
         your data as JSON (particularly when appending, for example,
         list items).
         
+        ## Adding and Removing Tags
+        
+        Obsidian stores tags in two places: the `tags` frontmatter field and as
+        inline `#tag` syntax in the document body. You can manage frontmatter tags
+        with the PATCH API.
+        
+        ### Adding a tag
+        
+        To add the tag `project/active` to a document's frontmatter `tags` list:
+        
+        - `Operation`: `append`
+        - `Target-Type`: `frontmatter`
+        - `Target`: `tags`
+        - `Content-Type`: `application/json`
+        - `Create-Target-If-Missing`: `true`
+        - with the request body: `["project/active"]`
+        
+        Passing an array as `application/json` tells the API to merge individual
+        items into the existing list rather than replace the whole field.
+        `Create-Target-If-Missing` ensures the `tags` key is created when the
+        document has no frontmatter tags yet.
+        
+        ### Removing a tag
+        
+        There is no direct "remove item from list" operation. To remove a tag,
+        first read the current tags via GET (or `vault_read` in the MCP API),
+        filter out the unwanted tag client-side, then replace the entire field:
+        
+        - `Operation`: `replace`
+        - `Target-Type`: `frontmatter`
+        - `Target`: `tags`
+        - `Content-Type`: `application/json`
+        - with the request body: `["remaining-tag-1", "remaining-tag-2"]`
+        
         ## Identifying Patch Targets in a File
         
         You can issue a GET request to `/vault/files/{path}` with an `Accept` header
@@ -2023,7 +2324,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
@@ -2177,7 +2478,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
@@ -2555,7 +2856,7 @@ paths:
   "/vault/{filename}":
     delete:
       parameters:
-        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to a sub-part of the document to return; see \"Targeting a Sub-part of your Document\" for details."
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
           name: "filename"
           required: true
@@ -2601,7 +2902,7 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         # Retrieving Document Metadata
         
@@ -2613,7 +2914,7 @@ paths:
         
         If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
       parameters:
-        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to a sub-part of the document to return; see \"Targeting a Sub-part of your Document\" for details."
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
           name: "filename"
           required: true
@@ -2836,13 +3137,47 @@ paths:
         your data as JSON (particularly when appending, for example,
         list items).
         
+        ## Adding and Removing Tags
+        
+        Obsidian stores tags in two places: the `tags` frontmatter field and as
+        inline `#tag` syntax in the document body. You can manage frontmatter tags
+        with the PATCH API.
+        
+        ### Adding a tag
+        
+        To add the tag `project/active` to a document's frontmatter `tags` list:
+        
+        - `Operation`: `append`
+        - `Target-Type`: `frontmatter`
+        - `Target`: `tags`
+        - `Content-Type`: `application/json`
+        - `Create-Target-If-Missing`: `true`
+        - with the request body: `["project/active"]`
+        
+        Passing an array as `application/json` tells the API to merge individual
+        items into the existing list rather than replace the whole field.
+        `Create-Target-If-Missing` ensures the `tags` key is created when the
+        document has no frontmatter tags yet.
+        
+        ### Removing a tag
+        
+        There is no direct "remove item from list" operation. To remove a tag,
+        first read the current tags via GET (or `vault_read` in the MCP API),
+        filter out the unwanted tag client-side, then replace the entire field:
+        
+        - `Operation`: `replace`
+        - `Target-Type`: `frontmatter`
+        - `Target`: `tags`
+        - `Content-Type`: `application/json`
+        - with the request body: `["remaining-tag-1", "remaining-tag-2"]`
+        
         ## Identifying Patch Targets in a File
         
         You can issue a GET request to `/vault/files/{path}` with an `Accept` header
         of `application/vnd.olrapi.document-map+json` to get a JSON object
         outlining what headings, block references, and frontmatter fields exist.
       parameters:
-        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to a sub-part of the document to return; see \"Targeting a Sub-part of your Document\" for details."
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
           name: "filename"
           required: true
@@ -2982,13 +3317,13 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
         If you need `prepend` or `replace` operations, use `PATCH` instead.
       parameters:
-        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to a sub-part of the document to return; see \"Targeting a Sub-part of your Document\" for details."
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
           name: "filename"
           required: true
@@ -3114,11 +3449,11 @@ paths:
         - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
         - `.../block/abc123` targets the block with reference ID `abc123`.
         
-        When URL-embedded values are present they take priority over the corresponding headers.
+        Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
-        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to a sub-part of the document to return; see \"Targeting a Sub-part of your Document\" for details."
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
           name: "filename"
           required: true
@@ -3288,3 +3623,4 @@ tags:
   - name: "Commands"
   - name: "Open"
   - name: "System"
+  - name: "MCP"

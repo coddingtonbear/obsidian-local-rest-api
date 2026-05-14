@@ -1,0 +1,100 @@
+// Active-file tests require a file to be open in Obsidian.
+// Set OBSIDIAN_ACTIVE_FILE to the vault-relative path of the open file to run these tests.
+// Leave it unset (or empty) to skip the conditional tests; the 401 tests always run.
+
+import { authedFetch, unauthFetch, ensureServerReachable } from "./client";
+
+const activeFilePath = process.env.OBSIDIAN_ACTIVE_FILE ?? "";
+const run = activeFilePath.length > 0;
+const maybeTest = run ? test : test.skip;
+
+beforeAll(async () => {
+  await ensureServerReachable();
+});
+
+describe("GET /active/", () => {
+  maybeTest("returns 200 with content-location header", async () => {
+    const res = await authedFetch("/active/");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-location")).toBeTruthy();
+  });
+
+  test("returns 401 without auth", async () => {
+    const res = await unauthFetch("/active/");
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("PUT /active/", () => {
+  maybeTest("replaces active file content and returns 200 or 204", async () => {
+    const res = await authedFetch("/active/", {
+      method: "PUT",
+      headers: { "Content-Type": "text/markdown" },
+      body: "# Active File\n\nReplaced by integration test.\n",
+    });
+    expect([200, 204]).toContain(res.status);
+  });
+
+  test("returns 401 without auth", async () => {
+    const res = await unauthFetch("/active/", {
+      method: "PUT",
+      headers: { "Content-Type": "text/markdown" },
+      body: "data\n",
+    });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("POST /active/ — append", () => {
+  maybeTest("appends to active file and returns 204; subsequent GET contains appended text", async () => {
+    const marker = `active-append-${Date.now()}`;
+    const res = await authedFetch("/active/", {
+      method: "POST",
+      headers: { "Content-Type": "text/markdown" },
+      body: `${marker}\n`,
+    });
+    expect(res.status).toBe(204);
+
+    const getRes = await authedFetch("/active/");
+    const text = await getRes.text();
+    expect(text).toContain(marker);
+  });
+
+  test("returns 401 without auth", async () => {
+    const res = await unauthFetch("/active/", {
+      method: "POST",
+      headers: { "Content-Type": "text/markdown" },
+      body: "data\n",
+    });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("PATCH /active/", () => {
+  maybeTest("patches active file via v3 API and returns 200", async () => {
+    const res = await authedFetch("/active/", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "text/markdown",
+        Operation: "append",
+        "Target-Type": "heading",
+        Target: "Active File",
+        "Create-Target-If-Missing": "true",
+      },
+      body: "Patched by integration test.\n",
+    });
+    expect(res.status).toBe(200);
+  });
+
+  test("returns 401 without auth", async () => {
+    const res = await unauthFetch("/active/", { method: "PATCH" });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("DELETE /active/", () => {
+  test("returns 401 without auth", async () => {
+    const res = await unauthFetch("/active/", { method: "DELETE" });
+    expect(res.status).toBe(401);
+  });
+});
