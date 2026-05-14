@@ -244,8 +244,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
 
     containerEl.empty();
     containerEl.classList.add("obsidian-local-rest-api-settings");
-    containerEl.createEl("h2", { text: "Local REST API & MCP Server" });
-    containerEl.createEl("h3", { text: "How to Access" });
+    new Setting(containerEl).setHeading().setName("Local REST API & MCP Server");
+    new Setting(containerEl).setHeading().setName("How to Access");
 
     const apiKeyDiv = containerEl.createEl("div");
     apiKeyDiv.classList.add("api-key-display");
@@ -376,7 +376,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
     seeMore.createEl("span", { text: "." });
 
-    containerEl.createEl("h3", { text: "Settings" });
+    new Setting(containerEl).setHeading().setName("Settings");
 
     if (remainingCertificateValidityDays < 0) {
       const expiredCertDiv = apiKeyDiv.createEl("div");
@@ -499,10 +499,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       });
 
     if (this.showAdvancedSettings) {
-      containerEl.createEl("hr");
-      containerEl.createEl("h3", {
-        text: "Advanced Settings",
-      });
+      new Setting(containerEl).setHeading().setName("Advanced Settings");
       containerEl.createEl("p", {
         text: `
           The settings below are potentially dangerous and
