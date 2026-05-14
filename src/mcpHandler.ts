@@ -201,7 +201,8 @@ export class McpHandler {
         "- contentType: 'text/markdown' (default) treats content as markdown. 'application/json' parses it as JSON — useful for setting typed frontmatter values or appending rows to a table (pass a 2-D array of row cells).\n" +
         "- createTargetIfMissing: set to true to create the heading or frontmatter key if it does not exist yet.\n" +
         "- trimTargetWhitespace: strip leading/trailing whitespace from the target section before patching.\n" +
-        "- applyIfContentPreexists: skip the patch if the content string already appears in the target section — use this as an idempotency guard so a retry does not duplicate content.",
+        "- applyIfContentPreexists: skip the patch if the content string already appears in the target section — use this as an idempotency guard so a retry does not duplicate content.\n\n" +
+        "To discover valid heading names and block IDs before patching, call vault_get_document_map first.",
       {
         path: z.string().describe("File path relative to vault root"),
         targetType: z
