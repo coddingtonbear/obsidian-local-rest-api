@@ -381,7 +381,7 @@ export class McpHandler {
     );
 
     this.mcpServer.tool(
-      "tags_list",
+      "tag_list",
       "Return all tags used across the vault, each with a usage count. " +
         "Tag names do not include the leading '#'. " +
         "This tool is read-only. To add a tag to a specific file, use vault_patch with " +
@@ -397,7 +397,7 @@ export class McpHandler {
     );
 
     this.mcpServer.tool(
-      "commands_list",
+      "command_list",
       "Return all registered Obsidian commands. " +
         "Each entry has an 'id' and a human-readable 'name'. " +
         "Pass the 'id' to command_execute to run a command.",
@@ -410,7 +410,7 @@ export class McpHandler {
     this.mcpServer.tool(
       "command_execute",
       "Execute an Obsidian command by its ID. " +
-        "Use commands_list to discover available command IDs. " +
+        "Use command_list to discover available command IDs. " +
         "Throws if the command ID does not exist.",
       { commandId: z.string().describe("The command ID to execute (e.g. 'editor:toggle-bold')") },
       async ({ commandId }: { commandId: string }) => {

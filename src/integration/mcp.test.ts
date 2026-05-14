@@ -424,19 +424,19 @@ describe("search_query tool", () => {
 });
 
 // ---------------------------------------------------------------------------
-// tags_list
+// tag_list
 // ---------------------------------------------------------------------------
 
-describe("tags_list tool", () => {
+describe("tag_list tool", () => {
   test("returns tags array containing fixture tag", async () => {
-    const result = await client.callTool({ name: "tags_list", arguments: {} });
+    const result = await client.callTool({ name: "tag_list", arguments: {} });
     const body = jsonOf<{ tags: { name: string; count: number }[] }>(result);
     expect(Array.isArray(body.tags)).toBe(true);
     expect(body.tags.some((t) => t.name === TAG_FIXTURE)).toBe(true);
   });
 
   test("each tag has name and count", async () => {
-    const result = await client.callTool({ name: "tags_list", arguments: {} });
+    const result = await client.callTool({ name: "tag_list", arguments: {} });
     const body = jsonOf<{ tags: { name: string; count: number }[] }>(result);
     for (const tag of body.tags) {
       expect(typeof tag.name).toBe("string");
@@ -446,12 +446,12 @@ describe("tags_list tool", () => {
 });
 
 // ---------------------------------------------------------------------------
-// commands_list + command_execute
+// command_list + command_execute
 // ---------------------------------------------------------------------------
 
-describe("commands_list tool", () => {
+describe("command_list tool", () => {
   test("returns commands with id and name strings", async () => {
-    const result = await client.callTool({ name: "commands_list", arguments: {} });
+    const result = await client.callTool({ name: "command_list", arguments: {} });
     const body = jsonOf<{ commands: { id: string; name: string }[] }>(result);
     expect(Array.isArray(body.commands)).toBe(true);
     expect(body.commands.length).toBeGreaterThan(0);
@@ -464,7 +464,7 @@ describe("commands_list tool", () => {
 
 describe("command_execute tool", () => {
   test("executes editor:save-file and returns OK", async () => {
-    const listResult = await client.callTool({ name: "commands_list", arguments: {} });
+    const listResult = await client.callTool({ name: "command_list", arguments: {} });
     const { commands } = jsonOf<{ commands: { id: string }[] }>(listResult);
     if (!commands.find((c) => c.id === "editor:save-file")) {
       throw new Error(

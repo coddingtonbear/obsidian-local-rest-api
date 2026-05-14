@@ -19,8 +19,8 @@ Include the `MCP-Protocol-Version` header on all requests after initialization, 
 | `periodic_note_get_path` | Return the vault path of the current periodic note (daily, weekly, monthly, quarterly, yearly) |
 | `search_query` | Search using a JsonLogic query evaluated against each note's metadata |
 | `search_simple` | Full-text search using Obsidian's built-in search |
-| `tags_list` | List all tags across the vault with usage counts |
-| `commands_list` | List all registered Obsidian commands |
+| `tag_list` | List all tags across the vault with usage counts |
+| `command_list` | List all registered Obsidian commands |
 | `command_execute` | Execute an Obsidian command by ID |
 | `open_file` | Open a file in the Obsidian UI |
 

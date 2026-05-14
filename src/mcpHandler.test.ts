@@ -164,8 +164,8 @@ describe("McpHandler", () => {
         "periodic_note_get_path",
         "search_query",
         "search_simple",
-        "tags_list",
-        "commands_list",
+        "tag_list",
+        "command_list",
         "command_execute",
         "open_file",
       ]),
@@ -395,19 +395,19 @@ describe("McpHandler", () => {
     );
   });
 
-  // ---- tags_list ----------------------------------------------------------
+  // ---- tag_list ----------------------------------------------------------
 
-  test("tags_list returns all tags with counts", async () => {
-    const cb = getToolCallback("tags_list");
+  test("tag_list returns all tags with counts", async () => {
+    const cb = getToolCallback("tag_list");
     const result = await cb({});
     expect(ops.getAllTags).toHaveBeenCalled();
     expect(parseText(result).tags).toEqual([{ name: "todo", count: 3 }]);
   });
 
-  // ---- commands_list ------------------------------------------------------
+  // ---- command_list -------------------------------------------------------
 
-  test("commands_list returns all commands", async () => {
-    const cb = getToolCallback("commands_list");
+  test("command_list returns all commands", async () => {
+    const cb = getToolCallback("command_list");
     const result = await cb({});
     expect(ops.listCommands).toHaveBeenCalled();
     expect(parseText(result).commands).toEqual([
