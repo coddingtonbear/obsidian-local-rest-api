@@ -50,6 +50,8 @@ This project has several parallel representations of each API capability that mu
 | Unit tests | `src/requestHandler.test.ts`, `src/mcpHandler.test.ts` |
 | Integration tests | `src/integration/*.test.ts` |
 
+After making any changes to REST API endpoints or MCP tools, be sure to update the matching OpenAPI docs and Project Readme entries regarding that feature.
+
 ### When changing a REST endpoint
 
 Any of the following changes requires updates across multiple layers:
