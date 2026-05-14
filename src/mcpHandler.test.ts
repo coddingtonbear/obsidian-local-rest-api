@@ -234,11 +234,18 @@ describe("McpHandler", () => {
       );
     });
 
-    test("falls back to full metadata when target is omitted", async () => {
+    test("throws when targetType is provided without target", async () => {
       const cb = getToolCallback("vault_read");
-      await cb({ path: "test.md", targetType: "heading" });
-      expect(ops.readFileSection).not.toHaveBeenCalled();
-      expect(ops.getFileMetadataObject).toHaveBeenCalled();
+      await expect(cb({ path: "test.md", targetType: "heading" })).rejects.toThrow(
+        "targetType and target must be provided together",
+      );
+    });
+
+    test("throws when target is provided without targetType", async () => {
+      const cb = getToolCallback("vault_read");
+      await expect(cb({ path: "test.md", target: "Some Heading" })).rejects.toThrow(
+        "targetType and target must be provided together",
+      );
     });
   });
 

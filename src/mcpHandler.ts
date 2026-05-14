@@ -151,6 +151,9 @@ export class McpHandler {
       }) => {
         const file = this.ops.app.vault.getAbstractFileByPath(path);
         if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
+        if ((targetType == null) !== (target == null)) {
+          throw new Error("targetType and target must be provided together");
+        }
         if (targetType && target) {
           const section = await this.ops.readFileSection(file, targetType, target, targetDelimiter);
           return this.text(section);
