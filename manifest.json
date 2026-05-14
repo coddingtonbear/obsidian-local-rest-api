@@ -3,7 +3,7 @@
 	"name": "Local REST API & MCP Server",
 	"version": "3.6.2",
 	"minAppVersion": "0.12.0",
-	"description": "A secure REST API and Model Context Protocol (MCP) server for Obsidian.",
+	"description": "A secure REST API and Model Context Protocol (MCP) server for your vault.",
 	"author": "Adam Coddington",
 	"authorUrl": "https://adamcoddington.net/",
 	"isDesktopOnly": true
