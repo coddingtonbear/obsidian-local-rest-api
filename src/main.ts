@@ -374,6 +374,107 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       <a href="https://coddingtonbear.github.io/obsidian-local-rest-api/">the online docs</a>.
     `;
 
+    containerEl.createEl("h3", { text: "MCP Configuration" });
+
+    const mcpDiv = containerEl.createEl("div", { cls: "mcp-config-display" });
+
+    mcpDiv.createEl("p").innerHTML = `
+      Connect AI tools directly to your vault. Your API key is pre-filled in
+      each snippet below — copy the relevant block into your client's config file.
+    `;
+
+    const secureMcpUrl = `https://127.0.0.1:${this.plugin.settings.port}/mcp/`;
+    const apiKey = this.plugin.settings.apiKey;
+
+    const makeCopyLink = (text: string): HTMLAnchorElement => {
+      const a = document.createElement("a");
+      a.href = "#";
+      a.textContent = "(copy)";
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        navigator.clipboard.writeText(text);
+      });
+      return a;
+    };
+
+    const addConfigBlock = (
+      label: string,
+      config: string
+    ): void => {
+      const block = mcpDiv.createEl("div", { cls: "mcp-config-block" });
+      const header = block.createEl("div", { cls: "mcp-config-block-header" });
+      header.createEl("span", { text: label });
+      header.appendChild(makeCopyLink(config));
+      block.createEl("pre", { text: config });
+    };
+
+    // Claude Code
+    mcpDiv.createEl("h4", { text: "Claude Code" });
+    const claudeCodeNote = mcpDiv.createEl("p");
+    claudeCodeNote.innerHTML = `
+      Add the <code>mcpServers.obsidian</code> entry to <code>.mcp.json</code> in
+      your project root, or run:<br>
+      <code>claude mcp add --transport http obsidian ${secureMcpUrl} --header "Authorization: Bearer ${apiKey}"</code>
+    `;
+    addConfigBlock(
+      ".mcp.json",
+      JSON.stringify(
+        {
+          mcpServers: {
+            obsidian: {
+              type: "http",
+              url: secureMcpUrl,
+              headers: { Authorization: `Bearer ${apiKey}` },
+            },
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    // Claude Desktop
+    mcpDiv.createEl("h4", { text: "Claude Desktop" });
+    const claudeDesktopNote = mcpDiv.createEl("p");
+    claudeDesktopNote.innerHTML = `
+      Requires <a href="https://www.npmjs.com/package/mcp-remote">mcp-remote</a> (Node.js).
+      Add the <code>mcpServers.obsidian</code> entry to <code>claude_desktop_config.json</code>
+      (<b>macOS:</b> <code>~/Library/Application Support/Claude/</code>,
+      <b>Windows:</b> <code>%APPDATA%\\Claude\\</code>), then restart Claude Desktop.
+    `;
+    addConfigBlock(
+      "claude_desktop_config.json",
+      JSON.stringify(
+        {
+          mcpServers: {
+            obsidian: {
+              command: "npx",
+              args: [
+                "mcp-remote@latest",
+                secureMcpUrl,
+                "--header",
+                `Authorization: Bearer ${apiKey}`,
+              ],
+            },
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    // Cursor / Other clients
+    mcpDiv.createEl("h4", { text: "Cursor & other clients" });
+    const otherClientsNote = mcpDiv.createEl("p");
+    otherClientsNote.innerHTML = `
+      Any client supporting the Streamable HTTP transport can connect to
+      <code>${secureMcpUrl}</code> with an
+      <code>Authorization: Bearer ${apiKey}</code> header
+      <a href="javascript:navigator.clipboard.writeText('${apiKey}')">(copy key)</a>.
+      See <a href="https://coddingtonbear.github.io/obsidian-local-rest-api/">the docs</a>
+      for client-specific configuration examples (Cursor, etc.).
+    `;
+
     containerEl.createEl("h3", { text: "Settings" });
 
     if (remainingCertificateValidityDays < 0) {
