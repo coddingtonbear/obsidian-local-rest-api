@@ -331,6 +331,28 @@ describe("McpHandler", () => {
     );
   });
 
+  test("vault_patch passes native JSON array content unchanged to patchFileSection", async () => {
+    const cb = getToolCallback("vault_patch");
+    const tableRows = [["col1", "col2"], ["a", "b"]];
+    await cb({
+      path: "out.md",
+      targetType: "heading",
+      target: "Table",
+      operation: "replace",
+      content: tableRows,
+      contentType: "application/json",
+    });
+    expect(ops.patchFileSection).toHaveBeenCalledWith(
+      "out.md",
+      "heading",
+      "Table",
+      "replace",
+      tableRows,
+      "application/json",
+      expect.objectContaining({}),
+    );
+  });
+
   // ---- vault_delete -------------------------------------------------------
 
   test("vault_delete calls deleteVaultFile and returns OK", async () => {

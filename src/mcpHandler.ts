@@ -265,14 +265,12 @@ export class McpHandler {
         applyIfContentPreexists?: boolean;
         targetDelimiter?: string;
       }) => {
-        const contentStr =
-          typeof content === "string" ? content : JSON.stringify(content);
         await this.ops.patchFileSection(
           path,
           targetType,
           target,
           operation,
-          contentStr,
+          content,
           contentType ?? "text/markdown",
           { createTargetIfMissing, trimTargetWhitespace, applyIfContentPreexists, targetDelimiter },
         );

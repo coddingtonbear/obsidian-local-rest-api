@@ -302,7 +302,7 @@ export class VaultOperations {
     targetType: PatchTargetType,
     target: string,
     operation: PatchOperation,
-    content: string,
+    content: unknown,
     contentType: string,
     options?: {
       createTargetIfMissing?: boolean;
