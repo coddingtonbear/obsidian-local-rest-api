@@ -264,10 +264,19 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     const apiKeyDiv = containerEl.createEl("div");
     apiKeyDiv.classList.add("api-key-display");
 
-    const availableApis = apiKeyDiv.createEl("p");
-    availableApis.innerHTML = `
-      You can access Obsidian Local REST API &amp; MCP Server via the following URLs:
-    `;
+    apiKeyDiv.createEl("p", {
+      text: "You can access Obsidian Local REST API & MCP Server via the following URLs:",
+    });
+
+    const addUrlRow = (container: HTMLElement, url: string) => {
+      container.createEl("span", { text: `${url} ` });
+      const copyLink = container.createEl("a", { text: "(copy)" });
+      copyLink.addEventListener("click", (e) => {
+        e.preventDefault();
+        navigator.clipboard.writeText(url);
+      });
+      container.createEl("br");
+    };
 
     const connectionUrls = apiKeyDiv.createEl("table", { cls: "api-urls" });
     const connectionUrlsTbody = connectionUrls.createEl("tbody");
@@ -283,34 +292,38 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           }
     );
     const secureUrl = `https://127.0.0.1:${this.plugin.settings.port}/`;
-    secureTr.innerHTML = `
-          <td>
-            ${this.plugin.settings.enableSecureServer === false ? "❌" : "✅"}
-          </td>
-          <td class="name">
-            Encrypted (HTTPS) API URL<br /><br />
-            <i>
-              Requires that <a href="https://127.0.0.1:${
-                this.plugin.settings.port
-              }/${CERT_NAME}">this certificate</a> be
-              configured as a trusted certificate authority for
-              your browser.  See <a href="https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F">wiki</a> for more information.
-            </i>
-          </td>
-      `;
+
+    secureTr.createEl("td", {
+      text: this.plugin.settings.enableSecureServer === false ? "❌" : "✅",
+    });
+    const secureNameTd = secureTr.createEl("td", { cls: "name" });
+    secureNameTd.createEl("span", { text: "Encrypted (HTTPS) API URL" });
+    secureNameTd.createEl("br");
+    secureNameTd.createEl("br");
+    const secureNote = secureNameTd.createEl("i");
+    secureNote.createEl("span", { text: "Requires that " });
+    secureNote.createEl("a", {
+      href: `https://127.0.0.1:${this.plugin.settings.port}/${CERT_NAME}`,
+      text: "this certificate",
+    });
+    secureNote.createEl("span", {
+      text: " be configured as a trusted certificate authority for your browser.  See ",
+    });
+    secureNote.createEl("a", {
+      href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
+      text: "wiki",
+    });
+    secureNote.createEl("span", { text: " for more information." });
+
     const secureUrlsTd = secureTr.createEl("td", { cls: "url" });
-    secureUrlsTd.innerHTML = `
-      ${secureUrl} <a href="javascript:navigator.clipboard.writeText('${secureUrl}')">(copy)</a><br />
-    `;
+    addUrlRow(secureUrlsTd, secureUrl);
     if (this.plugin.settings.subjectAltNames) {
       for (const name of this.plugin.settings.subjectAltNames.split("\n")) {
         if (name.trim()) {
-          const altSecureUrl = `https://${name.trim()}:${
-            this.plugin.settings.port
-          }/`;
-          secureUrlsTd.innerHTML += `
-            ${altSecureUrl} <a href="javascript:navigator.clipboard.writeText('${altSecureUrl}')">(copy)</a><br />
-          `;
+          addUrlRow(
+            secureUrlsTd,
+            `https://${name.trim()}:${this.plugin.settings.port}/`
+          );
         }
       }
     }
@@ -327,36 +340,36 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           }
     );
     const insecureUrl = `http://127.0.0.1:${this.plugin.settings.insecurePort}/`;
-    insecureTr.innerHTML = `
-        <td>
-          ${this.plugin.settings.enableInsecureServer === false ? "❌" : "✅"}
-        </td>
-        <td class="name">
-          Non-encrypted (HTTP) API URL
-        </td>
-    `;
+
+    insecureTr.createEl("td", {
+      text: this.plugin.settings.enableInsecureServer === false ? "❌" : "✅",
+    });
+    insecureTr.createEl("td", { cls: "name", text: "Non-encrypted (HTTP) API URL" });
+
     const insecureUrlsTd = insecureTr.createEl("td", { cls: "url" });
-    insecureUrlsTd.innerHTML = `
-      ${insecureUrl} <a href="javascript:navigator.clipboard.writeText('${insecureUrl}')">(copy)</a><br />
-    `;
+    addUrlRow(insecureUrlsTd, insecureUrl);
     if (this.plugin.settings.subjectAltNames) {
       for (const name of this.plugin.settings.subjectAltNames.split("\n")) {
         if (name.trim()) {
-          const altSecureUrl = `http://${name.trim()}:${
-            this.plugin.settings.insecurePort
-          }/`;
-          insecureUrlsTd.innerHTML += `
-            ${altSecureUrl} <a href="javascript:navigator.clipboard.writeText('${altSecureUrl}')">(copy)</a><br />
-          `;
+          addUrlRow(
+            insecureUrlsTd,
+            `http://${name.trim()}:${this.plugin.settings.insecurePort}/`
+          );
         }
       }
     }
 
     const inOrderToAccess = apiKeyDiv.createEl("p");
-    inOrderToAccess.innerHTML = `
-      Your API Key must be passed in requests via an authorization header
-      <a href="javascript:navigator.clipboard.writeText('${this.plugin.settings.apiKey}')">(copy)</a>:
-    `;
+    inOrderToAccess.createEl("span", {
+      text: "Your API Key must be passed in requests via an authorization header ",
+    });
+    const copyApiKeyLink = inOrderToAccess.createEl("a", { text: "(copy)" });
+    copyApiKeyLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      navigator.clipboard.writeText(this.plugin.settings.apiKey ?? "");
+    });
+    inOrderToAccess.createEl("span", { text: ":" });
+
     apiKeyDiv.createEl("pre", { text: this.plugin.settings.apiKey });
     apiKeyDiv.createEl("p", {
       text: "For example, the following request will return all notes in the root directory of your vault:",
@@ -368,52 +381,46 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
 
     const seeMore = apiKeyDiv.createEl("p");
-    seeMore.innerHTML = `
-      Comprehensive documentation of what API endpoints are available can
-      be found in
-      <a href="https://coddingtonbear.github.io/obsidian-local-rest-api/">the online docs</a>.
-    `;
+    seeMore.createEl("span", {
+      text: "Comprehensive documentation of what API endpoints are available can be found in ",
+    });
+    seeMore.createEl("a", {
+      href: "https://coddingtonbear.github.io/obsidian-local-rest-api/",
+      text: "the online docs",
+    });
+    seeMore.createEl("span", { text: "." });
 
     containerEl.createEl("h3", { text: "Settings" });
 
     if (remainingCertificateValidityDays < 0) {
       const expiredCertDiv = apiKeyDiv.createEl("div");
       expiredCertDiv.classList.add("certificate-expired");
-      expiredCertDiv.innerHTML = `
-        <b>Your certificate has expired!</b>
-        You must re-generate your certificate below by pressing
-        the "Re-generate Certificates" button below in
-        order to connect securely to this API.
-      `;
+      expiredCertDiv.createEl("b", { text: "Your certificate has expired!" });
+      expiredCertDiv.createEl("span", {
+        text: ' You must re-generate your certificate below by pressing the "Re-generate Certificates" button below in order to connect securely to this API.',
+      });
     } else if (remainingCertificateValidityDays < 30) {
       const soonExpiringCertDiv = apiKeyDiv.createEl("div");
       soonExpiringCertDiv.classList.add("certificate-expiring-soon");
-      soonExpiringCertDiv.innerHTML = `
-        <b>Your certificate will expire in ${Math.floor(
-          remainingCertificateValidityDays
-        )} day${
-        Math.floor(remainingCertificateValidityDays) === 1 ? "" : "s"
-      }s!</b>
-        You should re-generate your certificate below by pressing
-        the "Re-generate Certificates" button below in
-        order to continue to connect securely to this API.
-      `;
+      const daysRemaining = Math.floor(remainingCertificateValidityDays);
+      soonExpiringCertDiv.createEl("b", {
+        text: `Your certificate will expire in ${daysRemaining} day${daysRemaining === 1 ? "" : "s"}!`,
+      });
+      soonExpiringCertDiv.createEl("span", {
+        text: ' You should re-generate your certificate below by pressing the "Re-generate Certificates" button below in order to continue to connect securely to this API.',
+      });
     }
     if (shouldRegenerateCertificate) {
       const shouldRegenerateCertificateDiv = apiKeyDiv.createEl("div");
       shouldRegenerateCertificateDiv.classList.add(
         "certificate-regeneration-recommended"
       );
-      shouldRegenerateCertificateDiv.innerHTML = `
-        <b>You should re-generate your certificate!</b>
-        Your certificate was generated using earlier standards than
-        are currently used by Obsidian Local REST API &amp; MCP Server. Some systems
-        or tools may not accept your certificate with its current
-        configuration, and re-generating your certificate may
-        improve compatibility with such tools.  To re-generate your
-        certificate, press the "Re-generate Certificates" button
-        below.
-      `;
+      shouldRegenerateCertificateDiv.createEl("b", {
+        text: "You should re-generate your certificate!",
+      });
+      shouldRegenerateCertificateDiv.createEl("span", {
+        text: " Your certificate was generated using earlier standards than are currently used by Obsidian Local REST API & MCP Server. Some systems or tools may not accept your certificate with its current configuration, and re-generating your certificate may improve compatibility with such tools.  To re-generate your certificate, press the \"Re-generate Certificates\" button below.",
+      });
     }
 
     new Setting(containerEl)
