@@ -247,7 +247,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     new Setting(containerEl).setHeading().setName("Local REST API & MCP Server");
     new Setting(containerEl).setHeading().setName("How to Access");
 
-    const apiKeyDiv = containerEl.createEl("div");
+    const apiKeyDiv = containerEl.createDiv();
     apiKeyDiv.classList.add("api-key-display");
 
     apiKeyDiv.createEl("p", {
@@ -255,7 +255,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
 
     const addUrlRow = (container: HTMLElement, url: string) => {
-      container.createEl("span", { text: `${url} ` });
+      container.createSpan({ text: `${url} ` });
       const copyLink = container.createEl("a", { text: "(copy)" });
       copyLink.addEventListener("click", (e) => {
         e.preventDefault();
@@ -283,23 +283,23 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       text: this.plugin.settings.enableSecureServer === false ? "❌" : "✅",
     });
     const secureNameTd = secureTr.createEl("td", { cls: "name" });
-    secureNameTd.createEl("span", { text: "Encrypted (HTTPS) API URL" });
+    secureNameTd.createSpan({ text: "Encrypted (HTTPS) API URL" });
     secureNameTd.createEl("br");
     secureNameTd.createEl("br");
     const secureNote = secureNameTd.createEl("i");
-    secureNote.createEl("span", { text: "Requires that " });
+    secureNote.createSpan({ text: "Requires that " });
     secureNote.createEl("a", {
       href: `https://127.0.0.1:${this.plugin.settings.port}/${CERT_NAME}`,
       text: "this certificate",
     });
-    secureNote.createEl("span", {
+    secureNote.createSpan({
       text: " be configured as a trusted certificate authority for your browser.  See ",
     });
     secureNote.createEl("a", {
       href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
       text: "wiki",
     });
-    secureNote.createEl("span", { text: " for more information." });
+    secureNote.createSpan({ text: " for more information." });
 
     const secureUrlsTd = secureTr.createEl("td", { cls: "url" });
     addUrlRow(secureUrlsTd, secureUrl);
@@ -346,7 +346,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     }
 
     const inOrderToAccess = apiKeyDiv.createEl("p");
-    inOrderToAccess.createEl("span", {
+    inOrderToAccess.createSpan({
       text: "Your API Key must be passed in requests via an authorization header ",
     });
     const copyApiKeyLink = inOrderToAccess.createEl("a", { text: "(copy)" });
@@ -354,7 +354,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       e.preventDefault();
       navigator.clipboard.writeText(this.plugin.settings.apiKey ?? "");
     });
-    inOrderToAccess.createEl("span", { text: ":" });
+    inOrderToAccess.createSpan({ text: ":" });
 
     apiKeyDiv.createEl("pre", { text: this.plugin.settings.apiKey });
     apiKeyDiv.createEl("p", {
@@ -367,44 +367,44 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
 
     const seeMore = apiKeyDiv.createEl("p");
-    seeMore.createEl("span", {
+    seeMore.createSpan({
       text: "Comprehensive documentation of what API endpoints are available can be found in ",
     });
     seeMore.createEl("a", {
       href: "https://coddingtonbear.github.io/obsidian-local-rest-api/",
       text: "the online docs",
     });
-    seeMore.createEl("span", { text: "." });
+    seeMore.createSpan({ text: "." });
 
     new Setting(containerEl).setHeading().setName("Settings");
 
     if (remainingCertificateValidityDays < 0) {
-      const expiredCertDiv = apiKeyDiv.createEl("div");
+      const expiredCertDiv = apiKeyDiv.createDiv();
       expiredCertDiv.classList.add("certificate-expired");
       expiredCertDiv.createEl("b", { text: "Your certificate has expired!" });
-      expiredCertDiv.createEl("span", {
+      expiredCertDiv.createSpan({
         text: ' You must re-generate your certificate below by pressing the "Re-generate Certificates" button below in order to connect securely to this API.',
       });
     } else if (remainingCertificateValidityDays < 30) {
-      const soonExpiringCertDiv = apiKeyDiv.createEl("div");
+      const soonExpiringCertDiv = apiKeyDiv.createDiv();
       soonExpiringCertDiv.classList.add("certificate-expiring-soon");
       const daysRemaining = Math.floor(remainingCertificateValidityDays);
       soonExpiringCertDiv.createEl("b", {
         text: `Your certificate will expire in ${daysRemaining} day${daysRemaining === 1 ? "" : "s"}!`,
       });
-      soonExpiringCertDiv.createEl("span", {
+      soonExpiringCertDiv.createSpan({
         text: ' You should re-generate your certificate below by pressing the "Re-generate Certificates" button below in order to continue to connect securely to this API.',
       });
     }
     if (shouldRegenerateCertificate) {
-      const shouldRegenerateCertificateDiv = apiKeyDiv.createEl("div");
+      const shouldRegenerateCertificateDiv = apiKeyDiv.createDiv();
       shouldRegenerateCertificateDiv.classList.add(
         "certificate-regeneration-recommended"
       );
       shouldRegenerateCertificateDiv.createEl("b", {
         text: "You should re-generate your certificate!",
       });
-      shouldRegenerateCertificateDiv.createEl("span", {
+      shouldRegenerateCertificateDiv.createSpan({
         text: " Your certificate was generated using earlier standards than are currently used by Obsidian Local REST API & MCP Server. Some systems or tools may not accept your certificate with its current configuration, and re-generating your certificate may improve compatibility with such tools.  To re-generate your certificate, press the \"Re-generate Certificates\" button below.",
       });
     }
@@ -510,10 +510,10 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         `,
       });
       const noWarrantee = containerEl.createEl("p");
-      noWarrantee.createEl("span", {
+      noWarrantee.createSpan({
         text: `
           Use of this software is licensed to you under the
-          MIT license, and it is important that you understand that 
+          MIT license, and it is important that you understand that
           this license provides you with no warranty.
           For the complete license text please see
         `,
@@ -522,7 +522,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         href: LicenseUrl,
         text: LicenseUrl,
       });
-      noWarrantee.createEl("span", { text: "." });
+      noWarrantee.createSpan({ text: "." });
 
       new Setting(containerEl)
         .setName("Enable Encrypted (HTTPs) Server")
