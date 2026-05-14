@@ -45,27 +45,3 @@ div.obsidian-local-rest-api-settings table.api-urls th, div.obsidian-local-rest-
 div.obsidian-local-rest-api-settings table.api-urls tr.disabled td.name, div.obsidian-local-rest-api-settings table.api-urls tr.disabled td.url {
   text-decoration: line-through;
 }
-
-div.obsidian-local-rest-api-settings div.mcp-config-display {
-  margin-bottom: 20px;
-}
-
-div.obsidian-local-rest-api-settings div.mcp-config-block {
-  margin: 8px 0 16px;
-}
-
-div.obsidian-local-rest-api-settings div.mcp-config-block-header {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.85em;
-  color: var(--text-muted);
-  padding-bottom: 4px;
-}
-
-div.obsidian-local-rest-api-settings div.mcp-config-block pre {
-  font-size: 0.8em;
-  padding: 10px 20px;
-  background-color: var(--background-modifier-cover);
-  font-family: monospace;
-  user-select: all;
-}
