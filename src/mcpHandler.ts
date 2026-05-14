@@ -196,7 +196,8 @@ export class McpHandler {
         "- operation: 'append' adds content after the section, 'prepend' adds before, 'replace' replaces entirely.\n" +
         "- contentType: 'text/markdown' (default) treats content as markdown. 'application/json' parses it as JSON — useful for setting typed frontmatter values or appending rows to a table (pass a 2-D array of row cells).\n" +
         "- createTargetIfMissing: set to true to create the heading or frontmatter key if it does not exist yet.\n" +
-        "- trimTargetWhitespace: strip leading/trailing whitespace from the target section before patching.",
+        "- trimTargetWhitespace: strip leading/trailing whitespace from the target section before patching.\n" +
+        "- applyIfContentPreexists: skip the patch if the content string already appears in the target section — use this as an idempotency guard so a retry does not duplicate content.",
       {
         path: z.string().describe("File path relative to vault root"),
         targetType: z
@@ -227,6 +228,10 @@ export class McpHandler {
           .boolean()
           .optional()
           .describe("Trim whitespace from the target section before applying the operation (default: false)"),
+        applyIfContentPreexists: z
+          .boolean()
+          .optional()
+          .describe("If true, skip the patch when the content already appears in the target section (default: false). Use to make append/prepend operations idempotent on retry."),
         targetDelimiter: z
           .string()
           .optional()
@@ -241,6 +246,7 @@ export class McpHandler {
         contentType,
         createTargetIfMissing,
         trimTargetWhitespace,
+        applyIfContentPreexists,
         targetDelimiter,
       }: {
         path: string;
@@ -251,6 +257,7 @@ export class McpHandler {
         contentType?: string;
         createTargetIfMissing?: boolean;
         trimTargetWhitespace?: boolean;
+        applyIfContentPreexists?: boolean;
         targetDelimiter?: string;
       }) => {
         const contentStr =
@@ -262,7 +269,7 @@ export class McpHandler {
           operation,
           contentStr,
           contentType ?? "text/markdown",
-          { createTargetIfMissing, trimTargetWhitespace, targetDelimiter },
+          { createTargetIfMissing, trimTargetWhitespace, applyIfContentPreexists, targetDelimiter },
         );
         return this.text({ message: "OK" });
       },

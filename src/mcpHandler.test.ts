@@ -303,6 +303,27 @@ describe("McpHandler", () => {
     );
   });
 
+  test("vault_patch passes applyIfContentPreexists to patchFileSection", async () => {
+    const cb = getToolCallback("vault_patch");
+    await cb({
+      path: "out.md",
+      targetType: "heading",
+      target: "Introduction",
+      operation: "append",
+      content: "new text",
+      applyIfContentPreexists: true,
+    });
+    expect(ops.patchFileSection).toHaveBeenCalledWith(
+      "out.md",
+      "heading",
+      "Introduction",
+      "append",
+      "new text",
+      "text/markdown",
+      expect.objectContaining({ applyIfContentPreexists: true }),
+    );
+  });
+
   // ---- vault_delete -------------------------------------------------------
 
   test("vault_delete calls deleteVaultFile and returns OK", async () => {
