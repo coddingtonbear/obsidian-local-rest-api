@@ -29,13 +29,6 @@ jobs:
           npm install
           npm run build --if-present
 
-      # Package the required files into a zip
-      - name: Package
-        run: |
-          mkdir ${{ github.event.repository.name }}
-          cp main.js manifest.json styles.css README.md ${{ github.event.repository.name }}
-          zip -r ${{ github.event.repository.name }}-${{ steps.version.outputs.tag }}.zip ${{ github.event.repository.name }}
-
       # Create the release on github
       - name: Create Release
         id: create_release
@@ -47,18 +40,6 @@ jobs:
           release_name: ${{ github.ref }}
           draft: false
           prerelease: false
-
-      # Upload the packaged release file
-      - name: Upload zip file
-        id: upload-zip
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./${{ github.event.repository.name }}-${{ steps.version.outputs.tag }}.zip
-          asset_name: ${{ github.event.repository.name }}-${{ steps.version.outputs.tag }}.zip
-          asset_content_type: application/zip
 
       # Upload the main.js
       - name: Upload main.js
