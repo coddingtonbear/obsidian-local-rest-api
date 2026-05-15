@@ -67,10 +67,8 @@ export default class RequestHandler {
   settings: LocalRestApiSettings;
 
   apiExtensionRouter: express.Router;
-  apiExtensions: {
-    manifest: PluginManifest;
-    api: LocalRestApiPublicApi;
-  }[] = [];
+  publicApiExtensionRouter: express.Router;
+  apiExtensions: Map<string, { manifest: PluginManifest; api: LocalRestApiPublicApi }> = new Map();
 
   operations: VaultOperations;
   mcpHandler: McpHandler;
@@ -86,6 +84,7 @@ export default class RequestHandler {
     this.settings = settings;
 
     this.apiExtensionRouter = express.Router();
+    this.publicApiExtensionRouter = express.Router();
     this.operations = new VaultOperations(this.app);
     this.mcpHandler = new McpHandler(this.operations, this.settings);
 
@@ -93,32 +92,29 @@ export default class RequestHandler {
   }
 
   registerApiExtension(manifest: PluginManifest): LocalRestApiPublicApi {
-    let api: LocalRestApiPublicApi | undefined = undefined;
-    for (const { manifest: existingManifest, api: existingApi } of this
-      .apiExtensions) {
-      if (JSON.stringify(existingManifest) === JSON.stringify(manifest)) {
-        api = existingApi;
-        break;
+    const existing = this.apiExtensions.get(manifest.id);
+    if (existing) {
+      return existing.api;
+    }
+
+    const router = express.Router();
+    const publicRouter = express.Router();
+    this.apiExtensionRouter.use(router);
+    this.publicApiExtensionRouter.use(publicRouter);
+    const removeRouter = (parent: express.Router, child: express.Router) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const idx = parent.stack.findIndex((layer: any) => layer.handle === child);
+      if (idx !== -1) {
+        parent.stack.splice(idx, 1);
       }
-    }
-    if (!api) {
-      const router = express.Router();
-      this.apiExtensionRouter.use(router);
-      api = new LocalRestApiPublicApi(router, () => {
-        const idx = this.apiExtensions.findIndex(
-          ({ manifest: storedManifest }) =>
-            JSON.stringify(manifest) === JSON.stringify(storedManifest),
-        );
-        if (idx !== -1) {
-          this.apiExtensions.splice(idx, 1);
-          this.apiExtensionRouter.stack.splice(idx, 1);
-        }
-      });
-      this.apiExtensions.push({
-        manifest,
-        api,
-      });
-    }
+    };
+    const api = new LocalRestApiPublicApi(router, publicRouter, () => {
+      if (this.apiExtensions.delete(manifest.id)) {
+        removeRouter(this.apiExtensionRouter, router);
+        removeRouter(this.publicApiExtensionRouter, publicRouter);
+      }
+    });
+    this.apiExtensions.set(manifest.id, { manifest, api });
 
     return api;
   }
@@ -236,7 +232,10 @@ export default class RequestHandler {
           }
           : undefined,
       apiExtensions: this.requestIsAuthenticated(req)
-        ? this.apiExtensions.map(({ manifest }) => manifest)
+        ? [...this.apiExtensions.values()].map(({ manifest, api }) => ({
+          ...manifest,
+          routes: api.getRoutes(),
+        }))
         : undefined,
     });
   }
@@ -1503,6 +1502,7 @@ export default class RequestHandler {
     mcpRouter.all("/", async (req, res) => this.mcpHandler.handleRequest(req, res));
     this.api.use("/mcp", mcpRouter);
 
+    this.api.use(this.publicApiExtensionRouter);
     this.api.use(this.authenticationMiddleware.bind(this));
     this.api.use(
       bodyParser.text({

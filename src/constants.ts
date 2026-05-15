@@ -2,6 +2,8 @@ import { ErrorCode, LocalRestApiSettings } from "./types";
 
 export const CERT_NAME = "obsidian-local-rest-api.crt";
 
+export const BUILT_IN_ROUTES = ["/", "/openapi.yaml", `/${CERT_NAME}`];
+
 export const DEFAULT_SETTINGS: LocalRestApiSettings = {
   port: 27124,
   insecurePort: 27123,
