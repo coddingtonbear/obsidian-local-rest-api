@@ -157,6 +157,10 @@ export default class LocalRestApi extends Plugin {
       );
     }
 
+    if (this.settings.enableVerboseLogging) {
+      console.log("[REST API] Added new API extension", pluginManifest);
+    }
+
     return this.requestHandler.registerApiExtension(pluginManifest);
   }
 
@@ -188,6 +192,14 @@ export default class LocalRestApi extends Plugin {
         this.settings.port,
         this.settings.bindingHost ?? DefaultBindingHost
       );
+
+      if (this.settings.enableVerboseLogging) {
+        console.log(
+          `[REST API] Listening on https://${
+            this.settings.bindingHost ?? DefaultBindingHost
+          }:${this.settings.port}/`
+        );
+      }
     }
 
     if (this.insecureServer) {
@@ -200,6 +212,14 @@ export default class LocalRestApi extends Plugin {
         this.settings.insecurePort,
         this.settings.bindingHost ?? DefaultBindingHost
       );
+
+      if (this.settings.enableVerboseLogging) {
+        console.log(
+          `[REST API] Listening on http://${
+            this.settings.bindingHost ?? DefaultBindingHost
+          }:${this.settings.insecurePort}/`
+        );
+      }
     }
   }
 
@@ -655,6 +675,19 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           this.plugin.refreshServerState();
         }).setValue(this.plugin.settings.bindingHost ?? DefaultBindingHost);
       });
+      new Setting(containerEl)
+        .setName("Enable verbose logging")
+        .setDesc(
+          "When enabled, logs server startup messages and a one-line access log entry for every request to the browser console."
+        )
+        .addToggle((cb) =>
+          cb
+            .onChange((value) => {
+              this.plugin.settings.enableVerboseLogging = value || undefined;
+              void this.plugin.saveSettings();
+            })
+            .setValue(this.plugin.settings.enableVerboseLogging ?? false)
+        );
     }
   }
 }
