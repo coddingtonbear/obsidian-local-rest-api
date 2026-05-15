@@ -72,7 +72,8 @@ export class VaultOperations {
       let resolved = false;
 
       const onCacheChange = (...data: unknown[]) => {
-        const changedFile = data[0] as TFile;
+        const changedFile = data[0];
+        if (!(changedFile instanceof TFile)) return;
         if (changedFile.path === file.path && !resolved) {
           resolved = true;
           this.app.metadataCache.off("changed", onCacheChange);
