@@ -144,6 +144,9 @@ Any MCP client that supports the Streamable HTTP transport can connect to `https
 | `/commands/{commandId}/` | POST | Execute a command |
 | `/tags/` | GET | List all tags with usage counts |
 | `/open/{path}` | POST | Open a file in the Obsidian UI |
+| `/secrets/` | GET | List ref ids currently stored in Obsidian's `app.secretStorage` |
+| `/secrets/{ref}/` | GET PUT DELETE | Read, write, or delete a single secret value |
+| `/secrets/diag/` | GET | Diagnostic info about the `app.secretStorage` API surface |
 | `/` | GET | Server status and authentication check |
 | `/mcp/` | GET POST | MCP (Model Context Protocol) server — connect AI agents directly to your vault |
 
@@ -229,6 +232,36 @@ Supported target types: `heading`, `block`, `frontmatter`. Supplying both URL-em
 
 `POST /search/` accepts a [JsonLogic](https://jsonlogic.com/) expression (content type `application/vnd.olrapi.jsonlogic+json`) and evaluates it against each note's metadata (frontmatter, tags, path, content).
 
+## Secrets
+
+The `/secrets/` endpoints expose Obsidian's internal `app.secretStorage` — the same OS-backed credential store (DPAPI on Windows, Keychain on macOS, libsecret on Linux) that plugins like Copilot use to persist API keys.
+
+```sh
+# Store a secret
+curl -k -X PUT \
+  -H "Authorization: Bearer <your-api-key>" \
+  -H "Content-Type: application/json" \
+  --data '{"value": "sk-..."}' \
+  https://127.0.0.1:27124/secrets/my-api-key/
+
+# Read it back
+curl -k -H "Authorization: Bearer <your-api-key>" \
+  https://127.0.0.1:27124/secrets/my-api-key/
+
+# List all refs (values are never returned by the list endpoint)
+curl -k -H "Authorization: Bearer <your-api-key>" \
+  https://127.0.0.1:27124/secrets/
+
+# Delete (idempotent — 204 even if the ref did not exist)
+curl -k -X DELETE \
+  -H "Authorization: Bearer <your-api-key>" \
+  https://127.0.0.1:27124/secrets/my-api-key/
+```
+
+**Ref format:** Obsidian validates refs strictly — lowercase letters, digits, and hyphens only, max 64 characters. Invalid refs surface as HTTP 500 with the validator's error message.
+
+**Security:** anyone holding the Local REST API key can read **any** secret in `secretStorage` through these endpoints, including refs written by other plugins. Treat your API key with the same care as a master password.
+
 ## MCP (Model Context Protocol)
 
 > [!NOTE]
@@ -273,6 +306,10 @@ The exact config syntax varies by client; see the [Quick start](#mcp-clients) ex
 | `command_list` | List all registered Obsidian commands |
 | `command_execute` | Execute an Obsidian command by ID |
 | `open_file` | Open a file in the Obsidian UI |
+| `secrets_list` | List the ref ids currently stored in Obsidian's `app.secretStorage` |
+| `secrets_get` | Read the value of a single secret by ref |
+| `secrets_set` | Store a secret under the given ref |
+| `secrets_delete` | Remove a stored secret (idempotent) |
 
 ### Available resources
 
