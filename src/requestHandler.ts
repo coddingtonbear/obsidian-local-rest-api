@@ -4,7 +4,6 @@ import {
   PluginManifest,
   TFile,
 } from "obsidian";
-import { getAPI as getDataviewAPI } from "obsidian-dataview";
 import forge from "node-forge";
 
 import express from "express";
@@ -1331,40 +1330,7 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const dataviewApi = getDataviewAPI();
-
     const handlers: Record<string, () => Promise<SearchJsonResponseItem[]>> = {
-      [ContentTypes.dataviewDql]: async () => {
-        const results: SearchJsonResponseItem[] = [];
-        const dataviewResults = await dataviewApi.tryQuery(req.body);
-
-        const fileColumn =
-          dataviewApi.evaluationContext.settings.tableIdColumnName;
-
-        if (dataviewResults.type !== "table") {
-          throw new Error("Only TABLE dataview queries are supported.");
-        }
-        if (!dataviewResults.headers.includes(fileColumn)) {
-          throw new Error("TABLE WITHOUT ID queries are not supported.");
-        }
-
-        for (const dataviewResult of dataviewResults.values) {
-          const fieldValues: Record<string, unknown> = {};
-
-          dataviewResults.headers.forEach((value: string, index: number) => {
-            if (value !== fileColumn) {
-              fieldValues[value] = dataviewResult[index];
-            }
-          });
-
-          results.push({
-            filename: dataviewResult[0].path,
-            result: fieldValues,
-          });
-        }
-
-        return results;
-      },
       [ContentTypes.jsonLogic]: async () => {
         return this.operations.searchJsonLogic(req.body);
       },
@@ -1505,12 +1471,6 @@ export default class RequestHandler {
 
     this.api.use(this.publicApiExtensionRouter);
     this.api.use(this.authenticationMiddleware.bind(this));
-    this.api.use(
-      bodyParser.text({
-        type: ContentTypes.dataviewDql,
-        limit: MaximumRequestSize,
-      }),
-    );
     this.api.use(
       bodyParser.json({
         type: ContentTypes.json,

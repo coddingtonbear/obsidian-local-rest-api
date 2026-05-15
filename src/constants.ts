@@ -60,7 +60,6 @@ export enum ContentTypes {
   olrapiNoteJson = "application/vnd.olrapi.note+json",
   olrapiDocumentMap = "application/vnd.olrapi.document-map+json",
   jsonLogic = "application/vnd.olrapi.jsonlogic+json",
-  dataviewDql = "application/vnd.olrapi.dataview.dql+txt",
 }
 
 export const DefaultBearerTokenHeaderName = "Authorization";

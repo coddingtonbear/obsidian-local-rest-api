@@ -2,10 +2,6 @@ Evaluates a provided query against each file in your vault.
 
 This endpoint supports multiple query formats.  Your query should be specified in your request's body, and will be interpreted according to the `Content-type` header you specify from the below options. Additional query formats may be added in the future.
 
-# Dataview DQL (`application/vnd.olrapi.dataview.dql+txt`)
-
-Accepts a `TABLE`-type Dataview query as a text string.  See [Dataview](https://blacksmithgu.github.io/obsidian-dataview/query/queries/)'s query documentation for information on how to construct a query.
-
 # JsonLogic (`application/vnd.olrapi.jsonlogic+json`)
 
 Accepts a JsonLogic query specified as JSON.  See [JsonLogic](https://jsonlogic.com/operations.html)'s documentation for information about the base set of operators available, but in addition to those operators the following operators are available:

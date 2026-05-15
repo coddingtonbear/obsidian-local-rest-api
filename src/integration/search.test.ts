@@ -165,33 +165,3 @@ describe("POST /search/ with application/vnd.olrapi.jsonlogic+json", () => {
     expect(res.status).toBe(401);
   });
 });
-
-// ---------------------------------------------------------------------------
-// POST /search/ with Dataview DQL (conditional)
-// ---------------------------------------------------------------------------
-
-describe("POST /search/ with application/vnd.olrapi.dataview.dql+txt", () => {
-  const maybeTest = process.env.OBSIDIAN_DATAVIEW === "true" ? test : test.skip;
-
-  maybeTest("TABLE query returns results including fixture", async () => {
-    const res = await authedFetch("/search/", {
-      method: "POST",
-      headers: { "Content-Type": "application/vnd.olrapi.dataview.dql+txt" },
-      body: `TABLE file.path FROM "__integration_tests__"`,
-    });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(Array.isArray(body)).toBe(true);
-  });
-
-  maybeTest("invalid Dataview query returns 400 with errorCode 40070", async () => {
-    const res = await authedFetch("/search/", {
-      method: "POST",
-      headers: { "Content-Type": "application/vnd.olrapi.dataview.dql+txt" },
-      body: "NOT VALID DQL !!!",
-    });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.errorCode).toBe(40070);
-  });
-});

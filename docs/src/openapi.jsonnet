@@ -543,20 +543,6 @@ std.manifestYamlDoc(
           requestBody: {
             required: true,
             content: {
-              'application/vnd.olrapi.dataview.dql+txt': {
-                schema: {
-                  type: 'object',
-                  externalDocs: {
-                    url: 'https://blacksmithgu.github.io/obsidian-dataview/query/queries/',
-                  },
-                },
-                examples: {
-                  find_fields_by_tag: {
-                    summary: 'List data from files having the #game tag.',
-                    value: 'TABLE\n  time-played AS "Time Played",\n  length AS "Length",\n  rating AS "Rating"\nFROM #game\nSORT rating DESC\n',
-                  },
-                },
-              },
               'application/vnd.olrapi.jsonlogic+json': {
                 schema: {
                   type: 'object',

@@ -10,7 +10,7 @@ Access your vault through the **REST API** or the **built-in [MCP server](https:
 
 - **Read, create, update, or delete notes** — full CRUD on any file in your vault, including binary files
 - **Surgically patch specific sections** — target a heading, block reference, or frontmatter key and append, prepend, or replace just that section without touching the rest of the file
-- **Search your vault** — simple full-text search, structured [JsonLogic](https://jsonlogic.com/) queries against note metadata (frontmatter, tags, path, content), or [Dataview DQL](https://blacksmithgu.github.io/obsidian-dataview/) queries
+- **Search your vault** — simple full-text search or structured [JsonLogic](https://jsonlogic.com/) queries against note metadata (frontmatter, tags, path, content)
 - **Access the active file** — read or write whatever note is currently open in Obsidian
 - **Work with periodic notes** — get or create daily, weekly, monthly, quarterly, and yearly notes
 - **List and execute commands** — trigger any Obsidian command as if you'd used the command palette
@@ -139,7 +139,7 @@ Any MCP client that supports the Streamable HTTP transport can connect to `https
 | `/periodic/{period}/` | GET PUT PATCH POST DELETE | Today's periodic note (`daily`, `weekly`, etc.) |
 | `/periodic/{period}/{year}/{month}/{day}/` | GET PUT PATCH POST DELETE | Periodic note for a specific date |
 | `/search/simple/` | POST | Full-text search across all notes |
-| `/search/` | POST | Structured search via Dataview DQL or JsonLogic |
+| `/search/` | POST | Structured search via JsonLogic |
 | `/commands/` | GET | List available Obsidian commands |
 | `/commands/{commandId}/` | POST | Execute a command |
 | `/tags/` | GET | List all tags with usage counts |
@@ -227,10 +227,7 @@ Supported target types: `heading`, `block`, `frontmatter`. Supplying both URL-em
 
 `POST /search/simple/?query=your+terms` runs Obsidian's built-in fuzzy search and returns matching filenames with scored context snippets.
 
-`POST /search/` supports two richer formats depending on the `Content-Type` header:
-
-- `application/vnd.olrapi.dataview.dql+txt` — run a [Dataview TABLE query](https://blacksmithgu.github.io/obsidian-dataview/) and get back matching files with field values
-- `application/vnd.olrapi.jsonlogic+json` — evaluate a [JsonLogic](https://jsonlogic.com/) expression against each note's metadata (frontmatter, tags, path, content)
+`POST /search/` accepts a [JsonLogic](https://jsonlogic.com/) expression (content type `application/vnd.olrapi.jsonlogic+json`) and evaluates it against each note's metadata (frontmatter, tags, path, content).
 
 ## MCP (Model Context Protocol)
 
