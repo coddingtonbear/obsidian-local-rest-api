@@ -53,7 +53,7 @@ curl -k -X PATCH \
   https://127.0.0.1:27124/vault/path/to/note.md
 ```
 
-To avoid certificate warnings, you can download and trust the certificate from `https://127.0.0.1:27124/obsidian-local-rest-api-certificate.crt`, or point your HTTP client at it directly.
+To avoid certificate warnings, you can download and trust the certificate from `https://127.0.0.1:27124/obsidian-local-rest-api.crt`, or point your HTTP client at it directly.
 
 ### MCP clients
 
@@ -249,7 +249,7 @@ Authorization: Bearer <your-api-key>
 The exact config syntax varies by client; see the [Quick start](#mcp-clients) examples above or consult your client's documentation for Streamable HTTP remote MCP servers.
 
 > [!WARNING]
-> To connect to the MCP server securely, your client must trust the plugin's self-signed certificate. You can download and trust it from `https://127.0.0.1:27124/obsidian-local-rest-api-certificate.crt`, or configure your client to skip TLS verification for `127.0.0.1`.
+> To connect to the MCP server securely, your client must trust the plugin's self-signed certificate. You can download and trust it from `https://127.0.0.1:27124/obsidian-local-rest-api.crt`, or configure your client to skip TLS verification for `127.0.0.1`.
 >
 > If trusting a self-signed certificate is not possible in your environment, you can connect insecurely using `http://127.0.0.1:27123/mcp/`
 > instead of `https://127.0.0.1:27124/mcp/` if you have enabled the HTTP endpoint under **Settings → Local REST API → Enable HTTP server**.
