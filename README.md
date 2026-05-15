@@ -240,7 +240,13 @@ The plugin includes a built-in MCP server at `/mcp/` so AI agents and MCP-compat
 
 ### Connecting a client
 
-Connect your MCP client to `https://127.0.0.1:27124/mcp/` and pass your API key as a bearer token. The exact config syntax varies by client; consult your client's documentation for Streamable HTTP remote MCP servers.
+Connect your MCP client to `https://127.0.0.1:27124/mcp/`. Authentication uses a bearer token — find your API key under **Settings → Local REST API**, then pass it as:
+
+```
+Authorization: Bearer <your-api-key>
+```
+
+The exact config syntax varies by client; see the [Quick start](#mcp-clients) examples above or consult your client's documentation for Streamable HTTP remote MCP servers.
 
 > [!WARNING]
 > To connect to the MCP server securely, your client must trust the plugin's self-signed certificate. You can download and trust it from `https://127.0.0.1:27124/obsidian-local-rest-api-certificate.crt`, or configure your client to skip TLS verification for `127.0.0.1`.
