@@ -304,14 +304,22 @@ export default class RequestHandler {
     });
 
     if (req.headers.accept === ContentTypes.olrapiNoteJson) {
-      const file = this.app.vault.getAbstractFileByPath(filePath) as TFile;
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (!(file instanceof TFile)) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+        return;
+      }
       res.setHeader("Content-Type", ContentTypes.olrapiNoteJson);
       res.send(
         JSON.stringify(await this.getFileMetadataObject(file), null, 2),
       );
       return;
     } else if (req.headers.accept === ContentTypes.olrapiDocumentMap) {
-      const file = this.app.vault.getAbstractFileByPath(filePath) as TFile;
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (!(file instanceof TFile)) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+        return;
+      }
       res.setHeader("Content-Type", ContentTypes.olrapiDocumentMap);
       res.send(
         JSON.stringify(await this.getDocumentMapObject(file), null, 2),
