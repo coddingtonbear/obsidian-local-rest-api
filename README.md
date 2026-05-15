@@ -6,12 +6,13 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
 
 ## What you can do
 
-- **Connect AI agents via MCP** — all vault operations are exposed as tools through a built-in [Model Context Protocol](https://modelcontextprotocol.io/) server at `/mcp/`, compatible with Claude Desktop, Cursor, and any MCP client
+Access your vault through the **REST API** or the **built-in [MCP server](https://modelcontextprotocol.io/)** — both interfaces expose the same core capabilities, so scripts, browser extensions, and AI agents all speak the same language.
+
 - **Read, create, update, or delete notes** — full CRUD on any file in your vault, including binary files
-- **Surgically access parts of a note** — read, write, or patch a particular heading, block reference, or frontmatter field without touching the rest of the file.
+- **Surgically patch specific sections** — target a heading, block reference, or frontmatter key and append, prepend, or replace just that section without touching the rest of the file
+- **Search your vault** — simple full-text search, structured [JsonLogic](https://jsonlogic.com/) queries against note metadata (frontmatter, tags, path, content), or [Dataview DQL](https://blacksmithgu.github.io/obsidian-dataview/) queries
 - **Access the active file** — read or write whatever note is currently open in Obsidian
 - **Work with periodic notes** — get or create daily, weekly, monthly, quarterly, and yearly notes
-- **Search your vault** — simple full-text search, [Dataview DQL](https://blacksmithgu.github.io/obsidian-dataview/) queries, or [JsonLogic](https://jsonlogic.com/) expressions
 - **List and execute commands** — trigger any Obsidian command as if you'd used the command palette
 - **Query tags** — list all tags across your vault with usage counts
 - **Open files in Obsidian** — tell Obsidian to open a specific note in its UI
