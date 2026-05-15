@@ -360,11 +360,20 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       }
     }
 
-    apiKeyDiv.createEl("p", {
-      text: "Your API Key must be passed in requests via an authorization header:",
+    const authHeaderP = apiKeyDiv.createEl("p");
+    authHeaderP.createSpan({
+      text: "Your API key should be passed as a bearer token via the ",
     });
+    authHeaderP.createEl("code", {
+      text:
+        this.plugin.settings.authorizationHeaderName ??
+        DefaultBearerTokenHeaderName,
+    });
+    authHeaderP.createSpan({ text: " header:" });
 
-    apiKeyDiv.createEl("pre", { text: this.plugin.settings.apiKey });
+    apiKeyDiv.createEl("pre", {
+      text: `Bearer ${this.plugin.settings.apiKey}`,
+    });
     apiKeyDiv.createEl("p", {
       text: "For example, the following request will return all notes in the root directory of your vault:",
     });
@@ -458,13 +467,20 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     const mcpInsecureUrlsTd = mcpInsecureTr.createEl("td", { cls: "url" });
     addUrlRow(mcpInsecureUrlsTd, mcpInsecureUrl);
 
-    mcpDiv.createEl("p", {
-      text: "Your API Key must be passed via an authorization header:",
-    });
-
     const headerName =
       this.plugin.settings.authorizationHeaderName ??
       DefaultBearerTokenHeaderName;
+
+    const mcpAuthHeaderP = mcpDiv.createEl("p");
+    mcpAuthHeaderP.createSpan({
+      text: "Your API key should be passed as a bearer token via the ",
+    });
+    mcpAuthHeaderP.createEl("code", { text: headerName });
+    mcpAuthHeaderP.createSpan({ text: " header:" });
+
+    mcpDiv.createEl("pre", {
+      text: `Bearer ${this.plugin.settings.apiKey}`,
+    });
     const mcpSampleConfig = JSON.stringify(
       {
         mcpServers: {
