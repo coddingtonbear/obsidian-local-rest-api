@@ -840,7 +840,7 @@ export default class RequestHandler {
 
   async _vaultDelete(
     path: string,
-    req: express.Request,
+    _req: express.Request,
     res: express.Response,
   ): Promise<void> {
     if (!path || path.endsWith("/")) {
@@ -1267,11 +1267,11 @@ export default class RequestHandler {
     );
   }
 
-  async tagsGet(req: express.Request, res: express.Response): Promise<void> {
+  async tagsGet(_req: express.Request, res: express.Response): Promise<void> {
     res.json({ tags: this.operations.getAllTags() });
   }
 
-  async commandGet(req: express.Request, res: express.Response): Promise<void> {
+  async commandGet(_req: express.Request, res: express.Response): Promise<void> {
     res.json({ commands: this.operations.listCommands() });
   }
 
@@ -1382,7 +1382,7 @@ export default class RequestHandler {
   }
 
   async certificateGet(
-    req: express.Request,
+    _req: express.Request,
     res: express.Response,
   ): Promise<void> {
     if (!this.settings.crypto?.cert) {
@@ -1397,7 +1397,7 @@ export default class RequestHandler {
   }
 
   async openapiYamlGet(
-    req: express.Request,
+    _req: express.Request,
     res: express.Response,
   ): Promise<void> {
     res.setHeader("Content-Type", "application/yaml; charset=utf-8");
@@ -1405,7 +1405,7 @@ export default class RequestHandler {
   }
 
   async notFoundHandler(
-    req: express.Request,
+    _req: express.Request,
     res: express.Response,
     next: express.NextFunction,
   ): Promise<void> {
@@ -1417,7 +1417,7 @@ export default class RequestHandler {
 
   async errorHandler(
     err: Error,
-    req: express.Request,
+    _req: express.Request,
     res: express.Response,
     next: express.NextFunction,
   ): Promise<void> {
