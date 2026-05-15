@@ -10,7 +10,6 @@ import express from "express";
 import http from "http";
 import cors from "cors";
 import mime from "mime-types";
-import bodyParser from "body-parser";
 import responseTime from "response-time";
 import queryString from "query-string";
 import {
@@ -1472,30 +1471,30 @@ export default class RequestHandler {
     this.api.use(this.publicApiExtensionRouter);
     this.api.use(this.authenticationMiddleware.bind(this));
     this.api.use(
-      bodyParser.json({
+      express.json({
         type: ContentTypes.json,
         strict: false,
         limit: MaximumRequestSize,
       }),
     );
     this.api.use(
-      bodyParser.json({
+      express.json({
         type: ContentTypes.olrapiNoteJson,
         strict: false,
         limit: MaximumRequestSize,
       }),
     );
     this.api.use(
-      bodyParser.json({
+      express.json({
         type: ContentTypes.jsonLogic,
         strict: false,
         limit: MaximumRequestSize,
       }),
     );
     this.api.use(
-      bodyParser.text({ type: "text/*", limit: MaximumRequestSize }),
+      express.text({ type: "text/*", limit: MaximumRequestSize }),
     );
-    this.api.use(bodyParser.raw({ type: "*/*", limit: MaximumRequestSize }));
+    this.api.use(express.raw({ type: "*/*", limit: MaximumRequestSize }));
 
     this.api
       .route("/active/*")
