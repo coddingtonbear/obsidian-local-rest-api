@@ -59,15 +59,31 @@ function makeMockFile(path = "test.md"): TFile {
 
 function makeMockOps() {
   const mockFile = makeMockFile();
-  return {
-    app: {
-      vault: {
-        getAbstractFileByPath: jest.fn().mockReturnValue(mockFile),
-      },
-      workspace: {
-        getActiveFile: jest.fn().mockReturnValue(mockFile),
-      },
+  // Use a function-scoped record exposed via app._secretStorage_store. Tests can
+  // reassign that field on the app object to seed state; the secretStorage
+  // methods always read the current value from the field (not a captured copy).
+  const app: any = {
+    vault: {
+      getAbstractFileByPath: jest.fn().mockReturnValue(mockFile),
     },
+    workspace: {
+      getActiveFile: jest.fn().mockReturnValue(mockFile),
+    },
+    _secretStorage_store: {} as Record<string, string>,
+  };
+  app.secretStorage = {
+    listSecrets: async (): Promise<string[]> => Object.keys(app._secretStorage_store),
+    getSecret: async (ref: string): Promise<string | null> =>
+      app._secretStorage_store[ref] ?? null,
+    setSecret: async (ref: string, value: string): Promise<void> => {
+      app._secretStorage_store[ref] = value;
+    },
+    deleteSecret: async (ref: string): Promise<void> => {
+      delete app._secretStorage_store[ref];
+    },
+  };
+  return {
+    app,
     listVaultDirectory: jest.fn().mockResolvedValue(["file1.md", "folder/"]),
     getFileMetadataObject: jest.fn().mockResolvedValue({
       content: "hello",
@@ -153,8 +169,8 @@ describe("McpHandler", () => {
 
   // ---- tool registration --------------------------------------------------
 
-  test("registers all 15 tools", () => {
-    expect(mockTool).toHaveBeenCalledTimes(15);
+  test("registers all 19 tools", () => {
+    expect(mockTool).toHaveBeenCalledTimes(19);
     const names = mockTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -172,6 +188,10 @@ describe("McpHandler", () => {
         "tag_list",
         "command_list",
         "command_execute",
+        "secrets_list",
+        "secrets_get",
+        "secrets_set",
+        "secrets_delete",
         "open_file",
       ]),
     );
@@ -505,6 +525,58 @@ describe("McpHandler", () => {
     await expect(cb({ commandId: "bad-id" })).rejects.toThrow(
       "Command not found",
     );
+  });
+
+  // ---- secrets_* ----------------------------------------------------------
+
+  describe("secrets tools", () => {
+    test("secrets_list returns ref names from secretStorage", async () => {
+      ops.app._secretStorage_store = { "a": "x", "b": "y" };
+      const cb = getToolCallback("secrets_list");
+      const result = await cb({});
+      const body = parseText(result);
+      expect(body.refs).toEqual(expect.arrayContaining(["a", "b"]));
+    });
+
+    test("secrets_get returns value for existing ref", async () => {
+      ops.app._secretStorage_store = { "ref-1": "value-1" };
+      const cb = getToolCallback("secrets_get");
+      const result = await cb({ ref: "ref-1" });
+      const body = parseText(result);
+      expect(body).toEqual({ ref: "ref-1", value: "value-1" });
+    });
+
+    test("secrets_get returns error for missing ref", async () => {
+      ops.app._secretStorage_store = {};
+      const cb = getToolCallback("secrets_get");
+      const result = await cb({ ref: "missing" });
+      const body = parseText(result);
+      expect(body.error).toBe("ref not found");
+    });
+
+    test("secrets_set stores value under ref", async () => {
+      ops.app._secretStorage_store = {};
+      const cb = getToolCallback("secrets_set");
+      const result = await cb({ ref: "x", value: "y" });
+      const body = parseText(result);
+      expect(body.ok).toBe(true);
+      expect(ops.app._secretStorage_store["x"]).toBe("y");
+    });
+
+    test("secrets_delete removes existing ref", async () => {
+      ops.app._secretStorage_store = { "x": "y" };
+      const cb = getToolCallback("secrets_delete");
+      await cb({ ref: "x" });
+      expect(ops.app._secretStorage_store["x"]).toBeUndefined();
+    });
+
+    test("secrets_delete idempotent on missing ref", async () => {
+      ops.app._secretStorage_store = {};
+      const cb = getToolCallback("secrets_delete");
+      const result = await cb({ ref: "missing" });
+      const body = parseText(result);
+      expect(body.ok).toBe(true);
+    });
   });
 
   // ---- open_file ----------------------------------------------------------

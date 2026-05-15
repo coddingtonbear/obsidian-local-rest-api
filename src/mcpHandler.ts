@@ -489,6 +489,78 @@ export class McpHandler {
     );
 
     this.tool(
+      "secrets_list",
+      "List ref names stored in Obsidian's secretStorage (Electron safeStorage). " +
+        "Values are never returned by this tool — use secrets_get to read a specific value. " +
+        "Returns an array of ref strings.",
+      {},
+      async () => {
+        const ss = (this.ops.app as any).secretStorage;
+        if (!ss || typeof ss.listSecrets !== "function") {
+          return this.text({ error: "secretStorage.listSecrets unavailable" });
+        }
+        const refs: string[] = await ss.listSecrets();
+        return this.text({ refs });
+      },
+    );
+
+    this.tool(
+      "secrets_get",
+      "Read the value of a single secret by ref. " +
+        "Obsidian validates refs: only lowercase letters, digits, and hyphens, max 64 chars. " +
+        "Returns {ref, value} on success or an error if the ref does not exist.",
+      {
+        ref: z.string().describe("The ref id (e.g. 'medlegal-gemini-api-key-1')"),
+      },
+      async ({ ref }: { ref: string }) => {
+        const ss = (this.ops.app as any).secretStorage;
+        if (!ss || typeof ss.getSecret !== "function") {
+          return this.text({ error: "secretStorage.getSecret unavailable" });
+        }
+        const value = await ss.getSecret(ref);
+        if (value === undefined || value === null) {
+          return this.text({ error: "ref not found", ref });
+        }
+        return this.text({ ref, value });
+      },
+    );
+
+    this.tool(
+      "secrets_set",
+      "Store a secret value under the given ref. Idempotent: setting the same ref " +
+        "twice overwrites. Ref must match Obsidian's pattern: " +
+        "lowercase letters, digits, hyphens, max 64 chars.",
+      {
+        ref: z.string().describe("The ref id"),
+        value: z.string().describe("The secret value to store"),
+      },
+      async ({ ref, value }: { ref: string; value: string }) => {
+        const ss = (this.ops.app as any).secretStorage;
+        if (!ss || typeof ss.setSecret !== "function") {
+          return this.text({ error: "secretStorage.setSecret unavailable" });
+        }
+        await ss.setSecret(ref, value);
+        return this.text({ ok: true, ref });
+      },
+    );
+
+    this.tool(
+      "secrets_delete",
+      "Remove a stored secret. Idempotent: returns ok even when the ref does not exist.",
+      {
+        ref: z.string().describe("The ref id to delete"),
+      },
+      async ({ ref }: { ref: string }) => {
+        const ss = (this.ops.app as any).secretStorage;
+        if (!ss || typeof ss.deleteSecret !== "function") {
+          return this.text({ error: "secretStorage.deleteSecret unavailable" });
+        }
+        await ss.deleteSecret(ref);
+        return this.text({ ok: true, ref });
+      },
+    );
+
+    this.tool(
       "open_file",
       "Open a file in the Obsidian UI. " +
         "If the file does not exist, Obsidian will create a new document at that path. " +
