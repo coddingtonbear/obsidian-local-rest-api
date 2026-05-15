@@ -181,6 +181,22 @@ export class App {
       this._executeCommandById = [id];
     },
   };
+
+  // In-memory mock of `app.secretStorage`. Matches the runtime shape
+  // observed via the `GET /secrets/diag/` endpoint on a real Obsidian
+  // build: listSecrets, getSecret, setSecret, deleteSecret.
+  _secretStorage_store: Record<string, string> = {};
+  secretStorage = {
+    listSecrets: async (): Promise<string[]> => Object.keys(this._secretStorage_store),
+    getSecret: async (ref: string): Promise<string | null> =>
+      this._secretStorage_store[ref] ?? null,
+    setSecret: async (ref: string, value: string): Promise<void> => {
+      this._secretStorage_store[ref] = value;
+    },
+    deleteSecret: async (ref: string): Promise<void> => {
+      delete this._secretStorage_store[ref];
+    },
+  };
 }
 
 export class Command {

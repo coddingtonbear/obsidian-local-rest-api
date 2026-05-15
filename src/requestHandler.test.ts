@@ -1947,4 +1947,141 @@ describe("requestHandler", () => {
       expect(mockCleanup).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("secretsDiagGet", () => {
+    test("returns method inventory when secretStorage is available", async () => {
+      const result = await request(server)
+        .get("/secrets/diag/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.available).toBe(true);
+      expect(Array.isArray(result.body.methods)).toBe(true);
+      expect(result.body.methods).toEqual(
+        expect.arrayContaining(["listSecrets", "getSecret", "setSecret", "deleteSecret"]),
+      );
+      expect(result.body.hints).toEqual({
+        listSupported: true,
+        setSupported: true,
+        getSupported: true,
+      });
+    });
+
+    test("unauthorized", async () => {
+      await request(server).get("/secrets/diag/").expect(401);
+    });
+  });
+
+  describe("secretsListGet", () => {
+    test("returns empty list when no secrets stored", async () => {
+      app._secretStorage_store = {};
+      const result = await request(server)
+        .get("/secrets/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(result.body).toEqual({ refs: [] });
+    });
+
+    test("returns ref names without values", async () => {
+      app._secretStorage_store = {
+        "my-ref-a": "secret-value-a",
+        "my-ref-b": "secret-value-b",
+      };
+      const result = await request(server)
+        .get("/secrets/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(result.body.refs).toEqual(expect.arrayContaining(["my-ref-a", "my-ref-b"]));
+      const body = JSON.stringify(result.body);
+      expect(body).not.toContain("secret-value-a");
+      expect(body).not.toContain("secret-value-b");
+    });
+
+    test("unauthorized", async () => {
+      await request(server).get("/secrets/").expect(401);
+    });
+  });
+
+  describe("secretsRefGet", () => {
+    test("returns the value for an existing ref", async () => {
+      app._secretStorage_store = { "my-ref": "the-value" };
+      const result = await request(server)
+        .get("/secrets/my-ref/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(result.body).toEqual({ ref: "my-ref", value: "the-value" });
+    });
+
+    test("returns 404 when ref does not exist", async () => {
+      app._secretStorage_store = {};
+      await request(server)
+        .get("/secrets/nonexistent/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(404);
+    });
+
+    test("unauthorized", async () => {
+      await request(server).get("/secrets/my-ref/").expect(401);
+    });
+  });
+
+  describe("secretsRefPut", () => {
+    test("stores a value via {value: ...} body", async () => {
+      app._secretStorage_store = {};
+      await request(server)
+        .put("/secrets/my-ref/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/json")
+        .send({ value: "new-secret" })
+        .expect(204);
+      expect(app._secretStorage_store["my-ref"]).toBe("new-secret");
+    });
+
+    test("stores a value via raw string body", async () => {
+      app._secretStorage_store = {};
+      await request(server)
+        .put("/secrets/my-ref/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/plain")
+        .send("raw-secret")
+        .expect(204);
+      expect(app._secretStorage_store["my-ref"]).toBe("raw-secret");
+    });
+
+    test("rejects empty body with 400", async () => {
+      await request(server)
+        .put("/secrets/my-ref/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/json")
+        .send({})
+        .expect(400);
+    });
+
+    test("unauthorized", async () => {
+      await request(server).put("/secrets/my-ref/").send("x").expect(401);
+    });
+  });
+
+  describe("secretsRefDelete", () => {
+    test("removes an existing ref", async () => {
+      app._secretStorage_store = { "my-ref": "v" };
+      await request(server)
+        .delete("/secrets/my-ref/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(204);
+      expect(app._secretStorage_store["my-ref"]).toBeUndefined();
+    });
+
+    test("204 even when ref does not exist (idempotent)", async () => {
+      app._secretStorage_store = {};
+      await request(server)
+        .delete("/secrets/missing/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(204);
+    });
+
+    test("unauthorized", async () => {
+      await request(server).delete("/secrets/my-ref/").expect(401);
+    });
+  });
 });
