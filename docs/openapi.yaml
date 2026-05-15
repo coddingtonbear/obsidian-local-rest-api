@@ -14,10 +14,20 @@ components:
       type: "object"
     NoteJson:
       properties:
+        backlinks:
+          description: "Vault-relative paths of files that link to this file."
+          items:
+            type: "string"
+          type: "array"
         content:
           type: "string"
         frontmatter:
           type: "object"
+        links:
+          description: "Vault-relative paths of files this file links to."
+          items:
+            type: "string"
+          type: "array"
         path:
           type: "string"
         stat:
@@ -43,6 +53,8 @@ components:
         - "stat"
         - "path"
         - "content"
+        - "links"
+        - "backlinks"
       type: "object"
   securitySchemes:
     apiKeyAuth:

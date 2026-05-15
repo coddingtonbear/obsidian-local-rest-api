@@ -122,6 +122,7 @@ export class CachedMetadata {
 export class MetadataCache {
   _getFileCache: CachedMetadata | null = new CachedMetadata();
   _listeners: Map<string, ((...data: unknown[]) => unknown)[]> = new Map();
+  resolvedLinks: Record<string, Record<string, number>> = {};
 
   getFileCache(file: TFile): CachedMetadata | null {
     return this._getFileCache;

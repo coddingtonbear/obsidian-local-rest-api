@@ -165,12 +165,27 @@ export class VaultOperations {
       .map((tag) => tag.toString().replace(/^#/, ""))
       .filter((value, index, self) => self.indexOf(value) === index);
 
+    const links = Object.keys(
+      this.app.metadataCache.resolvedLinks[file.path] ?? {},
+    );
+
+    const backlinks: string[] = [];
+    for (const [sourcePath, targets] of Object.entries(
+      this.app.metadataCache.resolvedLinks,
+    )) {
+      if (file.path in targets) {
+        backlinks.push(sourcePath);
+      }
+    }
+
     return {
       tags: filteredTags,
       frontmatter: frontmatter,
       stat: file.stat,
       path: file.path,
       content: await this.app.vault.cachedRead(file),
+      links,
+      backlinks,
     };
   }
 

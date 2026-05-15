@@ -160,7 +160,10 @@ export class McpHandler {
       "Read a vault file's content and metadata. " +
         "Returns a JSON object with: content (full markdown text), path, " +
         "tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), " +
-        "and stat ({ctime, mtime, size}). Throws if the file does not exist.\n\n" +
+        "stat ({ctime, mtime, size}), " +
+        "links (array of vault-relative paths this file links to), " +
+        "and backlinks (array of vault-relative paths of files that link here). " +
+        "Throws if the file does not exist.\n\n" +
         "When targetType and target are both provided, returns only the matched section " +
         "as a plain string (markdown) or JSON value (frontmatter) instead of the full object. " +
         "Use vault_get_document_map first to discover available targets.",
@@ -408,7 +411,7 @@ export class McpHandler {
       "Search vault files using a JsonLogic query evaluated against each note's metadata.\n\n" +
         "The query is a JSON object following the JsonLogic spec (https://jsonlogic.com/operations.html). " +
         "It is evaluated against a NoteJson object for each file; files where the result is truthy are returned.\n\n" +
-        "Each NoteJson has: path (string), content (string), tags (string[]), frontmatter (object), stat ({ctime, mtime, size}).\n\n" +
+        "Each NoteJson has: path (string), content (string), tags (string[]), frontmatter (object), stat ({ctime, mtime, size}), links (string[]), backlinks (string[]).\n\n" +
         "Extra operators available beyond standard JsonLogic:\n" +
         "- {\"glob\": [\"*.foo\", {\"var\": \"path\"}]} — glob pattern match\n" +
         "- {\"regexp\": [\"^daily/\", {\"var\": \"path\"}]} — regular expression match\n\n" +

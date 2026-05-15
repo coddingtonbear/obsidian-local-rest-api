@@ -75,6 +75,8 @@ function makeMockOps() {
       frontmatter: {},
       stat: { ctime: 0, mtime: 0, size: 0 },
       path: mockFile.path,
+      links: [],
+      backlinks: [],
     }),
     getDocumentMapObject: jest.fn().mockResolvedValue({
       headings: ["Alpha", "Alpha::Subsection"],

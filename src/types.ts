@@ -157,6 +157,8 @@ export interface FileMetadataObject {
   stat: FileStats;
   path: string;
   content: string;
+  links: string[];
+  backlinks: string[];
 }
 
 export interface DocumentMapObject {

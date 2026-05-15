@@ -73,6 +73,8 @@ std.manifestYamlDoc(
             'stat',
             'path',
             'content',
+            'links',
+            'backlinks',
           ],
           properties: {
             tags: {
@@ -108,6 +110,20 @@ std.manifestYamlDoc(
             },
             content: {
               type: 'string',
+            },
+            links: {
+              type: 'array',
+              description: 'Vault-relative paths of files this file links to.',
+              items: {
+                type: 'string',
+              },
+            },
+            backlinks: {
+              type: 'array',
+              description: 'Vault-relative paths of files that link to this file.',
+              items: {
+                type: 'string',
+              },
             },
           },
         },
