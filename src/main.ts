@@ -374,15 +374,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     apiKeyDiv.createEl("pre", {
       text: `Bearer ${this.plugin.settings.apiKey}`,
     });
-    apiKeyDiv.createEl("p", {
-      text: "For example, the following request will return all notes in the root directory of your vault:",
-    });
-    apiKeyDiv.createEl("pre", {
-      text: `GET /vault/ HTTP/1.1\n${
-        this.plugin.settings.authorizationHeaderName ?? "Authorization"
-      }: Bearer ${this.plugin.settings.apiKey}`,
-    });
-
     const seeMore = apiKeyDiv.createEl("p");
     seeMore.createSpan({
       text: "Comprehensive documentation of what API endpoints are available can be found in ",
@@ -501,6 +492,16 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       text: "Example Claude Code MCP configuration (for .claude/settings.json):",
     });
     mcpDiv.createEl("pre", { text: mcpSampleConfig });
+
+    const mcpSeeMore = mcpDiv.createEl("p");
+    mcpSeeMore.createSpan({
+      text: "Configuration examples for other MCP clients can be found in ",
+    });
+    mcpSeeMore.createEl("a", {
+      href: "https://github.com/coddingtonbear/obsidian-local-rest-api#readme",
+      text: "the project readme",
+    });
+    mcpSeeMore.createSpan({ text: "." });
 
     new Setting(containerEl).setHeading().setName("Settings");
 
