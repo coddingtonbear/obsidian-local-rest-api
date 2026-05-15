@@ -41,6 +41,7 @@ jest.mock("@modelcontextprotocol/sdk/server/streamableHttp.js", () => ({
 
 import { McpHandler } from "./mcpHandler";
 import { ErrorCode } from "./types";
+import { DEFAULT_SETTINGS } from "./constants";
 import { TFile } from "../mocks/obsidian";
 import { PatchFailed, PatchFailureReason } from "markdown-patch";
 
@@ -135,7 +136,7 @@ describe("McpHandler", () => {
     jest.clearAllMocks();
     ops = makeMockOps();
     // Construction registers all tools via registerTools()
-    new McpHandler(ops);
+    new McpHandler(ops, DEFAULT_SETTINGS);
   });
 
   // ---- resource registration ----------------------------------------------

@@ -86,7 +86,7 @@ export default class RequestHandler {
 
     this.apiExtensionRouter = express.Router();
     this.operations = new VaultOperations(this.app);
-    this.mcpHandler = new McpHandler(this.operations);
+    this.mcpHandler = new McpHandler(this.operations, this.settings);
 
     this.api.set("json spaces", 2);
   }

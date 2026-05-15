@@ -9,6 +9,7 @@ import { VaultOperations } from "./vaultOperations";
 import { PatchFailed, PatchOperation, PatchTargetType } from "markdown-patch";
 import openapiYaml from "../docs/openapi.yaml";
 import { ERROR_CODE_MESSAGES } from "./constants";
+import { LocalRestApiSettings } from "./types";
 
 const PERIODS = ["daily", "weekly", "monthly", "quarterly", "yearly"] as const;
 
@@ -19,13 +20,34 @@ export class McpHandler {
   private readonly mcpServer: any;
   private readonly transports: Map<string, StreamableHTTPServerTransport> = new Map();
 
-  constructor(private readonly ops: VaultOperations) {
+  constructor(
+    private readonly ops: VaultOperations,
+    private readonly settings: LocalRestApiSettings,
+  ) {
     this.mcpServer = new McpServer({
       name: "obsidian-local-rest-api",
       version: "1.0.0",
     });
     this.registerResources();
     this.registerTools();
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private tool(name: string, description: string, schema: any, callback: (args: any) => Promise<any>): void {
+    this.mcpServer.tool(name, description, schema, async (args: unknown) => {
+      try {
+        const result = await callback(args);
+        if (this.settings.enableVerboseLogging) {
+          console.log(`[MCP] ${name} => ok`);
+        }
+        return result;
+      } catch (e) {
+        if (this.settings.enableVerboseLogging) {
+          console.log(`[MCP] ${name} => error`);
+        }
+        throw e;
+      }
+    });
   }
 
   async handleRequest(
@@ -99,7 +121,7 @@ export class McpHandler {
   }
 
   private registerTools(): void {
-    this.mcpServer.tool(
+    this.tool(
       "vault_list",
       "List files and subdirectories inside a vault directory. " +
         "Returns an array of names; directory entries end with '/'. " +
@@ -111,7 +133,7 @@ export class McpHandler {
       },
     );
 
-    this.mcpServer.tool(
+    this.tool(
       "vault_read",
       "Read a vault file's content and metadata. " +
         "Returns a JSON object with: content (full markdown text), path, " +
@@ -163,7 +185,7 @@ export class McpHandler {
       },
     );
 
-    this.mcpServer.tool(
+    this.tool(
       "vault_write",
       "Create or overwrite a vault file with the given content. " +
         "Creates any missing parent directories automatically. " +
@@ -178,7 +200,7 @@ export class McpHandler {
       },
     );
 
-    this.mcpServer.tool(
+    this.tool(
       "vault_append",
       "Append content to the end of a vault file. " +
         "Creates the file if it does not already exist.",
@@ -192,7 +214,7 @@ export class McpHandler {
       },
     );
 
-    this.mcpServer.tool(
+    this.tool(
       "vault_patch",
       "Patch a specific section of a vault file by targeting a heading, block reference, or frontmatter field.\n\n" +
         "- targetType: 'heading' targets the content beneath a markdown heading (the heading line itself is not part of the section and must not appear in the supplied content); 'block' targets a block reference (the ID after '^'); 'frontmatter' targets a YAML front-matter key.\n" +
@@ -285,7 +307,7 @@ export class McpHandler {
       },
     );
 
-    this.mcpServer.tool(
+    this.tool(
       "vault_delete",
       "Delete a file from the vault. Throws if the file does not exist.",
       { path: z.string().describe("File path relative to vault root") },
@@ -295,7 +317,7 @@ export class McpHandler {
       },
     );
 
-    this.mcpServer.tool(
+    this.tool(
       "vault_get_document_map",
       "Return the structure of a vault file as a document map: the list of heading paths, " +
         "block reference IDs, and frontmatter field names present in the file. " +
@@ -310,7 +332,7 @@ export class McpHandler {
       },
     );
 
-    this.mcpServer.tool(
+    this.tool(
       "active_file_get_path",
       "Return the vault-relative path of the file currently open in Obsidian. " +
         "Use this path with vault_read, vault_write, vault_append, vault_patch, " +
@@ -323,7 +345,7 @@ export class McpHandler {
       },
     );
 
-    this.mcpServer.tool(
+    this.tool(
       "periodic_note_get_path",
       "Return the vault-relative path of the current periodic note for the given period " +
         "(daily, weekly, monthly, quarterly, or yearly). " +
@@ -346,7 +368,7 @@ export class McpHandler {
       },
     );
 
-    this.mcpServer.tool(
+    this.tool(
       "search_query",
       "Search vault files using a JsonLogic query evaluated against each note's metadata.\n\n" +
         "The query is a JSON object following the JsonLogic spec (https://jsonlogic.com/operations.html). " +
@@ -371,7 +393,7 @@ export class McpHandler {
       },
     );
 
-    this.mcpServer.tool(
+    this.tool(
       "search_simple",
       "Search vault files using Obsidian's built-in simple search. " +
         "Returns an array of {filename, score, matches} objects sorted by relevance score. " +
@@ -389,7 +411,7 @@ export class McpHandler {
       },
     );
 
-    this.mcpServer.tool(
+    this.tool(
       "tag_list",
       "Return all tags used across the vault, each with a usage count. " +
         "Tag names do not include the leading '#'. " +
@@ -405,7 +427,7 @@ export class McpHandler {
       },
     );
 
-    this.mcpServer.tool(
+    this.tool(
       "command_list",
       "Return all registered Obsidian commands. " +
         "Each entry has an 'id' and a human-readable 'name'. " +
@@ -416,7 +438,7 @@ export class McpHandler {
       },
     );
 
-    this.mcpServer.tool(
+    this.tool(
       "command_execute",
       "Execute an Obsidian command by its ID. " +
         "Use command_list to discover available command IDs. " +
@@ -428,7 +450,7 @@ export class McpHandler {
       },
     );
 
-    this.mcpServer.tool(
+    this.tool(
       "open_file",
       "Open a file in the Obsidian UI. " +
         "If the file does not exist, Obsidian will create a new document at that path. " +
