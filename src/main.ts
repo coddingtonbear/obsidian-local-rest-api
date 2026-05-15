@@ -266,7 +266,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.classList.add("obsidian-local-rest-api-settings");
     new Setting(containerEl).setHeading().setName("Local REST API & MCP Server");
-    new Setting(containerEl).setHeading().setName("How to Access");
+    new Setting(containerEl).setHeading().setName("How to Access via REST");
 
     const apiKeyDiv = containerEl.createDiv();
     apiKeyDiv.classList.add("api-key-display");
@@ -396,6 +396,123 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       text: "the online docs",
     });
     seeMore.createSpan({ text: "." });
+
+    new Setting(containerEl).setHeading().setName("How to access via MCP");
+
+    const mcpDiv = containerEl.createDiv();
+    mcpDiv.classList.add("mcp-display");
+
+    mcpDiv.createEl("p", {
+      text: "You can connect to the MCP server via the following endpoints:",
+    });
+
+    const mcpUrls = mcpDiv.createEl("table", { cls: "api-urls" });
+    const mcpUrlsTbody = mcpUrls.createEl("tbody");
+
+    const mcpSecureTr = mcpUrlsTbody.createEl(
+      "tr",
+      this.plugin.settings.enableSecureServer === false
+        ? {
+            cls: "disabled",
+            title: "Disabled.  You can enable this in 'Settings' below.",
+          }
+        : {
+            title: "Enabled",
+          }
+    );
+    const mcpSecureUrl = `https://127.0.0.1:${this.plugin.settings.port}/mcp`;
+
+    mcpSecureTr.createEl("td", {
+      text: this.plugin.settings.enableSecureServer === false ? "❌" : "✅",
+    });
+    const mcpSecureNameTd = mcpSecureTr.createEl("td", { cls: "name" });
+    mcpSecureNameTd.createSpan({ text: "Encrypted (HTTPS) MCP Endpoint" });
+    mcpSecureNameTd.createEl("br");
+    mcpSecureNameTd.createEl("br");
+    const mcpSecureNote = mcpSecureNameTd.createEl("i");
+    mcpSecureNote.createSpan({ text: "Requires that " });
+    mcpSecureNote.createEl("a", {
+      href: `https://127.0.0.1:${this.plugin.settings.port}/${CERT_NAME}`,
+      text: "this certificate",
+    });
+    mcpSecureNote.createSpan({
+      text: " be configured as a trusted certificate authority.  See ",
+    });
+    mcpSecureNote.createEl("a", {
+      href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
+      text: "wiki",
+    });
+    mcpSecureNote.createSpan({ text: " for more information." });
+
+    const mcpSecureUrlsTd = mcpSecureTr.createEl("td", { cls: "url" });
+    addUrlRow(mcpSecureUrlsTd, mcpSecureUrl);
+
+    const mcpInsecureTr = mcpUrlsTbody.createEl(
+      "tr",
+      this.plugin.settings.enableInsecureServer === false
+        ? {
+            cls: "disabled",
+            title: "Disabled.  You can enable this in 'Settings' below.",
+          }
+        : {
+            title: "Enabled",
+          }
+    );
+    const mcpInsecureUrl = `http://127.0.0.1:${this.plugin.settings.insecurePort}/mcp`;
+
+    mcpInsecureTr.createEl("td", {
+      text: this.plugin.settings.enableInsecureServer === false ? "❌" : "✅",
+    });
+    mcpInsecureTr.createEl("td", {
+      cls: "name",
+      text: "Non-encrypted (HTTP) MCP Endpoint",
+    });
+
+    const mcpInsecureUrlsTd = mcpInsecureTr.createEl("td", { cls: "url" });
+    addUrlRow(mcpInsecureUrlsTd, mcpInsecureUrl);
+
+    const mcpAuthP = mcpDiv.createEl("p");
+    mcpAuthP.createSpan({
+      text: "Your API Key must be passed via an authorization header ",
+    });
+    const copyMcpKeyLink = mcpAuthP.createEl("a", { text: "(copy)" });
+    copyMcpKeyLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      navigator.clipboard.writeText(this.plugin.settings.apiKey ?? "");
+    });
+    mcpAuthP.createSpan({ text: ":" });
+
+    const headerName =
+      this.plugin.settings.authorizationHeaderName ??
+      DefaultBearerTokenHeaderName;
+    const mcpSampleConfig = JSON.stringify(
+      {
+        mcpServers: {
+          obsidian: {
+            type: "http",
+            url: mcpSecureUrl,
+            headers: {
+              [headerName]: `Bearer ${this.plugin.settings.apiKey}`,
+            },
+          },
+        },
+      },
+      null,
+      2
+    );
+
+    mcpDiv.createEl("p", {
+      text: "Example Claude Code MCP configuration (for .claude/settings.json):",
+    });
+    mcpDiv.createEl("pre", { text: mcpSampleConfig });
+    const mcpCopyConfigP = mcpDiv.createEl("p");
+    const mcpCopyConfigLink = mcpCopyConfigP.createEl("a", {
+      text: "Copy configuration",
+    });
+    mcpCopyConfigLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      navigator.clipboard.writeText(mcpSampleConfig);
+    });
 
     new Setting(containerEl).setHeading().setName("Settings");
 
