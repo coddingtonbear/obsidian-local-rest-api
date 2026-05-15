@@ -1,5 +1,7 @@
 import express from "express";
+import { z } from "zod";
 import { BUILT_IN_ROUTES } from "./constants";
+import { McpHandler } from "./mcpHandler";
 
 export interface RegisteredRoute {
   path: string;
@@ -9,13 +11,17 @@ export interface RegisteredRoute {
 export default class LocalRestApiPublicApi {
   private router: express.Router;
   private publicRouter: express.Router;
+  private mcpHandler: McpHandler;
   private onUnregister: () => void;
   private unregistered = false;
   private registeredRoutes: RegisteredRoute[] = [];
+  private mcpToolCleanups: (() => void)[] = [];
+  private registeredMcpTools: string[] = [];
 
-  constructor(router: express.Router, publicRouter: express.Router, onUnregister: () => void) {
+  constructor(router: express.Router, publicRouter: express.Router, mcpHandler: McpHandler, onUnregister: () => void) {
     this.router = router;
     this.publicRouter = publicRouter;
+    this.mcpHandler = mcpHandler;
     this.onUnregister = onUnregister;
     this.unregistered = false;
   }
@@ -51,7 +57,27 @@ export default class LocalRestApiPublicApi {
     return this.publicRouter.route(path);
   }
 
+  /** Registers an MCP tool that will be available to MCP clients. */
+  public addMcpTool(
+    name: string,
+    description: string,
+    schema: Record<string, z.ZodTypeAny>,
+    callback: (args: Record<string, unknown>) => Promise<unknown>,
+  ): void {
+    this.assertRegistered();
+    const cleanup = this.mcpHandler.registerTool(name, description, schema, callback);
+    this.mcpToolCleanups.push(cleanup);
+    this.registeredMcpTools.push(name);
+  }
+
+  public getMcpTools(): string[] {
+    return this.registeredMcpTools;
+  }
+
   public unregister(): void {
+    for (const cleanup of this.mcpToolCleanups) {
+      cleanup();
+    }
     this.onUnregister();
     this.unregistered = true;
   }

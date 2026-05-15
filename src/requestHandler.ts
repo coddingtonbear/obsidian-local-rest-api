@@ -108,7 +108,7 @@ export default class RequestHandler {
         parent.stack.splice(idx, 1);
       }
     };
-    const api = new LocalRestApiPublicApi(router, publicRouter, () => {
+    const api = new LocalRestApiPublicApi(router, publicRouter, this.mcpHandler, () => {
       if (this.apiExtensions.delete(manifest.id)) {
         removeRouter(this.apiExtensionRouter, router);
         removeRouter(this.publicApiExtensionRouter, publicRouter);
@@ -235,6 +235,7 @@ export default class RequestHandler {
         ? [...this.apiExtensions.values()].map(({ manifest, api }) => ({
           ...manifest,
           routes: api.getRoutes(),
+          mcpTools: api.getMcpTools(),
         }))
         : undefined,
     });

@@ -2,7 +2,8 @@
 // Variables prefixed with "mock" are also hoisted, so they can be safely
 // referenced inside the factory functions below.
 
-const mockTool = jest.fn();
+const mockRemove = jest.fn();
+const mockTool = jest.fn().mockReturnValue({ remove: mockRemove });
 const mockConnect = jest.fn().mockResolvedValue(undefined);
 const mockTransportHandleRequest = jest.fn().mockResolvedValue(undefined);
 const mockNewSessionId = "new-session-id";
@@ -568,6 +569,42 @@ describe("McpHandler", () => {
       const transport = StreamableHTTPServerTransport.mock.results[0].value;
       expect(transport.handleRequest).toHaveBeenCalledTimes(2);
       expect(transport.handleRequest).toHaveBeenLastCalledWith(mockReq2, mockRes2, undefined);
+    });
+  });
+
+  // ---- registerTool -------------------------------------------------------
+
+  describe("registerTool", () => {
+    test("registers a tool and returns a cleanup function", () => {
+      const mcp = new McpHandler(ops, DEFAULT_SETTINGS);
+      const cleanup = mcp.registerTool("my_tool", "Does something", {}, async () => "result");
+      expect(mockTool).toHaveBeenCalledWith("my_tool", "Does something", {}, expect.any(Function));
+      expect(typeof cleanup).toBe("function");
+    });
+
+    test("throws when name collides with a built-in tool", () => {
+      const mcp = new McpHandler(ops, DEFAULT_SETTINGS);
+      expect(() =>
+        mcp.registerTool("vault_list", "Override", {}, async () => ""),
+      ).toThrow(/already registered/);
+    });
+
+    test("throws when name collides with a previously registered plugin tool", () => {
+      const mcp = new McpHandler(ops, DEFAULT_SETTINGS);
+      mcp.registerTool("custom_tool", "First", {}, async () => "");
+      expect(() =>
+        mcp.registerTool("custom_tool", "Second", {}, async () => ""),
+      ).toThrow(/already registered/);
+    });
+
+    test("cleanup removes the tool and frees the name for re-registration", () => {
+      const mcp = new McpHandler(ops, DEFAULT_SETTINGS);
+      const cleanup = mcp.registerTool("removable_tool", "Desc", {}, async () => "");
+      cleanup();
+      expect(mockRemove).toHaveBeenCalledTimes(1);
+      expect(() =>
+        mcp.registerTool("removable_tool", "Desc", {}, async () => ""),
+      ).not.toThrow();
     });
   });
 });

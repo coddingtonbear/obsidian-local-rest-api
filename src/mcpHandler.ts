@@ -19,6 +19,7 @@ export class McpHandler {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private readonly mcpServer: any;
   private readonly transports: Map<string, StreamableHTTPServerTransport> = new Map();
+  private readonly registeredToolNames = new Set<string>();
 
   constructor(
     private readonly ops: VaultOperations,
@@ -33,8 +34,9 @@ export class McpHandler {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private tool(name: string, description: string, schema: any, callback: (args: any) => Promise<any>): void {
-    this.mcpServer.tool(name, description, schema, async (args: unknown) => {
+  private tool(name: string, description: string, schema: any, callback: (args: any) => Promise<any>): any {
+    this.registeredToolNames.add(name);
+    return this.mcpServer.tool(name, description, schema, async (args: unknown) => {
       try {
         const result = await callback(args);
         if (this.settings.enableVerboseLogging) {
@@ -48,6 +50,26 @@ export class McpHandler {
         throw e;
       }
     });
+  }
+
+  public registerTool(
+    name: string,
+    description: string,
+    schema: Record<string, z.ZodTypeAny>,
+    callback: (args: Record<string, unknown>) => Promise<unknown>,
+  ): () => void {
+    if (this.registeredToolNames.has(name)) {
+      throw new Error(
+        `Cannot register MCP tool "${name}" — a tool with this name is already registered.`,
+      );
+    }
+    const registered = this.tool(name, description, schema, async (args) =>
+      this.text(await callback(args)),
+    );
+    return () => {
+      registered.remove();
+      this.registeredToolNames.delete(name);
+    };
   }
 
   async handleRequest(

@@ -7,6 +7,7 @@ jest.mock("./mcpHandler", () => ({
     handleRequest: jest.fn().mockImplementation((_req: unknown, res: { status: (c: number) => { json: (b: unknown) => void } }) => {
       res.status(200).json({ ok: true });
     }),
+    registerTool: jest.fn().mockReturnValue(jest.fn()),
   })),
 }));
 
@@ -1920,6 +1921,30 @@ describe("requestHandler", () => {
       // Check that the listener was removed after timeout
       const listeners = app.metadataCache._listeners.get("changed") || [];
       expect(listeners.length).toBe(0);
+    });
+  });
+
+  describe("apiExtensions", () => {
+    test("addMcpTool registers a tool via McpHandler", () => {
+      const extManifest = Object.assign(new PluginManifest(), { id: "test-plugin" });
+      // @ts-ignore: mock PluginManifest is close enough for runtime
+      const api = handler.registerApiExtension(extManifest);
+      const callback = async () => "result";
+      api.addMcpTool("my_tool", "Does something", {}, callback);
+      // @ts-ignore: registerTool is a jest mock on the McpHandler instance
+      expect(handler.mcpHandler.registerTool).toHaveBeenCalledWith("my_tool", "Does something", {}, callback);
+    });
+
+    test("unregister calls cleanup for all registered MCP tools", () => {
+      const extManifest = Object.assign(new PluginManifest(), { id: "test-plugin-2" });
+      // @ts-ignore: mock PluginManifest is close enough for runtime
+      const api = handler.registerApiExtension(extManifest);
+      const mockCleanup = jest.fn();
+      // @ts-ignore: registerTool is a jest mock on the McpHandler instance
+      handler.mcpHandler.registerTool.mockReturnValueOnce(mockCleanup);
+      api.addMcpTool("cleanup_tool", "Desc", {}, async () => "");
+      api.unregister();
+      expect(mockCleanup).toHaveBeenCalledTimes(1);
     });
   });
 });

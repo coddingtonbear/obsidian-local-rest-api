@@ -200,6 +200,8 @@ export class TFile {
 }
 
 export class PluginManifest {
+  id = "";
+  name = "";
   version = "";
 }
 
