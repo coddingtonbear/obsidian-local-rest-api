@@ -6,6 +6,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
 
 ## What you can do
 
+- **Connect AI agents via MCP** — all vault operations are exposed as tools through a built-in [Model Context Protocol](https://modelcontextprotocol.io/) server at `/mcp/`, compatible with Claude Desktop, Cursor, and any MCP client
 - **Read, create, update, or delete notes** — full CRUD on any file in your vault, including binary files
 - **Surgically access parts of a note** — read, write, or patch a particular heading, block reference, or frontmatter field without touching the rest of the file.
 - **Access the active file** — read or write whatever note is currently open in Obsidian
@@ -14,7 +15,6 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
 - **List and execute commands** — trigger any Obsidian command as if you'd used the command palette
 - **Query tags** — list all tags across your vault with usage counts
 - **Open files in Obsidian** — tell Obsidian to open a specific note in its UI
-- **Connect AI agents via MCP** — all vault operations are exposed as tools through a built-in [Model Context Protocol](https://modelcontextprotocol.io/) server at `/mcp/`, compatible with Claude Desktop, Cursor, and any MCP client
 - **Extend the API** — other plugins can register their own routes via the [API extension interface](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension)
 
 All requests are served over HTTPS with a self-signed certificate and gated behind API key authentication.
