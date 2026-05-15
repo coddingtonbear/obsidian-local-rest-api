@@ -222,20 +222,6 @@ curl -k -X POST \
 
 Supported target types: `heading`, `block`, `frontmatter`. Supplying both URL-embedded targets and the equivalent headers on the same request returns `422 Unprocessable Entity`.
 
-### PATCH options
-
-The following headers fine-tune how a PATCH request is applied:
-
-| Header | Default | Description |
-|---|---|---|
-| `Create-Target-If-Missing` | `false` | Create the heading or frontmatter key if it does not exist yet |
-| `Trim-Target-Whitespace` | `false` | Strip leading/trailing whitespace from the target section before patching |
-| `Reject-If-Content-Preexists` | `false` | Fail with `400` if the supplied content already appears in the target — use as an idempotency guard to prevent duplicate appends on retry |
-| `Target-Delimiter` | `::` | Separator for nested heading paths (e.g. `Heading 1::Subheading`) |
-| `Target-Scope` | `content` | Which part of the target the operation acts on: `content` (the section body), `marker` (the heading line or block-ID token only), or `markerAndContent` (both together). Only applies to `heading` and `block` targets. |
-
-The `vault_patch` MCP tool exposes the same options as parameters (`createTargetIfMissing`, `trimTargetWhitespace`, `rejectIfContentPreexists`, `targetDelimiter`, `targetScope`).
-
 ## Searching
 
 `POST /search/simple/?query=your+terms` runs Obsidian's built-in fuzzy search and returns matching filenames with scored context snippets.
