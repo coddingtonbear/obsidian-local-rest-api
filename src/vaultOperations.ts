@@ -309,6 +309,7 @@ export class VaultOperations {
       rejectIfContentPreexists?: boolean;
       trimTargetWhitespace?: boolean;
       targetDelimiter?: string;
+      targetScope?: string;
     },
   ): Promise<string> {
     const file = this.app.vault.getAbstractFileByPath(filePath);
@@ -330,6 +331,7 @@ export class VaultOperations {
       rejectIfContentPreexists: options?.rejectIfContentPreexists ?? false,
       trimTargetWhitespace: options?.trimTargetWhitespace ?? false,
       createTargetIfMissing: options?.createTargetIfMissing ?? false,
+      ...(options?.targetScope ? { targetScope: options.targetScope } : {}),
     } as PatchInstruction;
 
     const patched = applyPatch(fileContents, instruction);

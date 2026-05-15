@@ -46,6 +46,7 @@ import {
 import {
   isContentType,
   isPatchOperation,
+  isPatchTargetScope,
   isPatchTargetType,
 } from "./typeGuards";
 import LocalRestApiPublicApi from "./api";
@@ -636,6 +637,8 @@ export default class RequestHandler {
       req.get("Reject-If-Content-Preexists") == "true";
     const trimTargetWhitespace = req.get("Trim-Target-Whitespace") == "true";
     const targetDelimiter = req.get("Target-Delimiter") || "::";
+    const rawTargetScope = req.get("Target-Scope");
+    const targetScope = rawTargetScope || undefined;
 
     if (!targetType) {
       this.returnCannedResponse(res, { errorCode: ErrorCode.MissingTargetTypeHeader });
@@ -653,6 +656,10 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidOperation });
       return;
     }
+    if (targetScope && !isPatchTargetScope(targetScope)) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetScopeHeader });
+      return;
+    }
     if (!isContentType(contentType)) {
       this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidContentType });
       return;
@@ -665,7 +672,7 @@ export default class RequestHandler {
     try {
       const patched = await this.operations.patchFileSection(
         path, targetType, rawTarget, operation, req.body, contentType,
-        { createTargetIfMissing, rejectIfContentPreexists, trimTargetWhitespace, targetDelimiter },
+        { createTargetIfMissing, rejectIfContentPreexists, trimTargetWhitespace, targetDelimiter, targetScope },
       );
       res.status(200).send(patched);
     } catch (e) {
@@ -721,6 +728,8 @@ export default class RequestHandler {
       req.get("Reject-If-Content-Preexists") == "true";
     const trimTargetWhitespace = req.get("Trim-Target-Whitespace") == "true";
     const targetDelimiter = req.get("Target-Delimiter") || "::";
+    const rawTargetScope = req.get("Target-Scope");
+    const targetScope = rawTargetScope || undefined;
 
     if (!isPatchTargetType(targetType)) {
       this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetTypeHeader });
@@ -728,6 +737,10 @@ export default class RequestHandler {
     }
     if (!isContentType(contentType)) {
       this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidContentType });
+      return;
+    }
+    if (targetScope && !isPatchTargetScope(targetScope)) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetScopeHeader });
       return;
     }
     if (!target) {
@@ -738,7 +751,7 @@ export default class RequestHandler {
     try {
       const patched = await this.operations.patchFileSection(
         filePath, targetType, target, operation, req.body, contentType,
-        { createTargetIfMissing, rejectIfContentPreexists, trimTargetWhitespace, targetDelimiter },
+        { createTargetIfMissing, rejectIfContentPreexists, trimTargetWhitespace, targetDelimiter, targetScope },
       );
       res.status(200).send(patched);
     } catch (e) {

@@ -222,6 +222,20 @@ curl -k -X POST \
 
 Supported target types: `heading`, `block`, `frontmatter`. Supplying both URL-embedded targets and the equivalent headers on the same request returns `422 Unprocessable Entity`.
 
+### PATCH options
+
+The following headers fine-tune how a PATCH request is applied:
+
+| Header | Default | Description |
+|---|---|---|
+| `Create-Target-If-Missing` | `false` | Create the heading or frontmatter key if it does not exist yet |
+| `Trim-Target-Whitespace` | `false` | Strip leading/trailing whitespace from the target section before patching |
+| `Reject-If-Content-Preexists` | `false` | Fail with `400` if the supplied content already appears in the target — use as an idempotency guard to prevent duplicate appends on retry |
+| `Target-Delimiter` | `::` | Separator for nested heading paths (e.g. `Heading 1::Subheading`) |
+| `Target-Scope` | `content` | Which part of the target the operation acts on: `content` (the section body), `marker` (the heading line or block-ID token only), or `markerAndContent` (both together). Only applies to `heading` and `block` targets. |
+
+The `vault_patch` MCP tool exposes the same options as parameters (`createTargetIfMissing`, `trimTargetWhitespace`, `rejectIfContentPreexists`, `targetDelimiter`, `targetScope`).
+
 ## Searching
 
 `POST /search/simple/?query=your+terms` runs Obsidian's built-in fuzzy search and returns matching filenames with scored context snippets.
@@ -244,7 +258,7 @@ Connect your MCP client to `https://127.0.0.1:27124/mcp/` and pass your API key 
 > [!NOTE]
 > To connect to the MCP server securely, your client must trust the plugin's self-signed certificate. You can download and trust it from `https://127.0.0.1:27124/obsidian-local-rest-api-certificate.crt`, or configure your client to skip TLS verification for `127.0.0.1`.
 >
-> If trusting a certificate is not possible in your environment, you can connect insecurely using `http://127.0.0.1:27123/mcp/`
+> If trusting a self-signed certificate is not possible in your environment, you can connect insecurely using `http://127.0.0.1:27123/mcp/`
 > instead of `https://127.0.0.1:27124/mcp/` if you have enabled the HTTP endpoint under **Settings → Local REST API → Enable HTTP server**.
 
 ### Available tools

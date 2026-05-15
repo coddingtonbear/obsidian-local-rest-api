@@ -37,6 +37,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.InvalidTargetTypeHeader]:
     "The 'Target-Type' header you provided was invalid.",
   [ErrorCode.MissingTargetHeader]: "No 'Target' header was provided.",
+  [ErrorCode.InvalidTargetScopeHeader]:
+    "The 'Target-Scope' header you provided was invalid. Valid values are 'content', 'marker', and 'markerAndContent'.",
   [ErrorCode.MissingOperation]: "No 'Operation' header was provided.",
   [ErrorCode.InvalidOperation]:
     "The 'Operation' header you provided was invalid.",

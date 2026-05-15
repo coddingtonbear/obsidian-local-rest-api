@@ -19,6 +19,7 @@ local T = import 'targeting.params.jsonnet';
     T.createTargetIfMissing,
     T.rejectIfContentPreexists,
     T.trimTargetWhitespace,
+    T.targetScope,
     T.targetType { required: true },
     T.target { required: true },
     T.targetDelimiter,

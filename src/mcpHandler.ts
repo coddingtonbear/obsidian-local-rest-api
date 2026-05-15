@@ -223,7 +223,8 @@ export class McpHandler {
         "- contentType: 'text/markdown' (default) treats content as markdown. 'application/json' parses it as JSON — useful for setting typed frontmatter values or appending rows to a table (pass a 2-D array of row cells).\n" +
         "- createTargetIfMissing: set to true to create the heading or frontmatter key if it does not exist yet.\n" +
         "- trimTargetWhitespace: strip leading/trailing whitespace from the target section before patching.\n" +
-        "- rejectIfContentPreexists: fail the patch if the content string already appears in the target section — use this as an idempotency guard so a retry does not duplicate content.\n\n" +
+        "- rejectIfContentPreexists: fail the patch if the content string already appears in the target section — use this as an idempotency guard so a retry does not duplicate content.\n" +
+        "- targetScope: controls what portion of the target the operation acts on. 'content' (default) patches only the content below the heading or at the block; 'marker' patches only the heading line or block-ID token itself; 'markerAndContent' patches the heading/block-ID together with its content. Only applicable to heading and block targets.\n\n" +
         "To discover valid heading names and block IDs before patching, call vault_get_document_map first.",
       {
         path: z.string().describe("File path relative to vault root"),
@@ -263,6 +264,16 @@ export class McpHandler {
           .string()
           .optional()
           .describe("Delimiter for nested heading paths (default: '::')"),
+        targetScope: z
+          .enum(["content", "marker", "markerAndContent"])
+          .optional()
+          .describe(
+            "Controls which part of the target the operation acts on. " +
+              "'content' (default): patch the content below the heading or at the block. " +
+              "'marker': patch only the heading line or block-ID token. " +
+              "'markerAndContent': patch the heading/block-ID together with its content. " +
+              "Only applicable to heading and block targets.",
+          ),
       },
       async ({
         path,
@@ -275,6 +286,7 @@ export class McpHandler {
         trimTargetWhitespace,
         rejectIfContentPreexists,
         targetDelimiter,
+        targetScope,
       }: {
         path: string;
         targetType: PatchTargetType;
@@ -286,6 +298,7 @@ export class McpHandler {
         trimTargetWhitespace?: boolean;
         rejectIfContentPreexists?: boolean;
         targetDelimiter?: string;
+        targetScope?: "content" | "marker" | "markerAndContent";
       }) => {
         try {
           await this.ops.patchFileSection(
@@ -295,11 +308,11 @@ export class McpHandler {
             operation,
             content,
             contentType ?? "text/markdown",
-            { createTargetIfMissing, trimTargetWhitespace, rejectIfContentPreexists, targetDelimiter },
+            { createTargetIfMissing, trimTargetWhitespace, rejectIfContentPreexists, targetDelimiter, targetScope },
           );
         } catch (e) {
           if (e instanceof PatchFailed) {
-            throw new Error(e.reason);
+            throw new Error(e.message);
           }
           throw e;
         }

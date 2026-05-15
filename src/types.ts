@@ -13,6 +13,7 @@ export enum ErrorCode {
   MissingTargetTypeHeader = 40053,
   InvalidTargetTypeHeader = 40054,
   MissingTargetHeader = 40055,
+  InvalidTargetScopeHeader = 40059,
   MissingOperation = 40056,
   InvalidOperation = 40057,
   InvalidTargetHeader = 40058,

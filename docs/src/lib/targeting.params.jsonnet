@@ -88,4 +88,30 @@
       default: 'false',
     },
   },
+  targetScope: {
+    name: 'Target-Scope',
+    'in': 'header',
+    description: |||
+      Controls which part of the target the operation acts on. Only applicable to
+      `heading` and `block` targets; ignored for `frontmatter`.
+
+      - `content` (default): the operation applies to the content region only — the area
+        below the heading line or at the block, leaving the heading/block-ID token unchanged.
+      - `marker`: the operation applies only to the heading line or block-ID token itself,
+        leaving the content unchanged.
+      - `markerAndContent`: the operation applies to the full range covering both the
+        heading/block-ID token and its content, allowing them to be replaced or repositioned
+        together.
+    |||,
+    required: false,
+    schema: {
+      type: 'string',
+      enum: [
+        'content',
+        'marker',
+        'markerAndContent',
+      ],
+      default: 'content',
+    },
+  },
 }

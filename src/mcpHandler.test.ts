@@ -355,14 +355,34 @@ describe("McpHandler", () => {
     );
   });
 
-  test("vault_patch surfaces PatchFailed reason as error message", async () => {
+  test("vault_patch passes targetScope to patchFileSection", async () => {
     const cb = getToolCallback("vault_patch");
-    ops.patchFileSection.mockRejectedValueOnce(
-      new PatchFailed(PatchFailureReason.InvalidTarget, {} as any, null),
+    await cb({
+      path: "out.md",
+      targetType: "heading",
+      target: "Introduction",
+      operation: "replace",
+      content: "## New Heading",
+      targetScope: "marker",
+    });
+    expect(ops.patchFileSection).toHaveBeenCalledWith(
+      "out.md",
+      "heading",
+      "Introduction",
+      "replace",
+      "## New Heading",
+      "text/markdown",
+      expect.objectContaining({ targetScope: "marker" }),
     );
+  });
+
+  test("vault_patch surfaces PatchFailed message as error", async () => {
+    const cb = getToolCallback("vault_patch");
+    const err = new PatchFailed(PatchFailureReason.InvalidTarget, { targetType: "heading", target: ["NoSuch"], operation: "append", content: "x" } as any, null);
+    ops.patchFileSection.mockRejectedValueOnce(err);
     await expect(
       cb({ path: "out.md", targetType: "heading", target: "NoSuch", operation: "append", content: "x" }),
-    ).rejects.toThrow(PatchFailureReason.InvalidTarget);
+    ).rejects.toThrow(err.message);
   });
 
   test("vault_patch re-throws non-PatchFailed errors unchanged", async () => {

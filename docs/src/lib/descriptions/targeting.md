@@ -14,3 +14,11 @@ You can also embed the target type and target directly in the URL path after the
 - `.../block/abc123` targets the block with reference ID `abc123`.
 
 Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
+
+## Target-Scope
+
+For `heading` and `block` targets, the optional `Target-Scope` header controls which portion of the target the operation acts on:
+
+- `content` (default): the operation applies to the content region — the area beneath the heading line or at the block, leaving the heading/block-ID token unchanged.
+- `marker`: the operation applies only to the heading line or block-ID token itself, leaving the content unchanged. Useful for renaming a heading in-place with a `replace` operation without touching the section content.
+- `markerAndContent`: the operation applies to the full range covering both the heading/block-ID token and its content, allowing them to be replaced or repositioned together.
