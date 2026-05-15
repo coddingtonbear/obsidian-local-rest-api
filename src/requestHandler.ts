@@ -1295,6 +1295,206 @@ export default class RequestHandler {
     this.returnCannedResponse(res, { statusCode: 204 });
   }
 
+  /**
+   * GET /secrets/diag/
+   *
+   * Inspects the runtime `app.secretStorage` API surface. Returns the list of
+   * methods available so callers can plan integrations without trial and error.
+   *
+   * `app.secretStorage` is intentionally write-mostly: Obsidian exposes
+   * `listSecrets()` and `setSecret()` publicly but historically has not exposed
+   * a public `getSecret()`. The shape of the API may evolve, so this endpoint
+   * lets external scripts probe what is actually available in the current
+   * Obsidian build instead of guessing.
+   */
+  async secretsDiagGet(
+    _req: express.Request,
+    res: express.Response,
+  ): Promise<void> {
+    const ss: any = (this.app as any).secretStorage;
+    if (!ss) {
+      res.json({ available: false, methods: [], note: "app.secretStorage missing in this Obsidian build" });
+      return;
+    }
+    const methods = new Set<string>();
+    let obj: any = ss;
+    while (obj && obj !== Object.prototype) {
+      for (const name of Object.getOwnPropertyNames(obj)) {
+        if (typeof ss[name] === "function") methods.add(name);
+      }
+      obj = Object.getPrototypeOf(obj);
+    }
+    res.json({
+      available: true,
+      methods: [...methods].sort(),
+      hints: {
+        listSupported: methods.has("listSecrets"),
+        setSupported: methods.has("setSecret"),
+        getSupported: methods.has("getSecret") || methods.has("readSecret"),
+      },
+    });
+  }
+
+  /**
+   * GET /secrets/
+   *
+   * Lists the refs stored in `app.secretStorage`. Values are never returned —
+   * by design — only the ref identifiers. Useful for inventory and to confirm
+   * what other plugins have stored.
+   */
+  async secretsListGet(
+    _req: express.Request,
+    res: express.Response,
+  ): Promise<void> {
+    const ss: any = (this.app as any).secretStorage;
+    if (!ss || typeof ss.listSecrets !== "function") {
+      this.returnCannedResponse(res, {
+        statusCode: 501,
+        message: "secretStorage.listSecrets is not available in this Obsidian build",
+      });
+      return;
+    }
+    try {
+      const refs: string[] = await ss.listSecrets();
+      res.json({ refs });
+    } catch (err) {
+      this.returnCannedResponse(res, {
+        statusCode: 500,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * GET /secrets/:ref/
+   *
+   * Returns the value stored under `ref`. Obsidian's `app.secretStorage`
+   * exposes `getSecret()` (despite not being widely documented), so this
+   * endpoint surfaces it for cross-process integration (e.g. external Python
+   * scripts that need to read API keys stored by other plugins).
+   *
+   * Security note: anyone holding the Local REST API key can read any secret.
+   * Treat the REST API key with the same care as a master password.
+   */
+  async secretsRefGet(
+    req: express.Request,
+    res: express.Response,
+  ): Promise<void> {
+    const ss: any = (this.app as any).secretStorage;
+    if (!ss || typeof ss.getSecret !== "function") {
+      this.returnCannedResponse(res, {
+        statusCode: 501,
+        message: "secretStorage.getSecret is not available in this Obsidian build",
+      });
+      return;
+    }
+    const ref = req.params.ref;
+    if (!ref) {
+      this.returnCannedResponse(res, { statusCode: 400, message: "ref is required" });
+      return;
+    }
+    try {
+      const value = await ss.getSecret(ref);
+      if (value === undefined || value === null) {
+        this.returnCannedResponse(res, { statusCode: 404, message: "ref not found" });
+        return;
+      }
+      res.json({ ref, value });
+    } catch (err) {
+      this.returnCannedResponse(res, {
+        statusCode: 500,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * DELETE /secrets/:ref/
+   *
+   * Removes a stored secret. Idempotent — returns 204 even if the ref did not
+   * exist.
+   */
+  async secretsRefDelete(
+    req: express.Request,
+    res: express.Response,
+  ): Promise<void> {
+    const ss: any = (this.app as any).secretStorage;
+    if (!ss || typeof ss.deleteSecret !== "function") {
+      this.returnCannedResponse(res, {
+        statusCode: 501,
+        message: "secretStorage.deleteSecret is not available in this Obsidian build",
+      });
+      return;
+    }
+    const ref = req.params.ref;
+    if (!ref) {
+      this.returnCannedResponse(res, { statusCode: 400, message: "ref is required" });
+      return;
+    }
+    try {
+      await ss.deleteSecret(ref);
+      this.returnCannedResponse(res, { statusCode: 204 });
+    } catch (err) {
+      this.returnCannedResponse(res, {
+        statusCode: 500,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * PUT /secrets/:ref/
+   *
+   * Stores a secret in `app.secretStorage` under the given ref. The request
+   * body is treated as the raw secret value (string). PUT is used because the
+   * operation is idempotent: setting the same ref+value twice is a no-op.
+   *
+   * Reading secrets back is not exposed by this endpoint because Obsidian
+   * does not publicly expose `getSecret` — secrets are write-mostly to limit
+   * cross-plugin exfiltration.
+   */
+  async secretsRefPut(
+    req: express.Request,
+    res: express.Response,
+  ): Promise<void> {
+    const ss: any = (this.app as any).secretStorage;
+    if (!ss || typeof ss.setSecret !== "function") {
+      this.returnCannedResponse(res, {
+        statusCode: 501,
+        message: "secretStorage.setSecret is not available in this Obsidian build",
+      });
+      return;
+    }
+    const ref = req.params.ref;
+    if (!ref) {
+      this.returnCannedResponse(res, { statusCode: 400, message: "ref is required" });
+      return;
+    }
+    // Body may arrive as Buffer/string depending on body-parser middleware
+    const raw = req.body;
+    const value: string =
+      typeof raw === "string"
+        ? raw
+        : Buffer.isBuffer(raw)
+        ? raw.toString("utf-8")
+        : typeof raw === "object" && raw !== null && typeof raw.value === "string"
+        ? raw.value
+        : "";
+    if (!value) {
+      this.returnCannedResponse(res, { statusCode: 400, message: "Request body must contain the secret value (string or JSON {value})." });
+      return;
+    }
+    try {
+      await ss.setSecret(ref, value);
+      this.returnCannedResponse(res, { statusCode: 204 });
+    } catch (err) {
+      this.returnCannedResponse(res, {
+        statusCode: 500,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   async searchSimplePost(
     req: express.Request,
     res: express.Response,
@@ -1539,6 +1739,14 @@ export default class RequestHandler {
 
     this.api.route("/commands/").get(this.commandGet.bind(this));
     this.api.route("/commands/:commandId/").post(this.commandPost.bind(this));
+
+    this.api.route("/secrets/diag/").get(this.secretsDiagGet.bind(this));
+    this.api.route("/secrets/").get(this.secretsListGet.bind(this));
+    this.api
+      .route("/secrets/:ref/")
+      .get(this.secretsRefGet.bind(this))
+      .put(this.secretsRefPut.bind(this))
+      .delete(this.secretsRefDelete.bind(this));
 
     this.api.route("/search/").post(this.searchQueryPost.bind(this));
     this.api.route("/search/simple/").post(this.searchSimplePost.bind(this));
