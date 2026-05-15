@@ -7,6 +7,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v2
         with:
@@ -28,6 +32,15 @@ jobs:
         run: |
           npm install
           npm run build --if-present
+
+      # Attest build artifacts
+      - name: Attest build artifacts
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
 
       # Create the release on github
       - name: Create Release
