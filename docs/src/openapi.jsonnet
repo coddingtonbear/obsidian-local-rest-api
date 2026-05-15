@@ -549,6 +549,156 @@ std.manifestYamlDoc(
           },
         },
       },
+      '/secrets/diag/': {
+        get: {
+          tags: ['Secrets'],
+          summary: 'Inspect app.secretStorage runtime API surface.\n',
+          description: importstr 'lib/descriptions/secrets-diag.md',
+          responses: {
+            '200': {
+              description: 'Inventory of available methods.',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      available: { type: 'boolean' },
+                      methods: { type: 'array', items: { type: 'string' } },
+                      hints: {
+                        type: 'object',
+                        properties: {
+                          listSupported: { type: 'boolean' },
+                          setSupported: { type: 'boolean' },
+                          getSupported: { type: 'boolean' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      '/secrets/': {
+        get: {
+          tags: ['Secrets'],
+          summary: 'List ref ids stored in app.secretStorage.\n',
+          description: importstr 'lib/descriptions/secrets-list.md',
+          responses: {
+            '200': {
+              description: 'A list of refs.',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      refs: { type: 'array', items: { type: 'string' } },
+                    },
+                  },
+                  example: {
+                    refs: ['medlegal-gemini-api-key-1', 'copilot-model-key'],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      '/secrets/{ref}/': {
+        get: {
+          tags: ['Secrets'],
+          summary: 'Read the value of a single secret.\n',
+          description: importstr 'lib/descriptions/secrets-ref-get.md',
+          parameters: [
+            {
+              name: 'ref',
+              'in': 'path',
+              required: true,
+              schema: { type: 'string' },
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'The stored value.',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      ref: { type: 'string' },
+                      value: { type: 'string' },
+                    },
+                  },
+                },
+              },
+            },
+            '404': {
+              description: 'Ref not found.',
+              content: {
+                'application/json': {
+                  schema: { '$ref': '#/components/schemas/Error' },
+                },
+              },
+            },
+          },
+        },
+        put: {
+          tags: ['Secrets'],
+          summary: 'Store a secret value.\n',
+          description: importstr 'lib/descriptions/secrets-ref-put.md',
+          parameters: [
+            {
+              name: 'ref',
+              'in': 'path',
+              required: true,
+              schema: { type: 'string' },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: { value: { type: 'string' } },
+                  required: ['value'],
+                },
+              },
+              'text/plain': {
+                schema: { type: 'string' },
+              },
+            },
+          },
+          responses: {
+            '204': { description: 'Stored.' },
+            '400': {
+              description: 'Missing or invalid value.',
+              content: {
+                'application/json': {
+                  schema: { '$ref': '#/components/schemas/Error' },
+                },
+              },
+            },
+          },
+        },
+        delete: {
+          tags: ['Secrets'],
+          summary: 'Remove a stored secret.\n',
+          description: importstr 'lib/descriptions/secrets-ref-delete.md',
+          parameters: [
+            {
+              name: 'ref',
+              'in': 'path',
+              required: true,
+              schema: { type: 'string' },
+            },
+          ],
+          responses: {
+            '204': { description: 'Removed (idempotent).' },
+          },
+        },
+      },
       '/search/': {
         post: {
           tags: [
