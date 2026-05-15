@@ -8,7 +8,21 @@ export interface RegisteredRoute {
   authenticated: boolean;
 }
 
+export class ApiVersionUnsupportedError extends Error {
+  constructor(
+    public readonly requestedVersion: number,
+    public readonly availableVersion: number,
+  ) {
+    super(
+      `Obsidian Local REST API does not support API version ${requestedVersion}. ` +
+      `The installed plugin supports API version ${availableVersion}.`
+    );
+    this.name = "ApiVersionUnsupportedError";
+  }
+}
+
 export default class LocalRestApiPublicApi {
+  public readonly apiVersion = 2;
   private router: express.Router;
   private publicRouter: express.Router;
   private mcpHandler: McpHandler;

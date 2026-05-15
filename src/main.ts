@@ -17,7 +17,8 @@ import {
   getCertificateIsUptoStandards,
   getCertificateValidityDays,
 } from "./utils";
-import LocalRestApiPublicApi from "./api";
+import LocalRestApiPublicApi, { ApiVersionUnsupportedError } from "./api";
+export { ApiVersionUnsupportedError } from "./api";
 import { PluginManifest } from "obsidian";
 
 export default class LocalRestApi extends Plugin {
@@ -694,10 +695,17 @@ class LocalRestApiSettingTab extends PluginSettingTab {
 
 export const getAPI = (
   app: App,
-  manifest: PluginManifest
+  manifest: PluginManifest,
+  version?: number,
 ): LocalRestApiPublicApi | undefined => {
   const plugin = app.plugins.plugins["obsidian-local-rest-api"];
-  if (plugin) {
-    return (plugin as unknown as LocalRestApi).getPublicApi(manifest);
+  if (!plugin) return undefined;
+  const api = (plugin as unknown as LocalRestApi).getPublicApi(manifest);
+  if (version !== undefined) {
+    const availableVersion = api.apiVersion ?? 1;
+    if (availableVersion < version) {
+      throw new ApiVersionUnsupportedError(version, availableVersion);
+    }
   }
+  return api;
 };
