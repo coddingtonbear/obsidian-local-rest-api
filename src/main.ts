@@ -276,13 +276,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
 
     const addUrlRow = (container: HTMLElement, url: string) => {
-      container.createSpan({ text: `${url} ` });
-      const copyLink = container.createEl("a", { text: "(copy)" });
-      copyLink.addEventListener("click", (e) => {
-        e.preventDefault();
-        navigator.clipboard.writeText(url);
-      });
-      container.createEl("br");
+      container.createEl("pre", { text: url });
     };
 
     const connectionUrls = apiKeyDiv.createEl("table", { cls: "api-urls" });
@@ -366,16 +360,9 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       }
     }
 
-    const inOrderToAccess = apiKeyDiv.createEl("p");
-    inOrderToAccess.createSpan({
-      text: "Your API Key must be passed in requests via an authorization header ",
+    apiKeyDiv.createEl("p", {
+      text: "Your API Key must be passed in requests via an authorization header:",
     });
-    const copyApiKeyLink = inOrderToAccess.createEl("a", { text: "(copy)" });
-    copyApiKeyLink.addEventListener("click", (e) => {
-      e.preventDefault();
-      navigator.clipboard.writeText(this.plugin.settings.apiKey ?? "");
-    });
-    inOrderToAccess.createSpan({ text: ":" });
 
     apiKeyDiv.createEl("pre", { text: this.plugin.settings.apiKey });
     apiKeyDiv.createEl("p", {
@@ -471,16 +458,9 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     const mcpInsecureUrlsTd = mcpInsecureTr.createEl("td", { cls: "url" });
     addUrlRow(mcpInsecureUrlsTd, mcpInsecureUrl);
 
-    const mcpAuthP = mcpDiv.createEl("p");
-    mcpAuthP.createSpan({
-      text: "Your API Key must be passed via an authorization header ",
+    mcpDiv.createEl("p", {
+      text: "Your API Key must be passed via an authorization header:",
     });
-    const copyMcpKeyLink = mcpAuthP.createEl("a", { text: "(copy)" });
-    copyMcpKeyLink.addEventListener("click", (e) => {
-      e.preventDefault();
-      navigator.clipboard.writeText(this.plugin.settings.apiKey ?? "");
-    });
-    mcpAuthP.createSpan({ text: ":" });
 
     const headerName =
       this.plugin.settings.authorizationHeaderName ??
@@ -505,14 +485,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       text: "Example Claude Code MCP configuration (for .claude/settings.json):",
     });
     mcpDiv.createEl("pre", { text: mcpSampleConfig });
-    const mcpCopyConfigP = mcpDiv.createEl("p");
-    const mcpCopyConfigLink = mcpCopyConfigP.createEl("a", {
-      text: "Copy configuration",
-    });
-    mcpCopyConfigLink.addEventListener("click", (e) => {
-      e.preventDefault();
-      navigator.clipboard.writeText(mcpSampleConfig);
-    });
 
     new Setting(containerEl).setHeading().setName("Settings");
 
