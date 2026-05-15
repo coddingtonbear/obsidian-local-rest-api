@@ -234,6 +234,9 @@ Supported target types: `heading`, `block`, `frontmatter`. Supplying both URL-em
 
 ## MCP (Model Context Protocol)
 
+> [!NOTE]
+> Several third-party MCP servers for Obsidian exist, but they are no longer necessary — this plugin ships a built-in MCP server that runs inside Obsidian and has direct access to your vault's live metadata, active file, periodic notes, and command palette. If you are currently using a third-party server, switching to this one is likely to give you better results.
+
 The plugin includes a built-in MCP server at `/mcp/` so AI agents and MCP-compatible clients can interact with your vault without hand-crafting HTTP requests.
 
 **Transport:** Streamable HTTP — API key authentication required.
@@ -242,7 +245,7 @@ The plugin includes a built-in MCP server at `/mcp/` so AI agents and MCP-compat
 
 Connect your MCP client to `https://127.0.0.1:27124/mcp/` and pass your API key as a bearer token. The exact config syntax varies by client; consult your client's documentation for Streamable HTTP remote MCP servers.
 
-> [!NOTE]
+> [!WARNING]
 > To connect to the MCP server securely, your client must trust the plugin's self-signed certificate. You can download and trust it from `https://127.0.0.1:27124/obsidian-local-rest-api-certificate.crt`, or configure your client to skip TLS verification for `127.0.0.1`.
 >
 > If trusting a self-signed certificate is not possible in your environment, you can connect insecurely using `http://127.0.0.1:27123/mcp/`
