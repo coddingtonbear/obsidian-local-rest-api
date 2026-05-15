@@ -76,12 +76,12 @@ export class VaultOperations {
         if (changedFile.path === file.path && !resolved) {
           resolved = true;
           this.app.metadataCache.off("changed", onCacheChange);
-          clearTimeout(timeoutId);
+          activeWindow.clearTimeout(timeoutId);
           resolve(this.app.metadataCache.getFileCache(file));
         }
       };
 
-      const timeoutId = setTimeout(() => {
+      const timeoutId = activeWindow.setTimeout(() => {
         if (!resolved) {
           resolved = true;
           this.app.metadataCache.off("changed", onCacheChange);
@@ -98,7 +98,7 @@ export class VaultOperations {
       if (cacheAfterListener && !resolved) {
         resolved = true;
         this.app.metadataCache.off("changed", onCacheChange);
-        clearTimeout(timeoutId);
+        activeWindow.clearTimeout(timeoutId);
         resolve(cacheAfterListener);
       }
     });

@@ -169,10 +169,10 @@ export default class LocalRestApi extends Plugin {
     func: F,
     delay: number
   ): (...args: Parameters<F>) => void {
-    let debounceTimer: NodeJS.Timeout;
+    let debounceTimer: number;
     return (...args: Parameters<F>): void => {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => func(...args), delay);
+      activeWindow.clearTimeout(debounceTimer);
+      debounceTimer = activeWindow.setTimeout(() => func(...args), delay);
     };
   }
 
