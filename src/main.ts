@@ -302,17 +302,19 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     secureNameTd.createEl("br");
     secureNameTd.createEl("br");
     const secureNote = secureNameTd.createEl("i");
-    secureNote.createSpan({ text: "Requires that" });
+    secureNote.createSpan({ text: "Requires that " });
     secureNote.createEl("a", {
       href: `https://127.0.0.1:${this.plugin.settings.port}/${CERT_NAME}`,
-      text: " this certificate",
+      // eslint-disable-next-line obsidianmd/ui/sentence-case
+      text: "this certificate",
     });
     secureNote.createSpan({
-      text: " be configured as a trusted certificate authority for your browser.  See",
+      text: " be configured as a trusted certificate authority for your browser.  See ",
     });
     secureNote.createEl("a", {
       href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
-      text: " wiki",
+      // eslint-disable-next-line obsidianmd/ui/sentence-case
+      text: "wiki",
     });
     secureNote.createSpan({ text: " for more information." });
 
@@ -376,11 +378,12 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
     const seeMore = apiKeyDiv.createEl("p");
     seeMore.createSpan({
-      text: "Comprehensive documentation of what API endpoints are available can be found in",
+      text: "Comprehensive documentation of what API endpoints are available can be found in ",
     });
     seeMore.createEl("a", {
       href: "https://coddingtonbear.github.io/obsidian-local-rest-api/",
-      text: " the online docs",
+      // eslint-disable-next-line obsidianmd/ui/sentence-case
+      text: "the online docs",
     });
     seeMore.createSpan({ text: "." });
 
@@ -417,17 +420,19 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     mcpSecureNameTd.createEl("br");
     mcpSecureNameTd.createEl("br");
     const mcpSecureNote = mcpSecureNameTd.createEl("i");
-    mcpSecureNote.createSpan({ text: "Requires that" });
+    mcpSecureNote.createSpan({ text: "Requires that " });
     mcpSecureNote.createEl("a", {
       href: `https://127.0.0.1:${this.plugin.settings.port}/${CERT_NAME}`,
-      text: " this certificate",
+      // eslint-disable-next-line obsidianmd/ui/sentence-case
+      text: "this certificate",
     });
     mcpSecureNote.createSpan({
-      text: " be configured as a trusted certificate authority.  See",
+      text: " be configured as a trusted certificate authority.  See ",
     });
     mcpSecureNote.createEl("a", {
       href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
-      text: " wiki",
+      // eslint-disable-next-line obsidianmd/ui/sentence-case
+      text: "wiki",
     });
     mcpSecureNote.createSpan({ text: " for more information." });
 
@@ -495,11 +500,12 @@ class LocalRestApiSettingTab extends PluginSettingTab {
 
     const mcpSeeMore = mcpDiv.createEl("p");
     mcpSeeMore.createSpan({
-      text: "Configuration examples for other MCP clients can be found in",
+      text: "Configuration examples for other MCP clients can be found in ",
     });
     mcpSeeMore.createEl("a", {
       href: "https://github.com/coddingtonbear/obsidian-local-rest-api#readme",
-      text: " the project readme",
+      // eslint-disable-next-line obsidianmd/ui/sentence-case
+      text: "the project readme",
     });
     mcpSeeMore.createSpan({ text: "." });
 
