@@ -5,7 +5,7 @@ import globals from "globals";
 
 export default defineConfig([
   {
-    ignores: ["dist/", "node_modules/", "main.js", "main.d.ts"],
+    ignores: ["dist/", "docs/", "node_modules/", "main.js", "main.d.ts"],
   },
 
   ...obsidianmd.configs.recommended,
