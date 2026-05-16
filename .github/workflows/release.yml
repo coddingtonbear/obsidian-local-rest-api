@@ -38,5 +38,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ github.ref_name }}" \
-            --notes-from-tag \
+            --notes "$(git tag -l --format='%(contents)' '${{ github.ref_name }}')" \
             main.js manifest.json styles.css
