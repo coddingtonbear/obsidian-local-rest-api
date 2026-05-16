@@ -128,7 +128,7 @@ export class VaultOperations {
     const documentMap = getDocumentMap(content);
 
     if (targetType === "frontmatter") {
-      const value = documentMap.frontmatter[target];
+      const value: unknown = documentMap.frontmatter[target];
       if (value === undefined)
         throw new Error(`Frontmatter key not found: ${target}`);
       return value;
@@ -159,11 +159,11 @@ export class VaultOperations {
       .filter((tag) => tag)
       .map((tag) => tag.tag);
     const frontmatterTags = Array.isArray(frontmatter.tags)
-      ? frontmatter.tags
+      ? (frontmatter.tags as unknown[]).filter((t): t is string => typeof t === "string")
       : [];
     const filteredTags: string[] = [...frontmatterTags, ...directTags]
       .filter((tag) => tag)
-      .map((tag) => tag.toString().replace(/^#/, ""))
+      .map((tag) => tag.replace(/^#/, ""))
       .filter((value, index, self) => self.indexOf(value) === index);
 
     const links = Object.keys(
@@ -416,8 +416,7 @@ export class VaultOperations {
     if (err || !period) {
       return [null, err ?? ErrorCode.PeriodDoesNotExist];
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const now = (window as any).moment(timestamp);
+    const now = window.moment(timestamp);
     const all = period.getAll();
 
     const file = period.get(now, all);
@@ -438,8 +437,7 @@ export class VaultOperations {
       if (!period) {
         return [null, ErrorCode.PeriodDoesNotExist];
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const now = (window as any).moment(Date.now());
+      const now = window.moment(Date.now());
 
       file = await period.create(now);
       await this.waitForFileCache(file);

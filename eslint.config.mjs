@@ -31,15 +31,12 @@ export default defineConfig([
       // be imported with ESM syntax; require() is the only option.
       "@typescript-eslint/no-require-imports": "off",
 
-      // Suppress the strict no-unsafe-* family — the codebase uses `any` in
-      // places where the Obsidian/Express APIs return untyped values, and
-      // fixing them all is out of scope for this linting integration.
-      "@typescript-eslint/no-unsafe-argument": "off",
-      "@typescript-eslint/no-unsafe-assignment": "off",
-      "@typescript-eslint/no-unsafe-call": "off",
-      "@typescript-eslint/no-unsafe-member-access": "off",
-      "@typescript-eslint/no-unsafe-return": "off",
-      "@typescript-eslint/no-unsafe-enum-comparison": "off",
+      "@typescript-eslint/no-unsafe-argument": "error",
+      "@typescript-eslint/no-unsafe-assignment": "error",
+      "@typescript-eslint/no-unsafe-call": "error",
+      "@typescript-eslint/no-unsafe-member-access": "error",
+      "@typescript-eslint/no-unsafe-return": "error",
+      "@typescript-eslint/no-unsafe-enum-comparison": "error",
 
       // Acronyms and brand names that must stay capitalised in UI text.
       "obsidianmd/ui/sentence-case": [
@@ -68,6 +65,9 @@ export default defineConfig([
       "obsidianmd/prefer-window-timers": "off",
       // Jest legitimately passes unbound methods to expect() matchers.
       "@typescript-eslint/unbound-method": "off",
+      // Tests work with JSON.parse results, mock return values, and API responses
+      // that are all untyped by nature — the no-unsafe-* family adds noise here
+      // without catching real bugs.
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-unsafe-argument": "off",
       "@typescript-eslint/no-unsafe-assignment": "off",
@@ -90,6 +90,8 @@ export default defineConfig([
       "obsidianmd/no-nodejs-modules": "off",
       "obsidianmd/prefer-window-timers": "off",
       "no-restricted-globals": "off",
+      // Same rationale as unit tests: integration tests exercise live API responses
+      // whose shapes are verified by the assertions, not the type system.
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-unsafe-argument": "off",
       "@typescript-eslint/no-unsafe-assignment": "off",

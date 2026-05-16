@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { randomUUID } from "crypto";
 import { z } from "zod";
@@ -13,11 +14,16 @@ import { LocalRestApiSettings } from "./types";
 
 const PERIODS = ["daily", "weekly", "monthly", "quarterly", "yearly"] as const;
 
+// Minimal structural type for McpServer — typed as a plain interface rather than the SDK's
+// McpServer class to avoid TypeScript heap OOM from evaluating ToolCallback<ZodRawShape>.
+interface MinimalMcpServer {
+  tool(name: string, description: string, schema: unknown, callback: (args: unknown) => Promise<CallToolResult>): { remove: () => void };
+  connect(transport: StreamableHTTPServerTransport): Promise<void>;
+  resource(name: string, uri: string, meta: unknown, handler: (uri: URL) => Promise<unknown>): void;
+}
+
 export class McpHandler {
-  // typed as `any` to avoid TypeScript heap OOM when evaluating the MCP SDK's complex
-  // ToolCallback<Args extends ZodRawShape> generics across the 18 tool registrations below
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private readonly mcpServer: any;
+  private readonly mcpServer: MinimalMcpServer;
   private readonly transports: Map<string, StreamableHTTPServerTransport> = new Map();
   private readonly registeredToolNames = new Set<string>();
 
@@ -34,7 +40,7 @@ export class McpHandler {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private tool(name: string, description: string, schema: any, callback: (args: any) => Promise<any>): any {
+  private tool(name: string, description: string, schema: any, callback: (args: any) => Promise<CallToolResult>): { remove: () => void } {
     this.registeredToolNames.add(name);
     return this.mcpServer.tool(name, description, schema, async (args: unknown) => {
       try {
@@ -64,7 +70,7 @@ export class McpHandler {
       );
     }
     const registered = this.tool(name, description, schema, async (args) =>
-      this.text(await callback(args)),
+      this.text(await callback(args as Record<string, unknown>)),
     );
     return () => {
       registered.remove();

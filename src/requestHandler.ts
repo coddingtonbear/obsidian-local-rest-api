@@ -100,8 +100,7 @@ export default class RequestHandler {
     this.apiExtensionRouter.use(router);
     this.publicApiExtensionRouter.use(publicRouter);
     const removeRouter = (parent: express.Router, child: express.Router) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const idx = parent.stack.findIndex((layer: any) => layer.handle === child);
+      const idx = parent.stack.findIndex((layer: { handle?: unknown }) => layer.handle === child);
       if (idx !== -1) {
         parent.stack.splice(idx, 1);
       }
@@ -303,7 +302,7 @@ export default class RequestHandler {
         (mimeType == ContentTypes.markdown ? "; charset=utf-8" : ""),
     });
 
-    if (req.headers.accept === ContentTypes.olrapiNoteJson) {
+    if ((req.headers.accept as ContentTypes) === ContentTypes.olrapiNoteJson) {
       const file = this.app.vault.getAbstractFileByPath(filePath);
       if (!(file instanceof TFile)) {
         this.returnCannedResponse(res, { statusCode: 404 });
@@ -314,7 +313,7 @@ export default class RequestHandler {
         JSON.stringify(await this.getFileMetadataObject(file), null, 2),
       );
       return;
-    } else if (req.headers.accept === ContentTypes.olrapiDocumentMap) {
+    } else if ((req.headers.accept as ContentTypes) === ContentTypes.olrapiDocumentMap) {
       const file = this.app.vault.getAbstractFileByPath(filePath);
       if (!(file instanceof TFile)) {
         this.returnCannedResponse(res, { statusCode: 404 });
@@ -366,7 +365,7 @@ export default class RequestHandler {
       const targetDelimiter = req.get("Target-Delimiter") || "::";
 
       if (targetType === "frontmatter") {
-        const value = documentMap.frontmatter[rawTarget];
+        const value: unknown = documentMap.frontmatter[rawTarget];
         if (value === undefined) {
           this.returnCannedResponse(res, { statusCode: 404 });
           return;
@@ -482,7 +481,7 @@ export default class RequestHandler {
       });
       return;
     }
-    await this.operations.writeFileContent(filepath, req.body);
+    await this.operations.writeFileContent(filepath, req.body as string | Buffer);
     this.returnCannedResponse(res, { statusCode: 204 });
     return;
   }
@@ -1007,7 +1006,7 @@ export default class RequestHandler {
         { createTargetIfMissing: true },
       );
     }
-    return this.redirectToVaultPath(file, req, res, this._vaultPut.bind(this));
+    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPut(p, rq, rs); });
   }
 
   async periodicPost(
@@ -1059,7 +1058,7 @@ export default class RequestHandler {
         res,
       );
     }
-    return this.redirectToVaultPath(file, req, res, this._vaultPost.bind(this));
+    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPost(p, rq, rs); });
   }
 
   async periodicPatch(
@@ -1081,7 +1080,7 @@ export default class RequestHandler {
       file,
       req,
       res,
-      this._vaultPatch.bind(this),
+      (p, rq, rs) => { void this._vaultPatch(p, rq, rs); },
     );
   }
 
@@ -1110,7 +1109,7 @@ export default class RequestHandler {
       file,
       req,
       res,
-      this._vaultDelete.bind(this),
+      (p, rq, rs) => { void this._vaultDelete(p, rq, rs); },
     );
   }
 
@@ -1175,7 +1174,7 @@ export default class RequestHandler {
         { createTargetIfMissing: true },
       );
     }
-    return this.redirectToVaultPath(file, req, res, this._vaultPut.bind(this));
+    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPut(p, rq, rs); });
   }
 
   async activeFilePost(
@@ -1221,7 +1220,7 @@ export default class RequestHandler {
         res,
       );
     }
-    return this.redirectToVaultPath(file, req, res, this._vaultPost.bind(this));
+    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPost(p, rq, rs); });
   }
 
   async activeFilePatch(
@@ -1237,7 +1236,7 @@ export default class RequestHandler {
       file,
       req,
       res,
-      this._vaultPatch.bind(this),
+      (p, rq, rs) => { void this._vaultPatch(p, rq, rs); },
     );
   }
 
@@ -1263,7 +1262,7 @@ export default class RequestHandler {
       file,
       req,
       res,
-      this._vaultDelete.bind(this),
+      (p, rq, rs) => { void this._vaultDelete(p, rq, rs); },
     );
   }
 
@@ -1445,7 +1444,7 @@ export default class RequestHandler {
         const originalSend = res.send;
         res.send = function (body, ...args) {
           console.debug(`[REST API] ${req.method} ${req.url} => ${res.statusCode}`);
-          return originalSend.apply(res, [body, ...args]);
+          return originalSend.apply(res, [body, ...args]) as ReturnType<typeof res.send>;
         };
       }
       next();
@@ -1507,52 +1506,52 @@ export default class RequestHandler {
 
     this.api
       .route("/active/*")
-      .get(this.activeFileGet.bind(this))
-      .put(this.activeFilePut.bind(this))
-      .patch(this.activeFilePatch.bind(this))
-      .post(this.activeFilePost.bind(this))
-      .delete(this.activeFileDelete.bind(this));
+      .get((rq, rs) => { void this.activeFileGet(rq, rs); })
+      .put((rq, rs) => { void this.activeFilePut(rq, rs); })
+      .patch((rq, rs) => { void this.activeFilePatch(rq, rs); })
+      .post((rq, rs) => { void this.activeFilePost(rq, rs); })
+      .delete((rq, rs) => { void this.activeFileDelete(rq, rs); });
 
     this.api
       .route("/vault/*")
-      .get(this.vaultGet.bind(this))
-      .put(this.vaultPut.bind(this))
-      .patch(this.vaultPatch.bind(this))
-      .post(this.vaultPost.bind(this))
-      .delete(this.vaultDelete.bind(this));
+      .get((rq, rs) => { void this.vaultGet(rq, rs); })
+      .put((rq, rs) => { void this.vaultPut(rq, rs); })
+      .patch((rq, rs) => { void this.vaultPatch(rq, rs); })
+      .post((rq, rs) => { void this.vaultPost(rq, rs); })
+      .delete((rq, rs) => { void this.vaultDelete(rq, rs); });
 
     this.api
       .route("/periodic/:period/:year(\\d{4})/:month(\\d{1,2})/:day(\\d{1,2})/*")
-      .get(this.periodicGet.bind(this))
-      .put(this.periodicPut.bind(this))
-      .patch(this.periodicPatch.bind(this))
-      .post(this.periodicPost.bind(this))
-      .delete(this.periodicDelete.bind(this));
+      .get((rq, rs) => { void this.periodicGet(rq, rs); })
+      .put((rq, rs) => { void this.periodicPut(rq, rs); })
+      .patch((rq, rs) => { void this.periodicPatch(rq, rs); })
+      .post((rq, rs) => { void this.periodicPost(rq, rs); })
+      .delete((rq, rs) => { void this.periodicDelete(rq, rs); });
     this.api
       .route("/periodic/:period/*")
-      .get(this.periodicGet.bind(this))
-      .put(this.periodicPut.bind(this))
-      .patch(this.periodicPatch.bind(this))
-      .post(this.periodicPost.bind(this))
-      .delete(this.periodicDelete.bind(this));
+      .get((rq, rs) => { void this.periodicGet(rq, rs); })
+      .put((rq, rs) => { void this.periodicPut(rq, rs); })
+      .patch((rq, rs) => { void this.periodicPatch(rq, rs); })
+      .post((rq, rs) => { void this.periodicPost(rq, rs); })
+      .delete((rq, rs) => { void this.periodicDelete(rq, rs); });
 
-    this.api.route("/tags/").get(this.tagsGet.bind(this));
+    this.api.route("/tags/").get((rq, rs) => { void this.tagsGet(rq, rs); });
 
-    this.api.route("/commands/").get(this.commandGet.bind(this));
-    this.api.route("/commands/:commandId/").post(this.commandPost.bind(this));
+    this.api.route("/commands/").get((rq, rs) => { void this.commandGet(rq, rs); });
+    this.api.route("/commands/:commandId/").post((rq, rs) => { void this.commandPost(rq, rs); });
 
-    this.api.route("/search/").post(this.searchQueryPost.bind(this));
-    this.api.route("/search/simple/").post(this.searchSimplePost.bind(this));
+    this.api.route("/search/").post((rq, rs) => { void this.searchQueryPost(rq, rs); });
+    this.api.route("/search/simple/").post((rq, rs) => { void this.searchSimplePost(rq, rs); });
 
-    this.api.route("/open/*").post(this.openPost.bind(this));
+    this.api.route("/open/*").post((rq, rs) => { void this.openPost(rq, rs); });
 
-    this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
-    this.api.get("/openapi.yaml", this.openapiYamlGet.bind(this));
-    this.api.get("/", this.root.bind(this));
+    this.api.get(`/${CERT_NAME}`, (rq, rs) => { void this.certificateGet(rq, rs); });
+    this.api.get("/openapi.yaml", (rq, rs) => { void this.openapiYamlGet(rq, rs); });
+    this.api.get("/", (rq, rs) => { void this.root(rq, rs); });
 
     this.api.use(this.apiExtensionRouter);
 
-    this.api.use(this.notFoundHandler.bind(this));
-    this.api.use(this.errorHandler.bind(this));
+    this.api.use((rq, rs, next) => { void this.notFoundHandler(rq, rs, next); });
+    this.api.use((err: Error, rq: express.Request, rs: express.Response, next: express.NextFunction) => { void this.errorHandler(err, rq, rs, next); });
   }
 }
