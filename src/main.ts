@@ -66,7 +66,7 @@ export default class LocalRestApi extends Plugin {
       certificate.setIssuer(attrs);
       certificate.setSubject(attrs);
 
-      const subjectAltNames: Record<string, any>[] = [
+      const subjectAltNames: Record<string, unknown>[] = [
         {
           type: 7, // IP
           ip: DefaultBindingHost,
@@ -159,20 +159,20 @@ export default class LocalRestApi extends Plugin {
     }
 
     if (this.settings.enableVerboseLogging) {
-      console.log("[REST API] Added new API extension", pluginManifest);
+      console.debug("[REST API] Added new API extension", pluginManifest);
     }
 
     return this.requestHandler.registerApiExtension(pluginManifest);
   }
 
-  debounce<F extends (...args: any[]) => any>(
+  debounce<F extends (...args: unknown[]) => unknown>(
     func: F,
     delay: number
   ): (...args: Parameters<F>) => void {
     let debounceTimer: number;
     return (...args: Parameters<F>): void => {
-      activeWindow.clearTimeout(debounceTimer);
-      debounceTimer = activeWindow.setTimeout(() => func(...args), delay);
+      window.clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(() => func(...args), delay);
     };
   }
 
@@ -195,7 +195,7 @@ export default class LocalRestApi extends Plugin {
       );
 
       if (this.settings.enableVerboseLogging) {
-        console.log(
+        console.debug(
           `[REST API] Listening on https://${
             this.settings.bindingHost ?? DefaultBindingHost
           }:${this.settings.port}/`
@@ -215,7 +215,7 @@ export default class LocalRestApi extends Plugin {
       );
 
       if (this.settings.enableVerboseLogging) {
-        console.log(
+        console.debug(
           `[REST API] Listening on http://${
             this.settings.bindingHost ?? DefaultBindingHost
           }:${this.settings.insecurePort}/`
@@ -265,14 +265,14 @@ class LocalRestApiSettingTab extends PluginSettingTab {
 
     containerEl.empty();
     containerEl.classList.add("obsidian-local-rest-api-settings");
-    new Setting(containerEl).setHeading().setName("Local REST API & MCP Server");
-    new Setting(containerEl).setHeading().setName("How to Access via REST");
+    new Setting(containerEl).setHeading().setName("Local REST API & MCP server");
+    new Setting(containerEl).setHeading().setName("How to access via REST");
 
     const apiKeyDiv = containerEl.createDiv();
     apiKeyDiv.classList.add("api-key-display");
 
     apiKeyDiv.createEl("p", {
-      text: "You can access Obsidian Local REST API & MCP Server via the following URLs:",
+      text: "You can access Obsidian local REST API & MCP server via the following URLs:",
     });
 
     const addUrlRow = (container: HTMLElement, url: string) => {
@@ -305,14 +305,14 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     secureNote.createSpan({ text: "Requires that " });
     secureNote.createEl("a", {
       href: `https://127.0.0.1:${this.plugin.settings.port}/${CERT_NAME}`,
-      text: "this certificate",
+      text: "This certificate",
     });
     secureNote.createSpan({
       text: " be configured as a trusted certificate authority for your browser.  See ",
     });
     secureNote.createEl("a", {
       href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
-      text: "wiki",
+      text: "Wiki",
     });
     secureNote.createSpan({ text: " for more information." });
 
@@ -380,7 +380,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
     seeMore.createEl("a", {
       href: "https://coddingtonbear.github.io/obsidian-local-rest-api/",
-      text: "the online docs",
+      text: "The online docs",
     });
     seeMore.createSpan({ text: "." });
 
@@ -420,14 +420,14 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     mcpSecureNote.createSpan({ text: "Requires that " });
     mcpSecureNote.createEl("a", {
       href: `https://127.0.0.1:${this.plugin.settings.port}/${CERT_NAME}`,
-      text: "this certificate",
+      text: "This certificate",
     });
     mcpSecureNote.createSpan({
       text: " be configured as a trusted certificate authority.  See ",
     });
     mcpSecureNote.createEl("a", {
       href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
-      text: "wiki",
+      text: "Wiki",
     });
     mcpSecureNote.createSpan({ text: " for more information." });
 
@@ -452,7 +452,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
     mcpInsecureTr.createEl("td", {
       cls: "name",
-      text: "Non-encrypted (HTTP) MCP Endpoint",
+      text: "Non-encrypted (HTTP) MCP endpoint",
     });
 
     const mcpInsecureUrlsTd = mcpInsecureTr.createEl("td", { cls: "url" });
@@ -489,7 +489,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     );
 
     mcpDiv.createEl("p", {
-      text: "Example Claude Code MCP configuration (for .claude/settings.json):",
+      text: "Example Claude code MCP configuration (for .Claude/settings.json):",
     });
     mcpDiv.createEl("pre", { text: mcpSampleConfig });
 
@@ -499,7 +499,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
     mcpSeeMore.createEl("a", {
       href: "https://github.com/coddingtonbear/obsidian-local-rest-api#readme",
-      text: "the project readme",
+      text: "The project readme",
     });
     mcpSeeMore.createSpan({ text: "." });
 
@@ -537,9 +537,9 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     }
 
     new Setting(containerEl)
-      .setName("Enable Non-encrypted (HTTP) Server")
+      .setName("Enable non-encrypted (HTTP) server")
       .setDesc(
-        "Enables a non-encrypted (HTTP) server on the port designated below.  By default this plugin requires a secure HTTPS connection, but in safe environments you may turn on the non-encrypted server to simplify interacting with the API. Interactions with the API will still require the API Key shown above.  Under no circumstances is it recommended that you expose this service to the internet, especially if you turn on this feature!"
+        "Enables a non-encrypted (HTTP) server on the port designated below.  By default this plugin requires a secure HTTPS connection, but in safe environments you may turn on the non-encrypted server to simplify interacting with the API. Interactions with the API will still require the API key shown above.  Under no circumstances is it recommended that you expose this service to the internet, especially if you turn on this feature!"
       )
       .addToggle((cb) =>
         cb
@@ -557,7 +557,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Reset All Cryptography")
+      .setName("Reset all cryptography")
       .setDesc(
         `Pressing this button will cause your certificate,
         private key, public key, and API key to be regenerated.
@@ -565,7 +565,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       )
       .addButton((cb) => {
         cb.setWarning()
-          .setButtonText("Reset All Crypto")
+          .setButtonText("Reset all crypto")
           .onClick(() => {
             delete this.plugin.settings.apiKey;
             delete this.plugin.settings.crypto;
@@ -576,7 +576,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Re-generate Certificates")
+      .setName("Re-generate certificates")
       .setDesc(
         `Pressing this button will cause your certificate,
         private key,  and public key to be re-generated, but your API key will remain unchanged. 
@@ -584,7 +584,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       )
       .addButton((cb) => {
         cb.setWarning()
-          .setButtonText("Re-generate Certificates")
+          .setButtonText("Re-generate certificates")
           .onClick(() => {
             delete this.plugin.settings.crypto;
             void this.plugin.saveSettings();
@@ -594,7 +594,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Restore Default Settings")
+      .setName("Restore default settings")
       .setDesc(
         `Pressing this button will reset this plugin's
         settings to defaults.
@@ -602,7 +602,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       )
       .addButton((cb) => {
         cb.setWarning()
-          .setButtonText("Restore Defaults")
+          .setButtonText("Restore defaults")
           .onClick(() => {
             this.plugin.settings = Object.assign({}, DEFAULT_SETTINGS);
             void this.plugin.saveSettings();
@@ -626,7 +626,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       });
 
     if (this.showAdvancedSettings) {
-      new Setting(containerEl).setHeading().setName("Advanced Settings");
+      new Setting(containerEl).setHeading().setName("Advanced settings");
       containerEl.createEl("p", {
         text: `
           The settings below are potentially dangerous and
@@ -652,13 +652,9 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       noWarrantee.createSpan({ text: "." });
 
       new Setting(containerEl)
-        .setName("Enable Encrypted (HTTPs) Server")
+        .setName("Enable encrypted (HTTPS) server")
         .setDesc(
-          `
-          This controls whether the HTTPs server is enabled.  You almost certainly want to leave this switch in its default state ('on'),
-          but may find it useful to turn this switch off for
-          troubleshooting.
-        `
+          "\n          This controls whether the HTTPS server is enabled.  You almost certainly want to leave this switch in its default state ('on'),\n          but may find it useful to turn this switch off for\n          troubleshooting.\n        "
         )
         .addToggle((cb) =>
           cb
@@ -675,7 +671,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         );
 
       new Setting(containerEl)
-        .setName("Encrypted (HTTPS) Server Port")
+        .setName("Encrypted (HTTPS) server port")
         .setDesc(
           "This configures the port on which your REST API will listen for HTTPS connections.  It is recommended that you leave this port with its default setting as tools integrating with this API may expect the default port to be in use.  Under no circumstances is it recommended that you expose this service directly to the internet."
         )
@@ -690,7 +686,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         );
 
       new Setting(containerEl)
-        .setName("Non-encrypted (HTTP) Server Port")
+        .setName("Non-encrypted (HTTP) server port")
         .addText((cb) =>
           cb
             .onChange((value) => {
@@ -701,7 +697,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             .setValue(this.plugin.settings.insecurePort.toString())
         );
 
-      new Setting(containerEl).setName("API Key").addText((cb) => {
+      new Setting(containerEl).setName("API key").addText((cb) => {
         cb.onChange((value) => {
           this.plugin.settings.apiKey = value;
           void this.plugin.saveSettings();
@@ -709,7 +705,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         }).setValue(this.plugin.settings.apiKey);
       });
       new Setting(containerEl)
-        .setName("Certificate Hostnames")
+        .setName("Certificate hostnames")
         .setDesc(
           `
           List of extra hostnames to add
@@ -739,7 +735,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           })
           .setValue(this.plugin.settings.crypto.cert)
       );
-      new Setting(containerEl).setName("Public Key").addTextArea((cb) =>
+      new Setting(containerEl).setName("Public key").addTextArea((cb) =>
         cb
           .onChange((value) => {
             this.plugin.settings.crypto.publicKey = value;
@@ -748,7 +744,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           })
           .setValue(this.plugin.settings.crypto.publicKey)
       );
-      new Setting(containerEl).setName("Private Key").addTextArea((cb) =>
+      new Setting(containerEl).setName("Private key").addTextArea((cb) =>
         cb
           .onChange((value) => {
             this.plugin.settings.crypto.privateKey = value;
@@ -757,7 +753,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           })
           .setValue(this.plugin.settings.crypto.privateKey)
       );
-      new Setting(containerEl).setName("Authorization Header").addText((cb) => {
+      new Setting(containerEl).setName("Authorization header").addText((cb) => {
         cb.onChange((value) => {
           if (value !== DefaultBearerTokenHeaderName) {
             this.plugin.settings.authorizationHeaderName = value;
@@ -771,7 +767,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             DefaultBearerTokenHeaderName
         );
       });
-      new Setting(containerEl).setName("Binding Host").addText((cb) => {
+      new Setting(containerEl).setName("Binding host").addText((cb) => {
         cb.onChange((value) => {
           if (value !== DefaultBindingHost) {
             this.plugin.settings.bindingHost = value;

@@ -6,7 +6,7 @@ if (!API_KEY) {
 }
 
 export function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const headers = new Headers(init.headers as HeadersInit | undefined);
+  const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${API_KEY}`);
   return fetch(`${BASE_URL}${path}`, { ...init, headers });
 }
@@ -41,7 +41,7 @@ export async function resetFixture(content: string, path: string): Promise<void>
 
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => window.setTimeout(r, 100));
     const check = await authedFetch(`/vault/${path}`, {
       headers: { Accept: "application/vnd.olrapi.note+json" },
     });

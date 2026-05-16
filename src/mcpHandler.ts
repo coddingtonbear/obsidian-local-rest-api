@@ -40,12 +40,12 @@ export class McpHandler {
       try {
         const result = await callback(args);
         if (this.settings.enableVerboseLogging) {
-          console.log(`[MCP] ${name} => ok`);
+          console.debug(`[MCP] ${name} => ok`);
         }
         return result;
       } catch (e) {
         if (this.settings.enableVerboseLogging) {
-          console.log(`[MCP] ${name} => error`);
+          console.debug(`[MCP] ${name} => error`);
         }
         throw e;
       }

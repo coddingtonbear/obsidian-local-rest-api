@@ -208,7 +208,7 @@ export default class RequestHandler {
       if (this.settings.crypto?.cert) {
         certificate = forge.pki.certificateFromPem(this.settings.crypto.cert);
       }
-    } catch (e) {
+    } catch {
       // This is fine, we just won't include that in the output
     }
 
@@ -764,7 +764,7 @@ export default class RequestHandler {
       if (e instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else if (e instanceof PatchFailed) {
-        this.returnCannedResponse(res, { errorCode: ErrorCode.PatchFailed, message: (e as PatchFailed).reason });
+        this.returnCannedResponse(res, { errorCode: ErrorCode.PatchFailed, message: (e).reason });
       } else {
         this.returnCannedResponse(res, { statusCode: 500, message: (e as Error).message });
       }
@@ -1444,7 +1444,7 @@ export default class RequestHandler {
       if (this.settings.enableVerboseLogging) {
         const originalSend = res.send;
         res.send = function (body, ...args) {
-          console.log(`[REST API] ${req.method} ${req.url} => ${res.statusCode}`);
+          console.debug(`[REST API] ${req.method} ${req.url} => ${res.statusCode}`);
           return originalSend.apply(res, [body, ...args]);
         };
       }
@@ -1473,6 +1473,7 @@ export default class RequestHandler {
       next();
     });
     mcpRouter.use(express.json({ limit: MaximumRequestSize }));
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     mcpRouter.all("/", async (req, res) => this.mcpHandler.handleRequest(req, res));
     this.api.use("/mcp", mcpRouter);
 

@@ -22,7 +22,6 @@ import {
   HeadingCache,
   PluginManifest,
   _prepareSimpleSearchMock,
-  SearchResult,
 } from "../mocks/obsidian";
 
 describe("requestHandler", () => {
@@ -1377,7 +1376,7 @@ describe("requestHandler", () => {
           return {
             score,
             matches,
-          } as SearchResult;
+          };
         };
       };
     });
@@ -1646,7 +1645,7 @@ describe("requestHandler", () => {
           return {
             score: 1,
             matches,
-          } as SearchResult;
+          };
         };
       };
 
@@ -1684,7 +1683,7 @@ describe("requestHandler", () => {
           return {
             score: 3,
             matches,
-          } as SearchResult;
+          };
         };
       };
 

@@ -1,3 +1,4 @@
+// eslint-disable-next-line no-restricted-imports -- Moment type is not re-exported by 'obsidian'; import type causes no runtime bundling
 import type { Moment } from "moment";
 import { FileStats, Loc, TFile } from "obsidian";
 import { IPeriodicNoteSettings } from "obsidian-daily-notes-interface";

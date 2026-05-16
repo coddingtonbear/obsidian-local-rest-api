@@ -10,6 +10,8 @@ jobs:
         node-version: '18'
     - name: Install modules
       run: npm i
+    - name: Lint
+      run: npm run lint
     - name: Run tests
       run: npm test
     - name: Build

@@ -15,12 +15,12 @@ import {
   PatchOperation,
   PatchTargetType,
 } from "markdown-patch";
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+ 
 const jsonLogic = require("json-logic-js") as {
   apply: (logic: unknown, data?: unknown) => unknown;
   add_operation: (name: string, code: (...args: unknown[]) => unknown) => void;
 };
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+ 
 const WildcardRegexp = require("glob-to-regexp") as (pattern: string) => RegExp;
 
 export class FileNotFoundError extends Error {}
@@ -77,12 +77,12 @@ export class VaultOperations {
         if (changedFile.path === file.path && !resolved) {
           resolved = true;
           this.app.metadataCache.off("changed", onCacheChange);
-          activeWindow.clearTimeout(timeoutId);
+          window.clearTimeout(timeoutId);
           resolve(this.app.metadataCache.getFileCache(file));
         }
       };
 
-      const timeoutId = activeWindow.setTimeout(() => {
+      const timeoutId = window.setTimeout(() => {
         if (!resolved) {
           resolved = true;
           this.app.metadataCache.off("changed", onCacheChange);
@@ -99,7 +99,7 @@ export class VaultOperations {
       if (cacheAfterListener && !resolved) {
         resolved = true;
         this.app.metadataCache.off("changed", onCacheChange);
-        activeWindow.clearTimeout(timeoutId);
+        window.clearTimeout(timeoutId);
         resolve(cacheAfterListener);
       }
     });
@@ -578,6 +578,6 @@ export class VaultOperations {
   }
 
   openVaultFile(filePath: string, newLeaf = false): void {
-    this.app.workspace.openLinkText(filePath, "/", newLeaf);
+    void this.app.workspace.openLinkText(filePath, "/", newLeaf);
   }
 }

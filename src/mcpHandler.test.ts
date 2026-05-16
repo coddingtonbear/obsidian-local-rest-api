@@ -35,7 +35,7 @@ jest.mock("@modelcontextprotocol/sdk/server/streamableHttp.js", () => ({
     };
     // Defer so the outer `const transport = new ...` assignment completes first,
     // matching the real SDK which only calls this after processing the initialize message.
-    Promise.resolve().then(() => opts?.onsessioninitialized?.(mockNewSessionId));
+    void Promise.resolve().then(() => opts?.onsessioninitialized?.(mockNewSessionId));
     return transport;
   }),
 }));
@@ -132,7 +132,7 @@ function parseText(result: { content: Array<{ type: string; text: string }> }) {
 // ---------------------------------------------------------------------------
 
 describe("McpHandler", () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   let ops: any;
 
   beforeEach(() => {
