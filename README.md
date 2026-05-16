@@ -1,4 +1,4 @@
-# Local REST API and MCP Server for Obsidian
+# Local REST API & MCP Server
 
 Give your scripts, browser extensions, and AI agents a direct line into your Obsidian vault via a secure, authenticated REST API.
 
