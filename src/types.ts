@@ -1,6 +1,6 @@
 // eslint-disable-next-line no-restricted-imports -- Moment type is not re-exported by 'obsidian'; import type causes no runtime bundling
 import type { Moment } from "moment";
-import { FileStats, Loc, TFile } from "obsidian";
+import { FileStats, TFile } from "obsidian";
 import { IPeriodicNoteSettings } from "obsidian-daily-notes-interface";
 
 export enum ErrorCode {
@@ -8,9 +8,6 @@ export enum ErrorCode {
   ContentTypeSpecificationRequired = 40011,
   InvalidContentType = 40012,
   InvalidContentForContentType = 40015,
-  InvalidContentInsertionPositionValue = 40050,
-  MissingHeadingHeader = 40051,
-  InvalidHeadingHeader = 40052,
   MissingTargetTypeHeader = 40053,
   InvalidTargetTypeHeader = 40054,
   MissingTargetHeader = 40055,
@@ -46,11 +43,6 @@ export interface LocalRestApiSettings {
   bindingHost?: string;
   subjectAltNames?: string;
   enableVerboseLogging?: boolean;
-}
-
-export interface HeadingBoundary {
-  start: Loc;
-  end?: Loc;
 }
 
 export interface PeriodicNoteInterface {

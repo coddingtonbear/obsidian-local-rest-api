@@ -30,10 +30,8 @@ import {
   SearchJsonResponseItem,
 } from "./types";
 import {
-  findHeadingBoundary,
   getCertificateIsUptoStandards,
   getCertificateValidityDays,
-  getSplicePosition,
 } from "./utils";
 import {
   CERT_NAME,
@@ -533,106 +531,16 @@ export default class RequestHandler {
     return this._vaultPut(rawPath, req, res);
   }
 
-  async _vaultPatchV2(
+  async _vaultPatch(
     path: string,
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const headingBoundary = req.get("Heading-Boundary") || "::";
-    const heading = (req.get("Heading") || "")
-      .split(headingBoundary)
-      .filter(Boolean);
-    const contentPosition = req.get("Content-Insertion-Position");
-    let insert = false;
-    let aboveNewLine = false;
-
-    if (contentPosition === undefined) {
-      insert = false;
-    } else if (contentPosition === "beginning") {
-      insert = true;
-    } else if (contentPosition === "end") {
-      insert = false;
-    } else {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.InvalidContentInsertionPositionValue,
-      });
-      return;
-    }
-    if (typeof req.body != "string") {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.TextContentEncodingRequired,
-      });
+    if (!path || path.endsWith("/")) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.RequestMethodValidOnlyForFiles });
       return;
     }
 
-    if (typeof req.get("Content-Insertion-Ignore-Newline") == "string") {
-      aboveNewLine =
-        req.get("Content-Insertion-Ignore-Newline")?.toLowerCase() == "true";
-    }
-
-    if (!heading.length) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.MissingHeadingHeader,
-      });
-      return;
-    }
-
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) {
-      this.returnCannedResponse(res, {
-        statusCode: 404,
-      });
-      return;
-    }
-    const cache = this.app.metadataCache.getFileCache(file);
-    if (!cache) {
-      throw new Error(
-        "Error awaiting metadata cache for file in _vaultPatchV2: cache is null",
-      );
-    }
-    const position = findHeadingBoundary(cache, heading);
-
-    if (!position) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.InvalidHeadingHeader,
-      });
-      return;
-    }
-
-    const fileContents = await this.app.vault.read(file);
-    const fileLines = fileContents.split("\n");
-
-    const splicePosition = getSplicePosition(
-      fileLines,
-      position,
-      insert,
-      aboveNewLine,
-    );
-
-    fileLines.splice(splicePosition, 0, req.body);
-
-    const content = fileLines.join("\n");
-
-    await this.app.vault.adapter.write(path, content);
-
-    console.warn(
-      `2.x PATCH implementation is deprecated and will be removed in version 4.0`,
-    );
-    res
-      .header("Deprecation", 'true; sunset-version="4.0"')
-      .header(
-        "Link",
-        '<https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0>; rel="alternate"',
-      )
-      .status(200)
-      .send(content);
-  }
-
-  async _vaultPatchV3(
-    path: string,
-    req: express.Request,
-    res: express.Response,
-  ): Promise<void> {
     const operation = req.get("Operation");
     const targetType = req.get("Target-Type");
     const rawTarget = decodeURIComponent(req.get("Target") ?? "");
@@ -669,10 +577,6 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidContentType });
       return;
     }
-    if (!path || path.endsWith("/")) {
-      this.returnCannedResponse(res, { errorCode: ErrorCode.RequestMethodValidOnlyForFiles });
-      return;
-    }
 
     try {
       const patched = await this.operations.patchFileSection(
@@ -689,24 +593,6 @@ export default class RequestHandler {
         this.returnCannedResponse(res, { statusCode: 500, message: (e as Error).message });
       }
     }
-  }
-
-  async _vaultPatch(
-    path: string,
-    req: express.Request,
-    res: express.Response,
-  ): Promise<void> {
-    if (!path || path.endsWith("/")) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
-      });
-      return;
-    }
-
-    if (req.get("Heading") && !req.get("Target-Type")) {
-      return this._vaultPatchV2(path, req, res);
-    }
-    return this._vaultPatchV3(path, req, res);
   }
 
   async vaultPatch(req: express.Request, res: express.Response): Promise<void> {

@@ -261,9 +261,6 @@ paths:
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
         
-        > ![note]
-        > Note that this API was changed in Version 3.0 of this extension and the earlier PATCH API is now deprecated. Requests made using the previous version of this API will continue to work until Version 4.0 is released.  See https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0 for more details and migration instructions.
-        
         # How to Use & Examples
         
         All of the below examples assume you have a document that looks like
@@ -1293,9 +1290,6 @@ paths:
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
         
-        > ![note]
-        > Note that this API was changed in Version 3.0 of this extension and the earlier PATCH API is now deprecated. Requests made using the previous version of this API will continue to work until Version 4.0 is released.  See https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0 for more details and migration instructions.
-        
         # How to Use & Examples
         
         All of the below examples assume you have a document that looks like
@@ -2106,9 +2100,6 @@ paths:
         Inserts content into a periodic note for the specified period and date relative to a heading, block reference, or frontmatter field within that document.
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
-        
-        > ![note]
-        > Note that this API was changed in Version 3.0 of this extension and the earlier PATCH API is now deprecated. Requests made using the previous version of this API will continue to work until Version 4.0 is released.  See https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0 for more details and migration instructions.
         
         # How to Use & Examples
         
@@ -3151,9 +3142,6 @@ paths:
         Inserts content into an existing note relative to a heading, block reference, or frontmatter field within that document.
         
         Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
-        
-        > ![note]
-        > Note that this API was changed in Version 3.0 of this extension and the earlier PATCH API is now deprecated. Requests made using the previous version of this API will continue to work until Version 4.0 is released.  See https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0 for more details and migration instructions.
         
         # How to Use & Examples
         

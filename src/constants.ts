@@ -17,14 +17,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "Content-Type header required; this API accepts data in multiple content-types and you must indicate the content-type of your request body via the Content-Type header.",
   [ErrorCode.InvalidContentType]:
     "Unknown or invalid Content-Type specified in Content-Type header.",
-  [ErrorCode.InvalidContentInsertionPositionValue]:
-    "Invalid 'Content-Insertion-Position' header value.",
   [ErrorCode.InvalidContentForContentType]:
     "Your request body could not be processed as the content-type specified in your Content-Type header.",
-  [ErrorCode.InvalidHeadingHeader]:
-    "No heading in specified file could be found matching the heading specified in 'Heading' header.",
-  [ErrorCode.MissingHeadingHeader]:
-    "'Heading' header is required for identifying where to insert content.",
   [ErrorCode.PeriodDoesNotExist]: "Specified period does not exist.",
   [ErrorCode.PeriodIsNotEnabled]: "Specified period is not enabled.",
   [ErrorCode.PeriodicNoteDoesNotExist]:
