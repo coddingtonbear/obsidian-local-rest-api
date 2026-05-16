@@ -181,7 +181,7 @@ export default class LocalRestApi extends Plugin {
       this.secureServer.close();
       this.secureServer = null;
     }
-    if (this.settings.enableSecureServer ?? true) {
+    if ((this.settings.enableSecureServer ?? true) && this.settings.crypto) {
       this.secureServer = https.createServer(
         {
           key: this.settings.crypto.privateKey,
@@ -255,12 +255,12 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.replaceChildren();
 
-    const parsedCertificate = forge.pki.certificateFromPem(
+    const parsedCertificate = this.plugin.settings.crypto && forge.pki.certificateFromPem(
       this.plugin.settings.crypto.cert
     );
-    const remainingCertificateValidityDays =
+    const remainingCertificateValidityDays = parsedCertificate &&
       getCertificateValidityDays(parsedCertificate);
-    const shouldRegenerateCertificate =
+    const shouldRegenerateCertificate = parsedCertificate &&
       !getCertificateIsUptoStandards(parsedCertificate);
 
     containerEl.empty();
@@ -302,17 +302,17 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     secureNameTd.createEl("br");
     secureNameTd.createEl("br");
     const secureNote = secureNameTd.createEl("i");
-    secureNote.createSpan({ text: "Requires that " });
+    secureNote.createSpan({ text: "Requires that" });
     secureNote.createEl("a", {
       href: `https://127.0.0.1:${this.plugin.settings.port}/${CERT_NAME}`,
-      text: "This certificate",
+      text: " this certificate",
     });
     secureNote.createSpan({
-      text: " be configured as a trusted certificate authority for your browser.  See ",
+      text: " be configured as a trusted certificate authority for your browser.  See",
     });
     secureNote.createEl("a", {
       href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
-      text: "Wiki",
+      text: " wiki",
     });
     secureNote.createSpan({ text: " for more information." });
 
@@ -376,11 +376,11 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
     const seeMore = apiKeyDiv.createEl("p");
     seeMore.createSpan({
-      text: "Comprehensive documentation of what API endpoints are available can be found in ",
+      text: "Comprehensive documentation of what API endpoints are available can be found in",
     });
     seeMore.createEl("a", {
       href: "https://coddingtonbear.github.io/obsidian-local-rest-api/",
-      text: "The online docs",
+      text: " the online docs",
     });
     seeMore.createSpan({ text: "." });
 
@@ -417,17 +417,17 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     mcpSecureNameTd.createEl("br");
     mcpSecureNameTd.createEl("br");
     const mcpSecureNote = mcpSecureNameTd.createEl("i");
-    mcpSecureNote.createSpan({ text: "Requires that " });
+    mcpSecureNote.createSpan({ text: "Requires that" });
     mcpSecureNote.createEl("a", {
       href: `https://127.0.0.1:${this.plugin.settings.port}/${CERT_NAME}`,
-      text: "This certificate",
+      text: " this certificate",
     });
     mcpSecureNote.createSpan({
-      text: " be configured as a trusted certificate authority.  See ",
+      text: " be configured as a trusted certificate authority.  See",
     });
     mcpSecureNote.createEl("a", {
       href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
-      text: "Wiki",
+      text: " wiki",
     });
     mcpSecureNote.createSpan({ text: " for more information." });
 
@@ -495,24 +495,24 @@ class LocalRestApiSettingTab extends PluginSettingTab {
 
     const mcpSeeMore = mcpDiv.createEl("p");
     mcpSeeMore.createSpan({
-      text: "Configuration examples for other MCP clients can be found in ",
+      text: "Configuration examples for other MCP clients can be found in",
     });
     mcpSeeMore.createEl("a", {
       href: "https://github.com/coddingtonbear/obsidian-local-rest-api#readme",
-      text: "The project readme",
+      text: " the project readme",
     });
     mcpSeeMore.createSpan({ text: "." });
 
     new Setting(containerEl).setHeading().setName("Settings");
 
-    if (remainingCertificateValidityDays < 0) {
+    if (remainingCertificateValidityDays && remainingCertificateValidityDays < 0) {
       const expiredCertDiv = apiKeyDiv.createDiv();
       expiredCertDiv.classList.add("certificate-expired");
       expiredCertDiv.createEl("b", { text: "Your certificate has expired!" });
       expiredCertDiv.createSpan({
         text: ' You must re-generate your certificate below by pressing the "Re-generate Certificates" button below in order to connect securely to this API.',
       });
-    } else if (remainingCertificateValidityDays < 30) {
+    } else if (remainingCertificateValidityDays &&remainingCertificateValidityDays < 30) {
       const soonExpiringCertDiv = apiKeyDiv.createDiv();
       soonExpiringCertDiv.classList.add("certificate-expiring-soon");
       const daysRemaining = Math.floor(remainingCertificateValidityDays);
@@ -702,7 +702,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           this.plugin.settings.apiKey = value;
           void this.plugin.saveSettings();
           this.plugin.refreshServerState();
-        }).setValue(this.plugin.settings.apiKey);
+        }).setValue(this.plugin.settings.apiKey ?? "");
       });
       new Setting(containerEl)
         .setName("Certificate hostnames")
@@ -724,7 +724,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
               this.plugin.settings.subjectAltNames = value;
               void this.plugin.saveSettings();
             })
-            .setValue(this.plugin.settings.subjectAltNames)
+            .setValue(this.plugin.settings.subjectAltNames ?? "")
         );
       new Setting(containerEl).setName("Certificate").addTextArea((cb) =>
         cb
