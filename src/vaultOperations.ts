@@ -164,6 +164,7 @@ export class VaultOperations {
   async getFileMetadataObject(
     file: TFile,
     backlinksIndex?: Record<string, string[]>,
+    includeContent = true,
   ): Promise<FileMetadataObject> {
     const cache = await this.waitForFileCache(file);
 
@@ -193,7 +194,7 @@ export class VaultOperations {
       frontmatter: frontmatter,
       stat: file.stat,
       path: file.path,
-      content: await this.app.vault.cachedRead(file),
+      content: includeContent ? await this.app.vault.cachedRead(file) : "",
       links,
       backlinks,
     };
@@ -515,9 +516,10 @@ export class VaultOperations {
   ): Promise<SearchJsonResponseItem[]> {
     const results: SearchJsonResponseItem[] = [];
     const backlinksIndex = this.buildBacklinksIndex();
+    const includeContent = JSON.stringify(query).includes('"content"');
 
     for (const file of this.app.vault.getMarkdownFiles()) {
-      const fileContext = await this.getFileMetadataObject(file, backlinksIndex);
+      const fileContext = await this.getFileMetadataObject(file, backlinksIndex, includeContent);
 
       try {
         const fileResult = jsonLogic.apply(query, fileContext);
