@@ -19,3 +19,10 @@ main.js
 data.json
 
 dist/*
+
+# Swagger UI vendored bundles (loaded from CDN in docs/index.html)
+docs/swagger-ui*.js
+docs/swagger-ui*.css
+
+# Vim swap files
+*.swp
