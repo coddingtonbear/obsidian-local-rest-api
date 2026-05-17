@@ -178,6 +178,7 @@ export default class LocalRestApi extends Plugin {
 
   _refreshServerState() {
     if (this.secureServer) {
+      this.secureServer.closeAllConnections();
       this.secureServer.close();
       this.secureServer = null;
     }
@@ -204,6 +205,7 @@ export default class LocalRestApi extends Plugin {
     }
 
     if (this.insecureServer) {
+      this.insecureServer.closeAllConnections();
       this.insecureServer.close();
       this.insecureServer = null;
     }
@@ -226,9 +228,11 @@ export default class LocalRestApi extends Plugin {
 
   onunload() {
     if (this.secureServer) {
+      this.secureServer.closeAllConnections();
       this.secureServer.close();
     }
     if (this.insecureServer) {
+      this.insecureServer.closeAllConnections();
       this.insecureServer.close();
     }
   }

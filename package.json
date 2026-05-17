@@ -25,7 +25,7 @@
     "@types/glob-to-regexp": "^0.4.1",
     "@types/jest": "^29",
     "@types/mime-types": "^2.1.1",
-    "@types/node": "^16.11.6",
+    "@types/node": "^18",
     "@types/node-forge": "^1.0.0",
     "@types/supertest": "^2.0.11",
     "@types/uuid": "^8.3.4",
