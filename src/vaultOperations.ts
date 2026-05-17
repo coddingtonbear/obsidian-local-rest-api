@@ -149,7 +149,22 @@ export class VaultOperations {
     return content.substring(entry.content.start, entry.content.end);
   }
 
-  async getFileMetadataObject(file: TFile): Promise<FileMetadataObject> {
+  buildBacklinksIndex(): Record<string, string[]> {
+    const index: Record<string, string[]> = {};
+    for (const [sourcePath, targets] of Object.entries(
+      this.app.metadataCache.resolvedLinks,
+    )) {
+      for (const targetPath of Object.keys(targets)) {
+        (index[targetPath] ??= []).push(sourcePath);
+      }
+    }
+    return index;
+  }
+
+  async getFileMetadataObject(
+    file: TFile,
+    backlinksIndex?: Record<string, string[]>,
+  ): Promise<FileMetadataObject> {
     const cache = await this.waitForFileCache(file);
 
     const frontmatter = { ...(cache?.frontmatter ?? {}) };
@@ -170,14 +185,8 @@ export class VaultOperations {
       this.app.metadataCache.resolvedLinks[file.path] ?? {},
     );
 
-    const backlinks: string[] = [];
-    for (const [sourcePath, targets] of Object.entries(
-      this.app.metadataCache.resolvedLinks,
-    )) {
-      if (file.path in targets) {
-        backlinks.push(sourcePath);
-      }
-    }
+    const index = backlinksIndex ?? this.buildBacklinksIndex();
+    const backlinks = index[file.path] ?? [];
 
     return {
       tags: filteredTags,
@@ -505,9 +514,10 @@ export class VaultOperations {
     query: unknown,
   ): Promise<SearchJsonResponseItem[]> {
     const results: SearchJsonResponseItem[] = [];
+    const backlinksIndex = this.buildBacklinksIndex();
 
     for (const file of this.app.vault.getMarkdownFiles()) {
-      const fileContext = await this.getFileMetadataObject(file);
+      const fileContext = await this.getFileMetadataObject(file, backlinksIndex);
 
       try {
         const fileResult = jsonLogic.apply(query, fileContext);
