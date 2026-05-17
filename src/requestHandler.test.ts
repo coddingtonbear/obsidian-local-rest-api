@@ -1392,6 +1392,118 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("searchQueryPost", () => {
+    test("returns matching files for a frontmatter query", async () => {
+      const file1 = new TFile();
+      file1.path = "match.md";
+      const file2 = new TFile();
+      file2.path = "no-match.md";
+      app.vault._markdownFiles = [file1, file2];
+
+      const cache1 = new CachedMetadata();
+      cache1.frontmatter = { status: "done" };
+      const cache2 = new CachedMetadata();
+      cache2.frontmatter = { status: "todo" };
+
+      app.metadataCache.getFileCache = (file: TFile) => {
+        if (file.path === "match.md") return cache1;
+        if (file.path === "no-match.md") return cache2;
+        return null;
+      };
+
+      const result = await request(server)
+        .post("/search/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/vnd.olrapi.jsonlogic+json")
+        .send({ "==": [{ var: "frontmatter.status" }, "done"] })
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("match.md");
+    });
+
+    test("does not call cachedRead when query does not reference content", async () => {
+      const file1 = new TFile();
+      file1.path = "note.md";
+      app.vault._markdownFiles = [file1];
+
+      const cache = new CachedMetadata();
+      cache.frontmatter = { status: "done" };
+      app.metadataCache.getFileCache = () => cache;
+
+      const cachedReadSpy = jest.spyOn(app.vault, "cachedRead");
+
+      await request(server)
+        .post("/search/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/vnd.olrapi.jsonlogic+json")
+        .send({ "==": [{ var: "frontmatter.status" }, "done"] })
+        .expect(200);
+
+      expect(cachedReadSpy).not.toHaveBeenCalled();
+      cachedReadSpy.mockRestore();
+    });
+
+    test("calls cachedRead when query references content", async () => {
+      const file1 = new TFile();
+      file1.path = "note.md";
+      app.vault._markdownFiles = [file1];
+      app.vault._cachedRead = "hello world";
+
+      const cache = new CachedMetadata();
+      app.metadataCache.getFileCache = () => cache;
+
+      const cachedReadSpy = jest.spyOn(app.vault, "cachedRead");
+
+      const result = await request(server)
+        .post("/search/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/vnd.olrapi.jsonlogic+json")
+        .send({ in: ["hello", { var: "content" }] })
+        .expect(200);
+
+      expect(cachedReadSpy).toHaveBeenCalled();
+      expect(result.body).toHaveLength(1);
+      cachedReadSpy.mockRestore();
+    });
+
+    test("returns empty string for content when query does not reference content", async () => {
+      const file1 = new TFile();
+      file1.path = "note.md";
+      app.vault._markdownFiles = [file1];
+      app.vault._cachedRead = "actual file content";
+
+      const cache = new CachedMetadata();
+      app.metadataCache.getFileCache = () => cache;
+
+      const result = await request(server)
+        .post("/search/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/vnd.olrapi.jsonlogic+json")
+        .send({ "==": [{ var: "path" }, "note.md"] })
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("note.md");
+    });
+
+    test("returns 400 when content-type is missing", async () => {
+      await request(server)
+        .post("/search/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .send({ "==": [{ var: "path" }, "note.md"] })
+        .expect(400);
+    });
+
+    test("returns 401 without auth", async () => {
+      await request(server)
+        .post("/search/")
+        .set("Content-Type", "application/vnd.olrapi.jsonlogic+json")
+        .send({ "==": [{ var: "path" }, "note.md"] })
+        .expect(401);
+    });
+  });
+
   describe("/mcp/ routes", () => {
     test("GET /mcp/ without auth returns 401", async () => {
       await request(server).get("/mcp/").expect(401);
