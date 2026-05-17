@@ -8,6 +8,20 @@
   <link rel="icon" type="image/png" href="./favicon-16x16.png" sizes="16x16" />
 </head>
 <body>
+  <script>
+    // Scalar (like Swagger UI) percent-encodes '/' in path parameters, turning
+    // e.g. "daily/2024-10-02.md" into "daily%2F2024-10-02.md". The server
+    // expects literal slashes, so we unwrap them before the request is sent.
+    const _fetch = window.fetch;
+    window.fetch = function (input, init) {
+      if (typeof input === 'string') {
+        input = input.replaceAll('%2F', '/');
+      } else if (input instanceof Request && input.url.includes('%2F')) {
+        input = new Request(input.url.replaceAll('%2F', '/'), input);
+      }
+      return _fetch.call(this, input, init);
+    };
+  </script>
   <script
     id="api-reference"
     data-url="./openapi.yaml">
