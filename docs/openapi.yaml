@@ -2986,6 +2986,73 @@ paths:
       tags:
         - "Vault Directories"
   "/vault/{filename}":
+    additionalOperations:
+      move:
+        description: |
+          Moves a file from its current location to a new location specified in the Destination header. This operation preserves file history and updates internal links. The destination path must be provided in the Destination header following WebDAV conventions.
+        parameters:
+          - description: |
+              The new path for the file (relative to your vault root). Path must not contain ".." or start with "/" for security reasons.
+            in: "header"
+            name: "Destination"
+            required: true
+            schema:
+              format: "path"
+              type: "string"
+          - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
+            in: "path"
+            name: "filename"
+            required: true
+            schema:
+              format: "path"
+              type: "string"
+        responses:
+          "201":
+            content:
+              application/json:
+                schema:
+                  properties:
+                    message:
+                      example: "File successfully moved"
+                      type: "string"
+                    newPath:
+                      example: "another-folder/file.md"
+                      type: "string"
+                    oldPath:
+                      example: "folder/file.md"
+                      type: "string"
+                  type: "object"
+            description: "File successfully moved"
+          "400":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: |
+              Bad request - Missing Destination header, invalid destination path, or path traversal attempt.
+          "404":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: "Source file does not exist."
+          "405":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: |
+              Your path references a directory instead of a file; this request method is valid only for files.
+          "409":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: "Destination file already exists."
+        summary: |
+          Move a file to a new location in your vault.
+        tags:
+          - "Vault Files"
     delete:
       parameters:
         - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
@@ -3142,72 +3209,6 @@ paths:
           description: "File or target section does not exist"
       summary: |
         Return the content of a single file in your vault.
-      tags:
-        - "Vault Files"
-    move:
-      description: |
-        Moves a file from its current location to a new location specified in the Destination header. This operation preserves file history and updates internal links. The destination path must be provided in the Destination header following WebDAV conventions.
-      parameters:
-        - description: |
-            The new path for the file (relative to your vault root). Path must not contain ".." or start with "/" for security reasons.
-          in: "header"
-          name: "Destination"
-          required: true
-          schema:
-            format: "path"
-            type: "string"
-        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
-          in: "path"
-          name: "filename"
-          required: true
-          schema:
-            format: "path"
-            type: "string"
-      responses:
-        "201":
-          content:
-            application/json:
-              schema:
-                properties:
-                  message:
-                    example: "File successfully moved"
-                    type: "string"
-                  newPath:
-                    example: "another-folder/file.md"
-                    type: "string"
-                  oldPath:
-                    example: "folder/file.md"
-                    type: "string"
-                type: "object"
-          description: "File successfully moved"
-        "400":
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-          description: |
-            Bad request - Missing Destination header, invalid destination path, or path traversal attempt.
-        "404":
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-          description: "Source file does not exist."
-        "405":
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-          description: |
-            Your path references a directory instead of a file; this request method is valid only for files.
-        "409":
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-          description: "Destination file already exists."
-      summary: |
-        Move a file to a new location in your vault.
       tags:
         - "Vault Files"
     patch:

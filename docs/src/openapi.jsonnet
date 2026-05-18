@@ -229,8 +229,10 @@ std.manifestYamlDoc(
           description: PatchDescription('an existing note'),
           parameters: [ParamPath] + super.parameters,
         },
-        move: Move {
-          parameters: Move.parameters + [ParamPath],
+        additionalOperations: {
+          move: Move {
+            parameters: Move.parameters + [ParamPath],
+          },
         },
         delete: Delete {
           tags: [
