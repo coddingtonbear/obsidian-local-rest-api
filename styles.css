@@ -3,9 +3,11 @@
 div.obsidian-local-rest-api-settings div.api-key-display {
   margin-bottom: 20px;
 }
-div.obsidian-local-rest-api-settings div.api-key-display pre {
+
+div.obsidian-local-rest-api-settings pre {
   font-size: 0.8em;
   padding: 10px 20px;
+  margin: 10px 25px;
   background-color: var(--background-modifier-cover);
   font-family: monospace;
   user-select: all;
@@ -38,10 +40,16 @@ div.obsidian-local-rest-api-settings table.api-urls tr {
   width: 100%;
 }
 
-div.obsidian-local-rest-api-settings table.api-urls th, div.obsidian-local-rest-api-settings table.api-urls td {
+div.obsidian-local-rest-api-settings table.api-urls th,
+div.obsidian-local-rest-api-settings table.api-urls td {
   padding: 5px 25px;
 }
 
-div.obsidian-local-rest-api-settings table.api-urls tr.disabled td.name, div.obsidian-local-rest-api-settings table.api-urls tr.disabled td.url {
+div.obsidian-local-rest-api-settings table.api-urls tr.disabled td.name,
+div.obsidian-local-rest-api-settings table.api-urls tr.disabled td.url {
   text-decoration: line-through;
+}
+
+div.obsidian-local-rest-api-settings p {
+  padding: 0px 15px;
 }

@@ -1,0 +1,1 @@
+When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.

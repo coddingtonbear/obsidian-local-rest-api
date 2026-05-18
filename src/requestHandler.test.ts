@@ -1,16 +1,27 @@
 import http from "http";
 import request from "supertest";
 
-import {
-  App,
-  Command,
-  HeadingCache,
-  PluginManifest,
-  TFile,
-} from "../mocks/obsidian";
-import { CERT_NAME } from "./constants";
+// Mock McpHandler so tests don't load the MCP SDK (which bundles ESM-only zod)
+jest.mock("./mcpHandler", () => ({
+  McpHandler: jest.fn().mockImplementation(() => ({
+    handleRequest: jest.fn().mockImplementation((_req: unknown, res: { status: (c: number) => { json: (b: unknown) => void } }) => {
+      res.status(200).json({ ok: true });
+    }),
+    registerTool: jest.fn().mockReturnValue(jest.fn()),
+  })),
+}));
+
 import RequestHandler from "./requestHandler";
 import { LocalRestApiSettings } from "./types";
+import { CERT_NAME } from "./constants";
+import {
+  App,
+  TFile,
+  Command,
+  CachedMetadata,
+  PluginManifest,
+  _prepareSimpleSearchMock,
+} from "../mocks/obsidian";
 
 describe("requestHandler", () => {
   const API_KEY = "my api key";
@@ -113,8 +124,20 @@ describe("requestHandler", () => {
     test("directory empty", async () => {
       app.vault._files = [];
 
-      await request(server)
+      const result = await request(server)
         .get("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.files).toEqual([]);
+    });
+
+    test("empty subdirectory returns 404", async () => {
+      app.vault._files = [];
+      app.vault.adapter._exists = false;
+
+      await request(server)
+        .get("/vault/nonexistent/")
         .set("Authorization", `Bearer ${API_KEY}`)
         .expect(404);
     });
@@ -184,6 +207,224 @@ describe("requestHandler", () => {
         .get(`/vault/${arbitraryFilename}`)
         .set("Authorization", `Bearer ${API_KEY}`)
         .expect(404);
+    });
+  });
+
+  describe("vaultGet section retrieval", () => {
+    const markdownWithHeadings = [
+      "---",
+      "title: Test Doc",
+      "---",
+      "# Heading1",
+      "Content under heading1",
+      "## SubHeading",
+      "Sub content",
+      "# Heading2",
+      "Content under heading2",
+      "",
+    ].join("\n");
+
+    const markdownWithBlock = [
+      "# Heading1",
+      "Some content",
+      "Block content ^myblock",
+      "# Heading2",
+      "More content",
+      "",
+    ].join("\n");
+
+    function setFileContent(content: string): void {
+      app.vault.adapter._read = content;
+      // readBinary is used by the default GET path
+      const buf = new ArrayBuffer(content.length);
+      const view = new Uint8Array(buf);
+      for (let i = 0; i < content.length; i++) {
+        view[i] = content.charCodeAt(i);
+      }
+      app.vault.adapter._readBinary = buf;
+    }
+
+    test("heading section returns only that heading's content", async () => {
+      setFileContent(markdownWithHeadings);
+
+      const result = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading2")
+        .expect(200);
+
+      expect(result.text).toEqual("Content under heading2\n");
+    });
+
+    test("nested heading section via delimiter", async () => {
+      setFileContent(markdownWithHeadings);
+
+      const result = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1::SubHeading")
+        .expect(200);
+
+      expect(result.text).toEqual("Sub content\n");
+    });
+
+    test("nested heading with custom delimiter", async () => {
+      setFileContent(markdownWithHeadings);
+
+      const result = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1||SubHeading")
+        .set("Target-Delimiter", "||")
+        .expect(200);
+
+      expect(result.text).toEqual("Sub content\n");
+    });
+
+    test("block reference returns block content", async () => {
+      setFileContent(markdownWithBlock);
+
+      const result = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "block")
+        .set("Target", "myblock")
+        .expect(200);
+
+      expect(result.text).toEqual("Some content\nBlock content");
+    });
+
+    test("frontmatter field returns value as JSON", async () => {
+      setFileContent(markdownWithHeadings);
+
+      const result = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Target-Type", "frontmatter")
+        .set("Target", "title")
+        .expect(200);
+
+      expect(result.body).toEqual("Test Doc");
+    });
+
+    test("non-existent heading returns 404", async () => {
+      setFileContent(markdownWithHeadings);
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "NoSuchHeading")
+        .expect(404);
+    });
+
+    test("non-existent block returns 404", async () => {
+      setFileContent(markdownWithBlock);
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "block")
+        .set("Target", "nonexistent")
+        .expect(404);
+    });
+
+    test("non-existent frontmatter field returns 404", async () => {
+      setFileContent(markdownWithHeadings);
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Target-Type", "frontmatter")
+        .set("Target", "nonexistent")
+        .expect(404);
+    });
+
+    test("Target-Type without Target returns 400", async () => {
+      setFileContent(markdownWithHeadings);
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "heading")
+        .expect(400);
+    });
+
+    test("invalid Target-Type returns 400", async () => {
+      setFileContent(markdownWithHeadings);
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "invalid")
+        .set("Target", "something")
+        .expect(400);
+    });
+
+    test("invalid Target-Type without Target still returns 400 for bad type", async () => {
+      setFileContent(markdownWithHeadings);
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "invalid")
+        .expect(400);
+    });
+
+    test("non-existent file returns 404", async () => {
+      app.vault.adapter._exists = false;
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1")
+        .expect(404);
+    });
+
+    test("directory path ignores section headers", async () => {
+      const rootFile = new TFile();
+      rootFile.path = "rootFile.md";
+      app.vault._files = [rootFile];
+
+      const result = await request(server)
+        .get("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1")
+        .expect(200);
+
+      expect(result.body.files).toEqual(["rootFile.md"]);
+    });
+
+    test("heading section with parent includes nested content", async () => {
+      setFileContent(markdownWithHeadings);
+
+      const result = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1")
+        .expect(200);
+
+      // Heading1's content includes everything down to Heading2
+      expect(result.text).toContain("Content under heading1");
+      expect(result.text).toContain("Sub content");
+      expect(result.text).not.toContain("Content under heading2");
     });
   });
 
@@ -395,6 +636,150 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("vaultMove", () => {
+    test("directory path rejected", async () => {
+      await request(server)
+        .move("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "somewhere/file.md")
+        .expect(405);
+    });
+
+    test("successful move", async () => {
+      const oldPath = "folder/file.md";
+      const newPath = "another-folder/subfolder/file.md";
+
+      const mockFile = new TFile();
+      app.vault._getAbstractFileByPath = mockFile;
+      app.vault.adapter._exists = false;
+      (app as any).fileManager = {
+        renameFile: jest.fn().mockResolvedValue(undefined),
+      };
+      app.vault.createFolder = jest.fn().mockResolvedValue(undefined);
+
+      const response = await request(server)
+        .move(`/vault/${oldPath}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", newPath)
+        .expect(201);
+
+      expect(response.body.message).toEqual("File successfully moved");
+      expect(response.body.oldPath).toEqual(oldPath);
+      expect(response.body.newPath).toEqual(newPath);
+      expect(app.vault.createFolder).toHaveBeenCalledWith(
+        "another-folder/subfolder",
+      );
+      expect((app as any).fileManager.renameFile).toHaveBeenCalledWith(
+        mockFile,
+        newPath,
+      );
+    });
+
+    test("move to vault root (no parent dir created)", async () => {
+      const mockFile = new TFile();
+      app.vault._getAbstractFileByPath = mockFile;
+      app.vault.adapter._exists = false;
+      (app as any).fileManager = {
+        renameFile: jest.fn().mockResolvedValue(undefined),
+      };
+      app.vault.createFolder = jest.fn();
+
+      const response = await request(server)
+        .move("/vault/deep/nested/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "file.md")
+        .expect(201);
+
+      expect(response.body.message).toEqual("File successfully moved");
+      expect(app.vault.createFolder).not.toHaveBeenCalled();
+    });
+
+    test("non-existent source file returns 404", async () => {
+      app.vault._getAbstractFileByPath = null;
+
+      await request(server)
+        .move("/vault/non-existent.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "new-location/file.md")
+        .expect(404);
+    });
+
+    test("destination already exists returns 409", async () => {
+      const mockFile = new TFile();
+      app.vault._getAbstractFileByPath = mockFile;
+      app.vault.adapter._exists = true;
+
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "another-folder/existing-file.md")
+        .expect(409);
+
+      expect(response.body.message).toContain("Destination file already exists");
+    });
+
+    test("missing Destination header returns 400", async () => {
+      const mockFile = new TFile();
+      app.vault._getAbstractFileByPath = mockFile;
+
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(400);
+
+      expect(response.body.message).toContain("Destination header is required");
+    });
+
+    test("directory destination path returns 400", async () => {
+      const mockFile = new TFile();
+      app.vault._getAbstractFileByPath = mockFile;
+
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "new-folder/")
+        .expect(400);
+
+      expect(response.body.message).toContain(
+        "Destination path must be a file path",
+      );
+    });
+
+    test("path traversal attempt returns 400", async () => {
+      const mockFile = new TFile();
+      app.vault._getAbstractFileByPath = mockFile;
+
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "../../../etc/passwd")
+        .expect(400);
+
+      expect(response.body.errorCode).toEqual(40003);
+      expect(response.body.message).toContain("Path traversal is not allowed");
+    });
+
+    test("absolute destination path returns 400", async () => {
+      const mockFile = new TFile();
+      app.vault._getAbstractFileByPath = mockFile;
+
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "/etc/passwd")
+        .expect(400);
+
+      expect(response.body.errorCode).toEqual(40003);
+    });
+
+    test("unauthorized", async () => {
+      await request(server)
+        .move("/vault/file.md")
+        .set("Destination", "other/file.md")
+        .expect(401);
+    });
+  });
+
   describe("vaultPatch", () => {
     test("directory", async () => {
       await request(server)
@@ -403,493 +788,294 @@ describe("requestHandler", () => {
         .expect(405);
     });
 
-    test("missing heading header", async () => {
-      const arbitraryFilePath = "somefile.md";
-      const arbitraryBytes = "bytes";
-      const arbitraryHeading = "somewhere";
-
-      const arbitraryExistingBytes = "something\nsomething";
-
-      const headingCache = new HeadingCache();
-      headingCache.heading = arbitraryHeading;
-
-      app.vault._read = arbitraryExistingBytes;
-      app.metadataCache._getFileCache.headings.push(headingCache);
-
+    test("missing Target-Type header", async () => {
       await request(server)
-        .patch(`/vault/${arbitraryFilePath}`)
+        .patch("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Content-Type", "text/markdown")
-        .send(arbitraryBytes)
+        .send("bytes")
         .expect(400);
     });
 
-    test("non-bytes content", async () => {
-      const arbitraryFilePath = "somefile.md";
-      const arbitraryBytes = "bytes";
-      const arbitraryHeading = "somewhere";
-
-      const arbitraryExistingBytes = "something\nsomething";
-
-      const headingCache = new HeadingCache();
-      headingCache.heading = arbitraryHeading;
-
-      app.vault._read = arbitraryExistingBytes;
-      app.metadataCache._getFileCache.headings.push(headingCache);
-
-      await request(server)
-        .patch(`/vault/${arbitraryFilePath}`)
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Heading", arbitraryHeading)
-        .send(arbitraryBytes)
-        .expect(400);
-    });
-
-    test("non-existing file", async () => {
-      const arbitraryFilePath = "somefile.md";
-      const arbitraryBytes = "bytes";
-      const arbitraryHeading = "somewhere";
-
-      const arbitraryExistingBytes = "something\nsomething";
-
-      const headingCache = new HeadingCache();
-      headingCache.heading = arbitraryHeading;
-
-      app.vault._read = arbitraryExistingBytes;
-      app.metadataCache._getFileCache.headings.push(headingCache);
+    test("non-existing file via Target-Type header returns 404", async () => {
       app.vault._getAbstractFileByPath = null;
 
       await request(server)
-        .patch(`/vault/${arbitraryFilePath}`)
+        .patch("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Content-Type", "text/markdown")
-        .set("Heading", arbitraryHeading)
-        .send(arbitraryBytes)
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1")
+        .set("Operation", "append")
+        .send("new content")
         .expect(404);
     });
 
+  });
+
+  describe("tagsGet", () => {
+    test("aggregates tags from markdown files", async () => {
+      const file1 = new TFile();
+      file1.path = "note1.md";
+      const file2 = new TFile();
+      file2.path = "note2.md";
+      app.vault._markdownFiles = [file1, file2];
+
+      const cache1 = new CachedMetadata();
+      cache1.tags = [{ tag: "#project" }, { tag: "#important" }];
+      const cache2 = new CachedMetadata();
+      cache2.tags = [{ tag: "#project" }, { tag: "#work/tasks" }];
+
+      app.metadataCache.getFileCache = (file: TFile) => {
+        if (file.path === "note1.md") return cache1;
+        if (file.path === "note2.md") return cache2;
+        return null;
+      };
+
+      const result = await request(server)
+        .get("/tags/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.tags).toEqual(
+        expect.arrayContaining([
+          { name: "project", count: 2 },
+          { name: "important", count: 1 },
+          { name: "work", count: 1 },
+          { name: "work/tasks", count: 1 },
+        ]),
+      );
+      expect(result.body.tags).toHaveLength(4);
+    });
+
+    test("counts frontmatter tags", async () => {
+      const file1 = new TFile();
+      file1.path = "note1.md";
+      app.vault._markdownFiles = [file1];
+
+      const cache1 = new CachedMetadata();
+      cache1.frontmatter = { tags: ["project", "important"] };
+
+      app.metadataCache.getFileCache = () => cache1;
+
+      const result = await request(server)
+        .get("/tags/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.tags).toEqual(
+        expect.arrayContaining([
+          { name: "project", count: 1 },
+          { name: "important", count: 1 },
+        ]),
+      );
+      expect(result.body.tags).toHaveLength(2);
+    });
+
+    test("handles files with no cache", async () => {
+      const file1 = new TFile();
+      app.vault._markdownFiles = [file1];
+      app.metadataCache.getFileCache = () => null;
+
+      const result = await request(server)
+        .get("/tags/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.tags).toEqual([]);
+    });
+
+    test("handles files with no tags", async () => {
+      const file1 = new TFile();
+      app.vault._markdownFiles = [file1];
+      const emptyCache = new CachedMetadata();
+      emptyCache.tags = [];
+      app.metadataCache.getFileCache = () => emptyCache;
+
+      const result = await request(server)
+        .get("/tags/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.tags).toEqual([]);
+    });
+
+    test("merges inline (#-prefixed) and frontmatter (no-#) forms of the same tag", async () => {
+      const file1 = new TFile();
+      file1.path = "note1.md";
+      const file2 = new TFile();
+      file2.path = "note2.md";
+      app.vault._markdownFiles = [file1, file2];
+
+      // note1 has the tag as an inline #project
+      const cache1 = new CachedMetadata();
+      cache1.tags = [{ tag: "#project" }];
+
+      // note2 has the same tag via frontmatter (no # prefix)
+      const cache2 = new CachedMetadata();
+      cache2.frontmatter = { tags: ["project"] };
+
+      app.metadataCache.getFileCache = (file: TFile) => {
+        if (file.path === "note1.md") return cache1;
+        if (file.path === "note2.md") return cache2;
+        return null;
+      };
+
+      const result = await request(server)
+        .get("/tags/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.tags).toEqual([{ name: "project", count: 2 }]);
+    });
+
     test("unauthorized", async () => {
-      const arbitraryFilePath = "somefile.md";
-      const arbitraryBytes = "bytes";
-      const arbitraryHeading = "somewhere";
+      await request(server).get("/tags/").expect(401);
+    });
+  })
 
-      const arbitraryExistingBytes = "something\nsomething";
+    
+  describe("URL-embedded targets", () => {
+    const markdown = [
+      "---",
+      "title: Test Doc",
+      "---",
+      "# Heading1",
+      "Content under heading1",
+      "## SubHeading",
+      "Sub content",
+      "# Heading2",
+      "Content under heading2",
+      "",
+    ].join("\n");
 
-      const headingCache = new HeadingCache();
-      headingCache.heading = arbitraryHeading;
+    function setFileContent(content: string): void {
+      app.vault._read = content;
+      app.vault.adapter._read = content;
+      const buf = new ArrayBuffer(content.length);
+      const view = new Uint8Array(buf);
+      for (let i = 0; i < content.length; i++) {
+        view[i] = content.charCodeAt(i);
+      }
+      app.vault.adapter._readBinary = buf;
+    }
 
-      app.vault._read = arbitraryExistingBytes;
-      app.metadataCache._getFileCache.headings.push(headingCache);
-
-      await request(server)
-        .patch(`/vault/${arbitraryFilePath}`)
-        .set("Content-Type", "text/markdown")
-        .set("Heading", arbitraryHeading)
-        .set("Content-Insertion-Position", "beginning")
-        .send(arbitraryBytes)
-        .expect(401);
+    beforeEach(() => {
+      // Only return a valid stat for the bare file path so that the
+      // walk-backward resolver correctly identifies "somefile.md" as the
+      // file and the remaining URL segments as the target.
+      app.vault.adapter._statForPath = "somefile.md";
+      setFileContent(markdown);
     });
 
-    describe("acceptable content", () => {
-      // Unfortunately, testing the actual written content would be
-      // extremely brittle given that we're relying on private Obsidian
-      // API interfaces; so we're just going to verify that we get
-      // a 200 and that a write occurs :shrug:
-
-      test("undefined content-insertion-position", async () => {
-        const arbitraryFilePath = "somefile.md";
-        const arbitraryBytes = "bytes";
-        const arbitraryHeading = "somewhere";
-
-        const arbitraryExistingBytes = "something\nsomething";
-
-        const headingCache = new HeadingCache();
-        headingCache.heading = arbitraryHeading;
-
-        app.vault._read = arbitraryExistingBytes;
-        app.metadataCache._getFileCache.headings.push(headingCache);
-
+    describe("GET", () => {
+      test("heading via URL segments returns section content", async () => {
         const result = await request(server)
-          .patch(`/vault/${arbitraryFilePath}`)
+          .get("/vault/somefile.md/heading/Heading2")
           .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Content-Type", "text/markdown")
-          .set("Heading", arbitraryHeading)
-          .send(arbitraryBytes)
           .expect(200);
 
-        expect(app.vault.adapter.write).toBeTruthy();
-        expect(result.text).toBeTruthy();
+        expect(result.text).toEqual("Content under heading2\n");
       });
 
-      test("beginning content-insertion-position", async () => {
-        const arbitraryFilePath = "somefile.md";
-        const arbitraryBytes = "bytes";
-        const arbitraryHeading = "somewhere";
-
-        const arbitraryExistingBytes = "something\nsomething";
-
-        const headingCache = new HeadingCache();
-        headingCache.heading = arbitraryHeading;
-
-        app.vault._read = arbitraryExistingBytes;
-        app.metadataCache._getFileCache.headings.push(headingCache);
-
+      test("nested heading via URL segments", async () => {
         const result = await request(server)
-          .patch(`/vault/${arbitraryFilePath}`)
+          .get("/vault/somefile.md/heading/Heading1/SubHeading")
           .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Content-Type", "text/markdown")
-          .set("Heading", arbitraryHeading)
-          .set("Content-Insertion-Position", "beginning")
-          .send(arbitraryBytes)
           .expect(200);
 
-        expect(app.vault.adapter.write).toBeTruthy();
-        expect(result.text).toBeTruthy();
-        expect(result.text).toEqual("bytes\nsomething\nsomething");
+        expect(result.text).toEqual("Sub content\n");
       });
 
-      test("end content-insertion-position", async () => {
-        const arbitraryFilePath = "somefile.md";
-        const arbitraryBytes = "bytes";
-        const arbitraryHeading = "somewhere";
-
-        const arbitraryExistingBytes = "something\nsomething";
-
-        const headingCache = new HeadingCache();
-        headingCache.heading = arbitraryHeading;
-
-        app.vault._read = arbitraryExistingBytes;
-        app.metadataCache._getFileCache.headings.push(headingCache);
-
+      test("frontmatter via URL segments returns JSON value", async () => {
         const result = await request(server)
-          .patch(`/vault/${arbitraryFilePath}`)
+          .get("/vault/somefile.md/frontmatter/title")
           .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Content-Type", "text/markdown")
-          .set("Heading", arbitraryHeading)
-          .set("Content-Insertion-Position", "end")
-          .send(arbitraryBytes)
           .expect(200);
 
-        expect(app.vault.adapter.write).toBeTruthy();
-        expect(result.text).toBeTruthy();
-        expect(result.text).toEqual("something\nsomething\nbytes");
+        expect(result.body).toEqual("Test Doc");
       });
 
-      test("beginning content-insertion-position with header", async () => {
-        const arbitraryFilePath = "somefile.md";
-        const arbitraryBytes = "bytes";
-        const arbitraryHeading = "Heading1";
-
-        const arbitraryExistingBytes =
-          "something\n\n# Heading1\ncontent here\n# Heading2\nsomething";
-        app.vault._read = arbitraryExistingBytes;
-
-        // Heading 1
-        let headingCache = new HeadingCache();
-        headingCache.heading = arbitraryHeading;
-
-        headingCache.position.end.line = 2;
-        headingCache.position.start.line = 2;
-        app.metadataCache._getFileCache.headings.push(headingCache);
-
-        // Heading 2
-        headingCache = new HeadingCache();
-        headingCache.heading = "Heading2";
-
-        headingCache.position.end.line = 4;
-        headingCache.position.start.line = 4;
-        app.metadataCache._getFileCache.headings.push(headingCache);
-
-        const result = await request(server)
-          .patch(`/vault/${arbitraryFilePath}`)
+      test("URL target + Target-Type header returns 422", async () => {
+        await request(server)
+          .get("/vault/somefile.md/heading/Heading1")
           .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Content-Type", "text/markdown")
-          .set("Heading", arbitraryHeading)
-          .set("Content-Insertion-Position", "beginning")
-          .send(arbitraryBytes)
-          .expect(200);
-
-        expect(app.vault.adapter.write).toBeTruthy();
-        expect(result.text).toBeTruthy();
-        expect(result.text).toEqual(
-          "something\n\n# Heading1\nbytes\ncontent here\n# Heading2\nsomething"
-        );
+          .set("Target-Type", "heading")
+          .expect(422);
       });
 
-      test("end content-insertion-position with header", async () => {
-        const arbitraryFilePath = "somefile.md";
-        const arbitraryBytes = "bytes";
-        const arbitraryHeading = "Heading1";
-
-        const arbitraryExistingBytes =
-          "something\n\n# Heading1\ncontent here\n# Heading2\nsomething";
-        app.vault._read = arbitraryExistingBytes;
-
-        // Heading 1
-        let headingCache = new HeadingCache();
-        headingCache.heading = arbitraryHeading;
-
-        headingCache.position.end.line = 2;
-        headingCache.position.start.line = 2;
-        app.metadataCache._getFileCache.headings.push(headingCache);
-
-        // Heading 2
-        headingCache = new HeadingCache();
-        headingCache.heading = "Heading2";
-
-        headingCache.position.end.line = 4;
-        headingCache.position.start.line = 4;
-        app.metadataCache._getFileCache.headings.push(headingCache);
-
-        const result = await request(server)
-          .patch(`/vault/${arbitraryFilePath}`)
+      test("URL target + Target header returns 422", async () => {
+        await request(server)
+          .get("/vault/somefile.md/heading/Heading1")
           .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Content-Type", "text/markdown")
-          .set("Heading", arbitraryHeading)
-          .set("Content-Insertion-Position", "end")
-          .send(arbitraryBytes)
-          .expect(200);
-
-        expect(app.vault.adapter.write).toBeTruthy();
-        expect(result.text).toBeTruthy();
-        expect(result.text).toEqual(
-          "something\n\n# Heading1\ncontent here\nbytes\n# Heading2\nsomething"
-        );
+          .set("Target", "Heading1")
+          .expect(422);
       });
 
-      test("end content-insertion-position with header (new lines at end of header block)", async () => {
-        const arbitraryFilePath = "somefile.md";
-        const arbitraryBytes = "bytes";
-        const arbitraryHeading = "Heading1";
-
-        const arbitraryExistingBytes =
-          "something\n\n# Heading1\ncontent here\n\n\n# Heading2\nsomething";
-        app.vault._read = arbitraryExistingBytes;
-
-        // Heading 1
-        let headingCache = new HeadingCache();
-        headingCache.heading = arbitraryHeading;
-
-        headingCache.position.end.line = 2;
-        headingCache.position.start.line = 2;
-        app.metadataCache._getFileCache.headings.push(headingCache);
-
-        // Heading 2
-        headingCache = new HeadingCache();
-        headingCache.heading = "Heading2";
-
-        headingCache.position.end.line = 6;
-        headingCache.position.start.line = 6;
-        app.metadataCache._getFileCache.headings.push(headingCache);
-
-        const result = await request(server)
-          .patch(`/vault/${arbitraryFilePath}`)
-          .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Content-Type", "text/markdown")
-          .set("Heading", arbitraryHeading)
-          .set("Content-Insertion-Position", "end")
-          .send(arbitraryBytes)
-          .expect(200);
-
-        expect(app.vault.adapter.write).toBeTruthy();
-        expect(result.text).toBeTruthy();
-        expect(result.text).toEqual(
-          "something\n\n# Heading1\ncontent here\n\n\nbytes\n# Heading2\nsomething"
-        );
-      });
-
-      test("end content-insertion-position with header ignore newlines", async () => {
-        const arbitraryFilePath = "somefile.md";
-        const arbitraryBytes = "bytes";
-        const arbitraryHeading = "Heading1";
-
-        const arbitraryExistingBytes =
-          "something\n\n# Heading1\ncontent here\n\n\n# Heading2\nsomething";
-        app.vault._read = arbitraryExistingBytes;
-
-        // Heading 1
-        let headingCache = new HeadingCache();
-        headingCache.heading = arbitraryHeading;
-
-        headingCache.position.end.line = 2;
-        headingCache.position.start.line = 2;
-        app.metadataCache._getFileCache.headings.push(headingCache);
-
-        // Heading 2
-        headingCache = new HeadingCache();
-        headingCache.heading = "Heading2";
-
-        headingCache.position.end.line = 6;
-        headingCache.position.start.line = 6;
-        app.metadataCache._getFileCache.headings.push(headingCache);
-
-        const result = await request(server)
-          .patch(`/vault/${arbitraryFilePath}`)
-          .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Content-Type", "text/markdown")
-          .set("Heading", arbitraryHeading)
-          .set("Content-Insertion-Position", "end")
-          .set("Content-Insertion-Ignore-Newline", "true")
-          .send(arbitraryBytes)
-          .expect(200);
-
-        expect(app.vault.adapter.write).toBeTruthy();
-        expect(result.text).toBeTruthy();
-        expect(result.text).toEqual(
-          "something\n\n# Heading1\ncontent here\nbytes\n\n\n# Heading2\nsomething"
-        );
-      });
-    });
-
-    describe("file move operation", () => {
-      test("successful move with Destination header", async () => {
-        const oldPath = "folder/file.md";
-        const newPath = "another-folder/subfolder/file.md";
-
-        // Mock file exists
-        const mockFile = new TFile();
-        app.vault._getAbstractFileByPath = mockFile;
-        app.vault.adapter._exists = false; // destination doesn't exist
-
-        // Mock fileManager and createFolder
-        (app as any).fileManager = {
-          renameFile: jest.fn().mockResolvedValue(undefined)
-        };
-        app.vault.createFolder = jest.fn().mockResolvedValue(undefined);
-
-        const response = await request(server)
-          .move(`/vault/${oldPath}`)
-          .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Destination", newPath)
-          .expect(201);
-
-        expect(response.body.message).toEqual("File successfully moved");
-        expect(response.body.oldPath).toEqual(oldPath);
-        expect(response.body.newPath).toEqual(newPath);
-        expect(app.vault.createFolder).toHaveBeenCalledWith("another-folder/subfolder");
-        expect((app as any).fileManager.renameFile).toHaveBeenCalledWith(mockFile, newPath);
-      });
-
-      test("move fails with non-existent file", async () => {
-        // Mock file doesn't exist
-        app.vault._getAbstractFileByPath = null;
+      test("non-existent file in URL path returns 404", async () => {
+        app.vault.adapter._exists = false;
 
         await request(server)
-          .move("/vault/non-existent.md")
+          .get("/vault/somefile.md/heading/Heading1")
           .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Destination", "new-location/file.md")
           .expect(404);
       });
+    });
 
-      test("move fails when destination exists", async () => {
-        const oldPath = "folder/file.md";
-        const newPath = "another-folder/existing-file.md";
-
-        // Mock file exists
-        const mockFile = new TFile();
-        app.vault._getAbstractFileByPath = mockFile;
-        app.vault.adapter._exists = true; // destination already exists
-
-        const response = await request(server)
-          .move(`/vault/${oldPath}`)
+    describe("PUT", () => {
+      test("replaces section content via URL target", async () => {
+        const result = await request(server)
+          .put("/vault/somefile.md/heading/Heading2")
           .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Destination", newPath)
-          .expect(409);
+          .set("Content-Type", "text/markdown")
+          .send("Replaced content\n")
+          .expect(200);
 
-        expect(response.body.message).toContain("Destination file already exists");
+        expect(result.text).toContain("Replaced content");
+        expect(result.text).not.toContain("Content under heading2");
       });
 
-      test("move fails with missing Destination header", async () => {
-        const oldPath = "folder/file.md";
-
-        // Mock file exists
-        const mockFile = new TFile();
-        app.vault._getAbstractFileByPath = mockFile;
-
-        const response = await request(server)
-          .move(`/vault/${oldPath}`)
+      test("URL target + Target-Type header returns 422", async () => {
+        await request(server)
+          .put("/vault/somefile.md/heading/Heading2")
           .set("Authorization", `Bearer ${API_KEY}`)
-          .expect(400);
+          .set("Content-Type", "text/markdown")
+          .set("Target-Type", "heading")
+          .send("content")
+          .expect(422);
+      });
+    });
 
-        expect(response.body.message).toContain("Destination header is required");
+    describe("POST", () => {
+      test("appends to section via URL target", async () => {
+        const result = await request(server)
+          .post("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("Appended content\n")
+          .expect(200);
+
+        expect(result.text).toContain("Content under heading2");
+        expect(result.text).toContain("Appended content");
       });
 
-      test("move fails when destination path is a directory", async () => {
-        const oldPath = "folder/file.md";
-
-        // Mock file exists
-        const mockFile = new TFile();
-        app.vault._getAbstractFileByPath = mockFile;
-
-        const response = await request(server)
-          .move(`/vault/${oldPath}`)
+      test("URL target + Target header returns 422", async () => {
+        await request(server)
+          .post("/vault/somefile.md/heading/Heading2")
           .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Destination", "new-folder/")
-          .expect(400);
-
-        expect(response.body.message).toContain("Destination path must be a file path");
+          .set("Content-Type", "text/markdown")
+          .set("Target", "Heading2")
+          .send("content")
+          .expect(422);
       });
+    });
 
-      test("move to root directory", async () => {
-        const oldPath = "deep/nested/folder/file.md";
-        const newPath = "file.md";
-
-        // Mock file exists
-        const mockFile = new TFile();
-        app.vault._getAbstractFileByPath = mockFile;
-        app.vault.adapter._exists = false; // destination doesn't exist
-
-        // Mock fileManager
-        (app as any).fileManager = {
-          renameFile: jest.fn().mockResolvedValue(undefined)
-        };
-        app.vault.createFolder = jest.fn();
-
-        const response = await request(server)
-          .move(`/vault/${oldPath}`)
+    describe("DELETE", () => {
+      test("targeted DELETE returns 405", async () => {
+        await request(server)
+          .delete("/vault/somefile.md/heading/Heading2")
           .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Destination", newPath)
-          .expect(201);
-
-        expect(response.body.message).toEqual("File successfully moved");
-        expect(app.vault.createFolder).not.toHaveBeenCalled(); // No need to create parent for root
-        expect((app as any).fileManager.renameFile).toHaveBeenCalledWith(mockFile, newPath);
-      });
-
-      test("move fails with path traversal attempt", async () => {
-        const oldPath = "folder/file.md";
-        const maliciousPath = "../../../etc/passwd";
-
-        // Mock file exists
-        const mockFile = new TFile();
-        app.vault._getAbstractFileByPath = mockFile;
-
-        const response = await request(server)
-          .move(`/vault/${oldPath}`)
-          .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Destination", maliciousPath)
-          .expect(400);
-
-        expect(response.body.errorCode).toEqual(40003);
-        expect(response.body.message).toContain("Path traversal is not allowed");
-      });
-
-      test("move fails with absolute path", async () => {
-        const oldPath = "folder/file.md";
-        const absolutePath = "/etc/passwd";
-
-        // Mock file exists
-        const mockFile = new TFile();
-        app.vault._getAbstractFileByPath = mockFile;
-
-        const response = await request(server)
-          .move(`/vault/${oldPath}`)
-          .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Destination", absolutePath)
-          .expect(400);
-
-        expect(response.body.errorCode).toEqual(40003);
-        expect(response.body.message).toContain("Path traversal is not allowed");
+          .expect(405);
       });
     });
   });
@@ -942,6 +1128,29 @@ describe("requestHandler", () => {
       expect(app._executeCommandById).toEqual([arbitraryCommand.id]);
     });
 
+    test("command not found returns 404", async () => {
+      await request(server)
+        .post(`/commands/nonexistent-command/`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(404);
+    });
+
+    test("command execution error returns 500", async () => {
+      const arbitraryCommand = new Command();
+      arbitraryCommand.id = "beep";
+      arbitraryCommand.name = "boop";
+
+      app.commands.commands[arbitraryCommand.id] = arbitraryCommand;
+      app.commands.executeCommandById = () => {
+        throw new Error("command crashed");
+      };
+
+      await request(server)
+        .post(`/commands/${arbitraryCommand.id}/`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(500);
+    });
+
     test("unauthorized", async () => {
       const arbitraryCommand = new Command();
       arbitraryCommand.id = "beep";
@@ -952,6 +1161,716 @@ describe("requestHandler", () => {
       await request(server)
         .post(`/commands/${arbitraryCommand.id}`)
         .expect(401);
+    });
+  });
+
+  describe("searchSimplePost", () => {
+    beforeEach(() => {
+      // Setup mock for prepareSimpleSearch
+      _prepareSimpleSearchMock.behavior = (query: string) => {
+        const queryLower = query.toLowerCase();
+        const queryLength = query.length;
+        return (text: string) => {
+          const textLower = text.toLowerCase();
+          const matches: [number, number][] = [];
+          let index = 0;
+
+          // Find all matches (case-insensitive)
+          while ((index = textLower.indexOf(queryLower, index)) !== -1) {
+            matches.push([index, index + queryLength]);
+            index += 1;
+          }
+
+          if (matches.length === 0) {
+            return null;
+          }
+
+          // Calculate score based on number of matches
+          const score = matches.length;
+
+          return {
+            score,
+            matches,
+          };
+        };
+      };
+    });
+
+    afterEach(() => {
+      // Clean up mock
+      _prepareSimpleSearchMock.behavior = null;
+    });
+
+    test("match at beginning of filename", async () => {
+      const testFile = new TFile();
+      testFile.basename = "Master Plan";
+      testFile.path = "Master Plan.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "Some content here";
+
+      const result = await request(server)
+        .post("/search/simple/?query=Master")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("Master Plan.md");
+      expect(result.body[0].matches).toHaveLength(1);
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(0);
+      expect(result.body[0].matches[0].match.end).toBe(6);
+      expect(result.body[0].matches[0].context).toBe("Master Plan");
+    });
+
+    test("match in middle of filename", async () => {
+      const testFile = new TFile();
+      testFile.basename = "1 - Master Plan";
+      testFile.path = "1 - Master Plan.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "Some content here";
+
+      const result = await request(server)
+        .post("/search/simple/?query=Master")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("1 - Master Plan.md");
+      expect(result.body[0].matches).toHaveLength(1);
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(4);
+      expect(result.body[0].matches[0].match.end).toBe(10);
+      expect(result.body[0].matches[0].context).toBe("1 - Master Plan");
+    });
+
+    test("match at end of filename", async () => {
+      const testFile = new TFile();
+      testFile.basename = "My Master Plan";
+      testFile.path = "My Master Plan.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "Some content here";
+
+      const result = await request(server)
+        .post("/search/simple/?query=Plan")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("My Master Plan.md");
+      expect(result.body[0].matches).toHaveLength(1);
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(10);
+      expect(result.body[0].matches[0].match.end).toBe(14);
+      expect(result.body[0].matches[0].context).toBe("My Master Plan");
+    });
+
+    test("match in content only", async () => {
+      const testFile = new TFile();
+      testFile.basename = "Random Note";
+      testFile.path = "Random Note.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "This is my master plan for the project.";
+
+      const result = await request(server)
+        .post("/search/simple/?query=master")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("Random Note.md");
+      expect(result.body[0].matches).toHaveLength(1);
+      expect(result.body[0].matches[0].match.source).toBe("content");
+      expect(result.body[0].matches[0].match.start).toBe(11);
+      expect(result.body[0].matches[0].match.end).toBe(17);
+    });
+
+    test("match in both filename and content", async () => {
+      const testFile = new TFile();
+      testFile.basename = "Master Plan";
+      testFile.path = "Master Plan.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "The master plan is to complete this project.";
+
+      const result = await request(server)
+        .post("/search/simple/?query=master")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("Master Plan.md");
+      expect(result.body[0].matches).toHaveLength(2);
+
+      // First match should be in filename (case-insensitive)
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(0);
+      expect(result.body[0].matches[0].match.end).toBe(6);
+      expect(result.body[0].matches[0].context).toBe("Master Plan");
+
+      // Second match should be in content
+      expect(result.body[0].matches[1].match.source).toBe("content");
+      expect(result.body[0].matches[1].match.start).toBe(4);
+      expect(result.body[0].matches[1].match.end).toBe(10);
+    });
+
+    test("multiple matches in filename", async () => {
+      const testFile = new TFile();
+      testFile.basename = "Test Test Test";
+      testFile.path = "Test Test Test.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "Content without the search term";
+
+      const result = await request(server)
+        .post("/search/simple/?query=Test")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("Test Test Test.md");
+      expect(result.body[0].matches).toHaveLength(3);
+
+      // All matches should be in filename
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(0);
+      expect(result.body[0].matches[0].match.end).toBe(4);
+
+      expect(result.body[0].matches[1].match.source).toBe("filename");
+      expect(result.body[0].matches[1].match.start).toBe(5);
+      expect(result.body[0].matches[1].match.end).toBe(9);
+
+      expect(result.body[0].matches[2].match.source).toBe("filename");
+      expect(result.body[0].matches[2].match.start).toBe(10);
+      expect(result.body[0].matches[2].match.end).toBe(14);
+    });
+
+    test("filename with special characters", async () => {
+      const testFile = new TFile();
+      testFile.basename = "Project (2024) - Master Plan";
+      testFile.path = "Project (2024) - Master Plan.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "Project details";
+
+      const result = await request(server)
+        .post("/search/simple/?query=2024")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("Project (2024) - Master Plan.md");
+      expect(result.body[0].matches).toHaveLength(1);
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(9);
+      expect(result.body[0].matches[0].match.end).toBe(13);
+      expect(result.body[0].matches[0].context).toBe("Project (2024) - Master Plan");
+    });
+
+    test("context length for content matches", async () => {
+      const testFile = new TFile();
+      testFile.basename = "Note";
+      testFile.path = "Note.md";
+
+      const longContent = "A".repeat(200) + "MATCH" + "B".repeat(200);
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = longContent;
+
+      const result = await request(server)
+        .post("/search/simple/?query=MATCH&contextLength=50")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].matches).toHaveLength(1);
+      expect(result.body[0].matches[0].match.source).toBe("content");
+
+      // Context should be approximately 50 chars before + match + 50 chars after
+      const context = result.body[0].matches[0].context;
+      expect(context.length).toBeLessThanOrEqual(105); // 50 + 5 + 50
+      expect(context).toContain("MATCH");
+    });
+
+    test("no matches returns empty array", async () => {
+      const testFile = new TFile();
+      testFile.basename = "Random Note";
+      testFile.path = "Random Note.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "Some content";
+
+      const result = await request(server)
+        .post("/search/simple/?query=NonExistentTerm")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(0);
+    });
+
+    test("case insensitive search", async () => {
+      const testFile = new TFile();
+      testFile.basename = "MASTER Plan";
+      testFile.path = "MASTER Plan.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "master plan details";
+
+      const result = await request(server)
+        .post("/search/simple/?query=master")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].matches).toHaveLength(2);
+
+      // Should match "MASTER" in filename (case-insensitive)
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(0);
+      expect(result.body[0].matches[0].match.end).toBe(6);
+
+      // Should match "master" in content
+      expect(result.body[0].matches[1].match.source).toBe("content");
+      expect(result.body[0].matches[1].match.start).toBe(0);
+      expect(result.body[0].matches[1].match.end).toBe(6);
+    });
+
+    test("boundary-spanning matches are filtered out", async () => {
+      // This test verifies that matches spanning from filename into content are skipped.
+      // When searching for a term that bridges the filename and content (e.g., "Master\n\nThe"),
+      // such matches would produce invalid results (negative start positions).
+      const testFile = new TFile();
+      testFile.basename = "Master";
+      testFile.path = "Master.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "The content starts here";
+
+      // Mock prepareSimpleSearch to return a boundary-spanning match
+      _prepareSimpleSearchMock.behavior = (query: string) => {
+        return (text: string) => {
+          // Simulate a match that spans from filename into content
+          // filename "Master" + "\n\n" = 8 chars (positionOffset)
+          // A boundary-spanning match would have start < 8 and end > 8
+          const matches: [number, number][] = [
+            [0, 11], // Spans from "Master" (0) into content "The" (ends at 11)
+          ];
+          return {
+            score: 1,
+            matches,
+          };
+        };
+      };
+
+      const result = await request(server)
+        .post("/search/simple/?query=Master%0A%0AThe")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      // The file should still be in results (because there was a match)
+      expect(result.body).toHaveLength(1);
+      // But the boundary-spanning match should be filtered out
+      expect(result.body[0].matches).toHaveLength(0);
+    });
+
+    test("boundary-spanning matches don't affect valid matches", async () => {
+      // Verify that when there are both boundary-spanning and valid matches,
+      // only the valid ones are returned
+      const testFile = new TFile();
+      testFile.basename = "Master";
+      testFile.path = "Master.md";
+
+      app.vault._markdownFiles = [testFile];
+      app.vault._cachedRead = "The Master plan content";
+
+      // Mock prepareSimpleSearch to return both valid and boundary-spanning matches
+      _prepareSimpleSearchMock.behavior = (query: string) => {
+        return (text: string) => {
+          // text = "Master\n\n" + "The Master plan content"
+          // positionOffset = 8
+          const matches: [number, number][] = [
+            [0, 11],  // Boundary-spanning: starts in filename, ends in content (should be filtered)
+            [0, 6],   // Valid: entirely in filename "Master" (should be kept)
+            [12, 18], // Valid: "Master" in content at position 4, adjusted = 12-8=4, 18-8=10 (should be kept)
+          ];
+          return {
+            score: 3,
+            matches,
+          };
+        };
+      };
+
+      const result = await request(server)
+        .post("/search/simple/?query=Master")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      // Only 2 valid matches should be returned (boundary-spanning filtered out)
+      expect(result.body[0].matches).toHaveLength(2);
+
+      // First match: filename
+      expect(result.body[0].matches[0].match.source).toBe("filename");
+      expect(result.body[0].matches[0].match.start).toBe(0);
+      expect(result.body[0].matches[0].match.end).toBe(6);
+
+      // Second match: content (position adjusted by positionOffset)
+      expect(result.body[0].matches[1].match.source).toBe("content");
+      expect(result.body[0].matches[1].match.start).toBe(4);  // 12 - 8
+      expect(result.body[0].matches[1].match.end).toBe(10);   // 18 - 8
+    });
+
+    test("unauthorized", async () => {
+      await request(server)
+        .post("/search/simple/?query=test")
+        .expect(401);
+    });
+
+    test("missing query parameter", async () => {
+      await request(server)
+        .post("/search/simple/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(400);
+    });
+  });
+
+  describe("searchQueryPost", () => {
+    test("returns matching files for a frontmatter query", async () => {
+      const file1 = new TFile();
+      file1.path = "match.md";
+      const file2 = new TFile();
+      file2.path = "no-match.md";
+      app.vault._markdownFiles = [file1, file2];
+
+      const cache1 = new CachedMetadata();
+      cache1.frontmatter = { status: "done" };
+      const cache2 = new CachedMetadata();
+      cache2.frontmatter = { status: "todo" };
+
+      app.metadataCache.getFileCache = (file: TFile) => {
+        if (file.path === "match.md") return cache1;
+        if (file.path === "no-match.md") return cache2;
+        return null;
+      };
+
+      const result = await request(server)
+        .post("/search/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/vnd.olrapi.jsonlogic+json")
+        .send({ "==": [{ var: "frontmatter.status" }, "done"] })
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("match.md");
+    });
+
+    test("does not call cachedRead when query does not reference content", async () => {
+      const file1 = new TFile();
+      file1.path = "note.md";
+      app.vault._markdownFiles = [file1];
+
+      const cache = new CachedMetadata();
+      cache.frontmatter = { status: "done" };
+      app.metadataCache.getFileCache = () => cache;
+
+      const cachedReadSpy = jest.spyOn(app.vault, "cachedRead");
+
+      await request(server)
+        .post("/search/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/vnd.olrapi.jsonlogic+json")
+        .send({ "==": [{ var: "frontmatter.status" }, "done"] })
+        .expect(200);
+
+      expect(cachedReadSpy).not.toHaveBeenCalled();
+      cachedReadSpy.mockRestore();
+    });
+
+    test("calls cachedRead when query references content", async () => {
+      const file1 = new TFile();
+      file1.path = "note.md";
+      app.vault._markdownFiles = [file1];
+      app.vault._cachedRead = "hello world";
+
+      const cache = new CachedMetadata();
+      app.metadataCache.getFileCache = () => cache;
+
+      const cachedReadSpy = jest.spyOn(app.vault, "cachedRead");
+
+      const result = await request(server)
+        .post("/search/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/vnd.olrapi.jsonlogic+json")
+        .send({ in: ["hello", { var: "content" }] })
+        .expect(200);
+
+      expect(cachedReadSpy).toHaveBeenCalled();
+      expect(result.body).toHaveLength(1);
+      cachedReadSpy.mockRestore();
+    });
+
+    test("returns empty string for content when query does not reference content", async () => {
+      const file1 = new TFile();
+      file1.path = "note.md";
+      app.vault._markdownFiles = [file1];
+      app.vault._cachedRead = "actual file content";
+
+      const cache = new CachedMetadata();
+      app.metadataCache.getFileCache = () => cache;
+
+      const result = await request(server)
+        .post("/search/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/vnd.olrapi.jsonlogic+json")
+        .send({ "==": [{ var: "path" }, "note.md"] })
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("note.md");
+    });
+
+    test("returns 400 when content-type is missing", async () => {
+      await request(server)
+        .post("/search/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .send({ "==": [{ var: "path" }, "note.md"] })
+        .expect(400);
+    });
+
+    test("returns 401 without auth", async () => {
+      await request(server)
+        .post("/search/")
+        .set("Content-Type", "application/vnd.olrapi.jsonlogic+json")
+        .send({ "==": [{ var: "path" }, "note.md"] })
+        .expect(401);
+    });
+  });
+
+  describe("/mcp/ routes", () => {
+    test("GET /mcp/ without auth returns 401", async () => {
+      await request(server).get("/mcp/").expect(401);
+    });
+
+    test("POST /mcp/ without auth returns 401", async () => {
+      await request(server).post("/mcp/").expect(401);
+    });
+
+    test("POST /mcp/ with valid auth reaches McpHandler.handleRequest", async () => {
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+    });
+
+    test("GET /mcp/ with valid auth and session ID reaches McpHandler.handleRequest", async () => {
+      await request(server)
+        .get("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Mcp-Session-Id", "some-session-id")
+        .expect(200);
+    });
+
+    test("POST /mcp/ with unsupported MCP-Protocol-Version returns 400", async () => {
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MCP-Protocol-Version", "9999-01-01")
+        .expect(400);
+    });
+
+    test("GET /mcp/ with unsupported MCP-Protocol-Version returns 400", async () => {
+      await request(server)
+        .get("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MCP-Protocol-Version", "9999-01-01")
+        .expect(400);
+    });
+
+    test("POST /mcp/ with MCP-Protocol-Version 2025-06-18 passes through", async () => {
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MCP-Protocol-Version", "2025-06-18")
+        .expect(200);
+    });
+
+    test("POST /mcp/ with MCP-Protocol-Version 2025-03-26 passes through", async () => {
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MCP-Protocol-Version", "2025-03-26")
+        .expect(200);
+    });
+
+    test("POST /mcp/ without MCP-Protocol-Version passes through", async () => {
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+    });
+  });
+
+  describe("waitForFileCache", () => {
+    test("returns immediately if cache is already available", async () => {
+      const testFile = new TFile();
+      testFile.path = "test.md";
+
+      // Cache is already available (default mock behavior)
+      app.metadataCache._getFileCache = {
+        headings: [],
+        frontmatter: { title: "Test" },
+        tags: [],
+      };
+
+      // Access the private method via the handler instance
+      // @ts-ignore: Accessing private method for testing
+      const result = await handler.operations.waitForFileCache(testFile);
+
+      expect(result).not.toBeNull();
+      expect(result?.frontmatter?.title).toBe("Test");
+    });
+
+    test("waits for cache change event when cache is initially null", async () => {
+      const testFile = new TFile();
+      testFile.path = "test.md";
+
+      // Start with null cache
+      app.metadataCache._getFileCache = null;
+
+      // @ts-ignore: Accessing private method for testing
+      const cachePromise = handler.operations.waitForFileCache(testFile, 5000);
+
+      // Simulate cache becoming available after a short delay
+      setTimeout(() => {
+        app.metadataCache._getFileCache = {
+          headings: [],
+          frontmatter: { title: "Loaded" },
+          tags: [],
+        };
+        app.metadataCache._emitChanged(testFile);
+      }, 50);
+
+      const result = await cachePromise;
+
+      expect(result).not.toBeNull();
+      expect(result?.frontmatter?.title).toBe("Loaded");
+    });
+
+    test("ignores cache change events for other files", async () => {
+      const testFile = new TFile();
+      testFile.path = "test.md";
+
+      const otherFile = new TFile();
+      otherFile.path = "other.md";
+
+      // Start with null cache
+      app.metadataCache._getFileCache = null;
+
+      // @ts-ignore: Accessing private method for testing
+      const cachePromise = handler.operations.waitForFileCache(testFile, 200);
+
+      // Emit change for a different file - should be ignored
+      setTimeout(() => {
+        app.metadataCache._emitChanged(otherFile);
+      }, 20);
+
+      // Then emit for the correct file
+      setTimeout(() => {
+        app.metadataCache._getFileCache = {
+          headings: [],
+          frontmatter: { title: "Correct" },
+          tags: [],
+        };
+        app.metadataCache._emitChanged(testFile);
+      }, 50);
+
+      const result = await cachePromise;
+
+      expect(result).not.toBeNull();
+      expect(result?.frontmatter?.title).toBe("Correct");
+    });
+
+    test("returns current cache state on timeout", async () => {
+      const testFile = new TFile();
+      testFile.path = "test.md";
+
+      // Start with null cache and never populate it
+      app.metadataCache._getFileCache = null;
+
+      // Use a very short timeout for the test
+      // @ts-ignore: Accessing private method for testing
+      const result = await handler.operations.waitForFileCache(testFile, 100);
+
+      // Should return null (timeout reached without cache becoming available)
+      expect(result).toBeNull();
+    });
+
+    test("cleans up event listener after cache becomes available", async () => {
+      const testFile = new TFile();
+      testFile.path = "test.md";
+
+      // Start with null cache
+      app.metadataCache._getFileCache = null;
+
+      // @ts-ignore: Accessing private method for testing
+      const cachePromise = handler.operations.waitForFileCache(testFile, 5000);
+
+      // Simulate cache becoming available
+      setTimeout(() => {
+        app.metadataCache._getFileCache = {
+          headings: [],
+          frontmatter: {},
+          tags: [],
+        };
+        app.metadataCache._emitChanged(testFile);
+      }, 50);
+
+      await cachePromise;
+
+      // Check that the listener was removed
+      const listeners = app.metadataCache._listeners.get("changed") || [];
+      expect(listeners.length).toBe(0);
+    });
+
+    test("cleans up event listener on timeout", async () => {
+      const testFile = new TFile();
+      testFile.path = "test.md";
+
+      // Start with null cache
+      app.metadataCache._getFileCache = null;
+
+      // @ts-ignore: Accessing private method for testing
+      await handler.operations.waitForFileCache(testFile, 100);
+
+      // Check that the listener was removed after timeout
+      const listeners = app.metadataCache._listeners.get("changed") || [];
+      expect(listeners.length).toBe(0);
+    });
+  });
+
+  describe("apiExtensions", () => {
+    test("addMcpTool registers a tool via McpHandler", () => {
+      const extManifest = Object.assign(new PluginManifest(), { id: "test-plugin" });
+      // @ts-ignore: mock PluginManifest is close enough for runtime
+      const api = handler.registerApiExtension(extManifest);
+      const callback = async () => "result";
+      api.addMcpTool("my_tool", "Does something", {}, callback);
+      // @ts-ignore: registerTool is a jest mock on the McpHandler instance
+      expect(handler.mcpHandler.registerTool).toHaveBeenCalledWith("my_tool", "Does something", {}, callback);
+    });
+
+    test("unregister calls cleanup for all registered MCP tools", () => {
+      const extManifest = Object.assign(new PluginManifest(), { id: "test-plugin-2" });
+      // @ts-ignore: mock PluginManifest is close enough for runtime
+      const api = handler.registerApiExtension(extManifest);
+      const mockCleanup = jest.fn();
+      // @ts-ignore: registerTool is a jest mock on the McpHandler instance
+      handler.mcpHandler.registerTool.mockReturnValueOnce(mockCleanup);
+      api.addMcpTool("cleanup_tool", "Desc", {}, async () => "");
+      api.unregister();
+      expect(mockCleanup).toHaveBeenCalledTimes(1);
     });
   });
 });

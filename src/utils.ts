@@ -1,87 +1,36 @@
-import { CachedMetadata, HeadingCache } from "obsidian";
-import { HeadingBoundary } from "./types";
 import forge from "node-forge";
 
-export function findHeadingBoundary(
-  fileCache: CachedMetadata,
-  headingPath: string[]
-): HeadingBoundary | null {
-  const reversedHeadingPath = [...headingPath].reverse();
-  const cursorHeadingPath: HeadingCache[] = [];
-
-  for (const [headingIdx, heading] of fileCache.headings.entries()) {
-    cursorHeadingPath[heading.level] = heading;
-    cursorHeadingPath.splice(heading.level + 1);
-
-    const reversedCurrentCursor = [
-      ...cursorHeadingPath.map((h) => h.heading),
-    ].reverse();
-    let matchesRequestedHeading = true;
-    for (const [idx, element] of reversedHeadingPath.entries()) {
-      if (reversedCurrentCursor[idx] != element) {
-        matchesRequestedHeading = false;
-        break;
-      }
-    }
-
-    if (matchesRequestedHeading) {
-      const start = heading.position.end;
-      const endHeading = fileCache.headings
-        .slice(headingIdx + 1)
-        .find((endHeading) => endHeading.level <= heading.level);
-      const end = endHeading?.position.start;
-
-      return {
-        start,
-        end,
-      };
-    }
-  }
-
-  return null;
-}
-
-export function getSplicePosition(
-  fileLines: string[],
-  heading: HeadingBoundary,
-  insert: boolean,
-  ignoreNewLines: boolean
-): number {
-  let splicePosition =
-    insert === false
-      ? heading.end?.line ?? fileLines.length
-      : heading.start.line + 1;
-
-  if (!ignoreNewLines || insert) {
-    return splicePosition;
-  }
-
-  while (fileLines[splicePosition - 1] === "") {
-    splicePosition--;
-  }
-  return splicePosition;
-}
-
 export function toArrayBuffer(
-  arr: Uint8Array | ArrayBuffer | DataView | object
-): ArrayBufferLike {
-  if (arr instanceof Uint8Array) {
-    return arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength);
-  }
-  if (arr instanceof DataView) {
-    return arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength);
-  }
+  arr: Uint8Array | ArrayBuffer | DataView | object,
+): ArrayBuffer {
   if (arr instanceof ArrayBuffer) {
     return arr;
   }
-  // If we've made it this far, we probably have a
-  // parsed JSON object
+
+  if (arr instanceof Uint8Array || arr instanceof DataView) {
+    const view =
+      arr instanceof Uint8Array
+        ? arr
+        : new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
+
+    if (view.buffer instanceof ArrayBuffer) {
+      return view.buffer.slice(
+        view.byteOffset,
+        view.byteOffset + view.byteLength,
+      );
+    }
+
+    const copy = new Uint8Array(view.byteLength);
+    copy.set(view);
+    return copy.buffer;
+  }
+
   const encoder = new TextEncoder();
   return encoder.encode(JSON.stringify(arr)).buffer;
 }
 
 export function getCertificateValidityDays(
-  certificate: forge.pki.Certificate
+  certificate: forge.pki.Certificate,
 ): number {
   return (
     (certificate.validity.notAfter.getTime() - new Date().getTime()) /
@@ -90,7 +39,7 @@ export function getCertificateValidityDays(
 }
 
 export function getCertificateIsUptoStandards(
-  certificate: forge.pki.Certificate
+  certificate: forge.pki.Certificate,
 ): boolean {
   const extension: Record<string, unknown> =
     certificate.getExtension("subjectAltName");

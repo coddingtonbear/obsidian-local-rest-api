@@ -1,5 +1,6 @@
+// eslint-disable-next-line no-restricted-imports -- Moment type is not re-exported by 'obsidian'; import type causes no runtime bundling
 import type { Moment } from "moment";
-import { FileStats, Loc, TFile } from "obsidian";
+import { FileStats, TFile } from "obsidian";
 import { IPeriodicNoteSettings } from "obsidian-daily-notes-interface";
 
 export enum ErrorCode {
@@ -7,14 +8,13 @@ export enum ErrorCode {
   ContentTypeSpecificationRequired = 40011,
   InvalidContentType = 40012,
   InvalidContentForContentType = 40015,
-  InvalidContentInsertionPositionValue = 40050,
-  MissingHeadingHeader = 40051,
-  InvalidHeadingHeader = 40052,
   MissingTargetTypeHeader = 40053,
   InvalidTargetTypeHeader = 40054,
   MissingTargetHeader = 40055,
+  InvalidTargetScopeHeader = 40059,
   MissingOperation = 40056,
   InvalidOperation = 40057,
+  InvalidTargetHeader = 40058,
   PeriodIsNotEnabled = 40060,
   InvalidFilterQuery = 40070,
   PatchFailed = 40080,
@@ -27,8 +27,9 @@ export enum ErrorCode {
   InvalidDestinationPath = 40002,
   PathTraversalNotAllowed = 40003,
   DestinationAlreadyExists = 40901,
-  FileOperationFailed = 50001,
+  ConflictingTargetSpecification = 42200,
   ErrorPreparingSimpleSearch = 50010,
+  FileOperationFailed = 50001,
 }
 
 export interface LocalRestApiSettings {
@@ -46,11 +47,7 @@ export interface LocalRestApiSettings {
   authorizationHeaderName?: string;
   bindingHost?: string;
   subjectAltNames?: string;
-}
-
-export interface HeadingBoundary {
-  start: Loc;
-  end?: Loc;
+  enableVerboseLogging?: boolean;
 }
 
 export interface PeriodicNoteInterface {
@@ -136,6 +133,7 @@ export interface SearchContext {
   match: {
     start: number;
     end: number;
+    source: "filename" | "content";
   };
   context: string;
 }
@@ -157,4 +155,12 @@ export interface FileMetadataObject {
   stat: FileStats;
   path: string;
   content: string;
+  links: string[];
+  backlinks: string[];
+}
+
+export interface DocumentMapObject {
+  headings: string[];
+  blocks: string[];
+  frontmatterFields: string[];
 }

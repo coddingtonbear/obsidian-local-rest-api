@@ -11,13 +11,20 @@ local ParamPath = import 'lib/path.param.jsonnet';
 local ParamPeriod = import 'lib/period.param.jsonnet';
 local ParamYear = import 'lib/year.param.jsonnet';
 
+local TargetingShared = importstr 'lib/descriptions/targeting.md';
+local GetShared = TargetingShared + '\n' + importstr 'lib/descriptions/get-shared.md';
+local PostShared = TargetingShared + '\n' + importstr 'lib/descriptions/post-shared.md';
+local PutShared = TargetingShared + '\n' + importstr 'lib/descriptions/put-shared.md';
+local PatchDescription(fileRef) =
+  'Inserts content into ' + fileRef + ' relative to a heading, block reference, or frontmatter field within that document.\n\n' + Patch.description;
+
 
 std.manifestYamlDoc(
   {
     openapi: '3.0.2',
     info: {
       title: 'Local REST API for Obsidian',
-      description: "You can use this interface for trying out your Local REST API in Obsidian.\n\nBefore trying the below tools, you will want to make sure you press the \"Authorize\" button below and provide the API Key you are shown when you open the \"Local REST API\" section of your Obsidian settings.  All requests to the API require a valid API Key; so you won't get very far without doing that.\n\nWhen using this tool you may see browser security warnings due to your browser not trusting the self-signed certificate the plugin will generate on its first run.  If you do, you can make those errors disappear by adding the certificate as a \"Trusted Certificate\" in your browser or operating system's settings.\n",
+      description: importstr 'lib/descriptions/info.md',
       version: '1.0',
     },
     servers: [
@@ -67,6 +74,8 @@ std.manifestYamlDoc(
             'stat',
             'path',
             'content',
+            'links',
+            'backlinks',
           ],
           properties: {
             tags: {
@@ -103,6 +112,20 @@ std.manifestYamlDoc(
             content: {
               type: 'string',
             },
+            links: {
+              type: 'array',
+              description: 'Vault-relative paths of files this file links to.',
+              items: {
+                type: 'string',
+              },
+            },
+            backlinks: {
+              type: 'array',
+              description: 'Vault-relative paths of files that link to this file.',
+              items: {
+                type: 'string',
+              },
+            },
           },
         },
         Error: {
@@ -127,32 +150,44 @@ std.manifestYamlDoc(
         apiKeyAuth: [],
       },
     ],
+    tags: [
+      { name: 'Vault Files' },
+      { name: 'Active File' },
+      { name: 'Periodic Notes' },
+      { name: 'Vault Directories' },
+      { name: 'Search' },
+      { name: 'Commands' },
+      { name: 'Open' },
+      { name: 'System' },
+      { name: 'MCP' },
+    ],
     paths: {
       '/active/': {
         get: Get {
           tags: ['Active File'],
           summary: 'Return the content of the active file open in Obsidian.\n',
-          description: 'Returns the content of the currently active file in Obsidian.\n\nIf you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.  See "responses" below for details.\n',
+          description: (importstr 'lib/descriptions/active-get.md') + '\n' + GetShared,
         },
         put: Put {
           tags: [
             'Active File',
           ],
           summary: 'Update the content of the active file open in Obsidian.\n',
+          description: PutShared,
         },
         post: Post {
           tags: [
             'Active File',
           ],
           summary: 'Append content to the active file open in Obsidian.\n',
-          description: "Appends content to the end of the currently-open note.\n\nIf you would like to insert text relative to a particular heading instead of appending to the end of the file, see 'patch'.\n",
+          description: (importstr 'lib/descriptions/active-post.md') + '\n' + PostShared,
         },
         patch: Patch {
           tags: [
             'Active File',
           ],
           summary: 'Partially update content in the currently open note.\n',
-          description: 'Inserts content into the currently-open note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
+          description: PatchDescription('the currently-open note'),
         },
         delete: Delete {
           tags: [
@@ -167,32 +202,32 @@ std.manifestYamlDoc(
             'Vault Files',
           ],
           summary: 'Return the content of a single file in your vault.\n',
-          description: '**Note:** This path also supports the WebDAV-style `MOVE` method for moving files. Specify the destination path in a `Destination` header. The MOVE method is not displayed in Swagger UI due to OpenAPI spec limitations, but is fully functional. See the raw openapi.yaml for complete MOVE documentation.\n\nReturns the content of the file at the specified path in your vault should the file exist.\n\nIf you specify the header `Accept: application/vnd.olrapi.note+json`, will return a JSON representation of your note including parsed tag and frontmatter data as well as filesystem metadata.  See "responses" below for details.\n',
-          parameters+: [ParamPath],
+          description: (importstr 'lib/descriptions/vault-file-get.md') + '\n' + GetShared,
+          parameters: [ParamPath] + super.parameters,
         },
         put: Put {
           tags: [
             'Vault Files',
           ],
           summary: 'Create a new file in your vault or update the content of an existing one.\n',
-          description: 'Creates a new file in your vault or updates the content of an existing one if the specified file already exists.\n',
-          parameters+: [ParamPath],
+          description: 'Creates a new file in your vault or updates the content of an existing one if the specified file already exists.\n\n' + PutShared,
+          parameters: [ParamPath] + super.parameters,
         },
         post: Post {
           tags: [
             'Vault Files',
           ],
           summary: 'Append content to a new or existing file.\n',
-          description: "Appends content to the end of an existing note. If the specified file does not yet exist, it will be created as an empty file.\n\nIf you would like to insert text relative to a particular heading, block reference, or frontmatter field instead of appending to the end of the file, see 'patch'.\n",
-          parameters+: [ParamPath],
+          description: (importstr 'lib/descriptions/vault-file-post.md') + '\n' + PostShared,
+          parameters: [ParamPath] + super.parameters,
         },
         patch: Patch {
           tags: [
             'Vault Files',
           ],
           summary: 'Partially update content in an existing note.\n',
-          description: 'Inserts content into an existing note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
-          parameters+: [ParamPath],
+          description: PatchDescription('an existing note'),
+          parameters: [ParamPath] + super.parameters,
         },
         move: Move {
           parameters: Move.parameters + [ParamPath],
@@ -211,7 +246,7 @@ std.manifestYamlDoc(
             'Vault Directories',
           ],
           summary: 'List files that exist in the root of your vault.\n',
-          description: 'Lists files in the root directory of your vault.\n\nNote: that this is exactly the same API endpoint as the below "List files that exist in the specified directory." and exists here only due to a quirk of this particular interactive tool.\n',
+          description: importstr 'lib/descriptions/vault-list.md',
           responses: {
             '200': {
               description: 'Success',
@@ -312,30 +347,32 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Get current periodic note for the specified period.\n',
-          parameters+: [ParamPeriod],
+          description: (importstr 'lib/descriptions/periodic-current-get.md') + '\n' + GetShared,
+          parameters: [ParamPeriod] + super.parameters,
         },
         put: Put {
           tags: [
             'Periodic Notes',
           ],
           summary: 'Update the content of the current periodic note for the specified period.\n',
-          parameters+: [ParamPeriod],
+          description: PutShared,
+          parameters: [ParamPeriod] + super.parameters,
         },
         post: Post {
           tags: [
             'Periodic Notes',
           ],
           summary: 'Append content to the current periodic note for the specified period.\n',
-          description: 'Note that this will create the relevant periodic note if necessary.\n',
-          parameters+: [ParamPeriod],
+          description: (importstr 'lib/descriptions/periodic-current-post.md') + '\n' + PostShared,
+          parameters: [ParamPeriod] + super.parameters,
         },
         patch: Patch {
           tags: [
             'Periodic Notes',
           ],
           summary: 'Partially update content in the current periodic note for the specified period.\n',
-          description: 'Inserts content into the current periodic note for the specified period relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
-          parameters+: [ParamPeriod],
+          description: PatchDescription('the current periodic note for the specified period'),
+          parameters: [ParamPeriod] + super.parameters,
         },
         delete: Delete {
           tags: [
@@ -351,30 +388,32 @@ std.manifestYamlDoc(
             'Periodic Notes',
           ],
           summary: 'Get the periodic note for the specified period and date.\n',
-          parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
+          description: (importstr 'lib/descriptions/periodic-date-get.md') + '\n' + GetShared,
+          parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
         put: Put {
           tags: [
             'Periodic Notes',
           ],
           summary: 'Update the content of the periodic note for the specified period and date.\n',
-          parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
+          description: PutShared,
+          parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
         post: Post {
           tags: [
             'Periodic Notes',
           ],
           summary: 'Append content to the periodic note for the specified period and date.\n',
-          description: 'This will create the relevant periodic note if necessary.\n',
-          parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
+          description: (importstr 'lib/descriptions/periodic-date-post.md') + '\n' + PostShared,
+          parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
         patch: Patch {
           tags: [
             'Periodic Notes',
           ],
           summary: 'Partially update content in the periodic note for the specified period and date.\n',
-          description: 'Inserts content into a periodic note relative to a heading, block refeerence, or frontmatter field within that document.\n\n' + Patch.description,
-          parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
+          description: PatchDescription('a periodic note for the specified period and date'),
+          parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
         delete: Delete {
           tags: [
@@ -383,6 +422,53 @@ std.manifestYamlDoc(
           summary: 'Delete the periodic note for the specified period and date.\n',
           description: 'Deletes the periodic note for the specified period.\n',
           parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
+        },
+      },
+      '/tags/': {
+        get: {
+          tags: [
+            'Tags',
+          ],
+          summary: 'Get a list of all tags with metadata.\n',
+          description: 'Returns all tags found across all files in the vault, drawn from both inline (`#tag`) and frontmatter tag syntax. Each tag is returned without the `#` prefix. Hierarchical tags (e.g. `work/tasks`) also contribute a count to every parent prefix (e.g. `work`), mirroring how Obsidian displays tag counts in its sidebar.\n',
+          responses: {
+            '200': {
+              description: 'A list of tags with their usage counts.',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      tags: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            name: {
+                              type: 'string',
+                              description: 'Tag name without the leading `#`.',
+                            },
+                            count: {
+                              type: 'number',
+                              description: 'Number of times this tag is used across the vault.',
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  example: {
+                    tags: [
+                      { name: 'project', count: 3 },
+                      { name: 'important', count: 1 },
+                      { name: 'work', count: 2 },
+                      { name: 'work/tasks', count: 2 },
+                    ],
+                  },
+                },
+              },
+            },
+          },
         },
       },
       '/commands/': {
@@ -473,24 +559,10 @@ std.manifestYamlDoc(
             'Search',
           ],
           summary: 'Search for documents matching a specified search query\n',
-          description: "Evaluates a provided query against each file in your vault.\n\nThis endpoint supports multiple query formats.  Your query should be specified in your request's body, and will be interpreted according to the `Content-type` header you specify from the below options.Additional query formats may be added in the future.\n\n# Dataview DQL (`application/vnd.olrapi.dataview.dql+txt`)\n\nAccepts a `TABLE`-type Dataview query as a text string.  See [Dataview](https://blacksmithgu.github.io/obsidian-dataview/query/queries/)'s query documentation for information on how to construct a query.\n\n# JsonLogic (`application/vnd.olrapi.jsonlogic+json`)\n\nAccepts a JsonLogic query specified as JSON.  See [JsonLogic](https://jsonlogic.com/operations.html)'s documentation for information about the base set of operators available, but in addition to those operators the following operators are available:\n\n- `glob: [PATTERN, VALUE]`: Returns `true` if a string matches a glob pattern.  E.g.: `{\"glob\": [\"*.foo\", \"bar.foo\"]}` is `true` and `{\"glob\": [\"*.bar\", \"bar.foo\"]}` is `false`.\n- `regexp: [PATTERN, VALUE]`: Returns `true` if a string matches a regular expression.  E.g.: `{\"regexp\": [\".*\\.foo\", \"bar.foo\"]` is `true` and `{\"regexp\": [\".*\\.bar\", \"bar.foo\"]}` is `false`.\n\nReturns only non-falsy results.  \"Non-falsy\" here treats the following values as \"falsy\":\n\n- `false`\n- `null` or `undefined`\n- `0`\n- `[]`\n- `{}`\n\nFiles are represented as an object having the schema described\nin the Schema named 'NoteJson' at the bottom of this page.\nUnderstanding the shape of a JSON object from a schema can be\ntricky; so you may find it helpful to examine the generated metadata\nfor individual files in your vault to understand exactly what values\nare returned.  To see that, access the `GET` `/vault/{filePath}`\nroute setting the header:\n`Accept: application/vnd.olrapi.note+json`.  See examples below\nfor working examples of queries performing common search operations.\n",
+          description: importstr 'lib/descriptions/search-post.md',
           requestBody: {
             required: true,
             content: {
-              'application/vnd.olrapi.dataview.dql+txt': {
-                schema: {
-                  type: 'object',
-                  externalDocs: {
-                    url: 'https://blacksmithgu.github.io/obsidian-dataview/query/queries/',
-                  },
-                },
-                examples: {
-                  find_fields_by_tag: {
-                    summary: 'List data from files having the #game tag.',
-                    value: 'TABLE\n  time-played AS "Time Played",\n  length AS "Length",\n  rating AS "Rating"\nFROM #game\nSORT rating DESC\n',
-                  },
-                },
-              },
               'application/vnd.olrapi.jsonlogic+json': {
                 schema: {
                   type: 'object',
@@ -543,6 +615,7 @@ std.manifestYamlDoc(
                             },
                             {
                               type: 'array',
+                              items: {},
                             },
                             {
                               type: 'object',
@@ -746,6 +819,238 @@ std.manifestYamlDoc(
           responses: {
             '200': {
               description: 'Success',
+            },
+          },
+        },
+      },
+      '/mcp/': {
+        get: {
+          tags: ['MCP'],
+          summary: 'Open a server-sent events stream for an existing MCP session.\n',
+          description: 'Opens a long-lived SSE stream so the server can push messages to the client for an existing session. Requires the session ID returned by the `initialize` response.\n',
+          parameters: [
+            {
+              name: 'Mcp-Session-Id',
+              'in': 'header',
+              description: 'Session ID returned by the server on initialization.',
+              required: true,
+              schema: {
+                type: 'string',
+              },
+            },
+            {
+              name: 'MCP-Protocol-Version',
+              'in': 'header',
+              description: 'MCP protocol version negotiated during initialization (e.g. `2025-06-18`). Required on all requests after initialization. Unrecognised values are rejected with 400.',
+              required: false,
+              schema: {
+                type: 'string',
+              },
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'SSE stream opened. The server pushes JSON-RPC messages as server-sent events.',
+              content: {
+                'text/event-stream': {
+                  schema: {
+                    type: 'string',
+                  },
+                },
+              },
+            },
+            '400': {
+              description: 'Unsupported MCP-Protocol-Version.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                },
+              },
+            },
+            '404': {
+              description: 'Session not found.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                },
+              },
+            },
+            '401': {
+              description: 'API key required.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                },
+              },
+            },
+          },
+        },
+        post: {
+          tags: ['MCP'],
+          summary: 'Send a JSON-RPC 2.0 message to the MCP server.\n',
+          description: importstr 'lib/descriptions/mcp.md',
+          parameters: [
+            {
+              name: 'Mcp-Session-Id',
+              'in': 'header',
+              description: 'Session ID returned by the server on initialization. Omit for the initial `initialize` request; required for all subsequent requests.',
+              required: false,
+              schema: {
+                type: 'string',
+              },
+            },
+            {
+              name: 'MCP-Protocol-Version',
+              'in': 'header',
+              description: 'MCP protocol version negotiated during initialization (e.g. `2025-06-18`). Required on all requests after initialization. Unrecognised values are rejected with 400.',
+              required: false,
+              schema: {
+                type: 'string',
+              },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  description: 'A JSON-RPC 2.0 request message.',
+                  required: ['jsonrpc', 'method'],
+                  properties: {
+                    jsonrpc: {
+                      type: 'string',
+                      enum: ['2.0'],
+                      description: 'JSON-RPC version. Must be "2.0".',
+                    },
+                    id: {
+                      oneOf: [{ type: 'string' }, { type: 'number' }],
+                      description: 'Request identifier. Include for calls that expect a response; omit for notifications.',
+                    },
+                    method: {
+                      type: 'string',
+                      description: 'MCP method to invoke.',
+                      enum: [
+                        'initialize',
+                        'tools/list',
+                        'tools/call',
+                        'resources/list',
+                        'resources/read',
+                        'prompts/list',
+                        'prompts/get',
+                        'ping',
+                      ],
+                    },
+                    params: {
+                      type: 'object',
+                      description: 'Method-specific parameters.',
+                    },
+                  },
+                },
+                examples: {
+                  list_tools: {
+                    summary: 'List all available MCP tools',
+                    value: {
+                      jsonrpc: '2.0',
+                      id: 1,
+                      method: 'tools/list',
+                      params: {},
+                    },
+                  },
+                  call_vault_read: {
+                    summary: 'Read a vault file (tools/call)',
+                    value: {
+                      jsonrpc: '2.0',
+                      id: 2,
+                      method: 'tools/call',
+                      params: {
+                        name: 'vault_read',
+                        arguments: {
+                          path: 'path/to/note.md',
+                        },
+                      },
+                    },
+                  },
+                  call_vault_patch: {
+                    summary: 'Patch a heading in a vault file (tools/call)',
+                    value: {
+                      jsonrpc: '2.0',
+                      id: 3,
+                      method: 'tools/call',
+                      params: {
+                        name: 'vault_patch',
+                        arguments: {
+                          path: 'path/to/note.md',
+                          targetType: 'heading',
+                          target: 'My Section',
+                          operation: 'append',
+                          content: 'New line of content\n',
+                        },
+                      },
+                    },
+                  },
+                  read_openapi_resource: {
+                    summary: 'Read the OpenAPI spec resource (resources/read)',
+                    value: {
+                      jsonrpc: '2.0',
+                      id: 4,
+                      method: 'resources/read',
+                      params: {
+                        uri: 'obsidian://local-rest-api/openapi.yaml',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: 'Message handled. Response body contains the JSON-RPC result, or may be empty for notifications. On session initialization the `Mcp-Session-Id` response header contains the new session ID.',
+              headers: {
+                'Mcp-Session-Id': {
+                  description: 'Session ID assigned by the server. Present only on the `initialize` response.',
+                  schema: {
+                    type: 'string',
+                  },
+                },
+              },
+            },
+            '400': {
+              description: 'Unsupported MCP-Protocol-Version.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                },
+              },
+            },
+            '404': {
+              description: 'Session not found.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                },
+              },
+            },
+            '401': {
+              description: 'API key required.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                },
+              },
             },
           },
         },

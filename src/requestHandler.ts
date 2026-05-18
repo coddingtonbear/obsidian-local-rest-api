@@ -1,36 +1,38 @@
-import forge from "node-forge";
 import {
   apiVersion,
   App,
-  CachedMetadata,
-  Command,
   PluginManifest,
-  prepareSimpleSearch,
   TFile,
 } from "obsidian";
-import periodicNotes from "obsidian-daily-notes-interface";
-import { getAPI as getDataviewAPI } from "obsidian-dataview";
+import forge from "node-forge";
 
-import bodyParser from "body-parser";
-import cors from "cors";
 import express from "express";
-import WildcardRegexp from "glob-to-regexp";
 import http from "http";
-import jsonLogic from "json-logic-js";
-import {
-  applyPatch,
-  ContentType,
-  PatchFailed,
-  PatchInstruction,
-  PatchOperation,
-  PatchTargetType,
-} from "markdown-patch";
+import cors from "cors";
 import mime from "mime-types";
-import path from "path";
-import queryString from "query-string";
 import responseTime from "response-time";
+import queryString from "query-string";
+import {
+  getDocumentMap,
+  PatchFailed,
+  PatchOperation,
+} from "markdown-patch";
+import { SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/sdk/types.js";
 
-import LocalRestApiPublicApi from "./api";
+import {
+  CannedResponse,
+  DocumentMapObject,
+  ErrorCode,
+  ErrorResponseDescriptor,
+  FileMetadataObject,
+  LocalRestApiSettings,
+  PeriodicNoteInterface,
+  SearchJsonResponseItem,
+} from "./types";
+import {
+  getCertificateIsUptoStandards,
+  getCertificateValidityDays,
+} from "./utils";
 import {
   CERT_NAME,
   ContentTypes,
@@ -38,23 +40,18 @@ import {
   MaximumRequestSize,
 } from "./constants";
 import {
-  CannedResponse,
-  ErrorCode,
-  ErrorResponseDescriptor,
-  FileMetadataObject,
-  LocalRestApiSettings,
-  PeriodicNoteInterface,
-  SearchContext,
-  SearchJsonResponseItem,
-  SearchResponseItem,
-} from "./types";
+  isContentType,
+  isPatchOperation,
+  isPatchTargetScope,
+  isPatchTargetType,
+} from "./typeGuards";
+import LocalRestApiPublicApi from "./api";
 import {
-  findHeadingBoundary,
-  getCertificateIsUptoStandards,
-  getCertificateValidityDays,
-  getSplicePosition,
-  toArrayBuffer,
-} from "./utils";
+  CommandNotFoundError,
+  FileNotFoundError,
+  VaultOperations,
+} from "./vaultOperations";
+import { McpHandler } from "./mcpHandler";
 
 // Import openapi.yaml as a string
 import openapiYaml from "../docs/openapi.yaml";
@@ -66,15 +63,16 @@ export default class RequestHandler {
   settings: LocalRestApiSettings;
 
   apiExtensionRouter: express.Router;
-  apiExtensions: {
-    manifest: PluginManifest;
-    api: LocalRestApiPublicApi;
-  }[] = [];
+  publicApiExtensionRouter: express.Router;
+  apiExtensions: Map<string, { manifest: PluginManifest; api: LocalRestApiPublicApi }> = new Map();
+
+  operations: VaultOperations;
+  mcpHandler: McpHandler;
 
   constructor(
     app: App,
     manifest: PluginManifest,
-    settings: LocalRestApiSettings
+    settings: LocalRestApiSettings,
   ) {
     this.app = app;
     this.manifest = manifest;
@@ -82,65 +80,43 @@ export default class RequestHandler {
     this.settings = settings;
 
     this.apiExtensionRouter = express.Router();
+    this.publicApiExtensionRouter = express.Router();
+    this.operations = new VaultOperations(this.app);
+    this.mcpHandler = new McpHandler(this.operations, this.settings);
 
     this.api.set("json spaces", 2);
-
-    jsonLogic.add_operation(
-      "glob",
-      (pattern: string | undefined, field: string | undefined) => {
-        if (typeof field === "string" && typeof pattern === "string") {
-          const glob = WildcardRegexp(pattern);
-          return glob.test(field);
-        }
-        return false;
-      }
-    );
-    jsonLogic.add_operation(
-      "regexp",
-      (pattern: string | undefined, field: string | undefined) => {
-        if (typeof field === "string" && typeof pattern === "string") {
-          const rex = new RegExp(pattern);
-          return rex.test(field);
-        }
-        return false;
-      }
-    );
   }
 
   registerApiExtension(manifest: PluginManifest): LocalRestApiPublicApi {
-    let api: LocalRestApiPublicApi | undefined = undefined;
-    for (const { manifest: existingManifest, api: existingApi } of this
-      .apiExtensions) {
-      if (JSON.stringify(existingManifest) === JSON.stringify(manifest)) {
-        api = existingApi;
-        break;
+    const existing = this.apiExtensions.get(manifest.id);
+    if (existing) {
+      return existing.api;
+    }
+
+    const router = express.Router();
+    const publicRouter = express.Router();
+    this.apiExtensionRouter.use(router);
+    this.publicApiExtensionRouter.use(publicRouter);
+    const removeRouter = (parent: express.Router, child: express.Router) => {
+      const idx = parent.stack.findIndex((layer: { handle?: unknown }) => layer.handle === child);
+      if (idx !== -1) {
+        parent.stack.splice(idx, 1);
       }
-    }
-    if (!api) {
-      const router = express.Router();
-      this.apiExtensionRouter.use(router);
-      api = new LocalRestApiPublicApi(router, () => {
-        const idx = this.apiExtensions.findIndex(
-          ({ manifest: storedManifest }) =>
-            JSON.stringify(manifest) === JSON.stringify(storedManifest)
-        );
-        if (idx !== -1) {
-          this.apiExtensions.splice(idx, 1);
-          this.apiExtensionRouter.stack.splice(idx, 1);
-        }
-      });
-      this.apiExtensions.push({
-        manifest,
-        api,
-      });
-    }
+    };
+    const api = new LocalRestApiPublicApi(router, publicRouter, this.mcpHandler, () => {
+      if (this.apiExtensions.delete(manifest.id)) {
+        removeRouter(this.apiExtensionRouter, router);
+        removeRouter(this.publicApiExtensionRouter, publicRouter);
+      }
+    });
+    this.apiExtensions.set(manifest.id, { manifest, api });
 
     return api;
   }
 
   requestIsAuthenticated(req: express.Request): boolean {
     const authorizationHeader = req.get(
-      this.settings.authorizationHeaderName ?? "Authorization"
+      this.settings.authorizationHeaderName ?? "Authorization",
     );
     if (authorizationHeader === `Bearer ${this.settings.apiKey}`) {
       return true;
@@ -152,7 +128,7 @@ export default class RequestHandler {
   async authenticationMiddleware(
     req: express.Request,
     res: express.Response,
-    next: express.NextFunction
+    next: express.NextFunction,
   ): Promise<void> {
     const authenticationExemptRoutes: string[] = [
       "/",
@@ -173,36 +149,12 @@ export default class RequestHandler {
     next();
   }
 
+  async getDocumentMapObject(file: TFile): Promise<DocumentMapObject> {
+    return this.operations.getDocumentMapObject(file);
+  }
+
   async getFileMetadataObject(file: TFile): Promise<FileMetadataObject> {
-    const cache = this.app.metadataCache.getFileCache(file);
-
-    // Gather frontmatter & strip out positioning information
-    const frontmatter = { ...(cache.frontmatter ?? {}) };
-    delete frontmatter.position; // This just adds noise
-
-    // Gather both in-line tags (hash'd) & frontmatter tags; strip
-    // leading '#' from them if it's there, and remove duplicates
-    const directTags =
-      (cache.tags ?? []).filter((tag) => tag).map((tag) => tag.tag) ?? [];
-    const frontmatterTags = Array.isArray(frontmatter.tags)
-      ? frontmatter.tags
-      : [];
-    const filteredTags: string[] = [...frontmatterTags, ...directTags]
-      // Filter out falsy tags
-      .filter((tag) => tag)
-      // Strip leading hash and get tag's string representation --
-      // although it should always be a string, it apparently isn't always!
-      .map((tag) => tag.toString().replace(/^#/, ""))
-      // Remove duplicates
-      .filter((value, index, self) => self.indexOf(value) === index);
-
-    return {
-      tags: filteredTags,
-      frontmatter: frontmatter,
-      stat: file.stat,
-      path: file.path,
-      content: await this.app.vault.cachedRead(file),
-    };
+    return this.operations.getFileMetadataObject(file);
   }
 
   getResponseMessage({
@@ -214,7 +166,7 @@ export default class RequestHandler {
     if (errorCode) {
       errorMessages.push(ERROR_CODE_MESSAGES[errorCode]);
     } else {
-      errorMessages.push(http.STATUS_CODES[statusCode]);
+      errorMessages.push(http.STATUS_CODES[statusCode] ?? "Unknown Error");
     }
     if (message) {
       errorMessages.push(message);
@@ -226,17 +178,22 @@ export default class RequestHandler {
   getStatusCode({ statusCode, errorCode }: ErrorResponseDescriptor): number {
     if (statusCode) {
       return statusCode;
+    } else if (errorCode) {
+      return Math.floor(errorCode / 100);
     }
-    return Math.floor(errorCode / 100);
+    throw new Error("Either statusCode or errorCode must be provided");
   }
 
   returnCannedResponse(
     res: express.Response,
-    { statusCode, message, errorCode }: ErrorResponseDescriptor
+    { statusCode, message, errorCode }: ErrorResponseDescriptor,
   ): void {
+    if (!statusCode && !errorCode) {
+      throw new Error("Either statusCode or errorCode must be provided");
+    }
     const response: CannedResponse = {
       message: this.getResponseMessage({ statusCode, message, errorCode }),
-      errorCode: errorCode ?? statusCode * 100,
+      errorCode: errorCode ?? (statusCode ?? -1) * 100,
     };
 
     res.status(this.getStatusCode({ statusCode, errorCode })).json(response);
@@ -245,8 +202,10 @@ export default class RequestHandler {
   root(req: express.Request, res: express.Response): void {
     let certificate: forge.pki.Certificate | undefined;
     try {
-      certificate = forge.pki.certificateFromPem(this.settings.crypto.cert);
-    } catch (e) {
+      if (this.settings.crypto?.cert) {
+        certificate = forge.pki.certificateFromPem(this.settings.crypto.cert);
+      }
+    } catch {
       // This is fine, we just won't include that in the output
     }
 
@@ -268,7 +227,11 @@ export default class RequestHandler {
           }
           : undefined,
       apiExtensions: this.requestIsAuthenticated(req)
-        ? this.apiExtensions.map(({ manifest }) => manifest)
+        ? [...this.apiExtensions.values()].map(({ manifest, api }) => ({
+          ...manifest,
+          routes: api.getRoutes(),
+          mcpTools: api.getMcpTools(),
+        }))
         : undefined,
     });
   }
@@ -276,81 +239,239 @@ export default class RequestHandler {
   async _vaultGet(
     path: string,
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
-    if (!path || path.endsWith("/")) {
-      const files = [
-        ...new Set(
-          this.app.vault
-            .getFiles()
-            .map((e) => e.path)
-            .filter((filename) => filename.startsWith(path))
-            .map((filename) => {
-              const subPath = filename.slice(path.length);
-              if (subPath.indexOf("/") > -1) {
-                return subPath.slice(0, subPath.indexOf("/") + 1);
-              }
-              return subPath;
-            })
-        ),
-      ];
-      files.sort();
+    // Step 1: Normalize trailing slash
+    const normalizedPath = path.endsWith("/") ? path.slice(0, -1) : path;
 
-      if (files.length === 0) {
+    // Step 2: Exact file match (fast path)
+    let filePath = normalizedPath;
+    let urlTargetType: string | undefined;
+    let urlTarget: string | undefined;
+
+    let exactStat = null;
+    try {
+      exactStat = normalizedPath
+        ? await this.app.vault.adapter.stat(normalizedPath)
+        : null;
+    } catch {
+      // ENOTDIR: a path segment is a file, not a directory — treat as no match.
+    }
+
+    if (!exactStat || exactStat.type !== "file") {
+      // Step 3: Directory listing check
+      const prefix = normalizedPath ? normalizedPath + "/" : "";
+      const hasChildren = this.app.vault
+        .getFiles()
+        .some((f) => f.path.startsWith(prefix));
+
+      if (!normalizedPath || hasChildren) {
+        const files = await this.operations.listVaultDirectory(normalizedPath);
+
+        if (files.length === 0 && normalizedPath) {
+          this.returnCannedResponse(res, { statusCode: 404 });
+          return;
+        }
+
+        res.json({ files: files });
+        return;
+      }
+
+      // Steps 4-5: Walk backward to find file + target (404 if nothing found)
+      const resolved = await this._resolvePathAndTarget(normalizedPath);
+      if (!resolved?.targetType) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+        return;
+      }
+      filePath = resolved.filePath;
+      urlTargetType = resolved.targetType;
+      urlTarget = resolved.target;
+    }
+
+    const content = await this.app.vault.adapter.readBinary(filePath);
+    const mimeType = mime.lookup(filePath);
+
+    res.set({
+      "Content-Disposition": `attachment; filename="${encodeURI(
+        filePath,
+      ).replace(",", "%2C")}"`,
+      "Content-Type":
+        `${mimeType}` +
+        (mimeType == ContentTypes.markdown ? "; charset=utf-8" : ""),
+    });
+
+    if ((req.headers.accept as ContentTypes) === ContentTypes.olrapiNoteJson) {
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (!(file instanceof TFile)) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+        return;
+      }
+      res.setHeader("Content-Type", ContentTypes.olrapiNoteJson);
+      res.send(
+        JSON.stringify(await this.getFileMetadataObject(file), null, 2),
+      );
+      return;
+    } else if ((req.headers.accept as ContentTypes) === ContentTypes.olrapiDocumentMap) {
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (!(file instanceof TFile)) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+        return;
+      }
+      res.setHeader("Content-Type", ContentTypes.olrapiDocumentMap);
+      res.send(
+        JSON.stringify(await this.getDocumentMapObject(file), null, 2),
+      );
+      return;
+    }
+
+    if (urlTargetType !== undefined && (req.get("Target-Type") || req.get("Target"))) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.ConflictingTargetSpecification,
+      });
+      return;
+    }
+
+    const targetType = urlTargetType ?? req.get("Target-Type");
+    if (targetType) {
+      if (!["heading", "block", "frontmatter"].includes(targetType)) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidTargetTypeHeader,
+        });
+        return;
+      }
+      let rawTarget = "";
+      try {
+        rawTarget =
+          urlTargetType !== undefined
+            ? urlTarget ?? ""
+            : decodeURIComponent(req.get("Target") ?? "");
+      } catch {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidTargetHeader,
+        });
+        return;
+      }
+      if (!rawTarget) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.MissingTargetHeader,
+        });
+        return;
+      }
+
+      const fileContent = Buffer.from(content).toString("utf-8");
+      const documentMap = getDocumentMap(fileContent);
+      const targetDelimiter = req.get("Target-Delimiter") || "::";
+
+      if (targetType === "frontmatter") {
+        const value: unknown = documentMap.frontmatter[rawTarget];
+        if (value === undefined) {
+          this.returnCannedResponse(res, { statusCode: 404 });
+          return;
+        }
+        res.setHeader("Content-Type", ContentTypes.json);
+        res.json(value);
+        return;
+      }
+
+      const mapKey =
+        targetType === "heading"
+          ? rawTarget
+            .split(targetDelimiter)
+            .join("\u001f")
+          : rawTarget;
+
+      const entry =
+        targetType === "heading"
+          ? documentMap.heading[mapKey]
+          : documentMap.block[mapKey];
+
+      if (!entry) {
         this.returnCannedResponse(res, { statusCode: 404 });
         return;
       }
 
-      res.json({
-        files: files,
-      });
-    } else {
-      const exists = await this.app.vault.adapter.exists(path);
-
-      if (exists && (await this.app.vault.adapter.stat(path)).type === "file") {
-        const content = await this.app.vault.adapter.readBinary(path);
-        const mimeType = mime.lookup(path);
-
-        res.set({
-          "Content-Disposition": `attachment; filename="${encodeURI(
-            path
-          ).replace(",", "%2C")}"`,
-          "Content-Type":
-            `${mimeType}` +
-            (mimeType == ContentTypes.markdown ? "; charset=utf-8" : ""),
-        });
-
-        if (req.headers.accept === ContentTypes.olrapiNoteJson) {
-          const file = this.app.vault.getAbstractFileByPath(path) as TFile;
-          res.setHeader("Content-Type", ContentTypes.olrapiNoteJson);
-          res.send(
-            JSON.stringify(await this.getFileMetadataObject(file), null, 2)
-          );
-          return;
-        }
-
-        res.send(Buffer.from(content));
-      } else {
-        this.returnCannedResponse(res, {
-          statusCode: 404,
-        });
-        return;
-      }
+      const sectionContent = fileContent.substring(
+        entry.content.start,
+        entry.content.end,
+      );
+      res.setHeader("Content-Type", ContentTypes.markdown + "; charset=utf-8");
+      res.send(sectionContent);
+      return;
     }
+
+    res.send(Buffer.from(content));
   }
 
   async vaultGet(req: express.Request, res: express.Response): Promise<void> {
     const path = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1)
+      req.path.slice(req.path.indexOf("/", 1) + 1),
     );
 
     return this._vaultGet(path, req, res);
   }
 
+  /** Resolves a raw path (possibly containing a URL-embedded target) into a
+   *  file path and optional target type + target string.  Returns null when no
+   *  vault file can be found at any prefix of the path. */
+  async _resolvePathAndTarget(rawPath: string): Promise<{
+    filePath: string;
+    targetType?: string;
+    target?: string;
+  } | null> {
+    return this.operations.resolvePathAndTarget(rawPath);
+  }
+
+  /** Reads Target-Type / Target headers, validates them, and returns the
+   *  decoded values.  If either header is invalid or missing when the other is
+   *  present, an error response is sent and null is returned.  Returns
+   *  undefined (without touching the response) when neither header is present. */
+  _getHeaderTarget(
+    req: express.Request,
+    res: express.Response,
+  ): { targetType: string; target: string } | null | undefined {
+    const rawTargetType = req.get("Target-Type");
+    const rawTarget = req.get("Target");
+
+    if (!rawTargetType && !rawTarget) {
+      return undefined;
+    }
+
+    if (!rawTargetType) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingTargetTypeHeader,
+      });
+      return null;
+    }
+    if (!["heading", "block", "frontmatter"].includes(rawTargetType)) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidTargetTypeHeader,
+      });
+      return null;
+    }
+
+    let target = "";
+    try {
+      target = decodeURIComponent(rawTarget ?? "");
+    } catch {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidTargetHeader,
+      });
+      return null;
+    }
+    if (!target) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingTargetHeader,
+      });
+      return null;
+    }
+
+    return { targetType: rawTargetType, target };
+  }
+
   async _vaultPut(
     filepath: string,
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     if (!filepath || filepath.endsWith("/")) {
       this.returnCannedResponse(res, {
@@ -358,240 +479,187 @@ export default class RequestHandler {
       });
       return;
     }
-
-    try {
-      await this.app.vault.createFolder(path.dirname(filepath));
-    } catch {
-      // the folder/file already exists, but we don't care
-    }
-
-    if (typeof req.body === "string") {
-      await this.app.vault.adapter.write(filepath, req.body);
-    } else {
-      await this.app.vault.adapter.writeBinary(
-        filepath,
-        toArrayBuffer(req.body)
-      );
-    }
-
+    await this.operations.writeFileContent(filepath, req.body as string | Buffer);
     this.returnCannedResponse(res, { statusCode: 204 });
     return;
   }
 
   async vaultPut(req: express.Request, res: express.Response): Promise<void> {
-    const path = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1)
+    const rawPath = decodeURIComponent(
+      req.path.slice(req.path.indexOf("/", 1) + 1),
     );
-
-    return this._vaultPut(path, req, res);
-  }
-
-  async _vaultPatchV2(
-    path: string,
-    req: express.Request,
-    res: express.Response
-  ): Promise<void> {
-    const headingBoundary = req.get("Heading-Boundary") || "::";
-    const heading = (req.get("Heading") || "")
-      .split(headingBoundary)
-      .filter(Boolean);
-    const contentPosition = req.get("Content-Insertion-Position");
-    let insert = false;
-    let aboveNewLine = false;
-
-    if (contentPosition === undefined) {
-      insert = false;
-    } else if (contentPosition === "beginning") {
-      insert = true;
-    } else if (contentPosition === "end") {
-      insert = false;
-    } else {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.InvalidContentInsertionPositionValue,
-      });
-      return;
-    }
-    if (typeof req.body != "string") {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.TextContentEncodingRequired,
-      });
-      return;
-    }
-
-    if (typeof req.get("Content-Insertion-Ignore-Newline") == "string") {
-      aboveNewLine =
-        req.get("Content-Insertion-Ignore-Newline").toLowerCase() == "true";
-    }
-
-    if (!heading.length) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.MissingHeadingHeader,
-      });
-      return;
-    }
-
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) {
-      this.returnCannedResponse(res, {
-        statusCode: 404,
-      });
-      return;
-    }
-    const cache = this.app.metadataCache.getFileCache(file);
-    const position = findHeadingBoundary(cache, heading);
-
-    if (!position) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.InvalidHeadingHeader,
-      });
-      return;
-    }
-
-    const fileContents = await this.app.vault.read(file);
-    const fileLines = fileContents.split("\n");
-
-    const splicePosition = getSplicePosition(
-      fileLines,
-      position,
-      insert,
-      aboveNewLine
-    );
-
-    fileLines.splice(splicePosition, 0, req.body);
-
-    const content = fileLines.join("\n");
-
-    await this.app.vault.adapter.write(path, content);
-
-    console.warn(
-      `2.x PATCH implementation is deprecated and will be removed in version 4.0`
-    );
-    res
-      .header("Deprecation", 'true; sunset-version="4.0"')
-      .header(
-        "Link",
-        '<https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Changes-to-PATCH-requests-between-versions-2.0-and-3.0>; rel="alternate"'
-      )
-      .status(200)
-      .send(content);
-  }
-
-  async _vaultPatchV3(
-    path: string,
-    req: express.Request,
-    res: express.Response
-  ): Promise<void> {
-    const operation = req.get("Operation");
-    const targetType = req.get("Target-Type");
-    const rawTarget = decodeURIComponent(req.get("Target"));
-    const contentType = req.get("Content-Type");
-    const createTargetIfMissing = req.get("Create-Target-If-Missing") == "true";
-    const applyIfContentPreexists =
-      req.get("Apply-If-Content-Preexists") == "true";
-    const trimTargetWhitespace = req.get("Trim-Target-Whitespace") == "true";
-    const targetDelimiter = req.get("Target-Delimiter") || "::";
-
-    const target =
-      targetType == "heading" ? rawTarget.split(targetDelimiter) : rawTarget;
-
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) {
-      this.returnCannedResponse(res, {
-        statusCode: 404,
-      });
-      return;
-    }
-    const fileContents = await this.app.vault.read(file);
-
-    if (!targetType) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.MissingTargetTypeHeader,
-      });
-      return;
-    }
-
-    // Only these target types are valid for PATCH
-    if (!["heading", "block", "frontmatter"].includes(targetType)) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.InvalidTargetTypeHeader,
-      });
-      return;
-    }
-
-    // Validate operations for applyPatch target types
-    if (!["append", "prepend", "replace"].includes(operation)) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.InvalidOperation,
-      });
-      return;
-    }
-    if (!path || path.endsWith("/")) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
-      });
-      return;
-    }
-
-    const instruction: PatchInstruction = {
-      operation: operation as PatchOperation,
-      targetType: targetType as PatchTargetType,
-      target,
-      contentType: contentType as ContentType,
-      content: req.body,
-      applyIfContentPreexists,
-      trimTargetWhitespace,
-      createTargetIfMissing,
-    } as PatchInstruction;
-
-    try {
-      const patched = applyPatch(fileContents, instruction);
-      await this.app.vault.adapter.write(path, patched);
-      res.status(200).send(patched);
-    } catch (e) {
-      if (e instanceof PatchFailed) {
-        this.returnCannedResponse(res, {
-          errorCode: ErrorCode.PatchFailed,
-          message: e.reason,
-        });
-      } else {
-        this.returnCannedResponse(res, {
-          statusCode: 500,
-          message: e.message,
-        });
+    const resolved = await this._resolvePathAndTarget(rawPath);
+    if (resolved === null) {
+      if (
+        rawPath
+          .split("/")
+          .some((s) => ["heading", "block", "frontmatter"].includes(s))
+      ) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+        return;
       }
+    } else if (resolved.targetType) {
+      if (req.get("Target-Type") || req.get("Target")) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ConflictingTargetSpecification,
+        });
+        return;
+      }
+      return this._vaultPatchTargeted(
+        resolved.filePath,
+        resolved.targetType,
+        resolved.target ?? "",
+        "replace",
+        req,
+        res,
+        { createTargetIfMissing: true },
+      );
     }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      return this._vaultPatchTargeted(
+        rawPath,
+        headerTarget.targetType,
+        headerTarget.target,
+        "replace",
+        req,
+        res,
+        { createTargetIfMissing: true },
+      );
+    }
+    return this._vaultPut(rawPath, req, res);
   }
 
   async _vaultPatch(
     path: string,
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     if (!path || path.endsWith("/")) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
-      });
+      this.returnCannedResponse(res, { errorCode: ErrorCode.RequestMethodValidOnlyForFiles });
       return;
     }
 
-    if (req.get("Heading") && !req.get("Target-Type")) {
-      return this._vaultPatchV2(path, req, res);
+    const operation = req.get("Operation");
+    const targetType = req.get("Target-Type");
+    const rawTarget = decodeURIComponent(req.get("Target") ?? "");
+    const contentType = req.get("Content-Type");
+    const createTargetIfMissing = req.get("Create-Target-If-Missing") == "true";
+    const rejectIfContentPreexists =
+      req.get("Reject-If-Content-Preexists") == "true";
+    const trimTargetWhitespace = req.get("Trim-Target-Whitespace") == "true";
+    const targetDelimiter = req.get("Target-Delimiter") || "::";
+    const rawTargetScope = req.get("Target-Scope");
+    const targetScope = rawTargetScope || undefined;
+
+    if (!targetType) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.MissingTargetTypeHeader });
+      return;
     }
-    return this._vaultPatchV3(path, req, res);
+    if (!isPatchTargetType(targetType)) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetTypeHeader });
+      return;
+    }
+    if (!operation) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.MissingOperation });
+      return;
+    }
+    if (!isPatchOperation(operation)) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidOperation });
+      return;
+    }
+    if (targetScope && !isPatchTargetScope(targetScope)) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetScopeHeader });
+      return;
+    }
+    if (!isContentType(contentType)) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidContentType });
+      return;
+    }
+
+    try {
+      const patched = await this.operations.patchFileSection(
+        path, targetType, rawTarget, operation, req.body, contentType,
+        { createTargetIfMissing, rejectIfContentPreexists, trimTargetWhitespace, targetDelimiter, targetScope },
+      );
+      res.status(200).send(patched);
+    } catch (e) {
+      if (e instanceof FileNotFoundError) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+      } else if (e instanceof PatchFailed) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.PatchFailed, message: e.reason });
+      } else {
+        this.returnCannedResponse(res, { statusCode: 500, message: (e as Error).message });
+      }
+    }
   }
 
   async vaultPatch(req: express.Request, res: express.Response): Promise<void> {
-    const path = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1)
+    const rawPath = decodeURIComponent(
+      req.path.slice(req.path.indexOf("/", 1) + 1),
     );
+    return this._vaultPatch(rawPath, req, res);
+  }
 
-    return this._vaultPatch(path, req, res);
+  async _vaultPatchTargeted(
+    filePath: string,
+    targetType: string,
+    target: string,
+    operation: PatchOperation,
+    req: express.Request,
+    res: express.Response,
+    extraOpts?: { createTargetIfMissing?: boolean },
+  ): Promise<void> {
+    const contentType = req.get("Content-Type");
+    const createTargetIfMissing =
+      extraOpts?.createTargetIfMissing ??
+      req.get("Create-Target-If-Missing") == "true";
+    const rejectIfContentPreexists =
+      req.get("Reject-If-Content-Preexists") == "true";
+    const trimTargetWhitespace = req.get("Trim-Target-Whitespace") == "true";
+    const targetDelimiter = req.get("Target-Delimiter") || "::";
+    const rawTargetScope = req.get("Target-Scope");
+    const targetScope = rawTargetScope || undefined;
+
+    if (!isPatchTargetType(targetType)) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetTypeHeader });
+      return;
+    }
+    if (!isContentType(contentType)) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidContentType });
+      return;
+    }
+    if (targetScope && !isPatchTargetScope(targetScope)) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetScopeHeader });
+      return;
+    }
+    if (!target) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.MissingTargetHeader });
+      return;
+    }
+
+    try {
+      const patched = await this.operations.patchFileSection(
+        filePath, targetType, target, operation, req.body, contentType,
+        { createTargetIfMissing, rejectIfContentPreexists, trimTargetWhitespace, targetDelimiter, targetScope },
+      );
+      res.status(200).send(patched);
+    } catch (e) {
+      if (e instanceof FileNotFoundError) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+      } else if (e instanceof PatchFailed) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.PatchFailed, message: (e).reason });
+      } else {
+        this.returnCannedResponse(res, { statusCode: 500, message: (e as Error).message });
+      }
+    }
   }
 
   async _vaultPost(
     filepath: string,
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     if (!filepath || filepath.endsWith("/")) {
       this.returnCannedResponse(res, {
@@ -599,49 +667,66 @@ export default class RequestHandler {
       });
       return;
     }
-
     if (typeof req.body != "string") {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.TextContentEncodingRequired,
       });
       return;
     }
-
-    try {
-      await this.app.vault.createFolder(path.dirname(filepath));
-    } catch {
-      // the folder/file already exists, but we don't care
-    }
-
-    let fileContents = "";
-    const file = this.app.vault.getAbstractFileByPath(filepath);
-    if (file instanceof TFile) {
-      fileContents = await this.app.vault.read(file);
-      if (!fileContents.endsWith("\n")) {
-        fileContents += "\n";
-      }
-    }
-
-    fileContents += req.body;
-
-    await this.app.vault.adapter.write(filepath, fileContents);
-
+    await this.operations.appendFileContent(filepath, req.body);
     this.returnCannedResponse(res, { statusCode: 204 });
     return;
   }
 
   async vaultPost(req: express.Request, res: express.Response): Promise<void> {
-    const path = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1)
+    const rawPath = decodeURIComponent(
+      req.path.slice(req.path.indexOf("/", 1) + 1),
     );
-
-    return this._vaultPost(path, req, res);
+    const resolved = await this._resolvePathAndTarget(rawPath);
+    if (resolved === null) {
+      if (
+        rawPath
+          .split("/")
+          .some((s) => ["heading", "block", "frontmatter"].includes(s))
+      ) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+        return;
+      }
+    } else if (resolved.targetType) {
+      if (req.get("Target-Type") || req.get("Target")) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ConflictingTargetSpecification,
+        });
+        return;
+      }
+      return this._vaultPatchTargeted(
+        resolved.filePath,
+        resolved.targetType,
+        resolved.target ?? "",
+        "append",
+        req,
+        res,
+      );
+    }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      return this._vaultPatchTargeted(
+        rawPath,
+        headerTarget.targetType,
+        headerTarget.target,
+        "append",
+        req,
+        res,
+      );
+    }
+    return this._vaultPost(rawPath, req, res);
   }
 
   async _vaultDelete(
     path: string,
-    req: express.Request,
-    res: express.Response
+    _req: express.Request,
+    res: express.Response,
   ): Promise<void> {
     if (!path || path.endsWith("/")) {
       this.returnCannedResponse(res, {
@@ -649,35 +734,44 @@ export default class RequestHandler {
       });
       return;
     }
-
-    const pathExists = await this.app.vault.adapter.exists(path);
-    if (!pathExists) {
-      this.returnCannedResponse(res, { statusCode: 404 });
+    try {
+      await this.operations.deleteVaultFile(path);
+    } catch (e) {
+      if (e instanceof FileNotFoundError) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+      } else {
+        this.returnCannedResponse(res, { statusCode: 500 });
+      }
       return;
     }
-
-    await this.app.vault.adapter.remove(path);
     this.returnCannedResponse(res, { statusCode: 204 });
     return;
   }
 
   async vaultDelete(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
-    const path = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1)
+    const rawPath = decodeURIComponent(
+      req.path.slice(req.path.indexOf("/", 1) + 1),
     );
-
-    return this._vaultDelete(path, req, res);
+    const resolved = await this._resolvePathAndTarget(rawPath);
+    if (resolved?.targetType) {
+      this.returnCannedResponse(res, {
+        statusCode: 405,
+        message:
+          "Deleting a targeted section via URL is not supported. Use PATCH with Operation: replace and an empty body instead.",
+      });
+      return;
+    }
+    return this._vaultDelete(rawPath, req, res);
   }
 
   async _vaultMove(
     path: string,
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
-
     if (!path || path.endsWith("/")) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
@@ -685,8 +779,9 @@ export default class RequestHandler {
       return;
     }
 
-    // For WebDAV-style MOVE, the new path should be in the Destination header
-    const rawDestination = req.get('Destination');
+    const rawDestination = req.header("Destination");
+    const overwriteAllowed =
+      (req.header("Overwrite") ?? "F").toUpperCase() !== "F";
 
     if (!rawDestination) {
       this.returnCannedResponse(res, {
@@ -697,15 +792,13 @@ export default class RequestHandler {
 
     const rawNewPath = decodeURIComponent(rawDestination.trim());
 
-    // Check for path traversal attempts
-    if (rawNewPath.includes('..') || rawNewPath.startsWith('/')) {
+    if (rawNewPath.includes("..") || rawNewPath.startsWith("/")) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.PathTraversalNotAllowed,
       });
       return;
     }
 
-    // Validate new path is not a directory
     if (rawNewPath.endsWith("/")) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidDestinationPath,
@@ -713,19 +806,19 @@ export default class RequestHandler {
       return;
     }
 
-    // Normalize the new path
-    const newPath = rawNewPath.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
+    const newPath = rawNewPath
+      .replace(/\\/g, "/")
+      .replace(/\/+/g, "/")
+      .replace(/^\/|\/$/g, "");
 
-    // Check if source file exists
     const sourceFile = this.app.vault.getAbstractFileByPath(path);
     if (!sourceFile || !(sourceFile instanceof TFile)) {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
 
-    // Check if destination already exists
     const destExists = await this.app.vault.adapter.exists(newPath);
-    if (destExists) {
+    if (destExists && !overwriteAllowed) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.DestinationAlreadyExists,
       });
@@ -733,147 +826,68 @@ export default class RequestHandler {
     }
 
     try {
-      // Create parent directories if needed
-      const parentDir = newPath.substring(0, newPath.lastIndexOf('/'));
-      if (parentDir && !await this.app.vault.adapter.exists(parentDir)) {
+      const parentDir = newPath.substring(0, newPath.lastIndexOf("/"));
+      if (parentDir && !(await this.app.vault.adapter.exists(parentDir))) {
         await this.app.vault.createFolder(parentDir);
       }
 
-      // Use FileManager to move the file (preserves history and updates links)
       // @ts-ignore - fileManager exists at runtime but not in type definitions
       await this.app.fileManager.renameFile(sourceFile, newPath);
 
       res.status(201).json({
         message: "File successfully moved",
         oldPath: path,
-        newPath: newPath
+        newPath: newPath,
       });
     } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.FileOperationFailed,
-        message: `Failed to move file: ${error.message}`
+        message: `Failed to move file: ${msg}`,
       });
     }
   }
 
   async vaultMove(req: express.Request, res: express.Response): Promise<void> {
     const path = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1)
+      req.path.slice(req.path.indexOf("/", 1) + 1),
     );
-
     return this._vaultMove(path, req, res);
   }
 
   getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
-    return {
-      daily: {
-        settings: periodicNotes.getDailyNoteSettings(),
-        loaded: periodicNotes.appHasDailyNotesPluginLoaded(),
-        create: periodicNotes.createDailyNote,
-        get: periodicNotes.getDailyNote,
-        getAll: periodicNotes.getAllDailyNotes,
-      },
-      weekly: {
-        settings: periodicNotes.getWeeklyNoteSettings(),
-        loaded: periodicNotes.appHasWeeklyNotesPluginLoaded(),
-        create: periodicNotes.createWeeklyNote,
-        get: periodicNotes.getWeeklyNote,
-        getAll: periodicNotes.getAllWeeklyNotes,
-      },
-      monthly: {
-        settings: periodicNotes.getMonthlyNoteSettings(),
-        loaded: periodicNotes.appHasMonthlyNotesPluginLoaded(),
-        create: periodicNotes.createMonthlyNote,
-        get: periodicNotes.getMonthlyNote,
-        getAll: periodicNotes.getAllMonthlyNotes,
-      },
-      quarterly: {
-        settings: periodicNotes.getQuarterlyNoteSettings(),
-        loaded: periodicNotes.appHasQuarterlyNotesPluginLoaded(),
-        create: periodicNotes.createQuarterlyNote,
-        get: periodicNotes.getQuarterlyNote,
-        getAll: periodicNotes.getAllQuarterlyNotes,
-      },
-      yearly: {
-        settings: periodicNotes.getYearlyNoteSettings(),
-        loaded: periodicNotes.appHasYearlyNotesPluginLoaded(),
-        create: periodicNotes.createYearlyNote,
-        get: periodicNotes.getYearlyNote,
-        getAll: periodicNotes.getAllYearlyNotes,
-      },
-    };
+    return this.operations.getPeriodicNoteInterface();
   }
 
   periodicGetInterface(
-    period: string
+    period: string,
   ): [PeriodicNoteInterface | null, ErrorCode | null] {
-    const periodic = this.getPeriodicNoteInterface();
-    if (!periodic[period]) {
-      return [null, ErrorCode.PeriodDoesNotExist];
-    }
-    if (!periodic[period].loaded) {
-      return [null, ErrorCode.PeriodIsNotEnabled];
-    }
-
-    return [periodic[period], null];
+    return this.operations.periodicGetInterface(period);
   }
 
   periodicGetNote(
     periodName: string,
-    timestamp: number
+    timestamp: number,
   ): [TFile | null, ErrorCode | null] {
-    const [period, err] = this.periodicGetInterface(periodName);
-    if (err) {
-      return [null, err];
-    }
-
-    const now = (window as any).moment(timestamp);
-    const all = period.getAll();
-
-    const file = period.get(now, all);
-    if (!file) {
-      return [null, ErrorCode.PeriodicNoteDoesNotExist];
-    }
-
-    return [file, null];
+    return this.operations.periodicGetNote(periodName, timestamp);
   }
 
   async periodicGetOrCreateNote(
     periodName: string,
-    timestamp: number
+    timestamp: number,
   ): Promise<[TFile | null, ErrorCode | null]> {
-    const [gottenFile, err] = this.periodicGetNote(periodName, timestamp);
-    let file = gottenFile;
-    if (err === ErrorCode.PeriodicNoteDoesNotExist) {
-      const [period] = this.periodicGetInterface(periodName);
-      const now = (window as any).moment(Date.now());
-
-      file = await period.create(now);
-
-      const metadataCachePromise = new Promise<CachedMetadata>((resolve) => {
-        let cache: CachedMetadata = null;
-
-        const interval: ReturnType<typeof setInterval> = setInterval(() => {
-          cache = this.app.metadataCache.getFileCache(file);
-          if (cache) {
-            clearInterval(interval);
-            resolve(cache);
-          }
-        }, 100);
-      });
-      await metadataCachePromise;
-    } else if (err) {
-      return [null, err];
-    }
-
-    return [file, null];
+    return this.operations.periodicGetOrCreateNote(periodName, timestamp);
   }
 
   redirectToVaultPath(
     file: TFile,
     req: express.Request,
     res: express.Response,
-    handler: (path: string, req: express.Request, res: express.Response) => void
+    handler: (
+      path: string,
+      req: express.Request,
+      res: express.Response,
+    ) => void,
   ): void {
     const path = file.path;
     res.set("Content-Location", encodeURI(path));
@@ -881,11 +895,15 @@ export default class RequestHandler {
     return handler(path, req, res);
   }
 
-  getPeriodicDateFromParams(params: any): number {
+  getPeriodicDateFromParams(params: {
+    year?: string;
+    month?: string;
+    day?: string;
+  }): number {
     const { year, month, day } = params;
 
     if (year && month && day) {
-      const date = new Date(year, month - 1, day);
+      const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
       return date.getTime();
     }
 
@@ -894,192 +912,366 @@ export default class RequestHandler {
 
   async periodicGet(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const date = this.getPeriodicDateFromParams(req.params);
     const [file, err] = this.periodicGetNote(req.params.period, date);
-    if (err) {
-      this.returnCannedResponse(res, { errorCode: err });
+    if (err || !file) {
+      this.returnCannedResponse(res, {
+        errorCode: err ?? ErrorCode.PeriodicNoteDoesNotExist,
+      });
       return;
     }
 
-    return this.redirectToVaultPath(file, req, res, this._vaultGet.bind(this));
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    const path = file.path + (suffix ? "/" + suffix : "");
+    res.set("Content-Location", encodeURI(file.path));
+    return this._vaultGet(path, req, res);
   }
 
   async periodicPut(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const date = this.getPeriodicDateFromParams(req.params);
     const [file, err] = await this.periodicGetOrCreateNote(
       req.params.period,
-      date
+      date,
     );
-    if (err) {
-      this.returnCannedResponse(res, { errorCode: err });
+    if (err || !file) {
+      this.returnCannedResponse(res, {
+        errorCode: err ?? ErrorCode.PeriodicNoteDoesNotExist,
+      });
       return;
     }
-
-    return this.redirectToVaultPath(file, req, res, this._vaultPut.bind(this));
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+      if (resolved?.targetType) {
+        if (req.get("Target-Type") || req.get("Target")) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.ConflictingTargetSpecification,
+          });
+          return;
+        }
+        res.set("Content-Location", encodeURI(file.path));
+        return this._vaultPatchTargeted(
+          resolved.filePath,
+          resolved.targetType,
+          resolved.target ?? "",
+          "replace",
+          req,
+          res,
+          { createTargetIfMissing: true },
+        );
+      }
+    }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      res.set("Content-Location", encodeURI(file.path));
+      return this._vaultPatchTargeted(
+        file.path,
+        headerTarget.targetType,
+        headerTarget.target,
+        "replace",
+        req,
+        res,
+        { createTargetIfMissing: true },
+      );
+    }
+    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPut(p, rq, rs); });
   }
 
   async periodicPost(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const date = this.getPeriodicDateFromParams(req.params);
     const [file, err] = await this.periodicGetOrCreateNote(
       req.params.period,
-      date
+      date,
     );
-    if (err) {
-      this.returnCannedResponse(res, { errorCode: err });
+    if (err || !file) {
+      this.returnCannedResponse(res, {
+        errorCode: err ?? ErrorCode.PeriodicNoteDoesNotExist,
+      });
       return;
     }
-
-    return this.redirectToVaultPath(file, req, res, this._vaultPost.bind(this));
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+      if (resolved?.targetType) {
+        if (req.get("Target-Type") || req.get("Target")) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.ConflictingTargetSpecification,
+          });
+          return;
+        }
+        res.set("Content-Location", encodeURI(file.path));
+        return this._vaultPatchTargeted(
+          resolved.filePath,
+          resolved.targetType,
+          resolved.target ?? "",
+          "append",
+          req,
+          res,
+        );
+      }
+    }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      res.set("Content-Location", encodeURI(file.path));
+      return this._vaultPatchTargeted(
+        file.path,
+        headerTarget.targetType,
+        headerTarget.target,
+        "append",
+        req,
+        res,
+      );
+    }
+    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPost(p, rq, rs); });
   }
 
   async periodicPatch(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const date = this.getPeriodicDateFromParams(req.params);
     const [file, err] = await this.periodicGetOrCreateNote(
       req.params.period,
-      date
+      date,
     );
-    if (err) {
-      this.returnCannedResponse(res, { errorCode: err });
+    if (err || !file) {
+      this.returnCannedResponse(res, {
+        errorCode: err ?? ErrorCode.PeriodicNoteDoesNotExist,
+      });
       return;
     }
-
     return this.redirectToVaultPath(
       file,
       req,
       res,
-      this._vaultPatch.bind(this)
+      (p, rq, rs) => { void this._vaultPatch(p, rq, rs); },
     );
   }
 
   async periodicDelete(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const date = this.getPeriodicDateFromParams(req.params);
     const [file, err] = this.periodicGetNote(req.params.period, date);
-    if (err) {
-      this.returnCannedResponse(res, { errorCode: err });
+    if (err || !file) {
+      this.returnCannedResponse(res, {
+        errorCode: err ?? ErrorCode.PeriodicNoteDoesNotExist,
+      });
       return;
     }
-
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      this.returnCannedResponse(res, {
+        statusCode: 405,
+        message:
+          "Deleting a targeted section via URL is not supported. Use PATCH with Operation: replace and an empty body instead.",
+      });
+      return;
+    }
     return this.redirectToVaultPath(
       file,
       req,
       res,
-      this._vaultDelete.bind(this)
+      (p, rq, rs) => { void this._vaultDelete(p, rq, rs); },
     );
   }
 
   async activeFileGet(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
 
-    return this.redirectToVaultPath(file, req, res, this._vaultGet.bind(this));
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    const path = file.path + (suffix ? "/" + suffix : "");
+    res.set("Content-Location", encodeURI(file.path));
+    return this._vaultGet(path, req, res);
   }
 
   async activeFilePut(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const file = this.app.workspace.getActiveFile();
-
-    return this.redirectToVaultPath(file, req, res, this._vaultPut.bind(this));
+    if (!file) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+      if (resolved?.targetType) {
+        if (req.get("Target-Type") || req.get("Target")) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.ConflictingTargetSpecification,
+          });
+          return;
+        }
+        res.set("Content-Location", encodeURI(file.path));
+        return this._vaultPatchTargeted(
+          resolved.filePath,
+          resolved.targetType,
+          resolved.target ?? "",
+          "replace",
+          req,
+          res,
+          { createTargetIfMissing: true },
+        );
+      }
+    }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      res.set("Content-Location", encodeURI(file.path));
+      return this._vaultPatchTargeted(
+        file.path,
+        headerTarget.targetType,
+        headerTarget.target,
+        "replace",
+        req,
+        res,
+        { createTargetIfMissing: true },
+      );
+    }
+    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPut(p, rq, rs); });
   }
 
   async activeFilePost(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const file = this.app.workspace.getActiveFile();
-
-    return this.redirectToVaultPath(file, req, res, this._vaultPost.bind(this));
+    if (!file) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+      if (resolved?.targetType) {
+        if (req.get("Target-Type") || req.get("Target")) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.ConflictingTargetSpecification,
+          });
+          return;
+        }
+        res.set("Content-Location", encodeURI(file.path));
+        return this._vaultPatchTargeted(
+          resolved.filePath,
+          resolved.targetType,
+          resolved.target ?? "",
+          "append",
+          req,
+          res,
+        );
+      }
+    }
+    const headerTarget = this._getHeaderTarget(req, res);
+    if (headerTarget !== undefined) {
+      if (!headerTarget) return; // error already sent
+      res.set("Content-Location", encodeURI(file.path));
+      return this._vaultPatchTargeted(
+        file.path,
+        headerTarget.targetType,
+        headerTarget.target,
+        "append",
+        req,
+        res,
+      );
+    }
+    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPost(p, rq, rs); });
   }
 
   async activeFilePatch(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const file = this.app.workspace.getActiveFile();
-
+    if (!file) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
     return this.redirectToVaultPath(
       file,
       req,
       res,
-      this._vaultPatch.bind(this)
+      (p, rq, rs) => { void this._vaultPatch(p, rq, rs); },
     );
   }
 
   async activeFileDelete(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
     const file = this.app.workspace.getActiveFile();
-
+    if (!file) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      this.returnCannedResponse(res, {
+        statusCode: 405,
+        message:
+          "Deleting a targeted section via URL is not supported. Use PATCH with Operation: replace and an empty body instead.",
+      });
+      return;
+    }
     return this.redirectToVaultPath(
       file,
       req,
       res,
-      this._vaultDelete.bind(this)
+      (p, rq, rs) => { void this._vaultDelete(p, rq, rs); },
     );
   }
 
-  async commandGet(req: express.Request, res: express.Response): Promise<void> {
-    const commands: Command[] = [];
-    for (const commandName in this.app.commands.commands) {
-      commands.push({
-        id: commandName,
-        name: this.app.commands.commands[commandName].name,
-      });
-    }
+  async tagsGet(_req: express.Request, res: express.Response): Promise<void> {
+    res.json({ tags: this.operations.getAllTags() });
+  }
 
-    const commandResponse = {
-      commands: commands,
-    };
-
-    res.json(commandResponse);
+  async commandGet(_req: express.Request, res: express.Response): Promise<void> {
+    res.json({ commands: this.operations.listCommands() });
   }
 
   async commandPost(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
-    const cmd = this.app.commands.commands[req.params.commandId];
-
-    if (!cmd) {
-      this.returnCannedResponse(res, { statusCode: 404 });
-      return;
-    }
-
     try {
-      this.app.commands.executeCommandById(req.params.commandId);
-    } catch (e) {
-      this.returnCannedResponse(res, { statusCode: 500, message: e.message });
+      this.operations.executeCommand(req.params.commandId);
+    } catch (err) {
+      if (err instanceof CommandNotFoundError) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+      } else {
+        this.returnCannedResponse(res, {
+          statusCode: 500,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
       return;
     }
-
     this.returnCannedResponse(res, { statusCode: 204 });
-    return;
   }
 
   async searchSimplePost(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
-    const results: SearchResponseItem[] = [];
-
     const query: string = req.query.query as string;
     if (!(typeof query === "string")) {
       return this.returnCannedResponse(res, {
@@ -1087,11 +1279,13 @@ export default class RequestHandler {
         errorCode: ErrorCode.InvalidSearch,
       });
     }
-    const contextLength: number =
-      parseInt(req.query.contextLength as string, 10) ?? 100;
-    let search: ReturnType<typeof prepareSimpleSearch>;
+    const contextLengthRaw = parseInt(req.query.contextLength as string, 10);
+    const contextLength = Number.isNaN(contextLengthRaw)
+      ? 100
+      : contextLengthRaw;
     try {
-      search = prepareSimpleSearch(query);
+      const results = await this.operations.simpleSearch(query, contextLength);
+      res.json(results);
     } catch (e) {
       console.error("Could not prepare simple search: ", e);
       return this.returnCannedResponse(res, {
@@ -1099,35 +1293,6 @@ export default class RequestHandler {
         errorCode: ErrorCode.ErrorPreparingSimpleSearch,
       });
     }
-
-    for (const file of this.app.vault.getMarkdownFiles()) {
-      const cachedContents = await this.app.vault.cachedRead(file);
-      const result = search(cachedContents);
-      if (result) {
-        const contextMatches: SearchContext[] = [];
-        for (const match of result.matches) {
-          contextMatches.push({
-            match: {
-              start: match[0],
-              end: match[1],
-            },
-            context: cachedContents.slice(
-              Math.max(match[0] - contextLength, 0),
-              match[1] + contextLength
-            ),
-          });
-        }
-
-        results.push({
-          filename: file.path,
-          score: result.score,
-          matches: contextMatches,
-        });
-      }
-    }
-
-    results.sort((a, b) => (a.score > b.score ? 1 : -1));
-    res.json(results);
   }
 
   valueIsSaneTruthy(value: unknown): boolean {
@@ -1143,63 +1308,11 @@ export default class RequestHandler {
 
   async searchQueryPost(
     req: express.Request,
-    res: express.Response
+    res: express.Response,
   ): Promise<void> {
-    const dataviewApi = getDataviewAPI();
-
     const handlers: Record<string, () => Promise<SearchJsonResponseItem[]>> = {
-      [ContentTypes.dataviewDql]: async () => {
-        const results: SearchJsonResponseItem[] = [];
-        const dataviewResults = await dataviewApi.tryQuery(req.body);
-
-        const fileColumn =
-          dataviewApi.evaluationContext.settings.tableIdColumnName;
-
-        if (dataviewResults.type !== "table") {
-          throw new Error("Only TABLE dataview queries are supported.");
-        }
-        if (!dataviewResults.headers.includes(fileColumn)) {
-          throw new Error("TABLE WITHOUT ID queries are not supported.");
-        }
-
-        for (const dataviewResult of dataviewResults.values) {
-          const fieldValues: Record<string, any> = {};
-
-          dataviewResults.headers.forEach((value: string, index: number) => {
-            if (value !== fileColumn) {
-              fieldValues[value] = dataviewResult[index];
-            }
-          });
-
-          results.push({
-            filename: dataviewResult[0].path,
-            result: fieldValues,
-          });
-        }
-
-        return results;
-      },
       [ContentTypes.jsonLogic]: async () => {
-        const results: SearchJsonResponseItem[] = [];
-
-        for (const file of this.app.vault.getMarkdownFiles()) {
-          const fileContext = await this.getFileMetadataObject(file);
-
-          try {
-            const fileResult = jsonLogic.apply(req.body, fileContext);
-
-            if (this.valueIsSaneTruthy(fileResult)) {
-              results.push({
-                filename: file.path,
-                result: fileResult,
-              });
-            }
-          } catch (e) {
-            throw new Error(`${e.message} (while processing ${file.path})`);
-          }
-        }
-
-        return results;
+        return this.operations.searchJsonLogic(req.body);
       },
     };
     const contentType = req.headers["content-type"];
@@ -1220,52 +1333,54 @@ export default class RequestHandler {
       const results = await handlers[contentType]();
       res.json(results);
     } catch (e) {
+      const error = e as Error;
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidFilterQuery,
-        message: `${e.message}`,
+        message: `${error.message}`,
       });
       return;
     }
   }
 
   async openPost(req: express.Request, res: express.Response): Promise<void> {
-    const path = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1)
+    const filePath = decodeURIComponent(
+      req.path.slice(req.path.indexOf("/", 1) + 1),
     );
-
     const query = queryString.parseUrl(req.originalUrl, {
       parseBooleans: true,
     }).query;
     const newLeaf = Boolean(query.newLeaf);
-
-    this.app.workspace.openLinkText(path, "/", newLeaf);
-
+    this.operations.openVaultFile(filePath, newLeaf);
     res.json();
   }
 
   async certificateGet(
-    req: express.Request,
-    res: express.Response
+    _req: express.Request,
+    res: express.Response,
   ): Promise<void> {
+    if (!this.settings.crypto?.cert) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
     res.set(
       "Content-type",
-      `application/octet-stream; filename="${CERT_NAME}"`
+      `application/octet-stream; filename="${CERT_NAME}"`,
     );
     res.status(200).send(this.settings.crypto.cert);
   }
 
   async openapiYamlGet(
-    req: express.Request,
-    res: express.Response
+    _req: express.Request,
+    res: express.Response,
   ): Promise<void> {
     res.setHeader("Content-Type", "application/yaml; charset=utf-8");
     res.status(200).send(openapiYaml);
   }
 
   async notFoundHandler(
-    req: express.Request,
+    _req: express.Request,
     res: express.Response,
-    next: express.NextFunction
+    next: express.NextFunction,
   ): Promise<void> {
     this.returnCannedResponse(res, {
       statusCode: 404,
@@ -1275,9 +1390,9 @@ export default class RequestHandler {
 
   async errorHandler(
     err: Error,
-    req: express.Request,
+    _req: express.Request,
     res: express.Response,
-    next: express.NextFunction
+    next: express.NextFunction,
   ): Promise<void> {
     if (err.stack) {
       console.error(err.stack);
@@ -1299,103 +1414,125 @@ export default class RequestHandler {
 
   setupRouter() {
     this.api.use((req, res, next) => {
-      const originalSend = res.send;
-      res.send = function (body, ...args) {
-        console.log(`[REST API] ${req.method} ${req.url} => ${res.statusCode}`);
-
-        return originalSend.apply(res, [body, ...args]);
-      };
-      next();
-    });
-    this.api.use(responseTime());
-    this.api.use(cors());
-    this.api.use(this.authenticationMiddleware.bind(this));
-    this.api.use(
-      bodyParser.text({
-        type: ContentTypes.dataviewDql,
-        limit: MaximumRequestSize,
-      })
-    );
-    this.api.use(
-      bodyParser.json({
-        type: ContentTypes.json,
-        strict: false,
-        limit: MaximumRequestSize,
-      })
-    );
-    this.api.use(
-      bodyParser.json({
-        type: ContentTypes.olrapiNoteJson,
-        strict: false,
-        limit: MaximumRequestSize,
-      })
-    );
-    this.api.use(
-      bodyParser.json({
-        type: ContentTypes.jsonLogic,
-        strict: false,
-        limit: MaximumRequestSize,
-      })
-    );
-    this.api.use(
-      bodyParser.text({ type: "text/*", limit: MaximumRequestSize })
-    );
-    this.api.use(bodyParser.raw({ type: "*/*", limit: MaximumRequestSize }));
-
-    this.api
-      .route("/active/")
-      .get(this.activeFileGet.bind(this))
-      .put(this.activeFilePut.bind(this))
-      .patch(this.activeFilePatch.bind(this))
-      .post(this.activeFilePost.bind(this))
-      .delete(this.activeFileDelete.bind(this));
-
-    this.api
-      .route("/vault/*")
-      .get(this.vaultGet.bind(this))
-      .put(this.vaultPut.bind(this))
-      .patch(this.vaultPatch.bind(this))
-      .post(this.vaultPost.bind(this))
-      .delete(this.vaultDelete.bind(this));
-
-    // WebDAV-style MOVE method
-    this.api.route("/vault/*").all((req, res, next) => {
-      if (req.method === "MOVE") {
-        return this.vaultMove(req, res);
+      if (this.settings.enableVerboseLogging) {
+        const originalSend = res.send;
+        res.send = function (body, ...args) {
+          console.debug(`[REST API] ${req.method} ${req.url} => ${res.statusCode}`);
+          return originalSend.apply(res, [body, ...args]) as ReturnType<typeof res.send>;
+        };
       }
       next();
     });
+    this.api.use(responseTime());
+    this.api.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE"] }));
+
+    const mcpRouter = express.Router();
+    mcpRouter.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE"] }));
+    mcpRouter.use((req, res, next) => {
+      if (!this.requestIsAuthenticated(req)) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ApiKeyAuthorizationRequired,
+        });
+        return;
+      }
+      next();
+    });
+    mcpRouter.use((req, res, next) => {
+      const version = req.headers["mcp-protocol-version"] as string | undefined;
+      if (version !== undefined && !SUPPORTED_PROTOCOL_VERSIONS.includes(version)) {
+        res.status(400).json({ error: `Unsupported MCP-Protocol-Version: ${version}` });
+        return;
+      }
+      next();
+    });
+    mcpRouter.use(express.json({ limit: MaximumRequestSize }));
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
+    mcpRouter.all("/", async (req, res) => this.mcpHandler.handleRequest(req, res));
+    this.api.use("/mcp", mcpRouter);
+
+    this.api.use(this.publicApiExtensionRouter);
+    this.api.use(this.authenticationMiddleware.bind(this));
+    this.api.use(
+      express.json({
+        type: ContentTypes.json,
+        strict: false,
+        limit: MaximumRequestSize,
+      }),
+    );
+    this.api.use(
+      express.json({
+        type: ContentTypes.olrapiNoteJson,
+        strict: false,
+        limit: MaximumRequestSize,
+      }),
+    );
+    this.api.use(
+      express.json({
+        type: ContentTypes.jsonLogic,
+        strict: false,
+        limit: MaximumRequestSize,
+      }),
+    );
+    this.api.use(
+      express.text({ type: "text/*", limit: MaximumRequestSize }),
+    );
+    this.api.use(express.raw({ type: "*/*", limit: MaximumRequestSize }));
 
     this.api
-      .route("/periodic/:period/")
-      .get(this.periodicGet.bind(this))
-      .put(this.periodicPut.bind(this))
-      .patch(this.periodicPatch.bind(this))
-      .post(this.periodicPost.bind(this))
-      .delete(this.periodicDelete.bind(this));
+      .route("/active/*")
+      .get((rq, rs) => { void this.activeFileGet(rq, rs); })
+      .put((rq, rs) => { void this.activeFilePut(rq, rs); })
+      .patch((rq, rs) => { void this.activeFilePatch(rq, rs); })
+      .post((rq, rs) => { void this.activeFilePost(rq, rs); })
+      .delete((rq, rs) => { void this.activeFileDelete(rq, rs); });
+
     this.api
-      .route("/periodic/:period/:year/:month/:day/")
-      .get(this.periodicGet.bind(this))
-      .put(this.periodicPut.bind(this))
-      .patch(this.periodicPatch.bind(this))
-      .post(this.periodicPost.bind(this))
-      .delete(this.periodicDelete.bind(this));
+      .route("/vault/*")
+      .get((rq, rs) => { void this.vaultGet(rq, rs); })
+      .put((rq, rs) => { void this.vaultPut(rq, rs); })
+      .patch((rq, rs) => { void this.vaultPatch(rq, rs); })
+      .post((rq, rs) => { void this.vaultPost(rq, rs); })
+      .delete((rq, rs) => { void this.vaultDelete(rq, rs); })
+      .all((req, res, next) => {
+        if (req.method === "MOVE") {
+          void this.vaultMove(req, res);
+        } else {
+          next();
+        }
+      });
 
-    this.api.route("/commands/").get(this.commandGet.bind(this));
-    this.api.route("/commands/:commandId/").post(this.commandPost.bind(this));
+    this.api
+      .route("/periodic/:period/:year(\\d{4})/:month(\\d{1,2})/:day(\\d{1,2})/*")
+      .get((rq, rs) => { void this.periodicGet(rq, rs); })
+      .put((rq, rs) => { void this.periodicPut(rq, rs); })
+      .patch((rq, rs) => { void this.periodicPatch(rq, rs); })
+      .post((rq, rs) => { void this.periodicPost(rq, rs); })
+      .delete((rq, rs) => { void this.periodicDelete(rq, rs); });
+    this.api
+      .route("/periodic/:period/*")
+      .get((rq, rs) => { void this.periodicGet(rq, rs); })
+      .put((rq, rs) => { void this.periodicPut(rq, rs); })
+      .patch((rq, rs) => { void this.periodicPatch(rq, rs); })
+      .post((rq, rs) => { void this.periodicPost(rq, rs); })
+      .delete((rq, rs) => { void this.periodicDelete(rq, rs); });
 
-    this.api.route("/search/").post(this.searchQueryPost.bind(this));
-    this.api.route("/search/simple/").post(this.searchSimplePost.bind(this));
+    this.api.route("/tags/").get((rq, rs) => { void this.tagsGet(rq, rs); });
 
-    this.api.route("/open/*").post(this.openPost.bind(this));
+    this.api.route("/commands/").get((rq, rs) => { void this.commandGet(rq, rs); });
+    this.api.route("/commands/:commandId/").post((rq, rs) => { void this.commandPost(rq, rs); });
 
-    this.api.get(`/${CERT_NAME}`, this.certificateGet.bind(this));
-    this.api.get("/openapi.yaml", this.openapiYamlGet.bind(this));
-    this.api.get("/", this.root.bind(this));
+    this.api.route("/search/").post((rq, rs) => { void this.searchQueryPost(rq, rs); });
+    this.api.route("/search/simple/").post((rq, rs) => { void this.searchSimplePost(rq, rs); });
+
+    this.api.route("/open/*").post((rq, rs) => { void this.openPost(rq, rs); });
+
+    this.api.get(`/${CERT_NAME}`, (rq, rs) => { void this.certificateGet(rq, rs); });
+    this.api.get("/openapi.yaml", (rq, rs) => { void this.openapiYamlGet(rq, rs); });
+    this.api.get("/", (rq, rs) => { void this.root(rq, rs); });
 
     this.api.use(this.apiExtensionRouter);
 
-    this.api.use(this.notFoundHandler.bind(this));
-    this.api.use(this.errorHandler.bind(this));
+    this.api.use((rq, rs, next) => { void this.notFoundHandler(rq, rs, next); });
+    this.api.use((err: Error, rq: express.Request, rs: express.Response, next: express.NextFunction) => { void this.errorHandler(err, rq, rs, next); });
   }
 }

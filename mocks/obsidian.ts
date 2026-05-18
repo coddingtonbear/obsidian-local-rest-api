@@ -11,7 +11,6 @@ export interface DataWriteOptions {
    * @public
    */
   mtime?: number;
-
 }
 class Stat {
   type: "file" | "folder" = "file";
@@ -22,15 +21,19 @@ class DataAdapter {
   _read = "";
   _readBinary = new ArrayBuffer(0);
   _write: [string, string];
-  _writeBinary : [string, ArrayBuffer];
+  _writeBinary: [string, ArrayBuffer];
   _remove: [string];
   _stat = new Stat();
+  /** When set, stat() returns _stat only for this exact path and null for all others. */
+  _statForPath?: string;
 
   async exists(path: string): Promise<boolean> {
     return this._exists;
   }
 
-  async stat(path: string): Promise<Stat> {
+  async stat(path: string): Promise<Stat | null> {
+    if (!this._exists) return null;
+    if (this._statForPath !== undefined && path !== this._statForPath) return null;
     return this._stat;
   }
 
@@ -42,12 +45,20 @@ class DataAdapter {
     return this._readBinary;
   }
 
-  async write(path: string, content: string, option?:DataWriteOptions): Promise<void> {
+  async write(
+    path: string,
+    content: string,
+    option?: DataWriteOptions,
+  ): Promise<void> {
     this._write = [path, content];
   }
 
-  async writeBinary(path: string, content: ArrayBuffer, option?:DataWriteOptions): Promise<void> {
-    this._writeBinary = [path,content]
+  async writeBinary(
+    path: string,
+    content: ArrayBuffer,
+    option?: DataWriteOptions,
+  ): Promise<void> {
+    this._writeBinary = [path, content];
   }
 
   async remove(path: string): Promise<void> {
@@ -109,10 +120,37 @@ export class CachedMetadata {
 }
 
 export class MetadataCache {
-  _getFileCache = new CachedMetadata();
+  _getFileCache: CachedMetadata | null = new CachedMetadata();
+  _listeners: Map<string, ((...data: unknown[]) => unknown)[]> = new Map();
+  resolvedLinks: Record<string, Record<string, number>> = {};
 
-  getFileCache(file: TFile): CachedMetadata {
+  getFileCache(file: TFile): CachedMetadata | null {
     return this._getFileCache;
+  }
+
+  on(event: string, callback: (...data: unknown[]) => unknown): void {
+    if (!this._listeners.has(event)) {
+      this._listeners.set(event, []);
+    }
+    this._listeners.get(event)!.push(callback);
+  }
+
+  off(event: string, callback: (...data: unknown[]) => unknown): void {
+    const listeners = this._listeners.get(event);
+    if (listeners) {
+      const index = listeners.indexOf(callback);
+      if (index !== -1) {
+        listeners.splice(index, 1);
+      }
+    }
+  }
+
+  // Helper method for tests to simulate cache change events
+  _emitChanged(file: TFile): void {
+    const listeners = this._listeners.get("changed");
+    if (listeners) {
+      listeners.forEach((cb) => cb(file));
+    }
   }
 }
 
@@ -120,7 +158,7 @@ export class Workspace {
   async openLinkText(
     path: string,
     base: string,
-    newLeaf: boolean
+    newLeaf: boolean,
   ): Promise<void> {
     return new Promise((resolve, reject) => resolve());
   }
@@ -158,10 +196,13 @@ export class FileStats {
 
 export class TFile {
   path = "somefile.md";
+  basename = "somefile";
   stat: FileStats = new FileStats();
 }
 
 export class PluginManifest {
+  id = "";
+  name = "";
   version = "";
 }
 
@@ -174,8 +215,30 @@ export class SearchResult {
   matches: [number, number][] = [];
 }
 
+// Mock configuration that tests can control
+// Tests can set this to override the default behavior
+export const _prepareSimpleSearchMock = {
+  behavior: null as
+    | ((query: string) => (text: string) => null | SearchResult)
+    | null,
+};
+
+export function getAllTags(
+  cache: CachedMetadata,
+): string[] | null {
+  const inlineTags = (cache.tags ?? []).map((t) => t.tag);
+  const frontmatterTags = Array.isArray(cache.frontmatter?.tags)
+    ? (cache.frontmatter.tags as string[])
+    : [];
+  const all = [...inlineTags, ...frontmatterTags];
+  return all.length > 0 ? all : null;
+}
+
 export function prepareSimpleSearch(
-  query: string
+  query: string,
 ): (value: string) => null | SearchResult {
-  return null;
+  if (_prepareSimpleSearchMock.behavior) {
+    return _prepareSimpleSearchMock.behavior(query);
+  }
+  return () => null;
 }
