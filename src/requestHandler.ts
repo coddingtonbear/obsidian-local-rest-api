@@ -1336,10 +1336,10 @@ export default class RequestHandler {
       next();
     });
     this.api.use(responseTime());
-    this.api.use(cors());
+    this.api.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE"] }));
 
     const mcpRouter = express.Router();
-    mcpRouter.use(cors());
+    mcpRouter.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE"] }));
     mcpRouter.use((req, res, next) => {
       if (!this.requestIsAuthenticated(req)) {
         this.returnCannedResponse(res, {
