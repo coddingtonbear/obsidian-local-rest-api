@@ -6,7 +6,7 @@ import {
   prepareSimpleSearch,
   TFile,
 } from "obsidian";
-import periodicNotes from "obsidian-daily-notes-interface";
+import * as periodicNotes from "obsidian-daily-notes-interface";
 import path from "path";
 import {
   applyPatch,
