@@ -1,13 +1,12 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
     "inlineSourceMap": true,
     "inlineSources": true,
     "module": "ESNext",
     "target": "ES6",
     "allowJs": true,
     "noImplicitAny": true,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "esModuleInterop": true,
     "importHelpers": true,
     "isolatedModules": true,
