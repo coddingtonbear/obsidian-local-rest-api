@@ -839,6 +839,76 @@ describe("requestHandler", () => {
       expect(result.body.tags).toEqual([{ name: "public", count: 1 }]);
     });
 
+    test("treats leading ! and # in user-ignore filters literally", async () => {
+      const publicFile = new TFile();
+      publicFile.path = "visible/note.md";
+      const bangIgnoredFile = new TFile();
+      bangIgnoredFile.path = "!ignored/hidden.md";
+      const hashIgnoredFile = new TFile();
+      hashIgnoredFile.path = "#ignored/hidden.md";
+      app.vault._markdownFiles = [publicFile, bangIgnoredFile, hashIgnoredFile];
+      app.vault.config.userIgnoreFilters = ["!ignored", "#ignored"];
+
+      const publicCache = new CachedMetadata();
+      publicCache.tags = [{ tag: "#public" }];
+      const bangIgnoredCache = new CachedMetadata();
+      bangIgnoredCache.tags = [{ tag: "#bang" }];
+      const hashIgnoredCache = new CachedMetadata();
+      hashIgnoredCache.tags = [{ tag: "#hash" }];
+
+      app.metadataCache.getFileCache = (file: TFile) => {
+        if (file.path === "visible/note.md") return publicCache;
+        if (file.path === "!ignored/hidden.md") return bangIgnoredCache;
+        if (file.path === "#ignored/hidden.md") return hashIgnoredCache;
+        return null;
+      };
+
+      const result = await request(server)
+        .get("/tags/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.tags).toEqual([{ name: "public", count: 1 }]);
+    });
+
+    test("does not broaden glob-style user-ignore filters to deeper folders", async () => {
+      const publicFile = new TFile();
+      publicFile.path = "visible/note.md";
+      const shallowIgnoredFile = new TFile();
+      shallowIgnoredFile.path = "ignored/shallow.md";
+      const nestedFile = new TFile();
+      nestedFile.path = "ignored/deep/visible.md";
+      app.vault._markdownFiles = [publicFile, shallowIgnoredFile, nestedFile];
+      app.vault.config.userIgnoreFilters = ["ignored/*"];
+
+      const publicCache = new CachedMetadata();
+      publicCache.tags = [{ tag: "#public" }];
+      const shallowIgnoredCache = new CachedMetadata();
+      shallowIgnoredCache.tags = [{ tag: "#ignored" }];
+      const nestedCache = new CachedMetadata();
+      nestedCache.tags = [{ tag: "#nested" }];
+
+      app.metadataCache.getFileCache = (file: TFile) => {
+        if (file.path === "visible/note.md") return publicCache;
+        if (file.path === "ignored/shallow.md") return shallowIgnoredCache;
+        if (file.path === "ignored/deep/visible.md") return nestedCache;
+        return null;
+      };
+
+      const result = await request(server)
+        .get("/tags/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.tags).toEqual(
+        expect.arrayContaining([
+          { name: "public", count: 1 },
+          { name: "nested", count: 1 },
+        ]),
+      );
+      expect(result.body.tags).not.toContainEqual({ name: "ignored", count: 1 });
+    });
+
     test("unauthorized", async () => {
       await request(server).get("/tags/").expect(401);
     });

@@ -25,8 +25,19 @@ const WildcardRegexp = require("glob-to-regexp") as (pattern: string) => RegExp;
 const minimatch = require("minimatch") as (
   path: string,
   pattern: string,
-  options?: { dot?: boolean; nocase?: boolean },
+  options?: { dot?: boolean; nocase?: boolean; nonegate?: boolean; nocomment?: boolean },
 ) => boolean;
+
+const USER_IGNORE_GLOB_OPTIONS = {
+  dot: true,
+  nocase: false,
+  nonegate: true,
+  nocomment: true,
+};
+
+function hasGlobMagic(pattern: string): boolean {
+  return /[*?[\]{}]/.test(pattern) || /[!+@]\(/.test(pattern);
+}
 
 export class FileNotFoundError extends Error {}
 export class CommandNotFoundError extends Error {}
@@ -72,13 +83,17 @@ export class VaultOperations {
     const normalizedPath = filePath.replace(/^\/+/, "");
 
     return filters.some((rawFilter) => {
-      const filter = rawFilter.trim().replace(/^\/+|\/+$/g, "");
+      const trimmedFilter = rawFilter.trim().replace(/^\/+/, "");
+      const filter = trimmedFilter.replace(/\/+$/g, "");
       if (!filter) return false;
+
+      const isDirectoryPrefixFilter =
+        trimmedFilter.endsWith("/") || !hasGlobMagic(filter);
+
       return (
-        normalizedPath === filter ||
-        normalizedPath.startsWith(`${filter}/`) ||
-        minimatch(normalizedPath, filter, { dot: true, nocase: false }) ||
-        minimatch(normalizedPath, `${filter}/**`, { dot: true, nocase: false })
+        (isDirectoryPrefixFilter &&
+          (normalizedPath === filter || normalizedPath.startsWith(`${filter}/`))) ||
+        minimatch(normalizedPath, filter, USER_IGNORE_GLOB_OPTIONS)
       );
     });
   }
