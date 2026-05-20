@@ -18,7 +18,7 @@ describe("HTTP server timeout configuration", () => {
       expect(server.headersTimeout).toBe(SERVER_HEADERS_TIMEOUT_MS);
       expect(server.keepAliveTimeout).toBeLessThan(server.headersTimeout);
     } finally {
-      server.close();
+      if (server.listening) server.close();
     }
   });
 });
