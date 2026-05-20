@@ -1706,6 +1706,60 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("unexpected error handling", () => {
+    // Before the handle() wrapper was added, any unhandled rejection from an
+    // async route handler was silently swallowed (void pattern), leaving the
+    // HTTP request to hang forever with no response.  These tests verify that
+    // unexpected errors are turned into 500 responses instead.
+
+    test("synchronous throw inside async vault GET returns 500", async () => {
+      jest.spyOn(handler.operations, "listVaultDirectory").mockImplementation(() => {
+        throw new Error("Unexpected internal error");
+      });
+      const res = await request(server)
+        .get("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(500);
+    });
+
+    test("rejected promise from vault POST returns 500", async () => {
+      jest.spyOn(handler.operations, "appendFileContent").mockRejectedValue(
+        new Error("disk full"),
+      );
+      const res = await request(server)
+        .post("/vault/some-file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/plain")
+        .send("hello");
+      expect(res.status).toBe(500);
+    });
+
+    test("synchronous throw from periodicGetNote returns 500", async () => {
+      jest.spyOn(handler.operations, "periodicGetNote").mockImplementation(() => {
+        throw new Error("plugin not ready");
+      });
+      const res = await request(server)
+        .get("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(500);
+    });
+
+    test("rejected promise from periodicGetOrCreateNote returns 500", async () => {
+      jest.spyOn(handler.operations, "periodicGetOrCreateNote").mockRejectedValue(
+        new Error("plugin not ready"),
+      );
+      const res = await request(server)
+        .patch("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Target-Type", "heading")
+        .set("Operation", "append")
+        .set("Target", "My Heading")
+        .set("Content-Type", "text/plain")
+        .send("content");
+      expect(res.status).toBe(500);
+    });
+  });
+
   describe("apiExtensions", () => {
     test("addMcpTool registers a tool via McpHandler", () => {
       const extManifest = Object.assign(new PluginManifest(), { id: "test-plugin" });

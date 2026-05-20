@@ -1324,6 +1324,14 @@ export default class RequestHandler {
     return;
   }
 
+  private handle(
+    fn: (req: express.Request, res: express.Response) => Promise<void>,
+  ): (req: express.Request, res: express.Response, next: express.NextFunction) => void {
+    return (req, res, next) => {
+      fn(req, res).catch(next);
+    };
+  }
+
   setupRouter() {
     this.api.use((req, res, next) => {
       if (this.settings.enableVerboseLogging) {
@@ -1392,52 +1400,52 @@ export default class RequestHandler {
 
     this.api
       .route("/active/*")
-      .get((rq, rs) => { void this.activeFileGet(rq, rs); })
-      .put((rq, rs) => { void this.activeFilePut(rq, rs); })
-      .patch((rq, rs) => { void this.activeFilePatch(rq, rs); })
-      .post((rq, rs) => { void this.activeFilePost(rq, rs); })
-      .delete((rq, rs) => { void this.activeFileDelete(rq, rs); });
+      .get(this.handle((rq, rs) => this.activeFileGet(rq, rs)))
+      .put(this.handle((rq, rs) => this.activeFilePut(rq, rs)))
+      .patch(this.handle((rq, rs) => this.activeFilePatch(rq, rs)))
+      .post(this.handle((rq, rs) => this.activeFilePost(rq, rs)))
+      .delete(this.handle((rq, rs) => this.activeFileDelete(rq, rs)));
 
     this.api
       .route("/vault/*")
-      .get((rq, rs) => { void this.vaultGet(rq, rs); })
-      .put((rq, rs) => { void this.vaultPut(rq, rs); })
-      .patch((rq, rs) => { void this.vaultPatch(rq, rs); })
-      .post((rq, rs) => { void this.vaultPost(rq, rs); })
-      .delete((rq, rs) => { void this.vaultDelete(rq, rs); });
+      .get(this.handle((rq, rs) => this.vaultGet(rq, rs)))
+      .put(this.handle((rq, rs) => this.vaultPut(rq, rs)))
+      .patch(this.handle((rq, rs) => this.vaultPatch(rq, rs)))
+      .post(this.handle((rq, rs) => this.vaultPost(rq, rs)))
+      .delete(this.handle((rq, rs) => this.vaultDelete(rq, rs)));
 
     this.api
       .route("/periodic/:period/:year(\\d{4})/:month(\\d{1,2})/:day(\\d{1,2})/*")
-      .get((rq, rs) => { void this.periodicGet(rq, rs); })
-      .put((rq, rs) => { void this.periodicPut(rq, rs); })
-      .patch((rq, rs) => { void this.periodicPatch(rq, rs); })
-      .post((rq, rs) => { void this.periodicPost(rq, rs); })
-      .delete((rq, rs) => { void this.periodicDelete(rq, rs); });
+      .get(this.handle((rq, rs) => this.periodicGet(rq, rs)))
+      .put(this.handle((rq, rs) => this.periodicPut(rq, rs)))
+      .patch(this.handle((rq, rs) => this.periodicPatch(rq, rs)))
+      .post(this.handle((rq, rs) => this.periodicPost(rq, rs)))
+      .delete(this.handle((rq, rs) => this.periodicDelete(rq, rs)));
     this.api
       .route("/periodic/:period/*")
-      .get((rq, rs) => { void this.periodicGet(rq, rs); })
-      .put((rq, rs) => { void this.periodicPut(rq, rs); })
-      .patch((rq, rs) => { void this.periodicPatch(rq, rs); })
-      .post((rq, rs) => { void this.periodicPost(rq, rs); })
-      .delete((rq, rs) => { void this.periodicDelete(rq, rs); });
+      .get(this.handle((rq, rs) => this.periodicGet(rq, rs)))
+      .put(this.handle((rq, rs) => this.periodicPut(rq, rs)))
+      .patch(this.handle((rq, rs) => this.periodicPatch(rq, rs)))
+      .post(this.handle((rq, rs) => this.periodicPost(rq, rs)))
+      .delete(this.handle((rq, rs) => this.periodicDelete(rq, rs)));
 
-    this.api.route("/tags/").get((rq, rs) => { void this.tagsGet(rq, rs); });
+    this.api.route("/tags/").get(this.handle((rq, rs) => this.tagsGet(rq, rs)));
 
-    this.api.route("/commands/").get((rq, rs) => { void this.commandGet(rq, rs); });
-    this.api.route("/commands/:commandId/").post((rq, rs) => { void this.commandPost(rq, rs); });
+    this.api.route("/commands/").get(this.handle((rq, rs) => this.commandGet(rq, rs)));
+    this.api.route("/commands/:commandId/").post(this.handle((rq, rs) => this.commandPost(rq, rs)));
 
-    this.api.route("/search/").post((rq, rs) => { void this.searchQueryPost(rq, rs); });
-    this.api.route("/search/simple/").post((rq, rs) => { void this.searchSimplePost(rq, rs); });
+    this.api.route("/search/").post(this.handle((rq, rs) => this.searchQueryPost(rq, rs)));
+    this.api.route("/search/simple/").post(this.handle((rq, rs) => this.searchSimplePost(rq, rs)));
 
-    this.api.route("/open/*").post((rq, rs) => { void this.openPost(rq, rs); });
+    this.api.route("/open/*").post(this.handle((rq, rs) => this.openPost(rq, rs)));
 
-    this.api.get(`/${CERT_NAME}`, (rq, rs) => { void this.certificateGet(rq, rs); });
-    this.api.get("/openapi.yaml", (rq, rs) => { void this.openapiYamlGet(rq, rs); });
-    this.api.get("/", (rq, rs) => { void this.root(rq, rs); });
+    this.api.get(`/${CERT_NAME}`, this.handle((rq, rs) => this.certificateGet(rq, rs)));
+    this.api.get("/openapi.yaml", this.handle((rq, rs) => this.openapiYamlGet(rq, rs)));
+    this.api.get("/", (rq, rs) => { this.root(rq, rs); });
 
     this.api.use(this.apiExtensionRouter);
 
-    this.api.use((rq, rs, next) => { void this.notFoundHandler(rq, rs, next); });
-    this.api.use((err: Error, rq: express.Request, rs: express.Response, next: express.NextFunction) => { void this.errorHandler(err, rq, rs, next); });
+    this.api.use((rq, rs, next) => { this.notFoundHandler(rq, rs, next).catch(next); });
+    this.api.use((err: Error, rq: express.Request, rs: express.Response, next: express.NextFunction) => { this.errorHandler(err, rq, rs, next).catch(next); });
   }
 }
