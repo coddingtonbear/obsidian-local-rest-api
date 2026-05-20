@@ -72,6 +72,7 @@ export class Vault {
   _cachedRead = "";
   _files: TFile[] = [new TFile()];
   _markdownFiles: TFile[] = [];
+  config: { userIgnoreFilters: string[] } = { userIgnoreFilters: [] };
 
   adapter = new DataAdapter();
 

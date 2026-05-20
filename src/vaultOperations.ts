@@ -22,6 +22,11 @@ const jsonLogic = require("json-logic-js") as {
 };
  
 const WildcardRegexp = require("glob-to-regexp") as (pattern: string) => RegExp;
+const minimatch = require("minimatch") as (
+  path: string,
+  pattern: string,
+  options?: { dot?: boolean; nocase?: boolean },
+) => boolean;
 
 export class FileNotFoundError extends Error {}
 export class CommandNotFoundError extends Error {}
@@ -57,6 +62,31 @@ export class VaultOperations {
         return false;
       },
     );
+  }
+
+  private isUserIgnored(filePath: string): boolean {
+    const vault = this.app.vault as typeof this.app.vault & {
+      config?: { userIgnoreFilters?: string[] };
+    };
+    const filters = vault.config?.userIgnoreFilters ?? [];
+    const normalizedPath = filePath.replace(/^\/+/, "");
+
+    return filters.some((rawFilter) => {
+      const filter = rawFilter.trim().replace(/^\/+|\/+$/g, "");
+      if (!filter) return false;
+      return (
+        normalizedPath === filter ||
+        normalizedPath.startsWith(`${filter}/`) ||
+        minimatch(normalizedPath, filter, { dot: true, nocase: false }) ||
+        minimatch(normalizedPath, `${filter}/**`, { dot: true, nocase: false })
+      );
+    });
+  }
+
+  private getMarkdownFilesRespectingUserIgnoreFilters(): TFile[] {
+    return this.app.vault
+      .getMarkdownFiles()
+      .filter((file) => !this.isUserIgnored(file.path));
   }
 
   private waitForFileCache(
@@ -154,7 +184,9 @@ export class VaultOperations {
     for (const [sourcePath, targets] of Object.entries(
       this.app.metadataCache.resolvedLinks,
     )) {
+      if (this.isUserIgnored(sourcePath)) continue;
       for (const targetPath of Object.keys(targets)) {
+        if (this.isUserIgnored(targetPath)) continue;
         (index[targetPath] ??= []).push(sourcePath);
       }
     }
@@ -184,7 +216,7 @@ export class VaultOperations {
 
     const links = Object.keys(
       this.app.metadataCache.resolvedLinks[file.path] ?? {},
-    );
+    ).filter((targetPath) => !this.isUserIgnored(targetPath));
 
     const index = backlinksIndex ?? this.buildBacklinksIndex();
     const backlinks = index[file.path] ?? [];
@@ -465,7 +497,7 @@ export class VaultOperations {
     const results: SearchResponseItem[] = [];
     const search = prepareSimpleSearch(query);
 
-    for (const file of this.app.vault.getMarkdownFiles()) {
+    for (const file of this.getMarkdownFilesRespectingUserIgnoreFilters()) {
       const cachedContents = await this.app.vault.cachedRead(file);
 
       const filenamePrefix = file.basename + "\n\n";
@@ -518,7 +550,7 @@ export class VaultOperations {
     const backlinksIndex = this.buildBacklinksIndex();
     const includeContent = JSON.stringify(query).includes('"content"');
 
-    for (const file of this.app.vault.getMarkdownFiles()) {
+    for (const file of this.getMarkdownFilesRespectingUserIgnoreFilters()) {
       const fileContext = await this.getFileMetadataObject(file, backlinksIndex, includeContent);
 
       try {
@@ -545,7 +577,7 @@ export class VaultOperations {
 
   getAllTags(): Array<{ name: string; count: number }> {
     const tagCounts: Record<string, number> = {};
-    for (const file of this.app.vault.getMarkdownFiles()) {
+    for (const file of this.getMarkdownFilesRespectingUserIgnoreFilters()) {
       const cache = this.app.metadataCache.getFileCache(file);
       if (!cache) continue;
       const fileTags = getAllTags(cache);

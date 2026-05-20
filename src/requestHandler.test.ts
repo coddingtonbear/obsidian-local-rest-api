@@ -785,6 +785,60 @@ describe("requestHandler", () => {
       expect(result.body.tags).toEqual([{ name: "project", count: 2 }]);
     });
 
+    test("does not aggregate tags from user-ignored folders", async () => {
+      const publicFile = new TFile();
+      publicFile.path = "visible/note.md";
+      const ignoredFile = new TFile();
+      ignoredFile.path = "ignored/hidden.md";
+      app.vault._markdownFiles = [publicFile, ignoredFile];
+      app.vault.config.userIgnoreFilters = ["ignored/"];
+
+      const publicCache = new CachedMetadata();
+      publicCache.tags = [{ tag: "#public" }];
+      const ignoredCache = new CachedMetadata();
+      ignoredCache.tags = [{ tag: "#ignored" }];
+
+      app.metadataCache.getFileCache = (file: TFile) => {
+        if (file.path === "visible/note.md") return publicCache;
+        if (file.path === "ignored/hidden.md") return ignoredCache;
+        return null;
+      };
+
+      const result = await request(server)
+        .get("/tags/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.tags).toEqual([{ name: "public", count: 1 }]);
+    });
+
+    test("supports glob-style user-ignore filters", async () => {
+      const publicFile = new TFile();
+      publicFile.path = "visible/note.md";
+      const ignoredFile = new TFile();
+      ignoredFile.path = "nested/ignored/hidden.md";
+      app.vault._markdownFiles = [publicFile, ignoredFile];
+      app.vault.config.userIgnoreFilters = ["**/ignored/**"];
+
+      const publicCache = new CachedMetadata();
+      publicCache.tags = [{ tag: "#public" }];
+      const ignoredCache = new CachedMetadata();
+      ignoredCache.tags = [{ tag: "#ignored" }];
+
+      app.metadataCache.getFileCache = (file: TFile) => {
+        if (file.path === "visible/note.md") return publicCache;
+        if (file.path === "nested/ignored/hidden.md") return ignoredCache;
+        return null;
+      };
+
+      const result = await request(server)
+        .get("/tags/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.tags).toEqual([{ name: "public", count: 1 }]);
+    });
+
     test("unauthorized", async () => {
       await request(server).get("/tags/").expect(401);
     });
@@ -1378,6 +1432,27 @@ describe("requestHandler", () => {
       expect(result.body[0].matches[1].match.end).toBe(10);   // 18 - 8
     });
 
+    test("does not return matches from user-ignored folders", async () => {
+      const publicFile = new TFile();
+      publicFile.basename = "public";
+      publicFile.path = "visible/public.md";
+      const ignoredFile = new TFile();
+      ignoredFile.basename = "hidden";
+      ignoredFile.path = "ignored/hidden.md";
+      app.vault._markdownFiles = [publicFile, ignoredFile];
+      app.vault.config.userIgnoreFilters = ["ignored"];
+      app.vault.cachedRead = async (file: TFile) =>
+        file.path === "ignored/hidden.md" ? "needle ignored" : "needle public";
+
+      const result = await request(server)
+        .post("/search/simple/?query=needle")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("visible/public.md");
+    });
+
     test("unauthorized", async () => {
       await request(server)
         .post("/search/simple/?query=test")
@@ -1485,6 +1560,63 @@ describe("requestHandler", () => {
 
       expect(result.body).toHaveLength(1);
       expect(result.body[0].filename).toBe("note.md");
+    });
+
+    test("does not return JSONLogic matches from user-ignored folders", async () => {
+      const publicFile = new TFile();
+      publicFile.path = "visible/note.md";
+      const ignoredFile = new TFile();
+      ignoredFile.path = "ignored/hidden.md";
+      app.vault._markdownFiles = [publicFile, ignoredFile];
+      app.vault.config.userIgnoreFilters = ["ignored/"];
+      app.vault.cachedRead = async (file: TFile) =>
+        file.path === "ignored/hidden.md" ? "needle ignored" : "needle public";
+
+      const cache = new CachedMetadata();
+      app.metadataCache.getFileCache = () => cache;
+
+      const result = await request(server)
+        .post("/search/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/vnd.olrapi.jsonlogic+json")
+        .send({ in: ["needle", { var: "content" }] })
+        .expect(200);
+
+      expect(result.body).toHaveLength(1);
+      expect(result.body[0].filename).toBe("visible/note.md");
+    });
+
+    test("does not expose user-ignored files through JSONLogic links and backlinks", async () => {
+      const publicFile = new TFile();
+      publicFile.path = "visible/note.md";
+      const ignoredFile = new TFile();
+      ignoredFile.path = "ignored/hidden.md";
+      app.vault._markdownFiles = [publicFile, ignoredFile];
+      app.vault.config.userIgnoreFilters = ["ignored"];
+      app.metadataCache.resolvedLinks = {
+        "visible/note.md": { "ignored/hidden.md": 1 },
+        "ignored/hidden.md": { "visible/note.md": 1 },
+      };
+
+      const cache = new CachedMetadata();
+      app.metadataCache.getFileCache = () => cache;
+
+      const linksResult = await request(server)
+        .post("/search/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/vnd.olrapi.jsonlogic+json")
+        .send({ in: ["ignored/hidden.md", { var: "links" }] })
+        .expect(200);
+
+      const backlinksResult = await request(server)
+        .post("/search/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/vnd.olrapi.jsonlogic+json")
+        .send({ in: ["ignored/hidden.md", { var: "backlinks" }] })
+        .expect(200);
+
+      expect(linksResult.body).toHaveLength(0);
+      expect(backlinksResult.body).toHaveLength(0);
     });
 
     test("returns 400 when content-type is missing", async () => {
