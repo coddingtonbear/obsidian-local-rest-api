@@ -20,6 +20,7 @@ import {
 import LocalRestApiPublicApi, { ApiVersionUnsupportedError } from "./api";
 export { ApiVersionUnsupportedError } from "./api";
 import { PluginManifest } from "obsidian";
+import { configureHttpServerTimeouts } from "./serverTimeouts";
 
 export default class LocalRestApi extends Plugin {
   settings: LocalRestApiSettings;
@@ -190,6 +191,7 @@ export default class LocalRestApi extends Plugin {
         },
         this.requestHandler.api
       );
+      configureHttpServerTimeouts(this.secureServer);
       this.secureServer.listen(
         this.settings.port,
         this.settings.bindingHost ?? DefaultBindingHost
@@ -211,6 +213,7 @@ export default class LocalRestApi extends Plugin {
     }
     if (this.settings.enableInsecureServer) {
       this.insecureServer = http.createServer(this.requestHandler.api);
+      configureHttpServerTimeouts(this.insecureServer);
       this.insecureServer.listen(
         this.settings.insecurePort,
         this.settings.bindingHost ?? DefaultBindingHost
