@@ -22,6 +22,7 @@ import {
   PluginManifest,
   _prepareSimpleSearchMock,
 } from "../mocks/obsidian";
+import * as dailyNotesInterface from "obsidian-daily-notes-interface";
 
 describe("requestHandler", () => {
   const API_KEY = "my api key";
@@ -1847,6 +1848,103 @@ describe("requestHandler", () => {
       // Check that the listener was removed after timeout
       const listeners = app.metadataCache._listeners.get("changed") || [];
       expect(listeners.length).toBe(0);
+    });
+  });
+
+  describe("unexpected error handling", () => {
+    // Before the handle() wrapper was added, any unhandled rejection from an
+    // async route handler was silently swallowed (void pattern), leaving the
+    // HTTP request to hang forever with no response.  These tests verify that
+    // unexpected errors are turned into 500 responses instead.
+
+    test("synchronous throw inside async vault GET returns 500", async () => {
+      jest.spyOn(handler.operations, "listVaultDirectory").mockImplementation(() => {
+        throw new Error("Unexpected internal error");
+      });
+      const res = await request(server)
+        .get("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(500);
+    });
+
+    test("rejected promise from vault POST returns 500", async () => {
+      jest.spyOn(handler.operations, "appendFileContent").mockRejectedValue(
+        new Error("disk full"),
+      );
+      const res = await request(server)
+        .post("/vault/some-file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/plain")
+        .send("hello");
+      expect(res.status).toBe(500);
+    });
+
+    test("synchronous throw from periodicGetNote returns 500", async () => {
+      jest.spyOn(handler.operations, "periodicGetNote").mockImplementation(() => {
+        throw new Error("plugin not ready");
+      });
+      const res = await request(server)
+        .get("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(500);
+    });
+
+    test("rejected promise from periodicGetOrCreateNote returns 500", async () => {
+      jest.spyOn(handler.operations, "periodicGetOrCreateNote").mockRejectedValue(
+        new Error("plugin not ready"),
+      );
+      const res = await request(server)
+        .patch("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Target-Type", "heading")
+        .set("Operation", "append")
+        .set("Target", "My Heading")
+        .set("Content-Type", "text/plain")
+        .send("content");
+      expect(res.status).toBe(500);
+    });
+  });
+
+  describe("periodicNotes", () => {
+    // These tests call through to the real VaultOperations.getPeriodicNoteInterface()
+    // implementation rather than mocking handler.operations.periodicGetNote/
+    // periodicGetOrCreateNote. This ensures the obsidian-daily-notes-interface
+    // import is exercised and regressions like #255 (undefined default import
+    // causing a crash) are caught at unit-test time.
+
+    test("unknown period name returns 404", async () => {
+      const res = await request(server)
+        .get("/periodic/decennial/")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(404);
+    });
+
+    test("period not enabled returns 400", async () => {
+      (dailyNotesInterface.appHasDailyNotesPluginLoaded as jest.Mock).mockReturnValueOnce(false);
+      const res = await request(server)
+        .get("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(400);
+    });
+
+    test("note does not exist returns 404, not a crash (regression for #255)", async () => {
+      // getDailyNote returns null by default in the mock — note doesn't exist yet.
+      const res = await request(server)
+        .get("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(404);
+    });
+
+    test("note exists returns 200 with file content", async () => {
+      const noteFile = new TFile();
+      noteFile.path = "daily.md";
+      (dailyNotesInterface.getDailyNote as jest.Mock).mockReturnValueOnce(noteFile);
+      (dailyNotesInterface.getAllDailyNotes as jest.Mock).mockReturnValueOnce({});
+
+      const res = await request(server)
+        .get("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(200);
     });
   });
 

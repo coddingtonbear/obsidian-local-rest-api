@@ -16,6 +16,9 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Fetch annotated tag objects
+        run: git fetch --tags --force
+
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
@@ -40,5 +43,5 @@ jobs:
         run: |
           gh release create "${{ github.ref_name }}" \
             --title "${{ github.ref_name }}" \
-            --notes "$(git tag -l --format='%(contents)' '${{ github.ref_name }}')" \
+            --notes "$(git tag -l --format='%(contents:body)' '${{ github.ref_name }}')" \
             main.js manifest.json styles.css

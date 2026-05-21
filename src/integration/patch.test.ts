@@ -1,6 +1,5 @@
 import {
   authedFetch,
-  unauthFetch,
   ensureServerReachable,
   resetFixture,
   deleteFixture,

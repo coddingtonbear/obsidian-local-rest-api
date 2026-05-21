@@ -5,7 +5,10 @@ module.exports = {
   testPathIgnorePatterns: ["/node_modules/", "/src/integration/"],
   moduleNameMapper: {
     "^src/(.*)": "<rootDir>/src/$1",
-    obsidian: "<rootDir>/mocks/obsidian.ts",
+    // More specific pattern must come first — "obsidian" is a regex that would
+    // otherwise match "obsidian-daily-notes-interface" too.
+    "obsidian-daily-notes-interface": "<rootDir>/mocks/obsidian-daily-notes-interface.ts",
+    "^obsidian$": "<rootDir>/mocks/obsidian.ts",
     // Marked is ESM-only; point Jest at the UMD build so CommonJS transforms work.
     "^marked$": "<rootDir>/node_modules/marked/lib/marked.umd.js",
     // Jest 27 doesn't support package.json exports maps, so deep .js paths in the
