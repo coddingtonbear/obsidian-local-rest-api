@@ -333,10 +333,13 @@ export class VaultOperations {
     }
 
     const destExists = await this.app.vault.adapter.exists(destinationPath);
-    if (destExists && !allowOverwrite) {
-      throw new DestinationAlreadyExistsError(
-        `Destination already exists: ${destinationPath}`,
-      );
+    if (destExists) {
+      if (!allowOverwrite) {
+        throw new DestinationAlreadyExistsError(
+          `Destination already exists: ${destinationPath}`,
+        );
+      }
+      await this.app.vault.adapter.remove(destinationPath);
     }
 
     const parentDir = destinationPath.substring(

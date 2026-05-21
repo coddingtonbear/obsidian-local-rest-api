@@ -459,3 +459,122 @@ describe("DELETE /vault/{file}", () => {
     expect(res.status).toBe(401);
   });
 });
+
+// ---------------------------------------------------------------------------
+// MOVE
+// ---------------------------------------------------------------------------
+
+describe("MOVE /vault/{file}", () => {
+  const MOVE_SRC = `${TEST_DIR}/move-source.md`;
+  const MOVE_DST = `${TEST_DIR}/move-destination.md`;
+
+  beforeEach(async () => {
+    const res = await authedFetch(`/vault/${MOVE_SRC}`, {
+      method: "PUT",
+      headers: { "Content-Type": "text/markdown" },
+      body: "move-source-content\n",
+    });
+    if (res.status !== 204) throw new Error(`MOVE_SRC setup failed: ${res.status}`);
+  });
+
+  afterEach(async () => {
+    await deleteFixture(MOVE_SRC).catch((_e: unknown): void => {});
+    await deleteFixture(MOVE_DST).catch((_e: unknown): void => {});
+  });
+
+  test("returns 204, Content-Location header, source gone, dest has original content", async () => {
+    const res = await authedFetch(`/vault/${MOVE_SRC}`, {
+      method: "MOVE",
+      headers: { Destination: MOVE_DST },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("content-location")).toBe(MOVE_DST);
+
+    const srcRes = await authedFetch(`/vault/${MOVE_SRC}`);
+    expect(srcRes.status).toBe(404);
+
+    const dstRes = await authedFetch(`/vault/${MOVE_DST}`);
+    expect(dstRes.status).toBe(200);
+    expect(await dstRes.text()).toContain("move-source-content");
+  });
+
+  test("trailing-slash destination resolves to source filename", async () => {
+    const dstDir = `${TEST_DIR}/move-subdir/`;
+    const expectedDst = `${TEST_DIR}/move-subdir/move-source.md`;
+
+    const res = await authedFetch(`/vault/${MOVE_SRC}`, {
+      method: "MOVE",
+      headers: { Destination: dstDir },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("content-location")).toBe(expectedDst);
+
+    await deleteFixture(expectedDst).catch((_e: unknown): void => {});
+  });
+
+  test("returns 404 for non-existent source", async () => {
+    const res = await authedFetch(`/vault/${TEST_DIR}/no-such-file.md`, {
+      method: "MOVE",
+      headers: { Destination: MOVE_DST },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  test("returns 400 when Destination header is missing", async () => {
+    const res = await authedFetch(`/vault/${MOVE_SRC}`, { method: "MOVE" });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.message).toContain("Destination header is required");
+  });
+
+  test("returns 409 when destination already exists", async () => {
+    const putRes = await authedFetch(`/vault/${MOVE_DST}`, {
+      method: "PUT",
+      headers: { "Content-Type": "text/markdown" },
+      body: "existing content\n",
+    });
+    if (putRes.status !== 204) throw new Error(`MOVE_DST setup failed: ${putRes.status}`);
+
+    const res = await authedFetch(`/vault/${MOVE_SRC}`, {
+      method: "MOVE",
+      headers: { Destination: MOVE_DST },
+    });
+    expect(res.status).toBe(409);
+  });
+
+  test("Allow-Overwrite: true overwrites existing destination", async () => {
+    const putRes = await authedFetch(`/vault/${MOVE_DST}`, {
+      method: "PUT",
+      headers: { "Content-Type": "text/markdown" },
+      body: "existing content\n",
+    });
+    if (putRes.status !== 204) throw new Error(`MOVE_DST setup failed: ${putRes.status}`);
+
+    const res = await authedFetch(`/vault/${MOVE_SRC}`, {
+      method: "MOVE",
+      headers: { Destination: MOVE_DST, "Allow-Overwrite": "true" },
+    });
+    expect(res.status).toBe(204);
+
+    const dstRes = await authedFetch(`/vault/${MOVE_DST}`);
+    const text = await dstRes.text();
+    expect(text).toContain("move-source-content");
+    expect(text).not.toContain("existing content");
+  });
+
+  test("returns 405 on MOVE to directory path", async () => {
+    const res = await authedFetch(`/vault/${TEST_DIR}/`, {
+      method: "MOVE",
+      headers: { Destination: `${TEST_DIR}-moved/` },
+    });
+    expect(res.status).toBe(405);
+  });
+
+  test("returns 401 without auth", async () => {
+    const res = await unauthFetch(`/vault/${MOVE_SRC}`, {
+      method: "MOVE",
+      headers: { Destination: MOVE_DST },
+    });
+    expect(res.status).toBe(401);
+  });
+});
