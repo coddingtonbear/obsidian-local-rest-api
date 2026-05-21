@@ -28,29 +28,8 @@
     },
   ],
   responses: {
-    '201': {
-      description: 'File successfully moved',
-      content: {
-        'application/json': {
-          schema: {
-            type: 'object',
-            properties: {
-              message: {
-                type: 'string',
-                example: 'File successfully moved',
-              },
-              oldPath: {
-                type: 'string',
-                example: 'folder/file.md',
-              },
-              newPath: {
-                type: 'string',
-                example: 'another-folder/file.md',
-              },
-            },
-          },
-        },
-      },
+    '204': {
+      description: 'File successfully moved.',
     },
     '400': {
       description: 'Bad request - Missing Destination header, or path traversal attempt (path contains ".." or starts with "/").\n',

@@ -3018,22 +3018,8 @@ paths:
               format: "path"
               type: "string"
         responses:
-          "201":
-            content:
-              application/json:
-                schema:
-                  properties:
-                    message:
-                      example: "File successfully moved"
-                      type: "string"
-                    newPath:
-                      example: "another-folder/file.md"
-                      type: "string"
-                    oldPath:
-                      example: "folder/file.md"
-                      type: "string"
-                  type: "object"
-            description: "File successfully moved"
+          "204":
+            description: "File successfully moved."
           "400":
             content:
               application/json:

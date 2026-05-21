@@ -812,11 +812,7 @@ export default class RequestHandler {
 
     try {
       await this.operations.moveVaultFile(path, newPath, allowOverwrite);
-      res.status(201).json({
-        message: "File successfully moved",
-        oldPath: path,
-        newPath: newPath,
-      });
+      this.returnCannedResponse(res, { statusCode: 204 });
     } catch (error) {
       if (error instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });

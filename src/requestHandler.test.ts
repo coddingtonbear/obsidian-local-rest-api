@@ -655,15 +655,12 @@ describe("requestHandler", () => {
       const newPath = "another-folder/subfolder/file.md";
       jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
 
-      const response = await request(server)
+      await request(server)
         .move(`/vault/${oldPath}`)
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Destination", newPath)
-        .expect(201);
+        .expect(204);
 
-      expect(response.body.message).toEqual("File successfully moved");
-      expect(response.body.oldPath).toEqual(oldPath);
-      expect(response.body.newPath).toEqual(newPath);
       expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
         oldPath,
         newPath,
@@ -674,13 +671,11 @@ describe("requestHandler", () => {
     test("move to vault root", async () => {
       jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
 
-      const response = await request(server)
+      await request(server)
         .move("/vault/deep/nested/file.md")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Destination", "file.md")
-        .expect(201);
-
-      expect(response.body.message).toEqual("File successfully moved");
+        .expect(204);
     });
 
     test("non-existent source file returns 404", async () => {
@@ -721,13 +716,12 @@ describe("requestHandler", () => {
     test("destination with trailing slash uses source filename", async () => {
       jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
 
-      const response = await request(server)
+      await request(server)
         .move("/vault/folder/file.md")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Destination", "new-folder/")
-        .expect(201);
+        .expect(204);
 
-      expect(response.body.newPath).toEqual("new-folder/file.md");
       expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
         "folder/file.md",
         "new-folder/file.md",
@@ -738,14 +732,13 @@ describe("requestHandler", () => {
     test("Allow-Overwrite: true passes flag to moveVaultFile", async () => {
       jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
 
-      const response = await request(server)
+      await request(server)
         .move("/vault/folder/file.md")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Destination", "another-folder/existing-file.md")
         .set("Allow-Overwrite", "true")
-        .expect(201);
+        .expect(204);
 
-      expect(response.body.message).toEqual("File successfully moved");
       expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
         "folder/file.md",
         "another-folder/existing-file.md",
