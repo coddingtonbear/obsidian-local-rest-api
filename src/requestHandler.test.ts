@@ -1944,6 +1944,67 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("periodic Content-Location header", () => {
+    const periodicFilePath = "daily/2024-01-15.md";
+
+    beforeEach(() => {
+      const noteFile = Object.assign(new TFile(), { path: periodicFilePath });
+      jest.spyOn(handler.operations, "periodicGetNote").mockReturnValue([noteFile, null]);
+      jest.spyOn(handler.operations, "periodicGetOrCreateNote").mockResolvedValue([noteFile, null]);
+      app.vault.adapter._readBinary = Buffer.from("# Daily\n");
+    });
+
+    test("GET returns Content-Location", async () => {
+      const res = await request(server)
+        .get("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(res.headers["content-location"]).toEqual(periodicFilePath);
+    });
+
+    test("PUT (whole-file replace) returns Content-Location", async () => {
+      const res = await request(server)
+        .put("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("# Replaced\n")
+        .expect(204);
+      expect(res.headers["content-location"]).toEqual(periodicFilePath);
+    });
+
+    test("POST (append) returns Content-Location", async () => {
+      const res = await request(server)
+        .post("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("appended\n")
+        .expect(204);
+      expect(res.headers["content-location"]).toEqual(periodicFilePath);
+    });
+
+    test("PATCH returns Content-Location", async () => {
+      jest.spyOn(handler.operations, "patchFileSection").mockResolvedValue("# Patched\n");
+      const res = await request(server)
+        .patch("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .set("Operation", "append")
+        .set("Target-Type", "heading")
+        .set("Target", "Daily")
+        .send("appended\n")
+        .expect(200);
+      expect(res.headers["content-location"]).toEqual(periodicFilePath);
+    });
+
+    test("DELETE returns Content-Location", async () => {
+      const res = await request(server)
+        .delete("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(204);
+      expect(res.headers["content-location"]).toEqual(periodicFilePath);
+    });
+  });
+
   describe("apiExtensions", () => {
     test("addMcpTool registers a tool via McpHandler", () => {
       const extManifest = Object.assign(new PluginManifest(), { id: "test-plugin" });

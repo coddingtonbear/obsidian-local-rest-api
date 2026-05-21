@@ -354,7 +354,7 @@ std.manifestYamlDoc(
         },
       },
       '/periodic/{period}/': {
-        get: Get {
+        get: Get + WithContentLocation(['200']) {
           tags: [
             'Periodic Notes',
           ],
@@ -362,7 +362,7 @@ std.manifestYamlDoc(
           description: (importstr 'lib/descriptions/periodic-current-get.md') + '\n' + GetShared,
           parameters: [ParamPeriod] + super.parameters,
         },
-        put: Put {
+        put: Put + WithContentLocation(['200', '204']) {
           tags: [
             'Periodic Notes',
           ],
@@ -370,7 +370,7 @@ std.manifestYamlDoc(
           description: PutShared,
           parameters: [ParamPeriod] + super.parameters,
         },
-        post: Post {
+        post: Post + WithContentLocation(['200', '204']) {
           tags: [
             'Periodic Notes',
           ],
@@ -378,7 +378,7 @@ std.manifestYamlDoc(
           description: (importstr 'lib/descriptions/periodic-current-post.md') + '\n' + PostShared,
           parameters: [ParamPeriod] + super.parameters,
         },
-        patch: Patch {
+        patch: Patch + WithContentLocation(['200']) {
           tags: [
             'Periodic Notes',
           ],
@@ -386,7 +386,7 @@ std.manifestYamlDoc(
           description: PatchDescription('the current periodic note for the specified period'),
           parameters: [ParamPeriod] + super.parameters,
         },
-        delete: Delete {
+        delete: Delete + WithContentLocation(['204']) {
           tags: [
             'Periodic Notes',
           ],
@@ -395,7 +395,7 @@ std.manifestYamlDoc(
         },
       },
       '/periodic/{period}/{year}/{month}/{day}/': {
-        get: Get {
+        get: Get + WithContentLocation(['200']) {
           tags: [
             'Periodic Notes',
           ],
@@ -403,7 +403,7 @@ std.manifestYamlDoc(
           description: (importstr 'lib/descriptions/periodic-date-get.md') + '\n' + GetShared,
           parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
-        put: Put {
+        put: Put + WithContentLocation(['200', '204']) {
           tags: [
             'Periodic Notes',
           ],
@@ -411,7 +411,7 @@ std.manifestYamlDoc(
           description: PutShared,
           parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
-        post: Post {
+        post: Post + WithContentLocation(['200', '204']) {
           tags: [
             'Periodic Notes',
           ],
@@ -419,7 +419,7 @@ std.manifestYamlDoc(
           description: (importstr 'lib/descriptions/periodic-date-post.md') + '\n' + PostShared,
           parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
-        patch: Patch {
+        patch: Patch + WithContentLocation(['200']) {
           tags: [
             'Periodic Notes',
           ],
@@ -427,7 +427,7 @@ std.manifestYamlDoc(
           description: PatchDescription('a periodic note for the specified period and date'),
           parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
-        delete: Delete {
+        delete: Delete + WithContentLocation(['204']) {
           tags: [
             'Periodic Notes',
           ],
