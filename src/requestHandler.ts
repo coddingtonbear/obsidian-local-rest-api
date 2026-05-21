@@ -1494,7 +1494,7 @@ export default class RequestHandler {
       .delete(this.handle((rq, rs) => this.vaultDelete(rq, rs)))
       .all((req, res, next) => {
         if (req.method === "MOVE") {
-          this.handle((rq, rs) => this.vaultMove(rq, rs))(req, res, next);
+          return this.handle((rq, rs) => this.vaultMove(rq, rs))(req, res, next);
         } else {
           next();
         }
