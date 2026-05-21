@@ -769,6 +769,16 @@ describe("requestHandler", () => {
       expect(response.body.errorCode).toEqual(40021);
     });
 
+    test("malformed percent-encoding in Destination returns 400", async () => {
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "%E0%")
+        .expect(400);
+
+      expect(response.body.errorCode).toEqual(40022);
+    });
+
     test("unauthorized", async () => {
       await request(server)
         .move("/vault/file.md")

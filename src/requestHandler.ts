@@ -795,9 +795,17 @@ export default class RequestHandler {
       : path;
 
     // Normalize before validating so backslash paths can't bypass the leading-slash check
-    const normalized = decodeURIComponent(rawDestination.trim())
-      .replace(/\\/g, "/")
-      .replace(/\/+/g, "/");
+    let normalized: string;
+    try {
+      normalized = decodeURIComponent(rawDestination.trim())
+        .replace(/\\/g, "/")
+        .replace(/\/+/g, "/");
+    } catch {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidDestinationHeader,
+      });
+      return;
+    }
 
     if (normalized.includes("..") || normalized.startsWith("/")) {
       this.returnCannedResponse(res, {
