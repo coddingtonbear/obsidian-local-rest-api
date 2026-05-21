@@ -31,7 +31,7 @@ local WithContentLocation(codes) = {
 
 std.manifestYamlDoc(
   {
-    openapi: '3.0.2',
+    openapi: '3.2.0',
     info: {
       title: 'Local REST API for Obsidian',
       description: importstr 'lib/descriptions/info.md',

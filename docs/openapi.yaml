@@ -79,7 +79,7 @@ info:
     **Certificate warning** — the plugin generates a self-signed TLS certificate on first run. Most browsers will block requests to an untrusted certificate, so you may need to add it as a trusted certificate in your OS or browser settings before requests will go through. The steps vary by environment — search for "trust self-signed certificate" plus your OS or browser name if you're unsure. If that proves too cumbersome, you can enable the insecure HTTP server in your plugin settings instead and select "HTTP (insecure mode)" from the **Try It** section.
   title: "Local REST API for Obsidian"
   version: "1.0"
-openapi: "3.0.2"
+openapi: "3.2.0"
 paths:
   /:
     get:
