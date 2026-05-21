@@ -783,7 +783,7 @@ export default class RequestHandler {
     const rawDestination = req.header("Destination");
     const allowOverwrite = req.header("Allow-Overwrite") === "true";
 
-    if (!rawDestination) {
+    if (rawDestination === undefined) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.MissingDestinationHeader,
       });
@@ -814,7 +814,7 @@ export default class RequestHandler {
       return;
     }
 
-    const newPath = normalized.endsWith("/")
+    const newPath = !normalized || normalized.endsWith("/")
       ? normalized + sourceFilename
       : normalized;
 

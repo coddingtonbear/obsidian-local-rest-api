@@ -769,6 +769,23 @@ describe("requestHandler", () => {
       expect(response.body.errorCode).toEqual(40021);
     });
 
+    test("whitespace-only Destination moves file to vault root", async () => {
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
+
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "   ")
+        .expect(204);
+
+      expect(response.headers["content-location"]).toEqual("file.md");
+      expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
+        "folder/file.md",
+        "file.md",
+        false,
+      );
+    });
+
     test("malformed percent-encoding in Destination returns 400", async () => {
       const response = await request(server)
         .move("/vault/folder/file.md")
