@@ -13,11 +13,13 @@ beforeAll(async () => {
 });
 
 describe("GET /periodic/daily", () => {
-  maybeTest("returns 200 with content-location header when daily note exists for today", async () => {
+  maybeTest("returns 200 with content-location header pointing to the daily note file", async () => {
     if (!dailyNoteExists) return;
     const res = await authedFetch("/periodic/daily");
     expect(res.status).toBe(200);
-    expect(res.headers.get("content-location")).toBeTruthy();
+    const contentLocation = res.headers.get("content-location");
+    expect(contentLocation).toBeTruthy();
+    expect(contentLocation).toMatch(/\.md$/);
   });
 
   maybeTest("returns 404 with errorCode 40461 when daily note does not exist", async () => {

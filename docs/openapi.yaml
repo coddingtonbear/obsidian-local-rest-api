@@ -79,7 +79,7 @@ info:
     **Certificate warning** — the plugin generates a self-signed TLS certificate on first run. Most browsers will block requests to an untrusted certificate, so you may need to add it as a trusted certificate in your OS or browser settings before requests will go through. The steps vary by environment — search for "trust self-signed certificate" plus your OS or browser name if you're unsure. If that proves too cumbersome, you can enable the insecure HTTP server in your plugin settings instead and select "HTTP (insecure mode)" from the **Try It** section.
   title: "Local REST API for Obsidian"
   version: "1.0"
-openapi: "3.0.2"
+openapi: "3.2.0"
 paths:
   /:
     get:
@@ -123,6 +123,12 @@ paths:
       responses:
         "204":
           description: "Success"
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "404":
           content:
             application/json:
@@ -256,6 +262,12 @@ paths:
                   something else here
                 type: "string"
           description: "Success"
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "404":
           description: "File or target section does not exist"
       summary: |
@@ -546,6 +558,12 @@ paths:
       responses:
         "200":
           description: "Success"
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "400":
           content:
             application/json:
@@ -683,8 +701,20 @@ paths:
               schema:
                 type: "string"
           description: "Success; targeted section updated. The full updated file content is returned."
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "204":
           description: "Success; content appended to end of file."
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "400":
           content:
             application/json:
@@ -805,8 +835,20 @@ paths:
               schema:
                 type: "string"
           description: "Success; targeted section replaced. The full updated file content is returned."
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "204":
           description: "Success; entire file replaced."
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "400":
           content:
             application/json:
@@ -940,6 +982,7 @@ paths:
         | `vault_append` | Append content to the end of a vault file |
         | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
         | `vault_delete` | Delete a vault file |
+        | `vault_move` | Move (rename) a vault file to a new path |
         | `vault_get_document_map` | List the headings, block references, and frontmatter fields in a file |
         | `active_file_get_path` | Return the vault path of the file currently open in Obsidian |
         | `periodic_note_get_path` | Return the vault path of the current periodic note (daily, weekly, monthly, quarterly, yearly) |
@@ -1139,6 +1182,12 @@ paths:
       responses:
         "204":
           description: "Success"
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "404":
           content:
             application/json:
@@ -1285,6 +1334,12 @@ paths:
                   something else here
                 type: "string"
           description: "Success"
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "404":
           description: "File or target section does not exist"
       summary: |
@@ -1588,6 +1643,12 @@ paths:
       responses:
         "200":
           description: "Success"
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "400":
           content:
             application/json:
@@ -1738,8 +1799,20 @@ paths:
               schema:
                 type: "string"
           description: "Success; targeted section updated. The full updated file content is returned."
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "204":
           description: "Success; content appended to end of file."
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "400":
           content:
             application/json:
@@ -1873,8 +1946,20 @@ paths:
               schema:
                 type: "string"
           description: "Success; targeted section replaced. The full updated file content is returned."
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "204":
           description: "Success; entire file replaced."
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "400":
           content:
             application/json:
@@ -1932,6 +2017,12 @@ paths:
       responses:
         "204":
           description: "Success"
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "404":
           content:
             application/json:
@@ -2096,6 +2187,12 @@ paths:
                   something else here
                 type: "string"
           description: "Success"
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "404":
           description: "File or target section does not exist"
       summary: |
@@ -2417,6 +2514,12 @@ paths:
       responses:
         "200":
           description: "Success"
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "400":
           content:
             application/json:
@@ -2585,8 +2688,20 @@ paths:
               schema:
                 type: "string"
           description: "Success; targeted section updated. The full updated file content is returned."
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "204":
           description: "Success; content appended to end of file."
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "400":
           content:
             application/json:
@@ -2738,8 +2853,20 @@ paths:
               schema:
                 type: "string"
           description: "Success; targeted section replaced. The full updated file content is returned."
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "204":
           description: "Success; entire file replaced."
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "400":
           content:
             application/json:
@@ -2986,6 +3113,75 @@ paths:
       tags:
         - "Vault Directories"
   "/vault/{filename}":
+    additionalOperations:
+      move:
+        description: |
+          Moves a file from its current location to a new location specified in the Destination header. This operation preserves file history and updates internal links.
+        parameters:
+          - description: |
+              The new path for the file, relative to your vault root. Path must not contain ".." or start with "/". If the path ends with a trailing slash, the source filename is preserved and the file is placed in that directory (e.g. "archive/" moves "notes/todo.md" to "archive/todo.md").
+            in: "header"
+            name: "Destination"
+            required: true
+            schema:
+              format: "path"
+              type: "string"
+          - description: |
+              If "true", the move proceeds even when a file already exists at the destination. Defaults to "false", which returns a 409 if the destination exists.
+            in: "header"
+            name: "Allow-Overwrite"
+            required: false
+            schema:
+              default: "false"
+              enum:
+                - "true"
+                - "false"
+              type: "string"
+          - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
+            in: "path"
+            name: "filename"
+            required: true
+            schema:
+              format: "path"
+              type: "string"
+        responses:
+          "204":
+            description: "File successfully moved."
+            headers:
+              Content-Location:
+                description: "The vault-relative path of the file at its new location, e.g. `archive/file.md`."
+                schema:
+                  type: "string"
+          "400":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: |
+              Bad request - Missing Destination header, or path traversal attempt (path contains ".." or starts with "/").
+          "404":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: "Source file does not exist."
+          "405":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: |
+              Your path references a directory instead of a file; this request method is valid only for files.
+          "409":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: "Destination file already exists."
+        summary: |
+          Move a file to a new location in your vault.
+        tags:
+          - "Vault Files"
     delete:
       parameters:
         - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."

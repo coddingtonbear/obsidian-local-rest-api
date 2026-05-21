@@ -13,10 +13,10 @@ beforeAll(async () => {
 });
 
 describe("GET /active/", () => {
-  maybeTest("returns 200 with content-location header", async () => {
+  maybeTest("returns 200 with content-location header pointing to the active file", async () => {
     const res = await authedFetch("/active/");
     expect(res.status).toBe(200);
-    expect(res.headers.get("content-location")).toBeTruthy();
+    expect(res.headers.get("content-location")).toBe(activeFilePath);
   });
 
   test("returns 401 without auth", async () => {

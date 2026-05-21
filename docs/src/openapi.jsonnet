@@ -1,14 +1,15 @@
-local Delete = import 'delete.jsonnet';
-local Get = import 'get.jsonnet';
-local Patch = import 'patch.jsonnet';
-local Post = import 'post.jsonnet';
-local Put = import 'put.jsonnet';
+local Delete = import 'lib/delete.jsonnet';
+local Get = import 'lib/get.jsonnet';
+local Move = import 'lib/move.jsonnet';
+local Patch = import 'lib/patch.jsonnet';
+local Post = import 'lib/post.jsonnet';
+local Put = import 'lib/put.jsonnet';
 
-local ParamDay = import 'day.param.jsonnet';
-local ParamMonth = import 'month.param.jsonnet';
-local ParamPath = import 'path.param.jsonnet';
-local ParamPeriod = import 'period.param.jsonnet';
-local ParamYear = import 'year.param.jsonnet';
+local ParamDay = import 'lib/day.param.jsonnet';
+local ParamMonth = import 'lib/month.param.jsonnet';
+local ParamPath = import 'lib/path.param.jsonnet';
+local ParamPeriod = import 'lib/period.param.jsonnet';
+local ParamYear = import 'lib/year.param.jsonnet';
 
 local TargetingShared = importstr 'lib/descriptions/targeting.md';
 local GetShared = TargetingShared + '\n' + importstr 'lib/descriptions/get-shared.md';
@@ -17,10 +18,20 @@ local PutShared = TargetingShared + '\n' + importstr 'lib/descriptions/put-share
 local PatchDescription(fileRef) =
   'Inserts content into ' + fileRef + ' relative to a heading, block reference, or frontmatter field within that document.\n\n' + Patch.description;
 
+local ContentLocationHeader = {
+  'Content-Location': {
+    description: 'Vault-relative path of the file that was acted on, e.g. `notes/file.md`.',
+    schema: { type: 'string', example: 'notes/file.md' },
+  },
+};
+local WithContentLocation(codes) = {
+  responses+: { [c]+: { headers: ContentLocationHeader } for c in codes },
+};
+
 
 std.manifestYamlDoc(
   {
-    openapi: '3.0.2',
+    openapi: '3.2.0',
     info: {
       title: 'Local REST API for Obsidian',
       description: importstr 'lib/descriptions/info.md',
@@ -162,33 +173,33 @@ std.manifestYamlDoc(
     ],
     paths: {
       '/active/': {
-        get: Get {
+        get: Get + WithContentLocation(['200']) {
           tags: ['Active File'],
           summary: 'Return the content of the active file open in Obsidian.\n',
           description: (importstr 'lib/descriptions/active-get.md') + '\n' + GetShared,
         },
-        put: Put {
+        put: Put + WithContentLocation(['200', '204']) {
           tags: [
             'Active File',
           ],
           summary: 'Update the content of the active file open in Obsidian.\n',
           description: PutShared,
         },
-        post: Post {
+        post: Post + WithContentLocation(['200', '204']) {
           tags: [
             'Active File',
           ],
           summary: 'Append content to the active file open in Obsidian.\n',
           description: (importstr 'lib/descriptions/active-post.md') + '\n' + PostShared,
         },
-        patch: Patch {
+        patch: Patch + WithContentLocation(['200']) {
           tags: [
             'Active File',
           ],
           summary: 'Partially update content in the currently open note.\n',
           description: PatchDescription('the currently-open note'),
         },
-        delete: Delete {
+        delete: Delete + WithContentLocation(['204']) {
           tags: [
             'Active File',
           ],
@@ -227,6 +238,11 @@ std.manifestYamlDoc(
           summary: 'Partially update content in an existing note.\n',
           description: PatchDescription('an existing note'),
           parameters: [ParamPath] + super.parameters,
+        },
+        additionalOperations: {
+          move: Move {
+            parameters: Move.parameters + [ParamPath],
+          },
         },
         delete: Delete {
           tags: [
@@ -338,7 +354,7 @@ std.manifestYamlDoc(
         },
       },
       '/periodic/{period}/': {
-        get: Get {
+        get: Get + WithContentLocation(['200']) {
           tags: [
             'Periodic Notes',
           ],
@@ -346,7 +362,7 @@ std.manifestYamlDoc(
           description: (importstr 'lib/descriptions/periodic-current-get.md') + '\n' + GetShared,
           parameters: [ParamPeriod] + super.parameters,
         },
-        put: Put {
+        put: Put + WithContentLocation(['200', '204']) {
           tags: [
             'Periodic Notes',
           ],
@@ -354,7 +370,7 @@ std.manifestYamlDoc(
           description: PutShared,
           parameters: [ParamPeriod] + super.parameters,
         },
-        post: Post {
+        post: Post + WithContentLocation(['200', '204']) {
           tags: [
             'Periodic Notes',
           ],
@@ -362,7 +378,7 @@ std.manifestYamlDoc(
           description: (importstr 'lib/descriptions/periodic-current-post.md') + '\n' + PostShared,
           parameters: [ParamPeriod] + super.parameters,
         },
-        patch: Patch {
+        patch: Patch + WithContentLocation(['200']) {
           tags: [
             'Periodic Notes',
           ],
@@ -370,7 +386,7 @@ std.manifestYamlDoc(
           description: PatchDescription('the current periodic note for the specified period'),
           parameters: [ParamPeriod] + super.parameters,
         },
-        delete: Delete {
+        delete: Delete + WithContentLocation(['204']) {
           tags: [
             'Periodic Notes',
           ],
@@ -379,7 +395,7 @@ std.manifestYamlDoc(
         },
       },
       '/periodic/{period}/{year}/{month}/{day}/': {
-        get: Get {
+        get: Get + WithContentLocation(['200']) {
           tags: [
             'Periodic Notes',
           ],
@@ -387,7 +403,7 @@ std.manifestYamlDoc(
           description: (importstr 'lib/descriptions/periodic-date-get.md') + '\n' + GetShared,
           parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
-        put: Put {
+        put: Put + WithContentLocation(['200', '204']) {
           tags: [
             'Periodic Notes',
           ],
@@ -395,7 +411,7 @@ std.manifestYamlDoc(
           description: PutShared,
           parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
-        post: Post {
+        post: Post + WithContentLocation(['200', '204']) {
           tags: [
             'Periodic Notes',
           ],
@@ -403,7 +419,7 @@ std.manifestYamlDoc(
           description: (importstr 'lib/descriptions/periodic-date-post.md') + '\n' + PostShared,
           parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
-        patch: Patch {
+        patch: Patch + WithContentLocation(['200']) {
           tags: [
             'Periodic Notes',
           ],
@@ -411,7 +427,7 @@ std.manifestYamlDoc(
           description: PatchDescription('a periodic note for the specified period and date'),
           parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
         },
-        delete: Delete {
+        delete: Delete + WithContentLocation(['204']) {
           tags: [
             'Periodic Notes',
           ],
