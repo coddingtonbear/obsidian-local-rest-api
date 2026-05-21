@@ -417,7 +417,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             title: "Enabled",
           }
     );
-    const mcpSecureUrl = `https://127.0.0.1:${this.plugin.settings.port}/mcp`;
+    const mcpSecureUrl = `https://127.0.0.1:${this.plugin.settings.port}/mcp/`;
 
     mcpSecureTr.createEl("td", {
       text: this.plugin.settings.enableSecureServer === false ? "❌" : "✅",
@@ -457,7 +457,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             title: "Enabled",
           }
     );
-    const mcpInsecureUrl = `http://127.0.0.1:${this.plugin.settings.insecurePort}/mcp`;
+    const mcpInsecureUrl = `http://127.0.0.1:${this.plugin.settings.insecurePort}/mcp/`;
 
     mcpInsecureTr.createEl("td", {
       text: this.plugin.settings.enableInsecureServer === false ? "❌" : "✅",
