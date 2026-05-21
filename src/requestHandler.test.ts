@@ -1967,4 +1967,64 @@ describe("requestHandler", () => {
       expect(mockCleanup).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("activeFile Content-Location header", () => {
+    const activeFilePath = "notes/active.md";
+
+    beforeEach(() => {
+      const activeFile = Object.assign(new TFile(), { path: activeFilePath });
+      jest.spyOn(app.workspace, "getActiveFile").mockReturnValue(activeFile);
+      app.vault.adapter._readBinary = Buffer.from("# Active\n");
+    });
+
+    test("GET returns Content-Location", async () => {
+      const res = await request(server)
+        .get("/active/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(res.headers["content-location"]).toEqual(activeFilePath);
+    });
+
+    test("PUT (whole-file replace) returns Content-Location", async () => {
+      const res = await request(server)
+        .put("/active/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("# Replaced\n")
+        .expect(204);
+      expect(res.headers["content-location"]).toEqual(activeFilePath);
+    });
+
+    test("POST (append) returns Content-Location", async () => {
+      const res = await request(server)
+        .post("/active/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("appended\n")
+        .expect(204);
+      expect(res.headers["content-location"]).toEqual(activeFilePath);
+    });
+
+    test("PATCH returns Content-Location", async () => {
+      jest.spyOn(handler.operations, "patchFileSection").mockResolvedValue("# Patched\n");
+      const res = await request(server)
+        .patch("/active/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .set("Operation", "append")
+        .set("Target-Type", "heading")
+        .set("Target", "Active File")
+        .send("appended\n")
+        .expect(200);
+      expect(res.headers["content-location"]).toEqual(activeFilePath);
+    });
+
+    test("DELETE returns Content-Location", async () => {
+      const res = await request(server)
+        .delete("/active/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(204);
+      expect(res.headers["content-location"]).toEqual(activeFilePath);
+    });
+  });
 });

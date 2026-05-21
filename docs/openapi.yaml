@@ -123,6 +123,12 @@ paths:
       responses:
         "204":
           description: "Success"
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "404":
           content:
             application/json:
@@ -256,6 +262,12 @@ paths:
                   something else here
                 type: "string"
           description: "Success"
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "404":
           description: "File or target section does not exist"
       summary: |
@@ -546,6 +558,12 @@ paths:
       responses:
         "200":
           description: "Success"
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "400":
           content:
             application/json:
@@ -683,8 +701,20 @@ paths:
               schema:
                 type: "string"
           description: "Success; targeted section updated. The full updated file content is returned."
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "204":
           description: "Success; content appended to end of file."
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "400":
           content:
             application/json:
@@ -805,8 +835,20 @@ paths:
               schema:
                 type: "string"
           description: "Success; targeted section replaced. The full updated file content is returned."
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "204":
           description: "Success; entire file replaced."
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`."
+              schema:
+                example: "notes/file.md"
+                type: "string"
         "400":
           content:
             application/json:

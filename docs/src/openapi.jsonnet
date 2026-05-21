@@ -18,6 +18,16 @@ local PutShared = TargetingShared + '\n' + importstr 'lib/descriptions/put-share
 local PatchDescription(fileRef) =
   'Inserts content into ' + fileRef + ' relative to a heading, block reference, or frontmatter field within that document.\n\n' + Patch.description;
 
+local ContentLocationHeader = {
+  'Content-Location': {
+    description: 'Vault-relative path of the file that was acted on, e.g. `notes/file.md`.',
+    schema: { type: 'string', example: 'notes/file.md' },
+  },
+};
+local WithContentLocation(codes) = {
+  responses+: { [c]+: { headers: ContentLocationHeader } for c in codes },
+};
+
 
 std.manifestYamlDoc(
   {
@@ -163,33 +173,33 @@ std.manifestYamlDoc(
     ],
     paths: {
       '/active/': {
-        get: Get {
+        get: Get + WithContentLocation(['200']) {
           tags: ['Active File'],
           summary: 'Return the content of the active file open in Obsidian.\n',
           description: (importstr 'lib/descriptions/active-get.md') + '\n' + GetShared,
         },
-        put: Put {
+        put: Put + WithContentLocation(['200', '204']) {
           tags: [
             'Active File',
           ],
           summary: 'Update the content of the active file open in Obsidian.\n',
           description: PutShared,
         },
-        post: Post {
+        post: Post + WithContentLocation(['200', '204']) {
           tags: [
             'Active File',
           ],
           summary: 'Append content to the active file open in Obsidian.\n',
           description: (importstr 'lib/descriptions/active-post.md') + '\n' + PostShared,
         },
-        patch: Patch {
+        patch: Patch + WithContentLocation(['200']) {
           tags: [
             'Active File',
           ],
           summary: 'Partially update content in the currently open note.\n',
           description: PatchDescription('the currently-open note'),
         },
-        delete: Delete {
+        delete: Delete + WithContentLocation(['204']) {
           tags: [
             'Active File',
           ],
