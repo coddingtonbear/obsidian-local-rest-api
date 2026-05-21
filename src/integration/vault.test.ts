@@ -562,6 +562,18 @@ describe("MOVE /vault/{file}", () => {
     expect(text).not.toContain("existing content");
   });
 
+  test("MOVE to same path is a no-op; source file still exists", async () => {
+    const res = await authedFetch(`/vault/${MOVE_SRC}`, {
+      method: "MOVE",
+      headers: { Destination: MOVE_SRC, "Allow-Overwrite": "true" },
+    });
+    expect(res.status).toBe(204);
+
+    const srcRes = await authedFetch(`/vault/${MOVE_SRC}`);
+    expect(srcRes.status).toBe(200);
+    expect(await srcRes.text()).toContain("move-source-content");
+  });
+
   test("returns 405 on MOVE to directory path", async () => {
     const res = await authedFetch(`/vault/${TEST_DIR}/`, {
       method: "MOVE",

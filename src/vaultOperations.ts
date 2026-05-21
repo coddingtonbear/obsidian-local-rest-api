@@ -327,6 +327,10 @@ export class VaultOperations {
     destinationPath: string,
     allowOverwrite = false,
   ): Promise<void> {
+    if (sourcePath === destinationPath) {
+      return;
+    }
+
     const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
     if (!(sourceFile instanceof TFile)) {
       throw new FileNotFoundError(`File not found: ${sourcePath}`);
