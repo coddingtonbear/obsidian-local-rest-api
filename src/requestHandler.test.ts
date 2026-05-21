@@ -731,19 +731,41 @@ describe("requestHandler", () => {
       expect(response.body.message).toContain("Destination header is required");
     });
 
-    test("directory destination path returns 400", async () => {
+    test("destination with trailing slash uses source filename", async () => {
       const mockFile = new TFile();
       app.vault._getAbstractFileByPath = mockFile;
+      app.vault.adapter._exists = false;
+      (app as any).fileManager = {
+        renameFile: jest.fn().mockResolvedValue(undefined),
+      };
+      app.vault.createFolder = jest.fn().mockResolvedValue(undefined);
 
       const response = await request(server)
         .move("/vault/folder/file.md")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Destination", "new-folder/")
-        .expect(400);
+        .expect(201);
 
-      expect(response.body.message).toContain(
-        "Destination path must be a file path",
-      );
+      expect(response.body.newPath).toEqual("new-folder/file.md");
+    });
+
+    test("Allow-Overwrite: true permits moving to an existing destination", async () => {
+      const mockFile = new TFile();
+      app.vault._getAbstractFileByPath = mockFile;
+      app.vault.adapter._exists = true;
+      (app as any).fileManager = {
+        renameFile: jest.fn().mockResolvedValue(undefined),
+      };
+      app.vault.createFolder = jest.fn();
+
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "another-folder/existing-file.md")
+        .set("Allow-Overwrite", "true")
+        .expect(201);
+
+      expect(response.body.message).toEqual("File successfully moved");
     });
 
     test("path traversal attempt returns 400", async () => {

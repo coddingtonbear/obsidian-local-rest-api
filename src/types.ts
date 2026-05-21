@@ -24,12 +24,11 @@ export enum ErrorCode {
   PeriodicNoteDoesNotExist = 40461,
   RequestMethodValidOnlyForFiles = 40510,
   MissingDestinationHeader = 40001,
-  InvalidDestinationPath = 40002,
   PathTraversalNotAllowed = 40003,
   DestinationAlreadyExists = 40901,
   ConflictingTargetSpecification = 42200,
-  ErrorPreparingSimpleSearch = 50010,
   FileOperationFailed = 50001,
+  ErrorPreparingSimpleSearch = 50010,
 }
 
 export interface LocalRestApiSettings {

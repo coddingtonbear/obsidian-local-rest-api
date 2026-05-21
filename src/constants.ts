@@ -48,8 +48,6 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "Error encountered while calling Obsidian `prepareSimpleSearch` API.",
   [ErrorCode.MissingDestinationHeader]:
     "Destination header is required for MOVE operations.",
-  [ErrorCode.InvalidDestinationPath]:
-    "Destination path must be a file path, not a directory.",
   [ErrorCode.PathTraversalNotAllowed]:
     "Path traversal is not allowed. Paths must be relative and within the vault.",
   [ErrorCode.DestinationAlreadyExists]:

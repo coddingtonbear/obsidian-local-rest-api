@@ -2989,15 +2989,26 @@ paths:
     additionalOperations:
       move:
         description: |
-          Moves a file from its current location to a new location specified in the Destination header. This operation preserves file history and updates internal links. The destination path must be provided in the Destination header following WebDAV conventions.
+          Moves a file from its current location to a new location specified in the Destination header. This operation preserves file history and updates internal links.
         parameters:
           - description: |
-              The new path for the file (relative to your vault root). Path must not contain ".." or start with "/" for security reasons.
+              The new path for the file, relative to your vault root. Path must not contain ".." or start with "/". If the path ends with a trailing slash, the source filename is preserved and the file is placed in that directory (e.g. "archive/" moves "notes/todo.md" to "archive/todo.md").
             in: "header"
             name: "Destination"
             required: true
             schema:
               format: "path"
+              type: "string"
+          - description: |
+              If "true", the move proceeds even when a file already exists at the destination. Defaults to "false", which returns a 409 if the destination exists.
+            in: "header"
+            name: "Allow-Overwrite"
+            required: false
+            schema:
+              default: "false"
+              enum:
+                - "true"
+                - "false"
               type: "string"
           - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
             in: "path"
@@ -3029,7 +3040,7 @@ paths:
                 schema:
                   "$ref": "#/components/schemas/Error"
             description: |
-              Bad request - Missing Destination header, invalid destination path, or path traversal attempt.
+              Bad request - Missing Destination header, or path traversal attempt (path contains ".." or starts with "/").
           "404":
             content:
               application/json:

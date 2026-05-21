@@ -780,8 +780,7 @@ export default class RequestHandler {
     }
 
     const rawDestination = req.header("Destination");
-    const overwriteAllowed =
-      (req.header("Overwrite") ?? "F").toUpperCase() !== "F";
+    const allowOverwrite = req.header("Allow-Overwrite") === "true";
 
     if (!rawDestination) {
       this.returnCannedResponse(res, {
@@ -790,26 +789,25 @@ export default class RequestHandler {
       return;
     }
 
-    const rawNewPath = decodeURIComponent(rawDestination.trim());
+    const sourceFilename = path.includes("/")
+      ? path.slice(path.lastIndexOf("/") + 1)
+      : path;
 
-    if (rawNewPath.includes("..") || rawNewPath.startsWith("/")) {
+    // Normalize before validating so backslash paths can't bypass the leading-slash check
+    const normalized = decodeURIComponent(rawDestination.trim())
+      .replace(/\\/g, "/")
+      .replace(/\/+/g, "/");
+
+    if (normalized.includes("..") || normalized.startsWith("/")) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.PathTraversalNotAllowed,
       });
       return;
     }
 
-    if (rawNewPath.endsWith("/")) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.InvalidDestinationPath,
-      });
-      return;
-    }
-
-    const newPath = rawNewPath
-      .replace(/\\/g, "/")
-      .replace(/\/+/g, "/")
-      .replace(/^\/|\/$/g, "");
+    const newPath = normalized.endsWith("/")
+      ? normalized + sourceFilename
+      : normalized;
 
     const sourceFile = this.app.vault.getAbstractFileByPath(path);
     if (!sourceFile || !(sourceFile instanceof TFile)) {
@@ -818,7 +816,7 @@ export default class RequestHandler {
     }
 
     const destExists = await this.app.vault.adapter.exists(newPath);
-    if (destExists && !overwriteAllowed) {
+    if (destExists && !allowOverwrite) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.DestinationAlreadyExists,
       });
@@ -1503,7 +1501,7 @@ export default class RequestHandler {
       .delete(this.handle((rq, rs) => this.vaultDelete(rq, rs)))
       .all((req, res, next) => {
         if (req.method === "MOVE") {
-          void this.handle((rq, rs) => this.vaultMove(rq, rs));
+          this.handle((rq, rs) => this.vaultMove(rq, rs))(req, res, next);
         } else {
           next();
         }
