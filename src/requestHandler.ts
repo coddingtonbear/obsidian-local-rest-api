@@ -48,6 +48,7 @@ import {
 import LocalRestApiPublicApi from "./api";
 import {
   CommandNotFoundError,
+  DestinationAlreadyExistsError,
   FileNotFoundError,
   VaultOperations,
 } from "./vaultOperations";
@@ -809,40 +810,27 @@ export default class RequestHandler {
       ? normalized + sourceFilename
       : normalized;
 
-    const sourceFile = this.app.vault.getAbstractFileByPath(path);
-    if (!sourceFile || !(sourceFile instanceof TFile)) {
-      this.returnCannedResponse(res, { statusCode: 404 });
-      return;
-    }
-
-    const destExists = await this.app.vault.adapter.exists(newPath);
-    if (destExists && !allowOverwrite) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.DestinationAlreadyExists,
-      });
-      return;
-    }
-
     try {
-      const parentDir = newPath.substring(0, newPath.lastIndexOf("/"));
-      if (parentDir && !(await this.app.vault.adapter.exists(parentDir))) {
-        await this.app.vault.createFolder(parentDir);
-      }
-
-      // @ts-ignore - fileManager exists at runtime but not in type definitions
-      await this.app.fileManager.renameFile(sourceFile, newPath);
-
+      await this.operations.moveVaultFile(path, newPath, allowOverwrite);
       res.status(201).json({
         message: "File successfully moved",
         oldPath: path,
         newPath: newPath,
       });
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.FileOperationFailed,
-        message: `Failed to move file: ${msg}`,
-      });
+      if (error instanceof FileNotFoundError) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+      } else if (error instanceof DestinationAlreadyExistsError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.DestinationAlreadyExists,
+        });
+      } else {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.FileOperationFailed,
+          message: `Failed to move file: ${msg}`,
+        });
+      }
     }
   }
 

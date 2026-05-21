@@ -15,6 +15,10 @@ import RequestHandler from "./requestHandler";
 import { LocalRestApiSettings } from "./types";
 import { CERT_NAME } from "./constants";
 import {
+  DestinationAlreadyExistsError,
+  FileNotFoundError,
+} from "./vaultOperations";
+import {
   App,
   TFile,
   Command,
@@ -649,14 +653,7 @@ describe("requestHandler", () => {
     test("successful move", async () => {
       const oldPath = "folder/file.md";
       const newPath = "another-folder/subfolder/file.md";
-
-      const mockFile = new TFile();
-      app.vault._getAbstractFileByPath = mockFile;
-      app.vault.adapter._exists = false;
-      (app as any).fileManager = {
-        renameFile: jest.fn().mockResolvedValue(undefined),
-      };
-      app.vault.createFolder = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
 
       const response = await request(server)
         .move(`/vault/${oldPath}`)
@@ -667,23 +664,15 @@ describe("requestHandler", () => {
       expect(response.body.message).toEqual("File successfully moved");
       expect(response.body.oldPath).toEqual(oldPath);
       expect(response.body.newPath).toEqual(newPath);
-      expect(app.vault.createFolder).toHaveBeenCalledWith(
-        "another-folder/subfolder",
-      );
-      expect((app as any).fileManager.renameFile).toHaveBeenCalledWith(
-        mockFile,
+      expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
+        oldPath,
         newPath,
+        false,
       );
     });
 
-    test("move to vault root (no parent dir created)", async () => {
-      const mockFile = new TFile();
-      app.vault._getAbstractFileByPath = mockFile;
-      app.vault.adapter._exists = false;
-      (app as any).fileManager = {
-        renameFile: jest.fn().mockResolvedValue(undefined),
-      };
-      app.vault.createFolder = jest.fn();
+    test("move to vault root", async () => {
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
 
       const response = await request(server)
         .move("/vault/deep/nested/file.md")
@@ -692,11 +681,12 @@ describe("requestHandler", () => {
         .expect(201);
 
       expect(response.body.message).toEqual("File successfully moved");
-      expect(app.vault.createFolder).not.toHaveBeenCalled();
     });
 
     test("non-existent source file returns 404", async () => {
-      app.vault._getAbstractFileByPath = null;
+      jest
+        .spyOn(handler.operations, "moveVaultFile")
+        .mockRejectedValue(new FileNotFoundError("not found"));
 
       await request(server)
         .move("/vault/non-existent.md")
@@ -706,9 +696,9 @@ describe("requestHandler", () => {
     });
 
     test("destination already exists returns 409", async () => {
-      const mockFile = new TFile();
-      app.vault._getAbstractFileByPath = mockFile;
-      app.vault.adapter._exists = true;
+      jest
+        .spyOn(handler.operations, "moveVaultFile")
+        .mockRejectedValue(new DestinationAlreadyExistsError("exists"));
 
       const response = await request(server)
         .move("/vault/folder/file.md")
@@ -720,9 +710,6 @@ describe("requestHandler", () => {
     });
 
     test("missing Destination header returns 400", async () => {
-      const mockFile = new TFile();
-      app.vault._getAbstractFileByPath = mockFile;
-
       const response = await request(server)
         .move("/vault/folder/file.md")
         .set("Authorization", `Bearer ${API_KEY}`)
@@ -732,13 +719,7 @@ describe("requestHandler", () => {
     });
 
     test("destination with trailing slash uses source filename", async () => {
-      const mockFile = new TFile();
-      app.vault._getAbstractFileByPath = mockFile;
-      app.vault.adapter._exists = false;
-      (app as any).fileManager = {
-        renameFile: jest.fn().mockResolvedValue(undefined),
-      };
-      app.vault.createFolder = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
 
       const response = await request(server)
         .move("/vault/folder/file.md")
@@ -747,16 +728,15 @@ describe("requestHandler", () => {
         .expect(201);
 
       expect(response.body.newPath).toEqual("new-folder/file.md");
+      expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
+        "folder/file.md",
+        "new-folder/file.md",
+        false,
+      );
     });
 
-    test("Allow-Overwrite: true permits moving to an existing destination", async () => {
-      const mockFile = new TFile();
-      app.vault._getAbstractFileByPath = mockFile;
-      app.vault.adapter._exists = true;
-      (app as any).fileManager = {
-        renameFile: jest.fn().mockResolvedValue(undefined),
-      };
-      app.vault.createFolder = jest.fn();
+    test("Allow-Overwrite: true passes flag to moveVaultFile", async () => {
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
 
       const response = await request(server)
         .move("/vault/folder/file.md")
@@ -766,12 +746,14 @@ describe("requestHandler", () => {
         .expect(201);
 
       expect(response.body.message).toEqual("File successfully moved");
+      expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
+        "folder/file.md",
+        "another-folder/existing-file.md",
+        true,
+      );
     });
 
     test("path traversal attempt returns 400", async () => {
-      const mockFile = new TFile();
-      app.vault._getAbstractFileByPath = mockFile;
-
       const response = await request(server)
         .move("/vault/folder/file.md")
         .set("Authorization", `Bearer ${API_KEY}`)
@@ -783,9 +765,6 @@ describe("requestHandler", () => {
     });
 
     test("absolute destination path returns 400", async () => {
-      const mockFile = new TFile();
-      app.vault._getAbstractFileByPath = mockFile;
-
       const response = await request(server)
         .move("/vault/folder/file.md")
         .set("Authorization", `Bearer ${API_KEY}`)

@@ -25,6 +25,7 @@ const WildcardRegexp = require("glob-to-regexp") as (pattern: string) => RegExp;
 
 export class FileNotFoundError extends Error {}
 export class CommandNotFoundError extends Error {}
+export class DestinationAlreadyExistsError extends Error {}
 
 import {
   DocumentMapObject,
@@ -319,6 +320,35 @@ export class VaultOperations {
       throw new FileNotFoundError(`File not found: ${filePath}`);
     }
     await this.app.vault.adapter.remove(filePath);
+  }
+
+  async moveVaultFile(
+    sourcePath: string,
+    destinationPath: string,
+    allowOverwrite = false,
+  ): Promise<void> {
+    const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(sourceFile instanceof TFile)) {
+      throw new FileNotFoundError(`File not found: ${sourcePath}`);
+    }
+
+    const destExists = await this.app.vault.adapter.exists(destinationPath);
+    if (destExists && !allowOverwrite) {
+      throw new DestinationAlreadyExistsError(
+        `Destination already exists: ${destinationPath}`,
+      );
+    }
+
+    const parentDir = destinationPath.substring(
+      0,
+      destinationPath.lastIndexOf("/"),
+    );
+    if (parentDir && !(await this.app.vault.adapter.exists(parentDir))) {
+      await this.app.vault.createFolder(parentDir);
+    }
+
+    // @ts-ignore - fileManager exists at runtime but not in type definitions
+    await this.app.fileManager.renameFile(sourceFile, destinationPath);
   }
 
   // Throws PatchFailed on patch error; caller is responsible for mapping to
