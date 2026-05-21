@@ -8,6 +8,8 @@ export enum ErrorCode {
   ContentTypeSpecificationRequired = 40011,
   InvalidContentType = 40012,
   InvalidContentForContentType = 40015,
+  MissingDestinationHeader = 40020,
+  PathTraversalNotAllowed = 40021,
   MissingTargetTypeHeader = 40053,
   InvalidTargetTypeHeader = 40054,
   MissingTargetHeader = 40055,
@@ -23,12 +25,10 @@ export enum ErrorCode {
   PeriodDoesNotExist = 40460,
   PeriodicNoteDoesNotExist = 40461,
   RequestMethodValidOnlyForFiles = 40510,
-  MissingDestinationHeader = 40001,
-  PathTraversalNotAllowed = 40003,
-  DestinationAlreadyExists = 40901,
+  DestinationAlreadyExists = 40920,
   ConflictingTargetSpecification = 42200,
-  FileOperationFailed = 50001,
   ErrorPreparingSimpleSearch = 50010,
+  FileOperationFailed = 50020,
 }
 
 export interface LocalRestApiSettings {

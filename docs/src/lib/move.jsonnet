@@ -30,6 +30,14 @@
   responses: {
     '204': {
       description: 'File successfully moved.',
+      headers: {
+        'Content-Location': {
+          description: 'The vault-relative path of the file at its new location, e.g. `archive/file.md`.',
+          schema: {
+            type: 'string',
+          },
+        },
+      },
     },
     '400': {
       description: 'Bad request - Missing Destination header, or path traversal attempt (path contains ".." or starts with "/").\n',

@@ -655,12 +655,13 @@ describe("requestHandler", () => {
       const newPath = "another-folder/subfolder/file.md";
       jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
 
-      await request(server)
+      const response = await request(server)
         .move(`/vault/${oldPath}`)
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Destination", newPath)
         .expect(204);
 
+      expect(response.headers["content-location"]).toEqual(newPath);
       expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
         oldPath,
         newPath,
@@ -716,12 +717,13 @@ describe("requestHandler", () => {
     test("destination with trailing slash uses source filename", async () => {
       jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
 
-      await request(server)
+      const response = await request(server)
         .move("/vault/folder/file.md")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Destination", "new-folder/")
         .expect(204);
 
+      expect(response.headers["content-location"]).toEqual("new-folder/file.md");
       expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
         "folder/file.md",
         "new-folder/file.md",
@@ -753,7 +755,7 @@ describe("requestHandler", () => {
         .set("Destination", "../../../etc/passwd")
         .expect(400);
 
-      expect(response.body.errorCode).toEqual(40003);
+      expect(response.body.errorCode).toEqual(40021);
       expect(response.body.message).toContain("Path traversal is not allowed");
     });
 
@@ -764,7 +766,7 @@ describe("requestHandler", () => {
         .set("Destination", "/etc/passwd")
         .expect(400);
 
-      expect(response.body.errorCode).toEqual(40003);
+      expect(response.body.errorCode).toEqual(40021);
     });
 
     test("unauthorized", async () => {
