@@ -327,6 +327,10 @@ export class VaultOperations {
     destinationPath: string,
     allowOverwrite = false,
   ): Promise<string> {
+    if (!destinationPath) {
+      throw new Error("Destination path must not be empty.");
+    }
+
     if (sourcePath === destinationPath) {
       return sourcePath;
     }
