@@ -372,7 +372,7 @@ export class McpHandler {
         "The destination must be a vault-relative path (e.g. 'archive/notes/todo.md'). " +
         "If the destination ends with '/', the source filename is preserved and the file is " +
         "placed in that directory (e.g. destination 'archive/' moves 'notes/todo.md' to 'archive/todo.md'). " +
-        "The destination must not contain '..' or start with '/'.",
+        "The destination must not escape the vault root (i.e. the resolved path must remain within the vault).",
       {
         path: z.string().describe("Source file path relative to vault root"),
         destination: z
