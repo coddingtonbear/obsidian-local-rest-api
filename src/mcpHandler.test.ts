@@ -476,10 +476,11 @@ describe("McpHandler", () => {
     });
 
     test("allows destination with '..' as a substring (not a segment)", async () => {
-      ops.moveVaultFile.mockResolvedValue(undefined);
+      ops.moveVaultFile.mockResolvedValue("archive/notes..md");
       const cb = getToolCallback("vault_move");
-      await cb({ path: "a.md", destination: "archive/notes..md" });
+      const result = await cb({ path: "a.md", destination: "archive/notes..md" });
       expect(ops.moveVaultFile).toHaveBeenCalledWith("a.md", "archive/notes..md", false);
+      expect(parseText(result).newPath).toBe("archive/notes..md");
     });
 
     test("propagates FileNotFoundError from moveVaultFile", async () => {
