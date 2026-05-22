@@ -422,8 +422,8 @@ export class McpHandler {
           ? normalized + sourceFilename
           : normalized;
 
-        await this.ops.moveVaultFile(path, resolvedDestination, allowOverwrite ?? false);
-        return this.text({ message: "OK", oldPath: path, newPath: resolvedDestination });
+        const actualPath = await this.ops.moveVaultFile(path, resolvedDestination, allowOverwrite ?? false);
+        return this.text({ message: "OK", oldPath: path, newPath: actualPath });
       },
     );
 

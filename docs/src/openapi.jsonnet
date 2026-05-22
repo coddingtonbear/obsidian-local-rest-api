@@ -20,7 +20,7 @@ local PatchDescription(fileRef) =
 
 local ContentLocationHeader = {
   'Content-Location': {
-    description: 'Vault-relative path of the file that was acted on, e.g. `notes/file.md`.',
+    description: 'Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded.',
     schema: { type: 'string', example: 'notes/file.md' },
   },
 };

@@ -828,8 +828,8 @@ export default class RequestHandler {
       : normalized;
 
     try {
-      await this.operations.moveVaultFile(path, newPath, allowOverwrite);
-      res.set("Content-Location", encodeURI(newPath));
+      const actualPath = await this.operations.moveVaultFile(path, newPath, allowOverwrite);
+      res.set("Content-Location", encodeURI(actualPath));
       this.returnCannedResponse(res, { statusCode: 204 });
     } catch (error) {
       if (error instanceof FileNotFoundError) {

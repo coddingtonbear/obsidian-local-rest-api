@@ -326,9 +326,9 @@ export class VaultOperations {
     sourcePath: string,
     destinationPath: string,
     allowOverwrite = false,
-  ): Promise<void> {
+  ): Promise<string> {
     if (sourcePath === destinationPath) {
-      return;
+      return sourcePath;
     }
 
     const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
@@ -356,6 +356,7 @@ export class VaultOperations {
 
     // @ts-ignore - fileManager exists at runtime but not in type definitions
     await this.app.fileManager.renameFile(sourceFile, destinationPath);
+    return sourceFile.path;
   }
 
   // Throws PatchFailed on patch error; caller is responsible for mapping to

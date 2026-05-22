@@ -653,7 +653,7 @@ describe("requestHandler", () => {
     test("successful move", async () => {
       const oldPath = "folder/file.md";
       const newPath = "another-folder/subfolder/file.md";
-      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(newPath);
 
       const response = await request(server)
         .move(`/vault/${oldPath}`)
@@ -670,7 +670,7 @@ describe("requestHandler", () => {
     });
 
     test("move to vault root", async () => {
-      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue("file.md");
 
       await request(server)
         .move("/vault/deep/nested/file.md")
@@ -715,7 +715,7 @@ describe("requestHandler", () => {
     });
 
     test("destination with trailing slash uses source filename", async () => {
-      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue("new-folder/file.md");
 
       const response = await request(server)
         .move("/vault/folder/file.md")
@@ -732,7 +732,7 @@ describe("requestHandler", () => {
     });
 
     test("Allow-Overwrite: true passes flag to moveVaultFile", async () => {
-      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue("another-folder/existing-file.md");
 
       await request(server)
         .move("/vault/folder/file.md")
@@ -780,7 +780,7 @@ describe("requestHandler", () => {
     });
 
     test("destination with '..' as a substring (not a segment) is accepted", async () => {
-      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue("archive/notes..md");
 
       await request(server)
         .move("/vault/folder/file.md")
@@ -796,7 +796,7 @@ describe("requestHandler", () => {
     });
 
     test("whitespace-only Destination moves file to vault root", async () => {
-      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue("file.md");
 
       const response = await request(server)
         .move("/vault/folder/file.md")

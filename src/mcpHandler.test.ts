@@ -100,7 +100,7 @@ function makeMockOps() {
       .mockReturnValue([{ id: "cmd-id", name: "Command Name" }]),
     executeCommand: jest.fn(),
     openVaultFile: jest.fn(),
-    moveVaultFile: jest.fn().mockResolvedValue(undefined),
+    moveVaultFile: jest.fn().mockResolvedValue(""),
     periodicGetNote: jest.fn().mockReturnValue([mockFile, null]),
     periodicGetOrCreateNote: jest.fn().mockResolvedValue([mockFile, null]),
   };
@@ -412,6 +412,7 @@ describe("McpHandler", () => {
 
   describe("vault_move", () => {
     test("moves file and returns old and new paths", async () => {
+      ops.moveVaultFile.mockResolvedValue("archive/file.md");
       const cb = getToolCallback("vault_move");
       const result = await cb({ path: "folder/file.md", destination: "archive/file.md" });
       expect(ops.moveVaultFile).toHaveBeenCalledWith("folder/file.md", "archive/file.md", false);
@@ -422,6 +423,7 @@ describe("McpHandler", () => {
     });
 
     test("trailing-slash destination uses source filename", async () => {
+      ops.moveVaultFile.mockResolvedValue("archive/todo.md");
       const cb = getToolCallback("vault_move");
       const result = await cb({ path: "notes/todo.md", destination: "archive/" });
       expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "archive/todo.md", false);
