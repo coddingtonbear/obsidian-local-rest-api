@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { posix } from "path";
 import { randomUUID } from "crypto";
 import { z } from "zod";
 import express from "express";
@@ -358,6 +359,71 @@ export class McpHandler {
       async ({ path }: { path: string }) => {
         await this.ops.deleteVaultFile(path);
         return this.text({ message: "OK" });
+      },
+    );
+
+    this.tool(
+      "vault_move",
+      "Move (rename) a vault file to a new path. " +
+        "Creates any missing parent directories at the destination automatically. " +
+        "Preserves file history and updates internal Obsidian links. " +
+        "Throws if the source file does not exist. " +
+        "Throws if the destination already exists and allowOverwrite is not set to true.\n\n" +
+        "The destination must be a vault-relative path (e.g. 'archive/notes/todo.md'). " +
+        "If the destination ends with '/', the source filename is preserved and the file is " +
+        "placed in that directory (e.g. destination 'archive/' moves 'notes/todo.md' to 'archive/todo.md'). " +
+        "The destination must not escape the vault root (i.e. the resolved path must remain within the vault).",
+      {
+        path: z.string().describe("Source file path relative to vault root"),
+        destination: z
+          .string()
+          .describe(
+            "Destination path relative to vault root. " +
+              "May end with '/' to preserve the source filename in the target directory.",
+          ),
+        allowOverwrite: z
+          .boolean()
+          .optional()
+          .describe("If true, move proceeds even when a file already exists at the destination (default: false)"),
+      },
+      async ({
+        path,
+        destination,
+        allowOverwrite,
+      }: {
+        path: string;
+        destination: string;
+        allowOverwrite?: boolean;
+      }) => {
+        const normalized = destination
+          .trim()
+          .replace(/\\/g, "/")
+          .replace(/\/+/g, "/");
+
+        if (normalized.startsWith("/")) {
+          throw new Error(
+            "Destination path must be relative and must not escape the vault root.",
+          );
+        }
+
+        const syntheticRoot = "/vault";
+        const resolved = posix.resolve(syntheticRoot, normalized);
+        if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
+          throw new Error(
+            "Destination path must be relative and must not escape the vault root.",
+          );
+        }
+
+        const sourceFilename = path.includes("/")
+          ? path.slice(path.lastIndexOf("/") + 1)
+          : path;
+
+        const resolvedDestination = !normalized || normalized.endsWith("/")
+          ? normalized + sourceFilename
+          : normalized;
+
+        const actualPath = await this.ops.moveVaultFile(path, resolvedDestination, allowOverwrite ?? false);
+        return this.text({ message: "OK", oldPath: path, newPath: actualPath });
       },
     );
 

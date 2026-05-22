@@ -13,16 +13,18 @@ beforeAll(async () => {
 });
 
 describe("GET /periodic/daily", () => {
-  maybeTest("returns 200 with content-location header when daily note exists for today", async () => {
+  maybeTest("returns 200 with content-location header pointing to the daily note file", async () => {
     if (!dailyNoteExists) return;
-    const res = await authedFetch("/periodic/daily");
+    const res = await authedFetch("/periodic/daily/");
     expect(res.status).toBe(200);
-    expect(res.headers.get("content-location")).toBeTruthy();
+    const contentLocation = res.headers.get("content-location");
+    expect(contentLocation).toBeTruthy();
+    expect(contentLocation).toMatch(/\.md$/);
   });
 
   maybeTest("returns 404 with errorCode 40461 when daily note does not exist", async () => {
     if (dailyNoteExists) return;
-    const res = await authedFetch("/periodic/daily");
+    const res = await authedFetch("/periodic/daily/");
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.errorCode).toBe(40461);
@@ -34,7 +36,7 @@ describe("GET /periodic/daily — plugin not enabled", () => {
   const pluginDisabledTest = process.env.OBSIDIAN_PERIODIC_NOTES === "false" ? test : test.skip;
 
   pluginDisabledTest("returns 400 with errorCode 40060 when period is not enabled", async () => {
-    const res = await authedFetch("/periodic/daily");
+    const res = await authedFetch("/periodic/daily/");
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.errorCode).toBe(40060);
@@ -43,7 +45,7 @@ describe("GET /periodic/daily — plugin not enabled", () => {
 
 describe("PUT /periodic/daily", () => {
   maybeTest("creates or replaces today's daily note and returns 200 or 204", async () => {
-    const res = await authedFetch("/periodic/daily", {
+    const res = await authedFetch("/periodic/daily/", {
       method: "PUT",
       headers: { "Content-Type": "text/markdown" },
       body: "# Daily Note\n\nIntegration test content.\n",
@@ -54,7 +56,7 @@ describe("PUT /periodic/daily", () => {
 
 describe("POST /periodic/daily", () => {
   maybeTest("appends to today's daily note and returns 204", async () => {
-    const res = await authedFetch("/periodic/daily", {
+    const res = await authedFetch("/periodic/daily/", {
       method: "POST",
       headers: { "Content-Type": "text/markdown" },
       body: "Integration test append.\n",
@@ -65,7 +67,7 @@ describe("POST /periodic/daily", () => {
 
 describe("DELETE /periodic/daily", () => {
   maybeTest("returns 204 or 404 when deleting today's daily note", async () => {
-    const res = await authedFetch("/periodic/daily", { method: "DELETE" });
+    const res = await authedFetch("/periodic/daily/", { method: "DELETE" });
     expect([204, 404]).toContain(res.status);
   });
 });

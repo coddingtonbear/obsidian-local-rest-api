@@ -100,6 +100,7 @@ function makeMockOps() {
       .mockReturnValue([{ id: "cmd-id", name: "Command Name" }]),
     executeCommand: jest.fn(),
     openVaultFile: jest.fn(),
+    moveVaultFile: jest.fn().mockResolvedValue(""),
     periodicGetNote: jest.fn().mockReturnValue([mockFile, null]),
     periodicGetOrCreateNote: jest.fn().mockResolvedValue([mockFile, null]),
   };
@@ -153,8 +154,8 @@ describe("McpHandler", () => {
 
   // ---- tool registration --------------------------------------------------
 
-  test("registers all 15 tools", () => {
-    expect(mockTool).toHaveBeenCalledTimes(15);
+  test("registers all 16 tools", () => {
+    expect(mockTool).toHaveBeenCalledTimes(16);
     const names = mockTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -164,6 +165,7 @@ describe("McpHandler", () => {
         "vault_append",
         "vault_patch",
         "vault_delete",
+        "vault_move",
         "vault_get_document_map",
         "active_file_get_path",
         "periodic_note_get_path",
@@ -404,6 +406,90 @@ describe("McpHandler", () => {
     const result = await cb({ path: "old.md" });
     expect(ops.deleteVaultFile).toHaveBeenCalledWith("old.md");
     expect(parseText(result).message).toBe("OK");
+  });
+
+  // ---- vault_move ---------------------------------------------------------
+
+  describe("vault_move", () => {
+    test("moves file and returns old and new paths", async () => {
+      ops.moveVaultFile.mockResolvedValue("archive/file.md");
+      const cb = getToolCallback("vault_move");
+      const result = await cb({ path: "folder/file.md", destination: "archive/file.md" });
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("folder/file.md", "archive/file.md", false);
+      const parsed = parseText(result);
+      expect(parsed.message).toBe("OK");
+      expect(parsed.oldPath).toBe("folder/file.md");
+      expect(parsed.newPath).toBe("archive/file.md");
+    });
+
+    test("trailing-slash destination uses source filename", async () => {
+      ops.moveVaultFile.mockResolvedValue("archive/todo.md");
+      const cb = getToolCallback("vault_move");
+      const result = await cb({ path: "notes/todo.md", destination: "archive/" });
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "archive/todo.md", false);
+      expect(parseText(result).newPath).toBe("archive/todo.md");
+    });
+
+    test("passes allowOverwrite flag", async () => {
+      const cb = getToolCallback("vault_move");
+      await cb({ path: "a.md", destination: "b.md", allowOverwrite: true });
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("a.md", "b.md", true);
+    });
+
+    test("empty destination moves to vault root preserving source filename", async () => {
+      ops.moveVaultFile.mockResolvedValue("todo.md");
+      const cb = getToolCallback("vault_move");
+      const result = await cb({ path: "notes/todo.md", destination: "" });
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false);
+      expect(parseText(result).newPath).toBe("todo.md");
+    });
+
+    test("whitespace-only destination moves to vault root preserving source filename", async () => {
+      ops.moveVaultFile.mockResolvedValue("todo.md");
+      const cb = getToolCallback("vault_move");
+      await cb({ path: "notes/todo.md", destination: "   " });
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false);
+    });
+
+    test("rejects path traversal in destination", async () => {
+      const cb = getToolCallback("vault_move");
+      await expect(cb({ path: "a.md", destination: "../../../etc/passwd" })).rejects.toThrow(
+        "must not escape the vault root",
+      );
+      expect(ops.moveVaultFile).not.toHaveBeenCalled();
+    });
+
+    test("rejects absolute destination", async () => {
+      const cb = getToolCallback("vault_move");
+      await expect(cb({ path: "a.md", destination: "/etc/passwd" })).rejects.toThrow(
+        "must not escape the vault root",
+      );
+      expect(ops.moveVaultFile).not.toHaveBeenCalled();
+    });
+
+    test("rejects destination starting with /vault/", async () => {
+      const cb = getToolCallback("vault_move");
+      await expect(cb({ path: "a.md", destination: "/vault/notes/file.md" })).rejects.toThrow(
+        "must not escape the vault root",
+      );
+      expect(ops.moveVaultFile).not.toHaveBeenCalled();
+    });
+
+    test("allows destination with '..' as a substring (not a segment)", async () => {
+      ops.moveVaultFile.mockResolvedValue("archive/notes..md");
+      const cb = getToolCallback("vault_move");
+      const result = await cb({ path: "a.md", destination: "archive/notes..md" });
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("a.md", "archive/notes..md", false);
+      expect(parseText(result).newPath).toBe("archive/notes..md");
+    });
+
+    test("propagates FileNotFoundError from moveVaultFile", async () => {
+      ops.moveVaultFile.mockRejectedValue(new Error("File not found: missing.md"));
+      const cb = getToolCallback("vault_move");
+      await expect(cb({ path: "missing.md", destination: "dest.md" })).rejects.toThrow(
+        "File not found",
+      );
+    });
   });
 
   // ---- active_file_get_path -----------------------------------------------

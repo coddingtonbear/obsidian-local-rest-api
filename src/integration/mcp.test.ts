@@ -371,6 +371,104 @@ describe("vault_patch tool", () => {
 });
 
 // ---------------------------------------------------------------------------
+// vault_move
+// ---------------------------------------------------------------------------
+
+describe("vault_move tool", () => {
+  const MOVE_SRC = `${TEST_DIR}/mcp-move-source.md`;
+  const MOVE_DST = `${TEST_DIR}/mcp-move-destination.md`;
+
+  beforeEach(async () => {
+    const result = await client.callTool({
+      name: "vault_write",
+      arguments: { path: MOVE_SRC, content: "mcp-move-source-content\n" },
+    });
+    if (result.isError) throw new Error(`MOVE_SRC setup failed`);
+    // Give Obsidian's index a moment to register the new file.
+    await new Promise((r) => setTimeout(r, 300));
+  });
+
+  afterEach(async () => {
+    await deleteFixture(MOVE_SRC).catch((_e: unknown): void => {});
+    await deleteFixture(MOVE_DST).catch((_e: unknown): void => {});
+  });
+
+  test("moves file: returns oldPath and newPath, source gone, dest has original content", async () => {
+    const result = await client.callTool({
+      name: "vault_move",
+      arguments: { path: MOVE_SRC, destination: MOVE_DST },
+    });
+    expect(result.isError).toBeFalsy();
+    const body = jsonOf<any>(result);
+    expect(body.message).toBe("OK");
+    expect(body.oldPath).toBe(MOVE_SRC);
+    expect(body.newPath).toBe(MOVE_DST);
+
+    const srcRead = await client.callTool({ name: "vault_read", arguments: { path: MOVE_SRC } });
+    expect(srcRead.isError).toBe(true);
+
+    const dstRead = await client.callTool({ name: "vault_read", arguments: { path: MOVE_DST } });
+    expect(jsonOf<any>(dstRead).content).toContain("mcp-move-source-content");
+  });
+
+  test("trailing-slash destination resolves to source filename", async () => {
+    const dstDir = `${TEST_DIR}/mcp-move-subdir/`;
+    const expectedDst = `${TEST_DIR}/mcp-move-subdir/mcp-move-source.md`;
+
+    const result = await client.callTool({
+      name: "vault_move",
+      arguments: { path: MOVE_SRC, destination: dstDir },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(jsonOf<any>(result).newPath).toBe(expectedDst);
+
+    await deleteFixture(expectedDst).catch((_e: unknown): void => {});
+  });
+
+  test("returns isError for non-existent source", async () => {
+    const result = await client.callTool({
+      name: "vault_move",
+      arguments: { path: `${TEST_DIR}/no-such-file.md`, destination: MOVE_DST },
+    });
+    expect(result.isError).toBe(true);
+  });
+
+  test("returns isError when destination exists without allowOverwrite", async () => {
+    const setup = await client.callTool({
+      name: "vault_write",
+      arguments: { path: MOVE_DST, content: "existing content\n" },
+    });
+    if (setup.isError) throw new Error(`MOVE_DST setup failed`);
+    await new Promise((r) => setTimeout(r, 300));
+
+    const result = await client.callTool({
+      name: "vault_move",
+      arguments: { path: MOVE_SRC, destination: MOVE_DST },
+    });
+    expect(result.isError).toBe(true);
+  });
+
+  test("allowOverwrite: true succeeds and dest has source content", async () => {
+    const setup = await client.callTool({
+      name: "vault_write",
+      arguments: { path: MOVE_DST, content: "existing content\n" },
+    });
+    if (setup.isError) throw new Error(`MOVE_DST setup failed`);
+    await new Promise((r) => setTimeout(r, 300));
+
+    const result = await client.callTool({
+      name: "vault_move",
+      arguments: { path: MOVE_SRC, destination: MOVE_DST, allowOverwrite: true },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(jsonOf<any>(result).message).toBe("OK");
+
+    const dstRead = await client.callTool({ name: "vault_read", arguments: { path: MOVE_DST } });
+    expect(jsonOf<any>(dstRead).content).toContain("mcp-move-source-content");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // search_simple
 // ---------------------------------------------------------------------------
 

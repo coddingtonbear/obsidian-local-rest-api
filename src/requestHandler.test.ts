@@ -15,6 +15,10 @@ import RequestHandler from "./requestHandler";
 import { LocalRestApiSettings } from "./types";
 import { CERT_NAME } from "./constants";
 import {
+  DestinationAlreadyExistsError,
+  FileNotFoundError,
+} from "./vaultOperations";
+import {
   App,
   TFile,
   Command,
@@ -634,6 +638,195 @@ describe("requestHandler", () => {
         .expect(204);
 
       expect(app.vault.adapter._remove).toEqual([arbitraryFilePath]);
+    });
+  });
+
+  describe("vaultMove", () => {
+    test("directory path rejected", async () => {
+      await request(server)
+        .move("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "somewhere/file.md")
+        .expect(405);
+    });
+
+    test("successful move", async () => {
+      const oldPath = "folder/file.md";
+      const newPath = "another-folder/subfolder/file.md";
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(newPath);
+
+      const response = await request(server)
+        .move(`/vault/${oldPath}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", newPath)
+        .expect(204);
+
+      expect(response.headers["content-location"]).toEqual(newPath);
+      expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
+        oldPath,
+        newPath,
+        false,
+      );
+    });
+
+    test("move to vault root", async () => {
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue("file.md");
+
+      await request(server)
+        .move("/vault/deep/nested/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "file.md")
+        .expect(204);
+    });
+
+    test("non-existent source file returns 404", async () => {
+      jest
+        .spyOn(handler.operations, "moveVaultFile")
+        .mockRejectedValue(new FileNotFoundError("not found"));
+
+      await request(server)
+        .move("/vault/non-existent.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "new-location/file.md")
+        .expect(404);
+    });
+
+    test("destination already exists returns 409", async () => {
+      jest
+        .spyOn(handler.operations, "moveVaultFile")
+        .mockRejectedValue(new DestinationAlreadyExistsError("exists"));
+
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "another-folder/existing-file.md")
+        .expect(409);
+
+      expect(response.body.message).toContain("Destination file already exists");
+    });
+
+    test("missing Destination header returns 400", async () => {
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(400);
+
+      expect(response.body.message).toContain("Destination header is required");
+    });
+
+    test("destination with trailing slash uses source filename", async () => {
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue("new-folder/file.md");
+
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "new-folder/")
+        .expect(204);
+
+      expect(response.headers["content-location"]).toEqual("new-folder/file.md");
+      expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
+        "folder/file.md",
+        "new-folder/file.md",
+        false,
+      );
+    });
+
+    test("Allow-Overwrite: true passes flag to moveVaultFile", async () => {
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue("another-folder/existing-file.md");
+
+      await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "another-folder/existing-file.md")
+        .set("Allow-Overwrite", "true")
+        .expect(204);
+
+      expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
+        "folder/file.md",
+        "another-folder/existing-file.md",
+        true,
+      );
+    });
+
+    test("path traversal attempt returns 400", async () => {
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "../../../etc/passwd")
+        .expect(400);
+
+      expect(response.body.errorCode).toEqual(40021);
+      expect(response.body.message).toContain("Path traversal is not allowed");
+    });
+
+    test("absolute destination path returns 400", async () => {
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "/etc/passwd")
+        .expect(400);
+
+      expect(response.body.errorCode).toEqual(40021);
+    });
+
+    test("destination starting with /vault/ returns 400", async () => {
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "/vault/notes/file.md")
+        .expect(400);
+
+      expect(response.body.errorCode).toEqual(40021);
+    });
+
+    test("destination with '..' as a substring (not a segment) is accepted", async () => {
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue("archive/notes..md");
+
+      await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "archive/notes..md")
+        .expect(204);
+
+      expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
+        "folder/file.md",
+        "archive/notes..md",
+        false,
+      );
+    });
+
+    test("whitespace-only Destination moves file to vault root", async () => {
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue("file.md");
+
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "   ")
+        .expect(204);
+
+      expect(response.headers["content-location"]).toEqual("file.md");
+      expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
+        "folder/file.md",
+        "file.md",
+        false,
+      );
+    });
+
+    test("malformed percent-encoding in Destination returns 400", async () => {
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "%E0%")
+        .expect(400);
+
+      expect(response.body.errorCode).toEqual(40022);
+    });
+
+    test("unauthorized", async () => {
+      await request(server)
+        .move("/vault/file.md")
+        .set("Destination", "other/file.md")
+        .expect(401);
     });
   });
 
@@ -1804,6 +1997,67 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("periodic Content-Location header", () => {
+    const periodicFilePath = "daily/2024-01-15.md";
+
+    beforeEach(() => {
+      const noteFile = Object.assign(new TFile(), { path: periodicFilePath });
+      jest.spyOn(handler.operations, "periodicGetNote").mockReturnValue([noteFile, null]);
+      jest.spyOn(handler.operations, "periodicGetOrCreateNote").mockResolvedValue([noteFile, null]);
+      app.vault.adapter._readBinary = Buffer.from("# Daily\n");
+    });
+
+    test("GET returns Content-Location", async () => {
+      const res = await request(server)
+        .get("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(res.headers["content-location"]).toEqual(periodicFilePath);
+    });
+
+    test("PUT (whole-file replace) returns Content-Location", async () => {
+      const res = await request(server)
+        .put("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("# Replaced\n")
+        .expect(204);
+      expect(res.headers["content-location"]).toEqual(periodicFilePath);
+    });
+
+    test("POST (append) returns Content-Location", async () => {
+      const res = await request(server)
+        .post("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("appended\n")
+        .expect(204);
+      expect(res.headers["content-location"]).toEqual(periodicFilePath);
+    });
+
+    test("PATCH returns Content-Location", async () => {
+      jest.spyOn(handler.operations, "patchFileSection").mockResolvedValue("# Patched\n");
+      const res = await request(server)
+        .patch("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .set("Operation", "append")
+        .set("Target-Type", "heading")
+        .set("Target", "Daily")
+        .send("appended\n")
+        .expect(200);
+      expect(res.headers["content-location"]).toEqual(periodicFilePath);
+    });
+
+    test("DELETE returns Content-Location", async () => {
+      const res = await request(server)
+        .delete("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(204);
+      expect(res.headers["content-location"]).toEqual(periodicFilePath);
+    });
+  });
+
   describe("apiExtensions", () => {
     test("addMcpTool registers a tool via McpHandler", () => {
       const extManifest = Object.assign(new PluginManifest(), { id: "test-plugin" });
@@ -1825,6 +2079,66 @@ describe("requestHandler", () => {
       api.addMcpTool("cleanup_tool", "Desc", {}, async () => "");
       api.unregister();
       expect(mockCleanup).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("activeFile Content-Location header", () => {
+    const activeFilePath = "notes/active.md";
+
+    beforeEach(() => {
+      const activeFile = Object.assign(new TFile(), { path: activeFilePath });
+      jest.spyOn(app.workspace, "getActiveFile").mockReturnValue(activeFile);
+      app.vault.adapter._readBinary = Buffer.from("# Active\n");
+    });
+
+    test("GET returns Content-Location", async () => {
+      const res = await request(server)
+        .get("/active/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(res.headers["content-location"]).toEqual(activeFilePath);
+    });
+
+    test("PUT (whole-file replace) returns Content-Location", async () => {
+      const res = await request(server)
+        .put("/active/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("# Replaced\n")
+        .expect(204);
+      expect(res.headers["content-location"]).toEqual(activeFilePath);
+    });
+
+    test("POST (append) returns Content-Location", async () => {
+      const res = await request(server)
+        .post("/active/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("appended\n")
+        .expect(204);
+      expect(res.headers["content-location"]).toEqual(activeFilePath);
+    });
+
+    test("PATCH returns Content-Location", async () => {
+      jest.spyOn(handler.operations, "patchFileSection").mockResolvedValue("# Patched\n");
+      const res = await request(server)
+        .patch("/active/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .set("Operation", "append")
+        .set("Target-Type", "heading")
+        .set("Target", "Active File")
+        .send("appended\n")
+        .expect(200);
+      expect(res.headers["content-location"]).toEqual(activeFilePath);
+    });
+
+    test("DELETE returns Content-Location", async () => {
+      const res = await request(server)
+        .delete("/active/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(204);
+      expect(res.headers["content-location"]).toEqual(activeFilePath);
     });
   });
 });
