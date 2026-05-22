@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { posix } from "path";
 import { randomUUID } from "crypto";
 import { z } from "zod";
 import express from "express";
@@ -399,9 +400,11 @@ export class McpHandler {
           .replace(/\\/g, "/")
           .replace(/\/+/g, "/");
 
-        if (normalized.includes("..") || normalized.startsWith("/")) {
+        const syntheticRoot = "/vault";
+        const resolved = posix.resolve(syntheticRoot, normalized);
+        if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
           throw new Error(
-            "Destination path must be relative and must not contain '..' or start with '/'.",
+            "Destination path must be relative and must not escape the vault root.",
           );
         }
 

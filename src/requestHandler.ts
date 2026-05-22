@@ -4,6 +4,7 @@ import {
   PluginManifest,
   TFile,
 } from "obsidian";
+import { posix } from "path";
 import forge from "node-forge";
 
 import express from "express";
@@ -794,7 +795,6 @@ export default class RequestHandler {
       ? path.slice(path.lastIndexOf("/") + 1)
       : path;
 
-    // Normalize before validating so backslash paths can't bypass the leading-slash check
     let normalized: string;
     try {
       normalized = decodeURIComponent(rawDestination.trim())
@@ -807,7 +807,9 @@ export default class RequestHandler {
       return;
     }
 
-    if (normalized.includes("..") || normalized.startsWith("/")) {
+    const syntheticRoot = "/vault";
+    const resolved = posix.resolve(syntheticRoot, normalized);
+    if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.PathTraversalNotAllowed,
       });

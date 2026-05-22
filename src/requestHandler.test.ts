@@ -769,6 +769,22 @@ describe("requestHandler", () => {
       expect(response.body.errorCode).toEqual(40021);
     });
 
+    test("destination with '..' as a substring (not a segment) is accepted", async () => {
+      jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
+
+      await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "archive/notes..md")
+        .expect(204);
+
+      expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
+        "folder/file.md",
+        "archive/notes..md",
+        false,
+      );
+    });
+
     test("whitespace-only Destination moves file to vault root", async () => {
       jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
 

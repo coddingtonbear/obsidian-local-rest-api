@@ -437,7 +437,7 @@ describe("McpHandler", () => {
     test("rejects path traversal in destination", async () => {
       const cb = getToolCallback("vault_move");
       await expect(cb({ path: "a.md", destination: "../../../etc/passwd" })).rejects.toThrow(
-        "must not contain '..'",
+        "must not escape the vault root",
       );
       expect(ops.moveVaultFile).not.toHaveBeenCalled();
     });
@@ -445,9 +445,16 @@ describe("McpHandler", () => {
     test("rejects absolute destination", async () => {
       const cb = getToolCallback("vault_move");
       await expect(cb({ path: "a.md", destination: "/etc/passwd" })).rejects.toThrow(
-        "must not contain",
+        "must not escape the vault root",
       );
       expect(ops.moveVaultFile).not.toHaveBeenCalled();
+    });
+
+    test("allows destination with '..' as a substring (not a segment)", async () => {
+      ops.moveVaultFile.mockResolvedValue(undefined);
+      const cb = getToolCallback("vault_move");
+      await cb({ path: "a.md", destination: "archive/notes..md" });
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("a.md", "archive/notes..md", false);
     });
 
     test("propagates FileNotFoundError from moveVaultFile", async () => {
