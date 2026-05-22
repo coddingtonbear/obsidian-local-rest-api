@@ -395,6 +395,7 @@ export class McpHandler {
         allowOverwrite?: boolean;
       }) => {
         const normalized = destination
+          .trim()
           .replace(/\\/g, "/")
           .replace(/\/+/g, "/");
 
