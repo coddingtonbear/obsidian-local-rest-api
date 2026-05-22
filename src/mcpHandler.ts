@@ -418,7 +418,7 @@ export class McpHandler {
           ? path.slice(path.lastIndexOf("/") + 1)
           : path;
 
-        const resolvedDestination = normalized.endsWith("/")
+        const resolvedDestination = !normalized || normalized.endsWith("/")
           ? normalized + sourceFilename
           : normalized;
 

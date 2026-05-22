@@ -436,6 +436,21 @@ describe("McpHandler", () => {
       expect(ops.moveVaultFile).toHaveBeenCalledWith("a.md", "b.md", true);
     });
 
+    test("empty destination moves to vault root preserving source filename", async () => {
+      ops.moveVaultFile.mockResolvedValue("todo.md");
+      const cb = getToolCallback("vault_move");
+      const result = await cb({ path: "notes/todo.md", destination: "" });
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false);
+      expect(parseText(result).newPath).toBe("todo.md");
+    });
+
+    test("whitespace-only destination moves to vault root preserving source filename", async () => {
+      ops.moveVaultFile.mockResolvedValue("todo.md");
+      const cb = getToolCallback("vault_move");
+      await cb({ path: "notes/todo.md", destination: "   " });
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false);
+    });
+
     test("rejects path traversal in destination", async () => {
       const cb = getToolCallback("vault_move");
       await expect(cb({ path: "a.md", destination: "../../../etc/passwd" })).rejects.toThrow(
