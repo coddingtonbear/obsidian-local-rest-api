@@ -400,6 +400,12 @@ export class McpHandler {
           .replace(/\\/g, "/")
           .replace(/\/+/g, "/");
 
+        if (normalized.startsWith("/")) {
+          throw new Error(
+            "Destination path must be relative and must not escape the vault root.",
+          );
+        }
+
         const syntheticRoot = "/vault";
         const resolved = posix.resolve(syntheticRoot, normalized);
         if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {

@@ -450,6 +450,14 @@ describe("McpHandler", () => {
       expect(ops.moveVaultFile).not.toHaveBeenCalled();
     });
 
+    test("rejects destination starting with /vault/", async () => {
+      const cb = getToolCallback("vault_move");
+      await expect(cb({ path: "a.md", destination: "/vault/notes/file.md" })).rejects.toThrow(
+        "must not escape the vault root",
+      );
+      expect(ops.moveVaultFile).not.toHaveBeenCalled();
+    });
+
     test("allows destination with '..' as a substring (not a segment)", async () => {
       ops.moveVaultFile.mockResolvedValue(undefined);
       const cb = getToolCallback("vault_move");

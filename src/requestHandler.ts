@@ -807,6 +807,13 @@ export default class RequestHandler {
       return;
     }
 
+    if (normalized.startsWith("/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.PathTraversalNotAllowed,
+      });
+      return;
+    }
+
     const syntheticRoot = "/vault";
     const resolved = posix.resolve(syntheticRoot, normalized);
     if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {

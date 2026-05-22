@@ -769,6 +769,16 @@ describe("requestHandler", () => {
       expect(response.body.errorCode).toEqual(40021);
     });
 
+    test("destination starting with /vault/ returns 400", async () => {
+      const response = await request(server)
+        .move("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "/vault/notes/file.md")
+        .expect(400);
+
+      expect(response.body.errorCode).toEqual(40021);
+    });
+
     test("destination with '..' as a substring (not a segment) is accepted", async () => {
       jest.spyOn(handler.operations, "moveVaultFile").mockResolvedValue(undefined);
 
