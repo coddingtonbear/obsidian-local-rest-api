@@ -272,7 +272,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
 
     containerEl.empty();
     containerEl.classList.add("obsidian-local-rest-api-settings");
-    new Setting(containerEl).setHeading().setName("Local REST API & MCP server");
+    new Setting(containerEl).setHeading().setName("Local REST API with MCP");
     new Setting(containerEl).setHeading().setName("How to access via REST");
 
     const apiKeyDiv = containerEl.createDiv();
@@ -545,7 +545,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         text: "You should re-generate your certificate!",
       });
       shouldRegenerateCertificateDiv.createSpan({
-        text: " Your certificate was generated using earlier standards than are currently used by Obsidian Local REST API & MCP Server. Some systems or tools may not accept your certificate with its current configuration, and re-generating your certificate may improve compatibility with such tools.  To re-generate your certificate, press the \"Re-generate Certificates\" button below.",
+        text: " Your certificate was generated using earlier standards than are currently used by Obsidian Local REST API with MCP. Some systems or tools may not accept your certificate with its current configuration, and re-generating your certificate may improve compatibility with such tools.  To re-generate your certificate, press the \"Re-generate Certificates\" button below.",
       });
     }
 
