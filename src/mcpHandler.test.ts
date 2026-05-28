@@ -410,6 +410,105 @@ describe("McpHandler", () => {
     ).rejects.toThrow("disk full");
   });
 
+  test("vault_patch parses a stringified JSON array for application/json into a native array", async () => {
+    const cb = getToolCallback("vault_patch");
+    await cb({
+      path: "out.md",
+      targetType: "frontmatter",
+      target: "related",
+      operation: "replace",
+      content: '["alpha","beta"]',
+      contentType: "application/json",
+    });
+    expect(ops.patchFileSection).toHaveBeenCalledWith(
+      "out.md",
+      "frontmatter",
+      "related",
+      "replace",
+      ["alpha", "beta"],
+      "application/json",
+      expect.objectContaining({}),
+    );
+  });
+
+  test("vault_patch parses a stringified JSON null for application/json into native null", async () => {
+    const cb = getToolCallback("vault_patch");
+    await cb({
+      path: "out.md",
+      targetType: "frontmatter",
+      target: "tags",
+      operation: "replace",
+      content: "null",
+      contentType: "application/json",
+    });
+    expect(ops.patchFileSection).toHaveBeenCalledWith(
+      "out.md",
+      "frontmatter",
+      "tags",
+      "replace",
+      null,
+      "application/json",
+      expect.objectContaining({}),
+    );
+  });
+
+  test("vault_patch parses a JSON-encoded scalar string for application/json without double-encoding", async () => {
+    const cb = getToolCallback("vault_patch");
+    await cb({
+      path: "out.md",
+      targetType: "frontmatter",
+      target: "plan",
+      operation: "replace",
+      content: '"[[../plans/foo]]"',
+      contentType: "application/json",
+    });
+    expect(ops.patchFileSection).toHaveBeenCalledWith(
+      "out.md",
+      "frontmatter",
+      "plan",
+      "replace",
+      "[[../plans/foo]]",
+      "application/json",
+      expect.objectContaining({}),
+    );
+  });
+
+  test("vault_patch throws on malformed application/json string content and does not patch", async () => {
+    const cb = getToolCallback("vault_patch");
+    await expect(
+      cb({
+        path: "out.md",
+        targetType: "frontmatter",
+        target: "plan",
+        operation: "replace",
+        content: "[[../plans/foo]]",
+        contentType: "application/json",
+      }),
+    ).rejects.toThrow(/json/i);
+    expect(ops.patchFileSection).not.toHaveBeenCalled();
+  });
+
+  test("vault_patch does not parse string content for text/markdown", async () => {
+    const cb = getToolCallback("vault_patch");
+    await cb({
+      path: "out.md",
+      targetType: "frontmatter",
+      target: "related",
+      operation: "replace",
+      content: '["alpha","beta"]',
+      contentType: "text/markdown",
+    });
+    expect(ops.patchFileSection).toHaveBeenCalledWith(
+      "out.md",
+      "frontmatter",
+      "related",
+      "replace",
+      '["alpha","beta"]',
+      "text/markdown",
+      expect.objectContaining({}),
+    );
+  });
+
   // ---- vault_delete -------------------------------------------------------
 
   test("vault_delete calls deleteVaultFile and returns OK", async () => {

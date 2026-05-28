@@ -390,12 +390,30 @@ export class McpHandler {
         targetScope?: "content" | "marker" | "markerAndContent";
       }) => {
         try {
+          // Mirror express.json on the REST path: when the caller declares
+          // application/json, the content is interpreted as JSON. MCP clients
+          // routinely pass it as a JSON-encoded string, so parse strings here
+          // into a native value before patching (otherwise yaml.stringify would
+          // store the raw string). Malformed JSON is rejected, as express does.
+          let parsedContent = content;
+          if (
+            (contentType ?? "text/markdown") === "application/json" &&
+            typeof content === "string"
+          ) {
+            try {
+              parsedContent = JSON.parse(content);
+            } catch (err) {
+              throw new Error(
+                `Invalid application/json content: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }
           await this.ops.patchFileSection(
             path,
             targetType,
             target,
             operation,
-            content,
+            parsedContent,
             contentType ?? "text/markdown",
             { createTargetIfMissing, trimTargetWhitespace, rejectIfContentPreexists, targetDelimiter, targetScope },
           );

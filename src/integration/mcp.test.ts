@@ -357,9 +357,8 @@ describe("vault_patch tool", () => {
         targetType: "frontmatter",
         target: "title",
         operation: "replace",
-        // Pass the plain string value — patchFileSection stores content directly
-        // in the frontmatter object; the REST API parses JSON first but the MCP
-        // tool does not, so JSON.stringify would store the encoded string literally.
+        // Default contentType is text/markdown, so the string is stored verbatim.
+        // (application/json content is parsed into a native value — see below.)
         content: "MCP Patched Title",
       },
     });
@@ -367,6 +366,45 @@ describe("vault_patch tool", () => {
       await client.callTool({ name: "vault_read", arguments: { path: TEST_PATH } })
     );
     expect(body.frontmatter?.title).toBe("MCP Patched Title");
+  });
+
+  test("parses a stringified JSON array for application/json into a real list", async () => {
+    await client.callTool({
+      name: "vault_patch",
+      arguments: {
+        path: TEST_PATH,
+        targetType: "frontmatter",
+        target: "related",
+        operation: "replace",
+        contentType: "application/json",
+        // MCP clients commonly send JSON content as a string; it must be parsed
+        // into a native array so it is stored as a YAML sequence, not a quoted
+        // string. frontmatter.related is Obsidian's parsed value, so an array
+        // here proves the on-disk YAML is a real sequence.
+        content: '["alpha","beta"]',
+        createTargetIfMissing: true,
+      },
+    });
+    const body = jsonOf<any>(
+      await client.callTool({ name: "vault_read", arguments: { path: TEST_PATH } })
+    );
+    expect(body.frontmatter?.related).toEqual(["alpha", "beta"]);
+  });
+
+  test("rejects malformed application/json content", async () => {
+    const result = await client.callTool({
+      name: "vault_patch",
+      arguments: {
+        path: TEST_PATH,
+        targetType: "frontmatter",
+        target: "related",
+        operation: "replace",
+        contentType: "application/json",
+        content: "[[../plans/foo]]",
+        createTargetIfMissing: true,
+      },
+    });
+    expect(result.isError).toBe(true);
   });
 });
 
