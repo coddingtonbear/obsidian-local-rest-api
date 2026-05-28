@@ -23,40 +23,85 @@ interface MinimalMcpServer {
   resource(name: string, uri: string, meta: unknown, handler: (uri: URL) => Promise<unknown>): void;
 }
 
+interface ToolSpec {
+  name: string;
+  description: string;
+  schema: unknown;
+  callback: (args: unknown) => Promise<CallToolResult>;
+}
+
+interface ResourceSpec {
+  name: string;
+  uri: string;
+  meta: unknown;
+  handler: (uri: URL) => Promise<unknown>;
+}
+
 export class McpHandler {
-  private readonly mcpServer: MinimalMcpServer;
-  private readonly transports: Map<string, StreamableHTTPServerTransport> = new Map();
+  private readonly sessions: Map<string, { server: MinimalMcpServer; transport: StreamableHTTPServerTransport }> = new Map();
   private readonly registeredToolNames = new Set<string>();
+  private readonly toolSpecs: ToolSpec[] = [];
+  private readonly resourceSpecs: ResourceSpec[] = [];
 
   constructor(
     private readonly ops: VaultOperations,
     private readonly settings: LocalRestApiSettings,
   ) {
-    this.mcpServer = new McpServer({
+    this.registerResources();
+    this.registerTools();
+  }
+
+  // Build a fresh McpServer for a single session/transport. Each transport MUST own
+  // its own server: the SDK's Server.connect() binds a single _transport, so sharing
+  // one server across multiple connected transports routes every response to the
+  // most-recently-connected transport, hanging all older sessions.
+  private buildServer(): MinimalMcpServer {
+    const server: MinimalMcpServer = new McpServer({
       name: "obsidian-local-rest-api",
       version: "1.0.0",
     });
-    this.registerResources();
-    this.registerTools();
+    for (const spec of this.resourceSpecs) {
+      server.resource(spec.name, spec.uri, spec.meta, spec.handler);
+    }
+    for (const spec of this.toolSpecs) {
+      server.tool(spec.name, spec.description, spec.schema, spec.callback);
+    }
+    return server;
+  }
+
+  private resource(name: string, uri: string, meta: unknown, handler: (uri: URL) => Promise<unknown>): void {
+    this.resourceSpecs.push({ name, uri, meta, handler });
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private tool(name: string, description: string, schema: any, callback: (args: any) => Promise<CallToolResult>): { remove: () => void } {
     this.registeredToolNames.add(name);
-    return this.mcpServer.tool(name, description, schema, async (args: unknown) => {
-      try {
-        const result = await callback(args);
-        if (this.settings.enableVerboseLogging) {
-          console.debug(`[MCP] ${name} => ok`);
+    const spec: ToolSpec = {
+      name,
+      description,
+      schema,
+      callback: async (args: unknown) => {
+        try {
+          const result = await callback(args);
+          if (this.settings.enableVerboseLogging) {
+            console.debug(`[MCP] ${name} => ok`);
+          }
+          return result;
+        } catch (e) {
+          if (this.settings.enableVerboseLogging) {
+            console.debug(`[MCP] ${name} => error`);
+          }
+          throw e;
         }
-        return result;
-      } catch (e) {
-        if (this.settings.enableVerboseLogging) {
-          console.debug(`[MCP] ${name} => error`);
-        }
-        throw e;
-      }
-    });
+      },
+    };
+    this.toolSpecs.push(spec);
+    return {
+      remove: () => {
+        const index = this.toolSpecs.indexOf(spec);
+        if (index >= 0) this.toolSpecs.splice(index, 1);
+      },
+    };
   }
 
   public registerTool(
@@ -86,26 +131,27 @@ export class McpHandler {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
     if (!sessionId) {
+      const server = this.buildServer();
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
-          this.transports.set(id, transport);
+          this.sessions.set(id, { server, transport });
         },
       });
       transport.onclose = () => {
-        if (transport.sessionId) this.transports.delete(transport.sessionId);
+        if (transport.sessionId) this.sessions.delete(transport.sessionId);
       };
-      await this.mcpServer.connect(transport);
+      await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
       return;
     }
 
-    const transport = this.transports.get(sessionId);
-    if (!transport) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
       res.status(404).json({ error: "Session not found" });
       return;
     }
-    await transport.handleRequest(req, res, req.body);
+    await session.transport.handleRequest(req, res, req.body);
   }
 
   private text(data: unknown) {
@@ -127,7 +173,7 @@ export class McpHandler {
   }
 
   private registerResources(): void {
-    this.mcpServer.resource(
+    this.resource(
       "openapi-spec",
       "obsidian://local-rest-api/openapi.yaml",
       {

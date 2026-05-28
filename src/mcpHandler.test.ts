@@ -136,11 +136,22 @@ describe("McpHandler", () => {
    
   let ops: any;
 
-  beforeEach(() => {
+  // Each session now gets its own McpServer, so tool/resource registration runs when
+  // a session is built (not at construction). Trigger one build so the McpServer mock
+  // captures the registrations that getToolCallback() reads.
+  async function buildSession(mcp: McpHandler): Promise<void> {
+    // @ts-ignore: partial mock
+    await mcp.handleRequest(
+      { headers: {}, body: { jsonrpc: "2.0", id: 0, method: "initialize" } },
+      { status: jest.fn().mockReturnThis(), json: jest.fn() },
+    );
+  }
+
+  beforeEach(async () => {
     jest.clearAllMocks();
     ops = makeMockOps();
-    // Construction registers all tools via registerTools()
-    new McpHandler(ops, DEFAULT_SETTINGS);
+    // Construction records specs; building a session registers them on a server.
+    await buildSession(new McpHandler(ops, DEFAULT_SETTINGS));
   });
 
   // ---- resource registration ----------------------------------------------
@@ -605,6 +616,9 @@ describe("McpHandler", () => {
   // ---- handleRequest ------------------------------------------------------
 
   describe("handleRequest", () => {
+    // Reset mock counts polluted by the outer beforeEach session build.
+    beforeEach(() => jest.clearAllMocks());
+
     test("returns 404 when session ID is unknown", async () => {
       const mcp = new McpHandler(ops);
       const mockRes = {
@@ -663,9 +677,10 @@ describe("McpHandler", () => {
   // ---- registerTool -------------------------------------------------------
 
   describe("registerTool", () => {
-    test("registers a tool and returns a cleanup function", () => {
+    test("registers a tool and returns a cleanup function", async () => {
       const mcp = new McpHandler(ops, DEFAULT_SETTINGS);
       const cleanup = mcp.registerTool("my_tool", "Does something", {}, async () => "result");
+      await buildSession(mcp);
       expect(mockTool).toHaveBeenCalledWith("my_tool", "Does something", {}, expect.any(Function));
       expect(typeof cleanup).toBe("function");
     });
@@ -685,14 +700,19 @@ describe("McpHandler", () => {
       ).toThrow(/already registered/);
     });
 
-    test("cleanup removes the tool and frees the name for re-registration", () => {
+    test("cleanup removes the tool and frees the name for re-registration", async () => {
       const mcp = new McpHandler(ops, DEFAULT_SETTINGS);
       const cleanup = mcp.registerTool("removable_tool", "Desc", {}, async () => "");
       cleanup();
-      expect(mockRemove).toHaveBeenCalledTimes(1);
+      // Name is freed for re-registration...
       expect(() =>
         mcp.registerTool("removable_tool", "Desc", {}, async () => ""),
       ).not.toThrow();
+      // ...and the cleaned-up spec is not double-registered on a fresh server.
+      jest.clearAllMocks();
+      await buildSession(mcp);
+      const removableCalls = mockTool.mock.calls.filter((c: unknown[]) => c[0] === "removable_tool");
+      expect(removableCalls).toHaveLength(1);
     });
   });
 });
