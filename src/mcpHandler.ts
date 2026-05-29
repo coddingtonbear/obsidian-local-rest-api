@@ -395,9 +395,10 @@ export class McpHandler {
           // routinely pass it as a JSON-encoded string, so parse strings here
           // into a native value before patching (otherwise yaml.stringify would
           // store the raw string). Malformed JSON is rejected, as express does.
+          const resolvedContentType = contentType ?? "text/markdown";
           let parsedContent = content;
           if (
-            (contentType ?? "text/markdown") === "application/json" &&
+            resolvedContentType === "application/json" &&
             typeof content === "string"
           ) {
             try {
@@ -414,7 +415,7 @@ export class McpHandler {
             target,
             operation,
             parsedContent,
-            contentType ?? "text/markdown",
+            resolvedContentType,
             { createTargetIfMissing, trimTargetWhitespace, rejectIfContentPreexists, targetDelimiter, targetScope },
           );
         } catch (e) {
