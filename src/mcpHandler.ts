@@ -331,7 +331,7 @@ export class McpHandler {
           .describe("How to apply the content: replace the section, prepend before it, or append after it"),
         content: z.unknown().describe("Content to apply. For contentType 'text/markdown' pass a string. For contentType 'application/json' you may pass a native JSON value (number, boolean, array, object) and it will be serialised automatically."),
         contentType: z
-          .string()
+          .enum(["text/markdown", "application/json"])
           .optional()
           .describe(
             "MIME type of content. 'text/markdown' (default) or 'application/json'. " +
@@ -382,7 +382,7 @@ export class McpHandler {
         target: string;
         operation: PatchOperation;
         content: unknown;
-        contentType?: string;
+        contentType?: "text/markdown" | "application/json";
         createTargetIfMissing?: boolean;
         trimTargetWhitespace?: boolean;
         rejectIfContentPreexists?: boolean;
