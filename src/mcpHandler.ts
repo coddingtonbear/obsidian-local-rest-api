@@ -37,8 +37,14 @@ interface ResourceSpec {
   handler: (uri: URL) => Promise<unknown>;
 }
 
+interface SessionEntry {
+  server: MinimalMcpServer;
+  transport: StreamableHTTPServerTransport;
+  toolHandles: Map<string, { remove: () => void }>;
+}
+
 export class McpHandler {
-  private readonly sessions: Map<string, { server: MinimalMcpServer; transport: StreamableHTTPServerTransport }> = new Map();
+  private readonly sessions: Map<string, SessionEntry> = new Map();
   private readonly registeredToolNames = new Set<string>();
   private readonly toolSpecs: ToolSpec[] = [];
   private readonly resourceSpecs: ResourceSpec[] = [];
@@ -55,18 +61,19 @@ export class McpHandler {
   // its own server: the SDK's Server.connect() binds a single _transport, so sharing
   // one server across multiple connected transports routes every response to the
   // most-recently-connected transport, hanging all older sessions.
-  private buildServer(): MinimalMcpServer {
+  private buildServer(): { server: MinimalMcpServer; toolHandles: Map<string, { remove: () => void }> } {
     const server: MinimalMcpServer = new McpServer({
       name: "obsidian-local-rest-api",
       version: "1.0.0",
     });
+    const toolHandles = new Map<string, { remove: () => void }>();
     for (const spec of this.resourceSpecs) {
       server.resource(spec.name, spec.uri, spec.meta, spec.handler);
     }
     for (const spec of this.toolSpecs) {
-      server.tool(spec.name, spec.description, spec.schema, spec.callback);
+      toolHandles.set(spec.name, server.tool(spec.name, spec.description, spec.schema, spec.callback));
     }
-    return server;
+    return { server, toolHandles };
   }
 
   private resource(name: string, uri: string, meta: unknown, handler: (uri: URL) => Promise<unknown>): void {
@@ -100,6 +107,13 @@ export class McpHandler {
       remove: () => {
         const index = this.toolSpecs.indexOf(spec);
         if (index >= 0) this.toolSpecs.splice(index, 1);
+        for (const session of this.sessions.values()) {
+          const handle = session.toolHandles.get(spec.name);
+          if (handle) {
+            handle.remove();
+            session.toolHandles.delete(spec.name);
+          }
+        }
       },
     };
   }
@@ -131,11 +145,11 @@ export class McpHandler {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
     if (!sessionId) {
-      const server = this.buildServer();
+      const { server, toolHandles } = this.buildServer();
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
-          this.sessions.set(id, { server, transport });
+          this.sessions.set(id, { server, transport, toolHandles });
         },
       });
       transport.onclose = () => {
