@@ -1,6 +1,6 @@
 {
   "name": "obsidian-local-rest-api",
-  "version": "4.1.1",
+  "version": "4.1.2",
   "description": "A secure REST API and Model Context Protocol (MCP) server for Obsidian.",
   "main": "main.js",
   "types": "main.d.ts",
