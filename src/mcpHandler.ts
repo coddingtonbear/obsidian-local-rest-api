@@ -348,7 +348,7 @@ export class McpHandler {
         rejectIfContentPreexists: z
           .boolean()
           .optional()
-          .describe("If true, fail the patch when the content already appears in the target section (default: false). Use to make append/prepend operations idempotent on retry."),
+          .describe("If true, fail the patch when the content already appears in the target section (default: false). Use to make append/prepend operations idempotent on retry. Only applies to string ('text/markdown') content; it has no effect on 'application/json' content (e.g. table rows), which is not a string and so is never compared."),
         targetDelimiter: z
           .string()
           .optional()
