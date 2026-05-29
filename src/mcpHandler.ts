@@ -103,6 +103,9 @@ export class McpHandler {
       },
     };
     this.toolSpecs.push(spec);
+    for (const session of this.sessions.values()) {
+      session.toolHandles.set(spec.name, session.server.tool(spec.name, spec.description, spec.schema, spec.callback));
+    }
     return {
       remove: () => {
         const index = this.toolSpecs.indexOf(spec);
