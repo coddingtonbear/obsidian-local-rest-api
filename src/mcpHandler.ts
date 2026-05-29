@@ -45,8 +45,7 @@ interface SessionEntry {
 
 export class McpHandler {
   private readonly sessions: Map<string, SessionEntry> = new Map();
-  private readonly registeredToolNames = new Set<string>();
-  private readonly toolSpecs: ToolSpec[] = [];
+  private readonly toolSpecs: Map<string, ToolSpec> = new Map();
   private readonly resourceSpecs: ResourceSpec[] = [];
 
   constructor(
@@ -70,7 +69,7 @@ export class McpHandler {
     for (const spec of this.resourceSpecs) {
       server.resource(spec.name, spec.uri, spec.meta, spec.handler);
     }
-    for (const spec of this.toolSpecs) {
+    for (const spec of this.toolSpecs.values()) {
       toolHandles.set(spec.name, server.tool(spec.name, spec.description, spec.schema, spec.callback));
     }
     return { server, toolHandles };
@@ -82,7 +81,6 @@ export class McpHandler {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private tool(name: string, description: string, schema: any, callback: (args: any) => Promise<CallToolResult>): { remove: () => void } {
-    this.registeredToolNames.add(name);
     const spec: ToolSpec = {
       name,
       description,
@@ -102,14 +100,13 @@ export class McpHandler {
         }
       },
     };
-    this.toolSpecs.push(spec);
+    this.toolSpecs.set(spec.name, spec);
     for (const session of this.sessions.values()) {
       session.toolHandles.set(spec.name, session.server.tool(spec.name, spec.description, spec.schema, spec.callback));
     }
     return {
       remove: () => {
-        const index = this.toolSpecs.indexOf(spec);
-        if (index >= 0) this.toolSpecs.splice(index, 1);
+        this.toolSpecs.delete(spec.name);
         for (const session of this.sessions.values()) {
           const handle = session.toolHandles.get(spec.name);
           if (handle) {
@@ -127,7 +124,7 @@ export class McpHandler {
     schema: Record<string, z.ZodTypeAny>,
     callback: (args: Record<string, unknown>) => Promise<unknown>,
   ): () => void {
-    if (this.registeredToolNames.has(name)) {
+    if (this.toolSpecs.has(name)) {
       throw new Error(
         `Cannot register MCP tool "${name}" — a tool with this name is already registered.`,
       );
@@ -135,10 +132,7 @@ export class McpHandler {
     const registered = this.tool(name, description, schema, async (args) =>
       this.text(await callback(args as Record<string, unknown>)),
     );
-    return () => {
-      registered.remove();
-      this.registeredToolNames.delete(name);
-    };
+    return () => registered.remove();
   }
 
   async handleRequest(
