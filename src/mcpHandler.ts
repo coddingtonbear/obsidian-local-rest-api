@@ -76,7 +76,7 @@ export class McpHandler {
     return { server, toolHandles };
   }
 
-  private resource(name: string, uri: string, meta: unknown, handler: (uri: URL) => Promise<unknown>): void {
+  private addResourceSpec(name: string, uri: string, meta: unknown, handler: (uri: URL) => Promise<unknown>): void {
     this.resourceSpecs.push({ name, uri, meta, handler });
   }
 
@@ -190,7 +190,7 @@ export class McpHandler {
   }
 
   private registerResources(): void {
-    this.resource(
+    this.addResourceSpec(
       "openapi-spec",
       "obsidian://local-rest-api/openapi.yaml",
       {
