@@ -403,6 +403,16 @@ export class VaultOperations {
     } as PatchInstruction;
 
     const patched = applyPatch(fileContents, instruction);
+    if (typeof patched !== "string") {
+      // markdown-patch's replace/prepend/append switch on contentType with no
+      // default branch, so an unrecognised contentType on a heading/block
+      // target yields undefined. Refuse to write it rather than corrupt the
+      // file — callers are expected to validate contentType before reaching
+      // here, so this is a defensive backstop for any future caller.
+      throw new Error(
+        `Patch produced no output for content type "${contentType}"; refusing to write ${filePath}.`,
+      );
+    }
     await this.app.vault.adapter.write(filePath, patched);
     return patched;
   }
