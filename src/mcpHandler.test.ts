@@ -620,7 +620,7 @@ describe("McpHandler", () => {
     beforeEach(() => jest.clearAllMocks());
 
     test("returns 404 when session ID is unknown", async () => {
-      const mcp = new McpHandler(ops);
+      const mcp = new McpHandler(ops, DEFAULT_SETTINGS);
       const mockRes = {
         status: jest.fn().mockReturnThis(),
         json: jest.fn(),
@@ -637,7 +637,7 @@ describe("McpHandler", () => {
       const { StreamableHTTPServerTransport } = jest.requireMock(
         "@modelcontextprotocol/sdk/server/streamableHttp.js",
       );
-      const mcp = new McpHandler(ops);
+      const mcp = new McpHandler(ops, DEFAULT_SETTINGS);
 
       const mockReq = { headers: {}, body: { jsonrpc: "2.0", method: "initialize" } };
       const mockRes = {};
@@ -654,7 +654,7 @@ describe("McpHandler", () => {
       const { StreamableHTTPServerTransport } = jest.requireMock(
         "@modelcontextprotocol/sdk/server/streamableHttp.js",
       );
-      const mcp = new McpHandler(ops);
+      const mcp = new McpHandler(ops, DEFAULT_SETTINGS);
 
       // Initialize: POST without session ID registers the transport via onsessioninitialized
       const initReq = { headers: {}, body: undefined };
