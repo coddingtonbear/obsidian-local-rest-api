@@ -625,3 +625,32 @@ describe("periodic_note_get_path tool", () => {
     expect(typeof body.path).toBe("string");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Multi-session routing (regression for shared-McpServer bug)
+// ---------------------------------------------------------------------------
+
+describe("multi-session routing", () => {
+  test("first session remains functional after a second session connects", async () => {
+    const clientA = makeClient();
+    const clientB = makeClient();
+    try {
+      await clientA.connect(makeTransport());
+      // Connecting clientB previously overwrote the shared McpServer's internal
+      // _transport reference, causing clientA's subsequent tool calls to hang
+      // indefinitely as their responses were routed to clientB's transport.
+      await clientB.connect(makeTransport());
+
+      const resultA = await clientA.callTool({ name: "vault_list", arguments: {} });
+      expect(resultA.isError).toBeFalsy();
+      expect(Array.isArray(jsonOf<{ files: string[] }>(resultA).files)).toBe(true);
+
+      const resultB = await clientB.callTool({ name: "vault_list", arguments: {} });
+      expect(resultB.isError).toBeFalsy();
+      expect(Array.isArray(jsonOf<{ files: string[] }>(resultB).files)).toBe(true);
+    } finally {
+      await clientA.close().catch((_e: unknown): void => {});
+      await clientB.close().catch((_e: unknown): void => {});
+    }
+  });
+});
