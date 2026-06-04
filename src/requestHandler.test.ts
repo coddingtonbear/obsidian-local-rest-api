@@ -863,6 +863,69 @@ describe("requestHandler", () => {
 
   });
 
+  describe("path traversal prevention", () => {
+    // Two ..%2F segments are enough to escape the synthetic /vault root.
+    const traversal = "/vault/..%2F..%2Fetc%2Fpasswd";
+
+    test("GET rejects ..%2F traversal with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .get(traversal)
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
+    test("PUT rejects ..%2F traversal with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .put(traversal)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("pwned");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
+    test("POST rejects ..%2F traversal with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .post(traversal)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("pwned");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
+    test("PATCH rejects ..%2F traversal with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .patch(traversal)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1")
+        .set("Operation", "append")
+        .send("pwned");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
+    test("DELETE rejects ..%2F traversal with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .delete(traversal)
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
+    test("MOVE rejects ..%2F traversal in source path with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .move(traversal)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "safe/destination.md");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+  });
+
   describe("tagsGet", () => {
     test("aggregates tags from markdown files", async () => {
       const file1 = new TFile();

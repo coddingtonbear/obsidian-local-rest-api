@@ -238,6 +238,23 @@ export default class RequestHandler {
     });
   }
 
+  private extractVaultPath(req: express.Request, res: express.Response): string | null {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(req.path.slice(req.path.indexOf("/", 1) + 1));
+    } catch {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.PathTraversalNotAllowed });
+      return null;
+    }
+    const syntheticRoot = "/vault";
+    const resolved = posix.resolve(syntheticRoot, decoded);
+    if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.PathTraversalNotAllowed });
+      return null;
+    }
+    return decoded;
+  }
+
   async _vaultGet(
     path: string,
     req: express.Request,
@@ -405,10 +422,8 @@ export default class RequestHandler {
   }
 
   async vaultGet(req: express.Request, res: express.Response): Promise<void> {
-    const path = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1),
-    );
-
+    const path = this.extractVaultPath(req, res);
+    if (path === null) return;
     return this._vaultGet(path, req, res);
   }
 
@@ -487,9 +502,8 @@ export default class RequestHandler {
   }
 
   async vaultPut(req: express.Request, res: express.Response): Promise<void> {
-    const rawPath = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1),
-    );
+    const rawPath = this.extractVaultPath(req, res);
+    if (rawPath === null) return;
     const resolved = await this._resolvePathAndTarget(rawPath);
     if (resolved === null) {
       if (
@@ -598,9 +612,8 @@ export default class RequestHandler {
   }
 
   async vaultPatch(req: express.Request, res: express.Response): Promise<void> {
-    const rawPath = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1),
-    );
+    const rawPath = this.extractVaultPath(req, res);
+    if (rawPath === null) return;
     return this._vaultPatch(rawPath, req, res);
   }
 
@@ -681,9 +694,8 @@ export default class RequestHandler {
   }
 
   async vaultPost(req: express.Request, res: express.Response): Promise<void> {
-    const rawPath = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1),
-    );
+    const rawPath = this.extractVaultPath(req, res);
+    if (rawPath === null) return;
     const resolved = await this._resolvePathAndTarget(rawPath);
     if (resolved === null) {
       if (
@@ -754,9 +766,8 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const rawPath = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1),
-    );
+    const rawPath = this.extractVaultPath(req, res);
+    if (rawPath === null) return;
     const resolved = await this._resolvePathAndTarget(rawPath);
     if (resolved?.targetType) {
       this.returnCannedResponse(res, {
@@ -849,9 +860,8 @@ export default class RequestHandler {
   }
 
   async vaultMove(req: express.Request, res: express.Response): Promise<void> {
-    const path = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1),
-    );
+    const path = this.extractVaultPath(req, res);
+    if (path === null) return;
     return this._vaultMove(path, req, res);
   }
 
