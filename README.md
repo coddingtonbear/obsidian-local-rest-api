@@ -126,6 +126,25 @@ Cursor supports the Streamable HTTP MCP transport. Add the following to `~/.curs
 }
 ```
 
+### Google Antigravity - Desktop App & agy (Antigravity CLI tool)
+Antigravity Desktop  & agy utilizes strict camelCase validation rules for configuration maps and relies on the base URL to identify streaming parameters. Add the following layout block directly inside your global configuration file at `~/.gemini/config/mcp_config.json`. Check the property keys as they may vary from Claude.
+
+- **macOS:** `~/.gemini/config/mcp_config.json`
+
+```json
+{
+  "mcpServers": {
+    "obsidian": {
+      "serverUrl": "http://127.0.0.1:27123/mcp/",
+      "headers": {
+        "Authorization": "Bearer <your-api-key>"
+      }
+    }
+  }
+}
+
+Restart desktop app or terminal.
+
 #### Other clients
 
 Any MCP client that supports the Streamable HTTP transport can connect to `https://127.0.0.1:27124/mcp/` with an `Authorization: Bearer <your-api-key>` header. Consult your client's documentation for the exact configuration format.
