@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/coddingtonbear-obsidian-local-rest-api-badge.png)](https://mseep.ai/app/coddingtonbear-obsidian-local-rest-api)
+
 # Local REST API with MCP
 
 Give your scripts, browser extensions, and AI agents a direct line into your Obsidian vault via a secure, authenticated REST API.
