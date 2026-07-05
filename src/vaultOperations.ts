@@ -11,6 +11,8 @@ import path from "path";
 import {
   applyPatch,
   getDocumentMap,
+  PatchFailed,
+  PatchFailureReason,
   PatchInstruction,
   PatchOperation,
   PatchTargetType,
@@ -402,7 +404,41 @@ export class VaultOperations {
       ...(options?.targetScope ? { targetScope: options.targetScope } : {}),
     } as PatchInstruction;
 
-    const patched = applyPatch(fileContents, instruction);
+    let patched: string;
+    try {
+      patched = applyPatch(fileContents, instruction);
+    } catch (error) {
+      // markdown-patch's own frontmatter merge guard (MergeNotPossible ->
+      // PatchFailed/ContentNotMergeable) only fires when the appended content
+      // isn't an appendable *type* at all. It doesn't cover content that IS an
+      // appendable type but incompatible with the *existing* field's type
+      // (e.g. appending a scalar string to a list-valued field): that specific
+      // case falls through mergeFrontmatterValue() as a plain `new Error(...)`
+      // (see node_modules/markdown-patch dist/patch.js), not a PatchFailed or
+      // any other subclass. Match on that exact constructor -- not just
+      // targetType/operation -- so a genuine, unrelated failure in this same
+      // code path (e.g. yaml.stringify throwing its own YAMLError subclass)
+      // still surfaces as the 500 it actually is, instead of being
+      // misreported as a 400. Preserve the original error as `cause` for
+      // debuggability.
+      if (
+        targetType === "frontmatter" &&
+        (operation === "append" || operation === "prepend") &&
+        error instanceof Error &&
+        error.constructor === Error
+      ) {
+        const patchFailed = new PatchFailed(
+          PatchFailureReason.ContentNotMergeable,
+          instruction,
+          null,
+        );
+        // tsconfig's lib target predates ES2022's Error.cause; cast rather
+        // than bump the lib target for one debugging-only field.
+        (patchFailed as Error & { cause?: unknown }).cause = error;
+        throw patchFailed;
+      }
+      throw error;
+    }
     await this.app.vault.adapter.write(filePath, patched);
     return patched;
   }
