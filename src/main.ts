@@ -5,6 +5,7 @@ import forge, { pki } from "node-forge";
 
 import RequestHandler from "./requestHandler";
 import { LocalRestApiSettings } from "./types";
+import { t } from "./i18n";
 
 import {
   DefaultBearerTokenHeaderName,
@@ -272,14 +273,14 @@ class LocalRestApiSettingTab extends PluginSettingTab {
 
     containerEl.empty();
     containerEl.classList.add("obsidian-local-rest-api-settings");
-    new Setting(containerEl).setHeading().setName("Local REST API with MCP");
-    new Setting(containerEl).setHeading().setName("How to access via REST");
+    new Setting(containerEl).setHeading().setName(t("heading.title"));
+    new Setting(containerEl).setHeading().setName(t("heading.rest"));
 
     const apiKeyDiv = containerEl.createDiv();
     apiKeyDiv.classList.add("api-key-display");
 
     apiKeyDiv.createEl("p", {
-      text: "You can access Obsidian local REST API & MCP server via the following URLs:",
+      text: t("rest.intro"),
     });
 
     const addUrlRow = (container: HTMLElement, url: string) => {
@@ -293,10 +294,10 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       this.plugin.settings.enableSecureServer === false
         ? {
             cls: "disabled",
-            title: "Disabled.  You can enable this in 'Settings' below.",
+            title: t("status.disabled"),
           }
         : {
-            title: "Enabled",
+            title: t("status.enabled"),
           }
     );
     const secureUrl = `https://127.0.0.1:${this.plugin.settings.port}/`;
@@ -305,25 +306,25 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       text: this.plugin.settings.enableSecureServer === false ? "❌" : "✅",
     });
     const secureNameTd = secureTr.createEl("td", { cls: "name" });
-    secureNameTd.createSpan({ text: "Encrypted (HTTPS) API URL" });
+    secureNameTd.createSpan({ text: t("rest.secureName") });
     secureNameTd.createEl("br");
     secureNameTd.createEl("br");
     const secureNote = secureNameTd.createEl("i");
-    secureNote.createSpan({ text: "Requires that " });
+    secureNote.createSpan({ text: t("rest.secureNote1") });
     secureNote.createEl("a", {
       href: `https://127.0.0.1:${this.plugin.settings.port}/${CERT_NAME}`,
       // eslint-disable-next-line obsidianmd/ui/sentence-case
-      text: "this certificate",
+      text: t("link.certificate"),
     });
     secureNote.createSpan({
-      text: " be configured as a trusted certificate authority for your browser.  See ",
+      text: t("rest.secureNote2"),
     });
     secureNote.createEl("a", {
       href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
       // eslint-disable-next-line obsidianmd/ui/sentence-case
-      text: "wiki",
+      text: t("link.wiki"),
     });
-    secureNote.createSpan({ text: " for more information." });
+    secureNote.createSpan({ text: t("rest.secureNote3") });
 
     const secureUrlsTd = secureTr.createEl("td", { cls: "url" });
     addUrlRow(secureUrlsTd, secureUrl);
@@ -343,10 +344,10 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       this.plugin.settings.enableInsecureServer === false
         ? {
             cls: "disabled",
-            title: "Disabled.  You can enable this in 'Settings' below.",
+            title: t("status.disabled"),
           }
         : {
-            title: "Enabled",
+            title: t("status.enabled"),
           }
     );
     const insecureUrl = `http://127.0.0.1:${this.plugin.settings.insecurePort}/`;
@@ -354,7 +355,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     insecureTr.createEl("td", {
       text: this.plugin.settings.enableInsecureServer === false ? "❌" : "✅",
     });
-    insecureTr.createEl("td", { cls: "name", text: "Non-encrypted (HTTP) API URL" });
+    insecureTr.createEl("td", { cls: "name", text: t("rest.insecureName") });
 
     const insecureUrlsTd = insecureTr.createEl("td", { cls: "url" });
     addUrlRow(insecureUrlsTd, insecureUrl);
@@ -371,36 +372,36 @@ class LocalRestApiSettingTab extends PluginSettingTab {
 
     const authHeaderP = apiKeyDiv.createEl("p");
     authHeaderP.createSpan({
-      text: "Your API key should be passed as a bearer token via the ",
+      text: t("rest.authHeader1"),
     });
     authHeaderP.createEl("code", {
       text:
         this.plugin.settings.authorizationHeaderName ??
         DefaultBearerTokenHeaderName,
     });
-    authHeaderP.createSpan({ text: " header:" });
+    authHeaderP.createSpan({ text: t("rest.authHeader2") });
 
     apiKeyDiv.createEl("pre", {
       text: `Bearer ${this.plugin.settings.apiKey}`,
     });
     const seeMore = apiKeyDiv.createEl("p");
     seeMore.createSpan({
-      text: "Comprehensive documentation of what API endpoints are available can be found in ",
+      text: t("rest.seeMore"),
     });
     seeMore.createEl("a", {
       href: "https://coddingtonbear.github.io/obsidian-local-rest-api/",
       // eslint-disable-next-line obsidianmd/ui/sentence-case
-      text: "the online docs",
+      text: t("link.docs"),
     });
-    seeMore.createSpan({ text: "." });
+    seeMore.createSpan({ text: t("period") });
 
-    new Setting(containerEl).setHeading().setName("How to access via MCP");
+    new Setting(containerEl).setHeading().setName(t("heading.mcp"));
 
     const mcpDiv = containerEl.createDiv();
     mcpDiv.classList.add("mcp-display");
 
     mcpDiv.createEl("p", {
-      text: "You can connect to the MCP server via the following endpoints:",
+      text: t("mcp.intro"),
     });
 
     const mcpUrls = mcpDiv.createEl("table", { cls: "api-urls" });
@@ -411,10 +412,10 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       this.plugin.settings.enableSecureServer === false
         ? {
             cls: "disabled",
-            title: "Disabled.  You can enable this in 'Settings' below.",
+            title: t("status.disabled"),
           }
         : {
-            title: "Enabled",
+            title: t("status.enabled"),
           }
     );
     const mcpSecureUrl = `https://127.0.0.1:${this.plugin.settings.port}/mcp/`;
@@ -423,25 +424,25 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       text: this.plugin.settings.enableSecureServer === false ? "❌" : "✅",
     });
     const mcpSecureNameTd = mcpSecureTr.createEl("td", { cls: "name" });
-    mcpSecureNameTd.createSpan({ text: "Encrypted (HTTPS) MCP Endpoint" });
+    mcpSecureNameTd.createSpan({ text: t("mcp.secureName") });
     mcpSecureNameTd.createEl("br");
     mcpSecureNameTd.createEl("br");
     const mcpSecureNote = mcpSecureNameTd.createEl("i");
-    mcpSecureNote.createSpan({ text: "Requires that " });
+    mcpSecureNote.createSpan({ text: t("mcp.secureNote1") });
     mcpSecureNote.createEl("a", {
       href: `https://127.0.0.1:${this.plugin.settings.port}/${CERT_NAME}`,
       // eslint-disable-next-line obsidianmd/ui/sentence-case
-      text: "this certificate",
+      text: t("link.certificate"),
     });
     mcpSecureNote.createSpan({
-      text: " be configured as a trusted certificate authority.  See ",
+      text: t("mcp.secureNote2"),
     });
     mcpSecureNote.createEl("a", {
       href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
       // eslint-disable-next-line obsidianmd/ui/sentence-case
-      text: "wiki",
+      text: t("link.wiki"),
     });
-    mcpSecureNote.createSpan({ text: " for more information." });
+    mcpSecureNote.createSpan({ text: t("mcp.secureNote3") });
 
     const mcpSecureUrlsTd = mcpSecureTr.createEl("td", { cls: "url" });
     addUrlRow(mcpSecureUrlsTd, mcpSecureUrl);
@@ -451,10 +452,10 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       this.plugin.settings.enableInsecureServer === false
         ? {
             cls: "disabled",
-            title: "Disabled.  You can enable this in 'Settings' below.",
+            title: t("status.disabled"),
           }
         : {
-            title: "Enabled",
+            title: t("status.enabled"),
           }
     );
     const mcpInsecureUrl = `http://127.0.0.1:${this.plugin.settings.insecurePort}/mcp/`;
@@ -464,7 +465,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
     mcpInsecureTr.createEl("td", {
       cls: "name",
-      text: "Non-encrypted (HTTP) MCP endpoint",
+      text: t("mcp.insecureName"),
     });
 
     const mcpInsecureUrlsTd = mcpInsecureTr.createEl("td", { cls: "url" });
@@ -476,10 +477,10 @@ class LocalRestApiSettingTab extends PluginSettingTab {
 
     const mcpAuthHeaderP = mcpDiv.createEl("p");
     mcpAuthHeaderP.createSpan({
-      text: "Your API key should be passed as a bearer token via the ",
+      text: t("mcp.authHeader1"),
     });
     mcpAuthHeaderP.createEl("code", { text: headerName });
-    mcpAuthHeaderP.createSpan({ text: " header:" });
+    mcpAuthHeaderP.createSpan({ text: t("mcp.authHeader2") });
 
     mcpDiv.createEl("pre", {
       text: `Bearer ${this.plugin.settings.apiKey}`,
@@ -501,39 +502,42 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     );
 
     mcpDiv.createEl("p", {
-      text: "Example Claude code MCP configuration (for .Claude/settings.json):",
+      text: t("mcp.example"),
     });
     mcpDiv.createEl("pre", { text: mcpSampleConfig });
 
     const mcpSeeMore = mcpDiv.createEl("p");
     mcpSeeMore.createSpan({
-      text: "Configuration examples for other MCP clients can be found in ",
+      text: t("mcp.seeMore"),
     });
     mcpSeeMore.createEl("a", {
       href: "https://github.com/coddingtonbear/obsidian-local-rest-api#readme",
       // eslint-disable-next-line obsidianmd/ui/sentence-case
-      text: "the project readme",
+      text: t("link.readme"),
     });
-    mcpSeeMore.createSpan({ text: "." });
+    mcpSeeMore.createSpan({ text: t("period") });
 
-    new Setting(containerEl).setHeading().setName("Settings");
+    new Setting(containerEl).setHeading().setName(t("heading.settings"));
 
     if (remainingCertificateValidityDays && remainingCertificateValidityDays < 0) {
       const expiredCertDiv = apiKeyDiv.createDiv();
       expiredCertDiv.classList.add("certificate-expired");
-      expiredCertDiv.createEl("b", { text: "Your certificate has expired!" });
+      expiredCertDiv.createEl("b", { text: t("status.expired") });
       expiredCertDiv.createSpan({
-        text: ' You must re-generate your certificate below by pressing the "Re-generate Certificates" button below in order to connect securely to this API.',
+        text: t("status.expiredDesc"),
       });
     } else if (remainingCertificateValidityDays &&remainingCertificateValidityDays < 30) {
       const soonExpiringCertDiv = apiKeyDiv.createDiv();
       soonExpiringCertDiv.classList.add("certificate-expiring-soon");
       const daysRemaining = Math.floor(remainingCertificateValidityDays);
       soonExpiringCertDiv.createEl("b", {
-        text: `Your certificate will expire in ${daysRemaining} day${daysRemaining === 1 ? "" : "s"}!`,
+        text: t("status.expiringSoon", {
+          days: daysRemaining,
+          suffix: daysRemaining === 1 ? "" : "s",
+        }),
       });
       soonExpiringCertDiv.createSpan({
-        text: ' You should re-generate your certificate below by pressing the "Re-generate Certificates" button below in order to continue to connect securely to this API.',
+        text: t("status.expiringDesc"),
       });
     }
     if (shouldRegenerateCertificate) {
@@ -542,17 +546,17 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         "certificate-regeneration-recommended"
       );
       shouldRegenerateCertificateDiv.createEl("b", {
-        text: "You should re-generate your certificate!",
+        text: t("status.regenerate"),
       });
       shouldRegenerateCertificateDiv.createSpan({
-        text: " Your certificate was generated using earlier standards than are currently used by Obsidian Local REST API with MCP. Some systems or tools may not accept your certificate with its current configuration, and re-generating your certificate may improve compatibility with such tools.  To re-generate your certificate, press the \"Re-generate Certificates\" button below.",
+        text: t("status.regenerateDesc"),
       });
     }
 
     new Setting(containerEl)
-      .setName("Enable non-encrypted (HTTP) server")
+      .setName(t("setting.insecureServer"))
       .setDesc(
-        "Enables a non-encrypted (HTTP) server on the port designated below.  By default this plugin requires a secure HTTPS connection, but in safe environments you may turn on the non-encrypted server to simplify interacting with the API. Interactions with the API will still require the API key shown above.  Under no circumstances is it recommended that you expose this service to the internet, especially if you turn on this feature!"
+        t("setting.insecureServerDesc")
       )
       .addToggle((cb) =>
         cb
@@ -570,15 +574,13 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Reset all cryptography")
+      .setName(t("setting.resetCrypto"))
       .setDesc(
-        `Pressing this button will cause your certificate,
-        private key, public key, and API key to be regenerated.
-        This settings panel will be closed when you press this.`
+        t("setting.resetCryptoDesc")
       )
       .addButton((cb) => {
         cb.setWarning()
-          .setButtonText("Reset all crypto")
+          .setButtonText(t("setting.resetCryptoBtn"))
           .onClick(() => {
             delete this.plugin.settings.apiKey;
             delete this.plugin.settings.crypto;
@@ -589,15 +591,13 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Re-generate certificates")
+      .setName(t("setting.regenerateCert"))
       .setDesc(
-        `Pressing this button will cause your certificate,
-        private key,  and public key to be re-generated, but your API key will remain unchanged. 
-        This settings panel will be closed when you press this.`
+        t("setting.regenerateCertDesc")
       )
       .addButton((cb) => {
         cb.setWarning()
-          .setButtonText("Re-generate certificates")
+          .setButtonText(t("setting.regenerateCertBtn"))
           .onClick(() => {
             delete this.plugin.settings.crypto;
             void this.plugin.saveSettings();
@@ -607,15 +607,13 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Restore default settings")
+      .setName(t("setting.restoreDefaults"))
       .setDesc(
-        `Pressing this button will reset this plugin's
-        settings to defaults.
-        This settings panel will be closed when you press this.`
+        t("setting.restoreDefaultsDesc")
       )
       .addButton((cb) => {
         cb.setWarning()
-          .setButtonText("Restore defaults")
+          .setButtonText(t("setting.restoreDefaultsBtn"))
           .onClick(() => {
             this.plugin.settings = Object.assign({}, DEFAULT_SETTINGS);
             void this.plugin.saveSettings();
@@ -625,9 +623,9 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Show advanced settings")
+      .setName(t("setting.advancedSettings"))
       .setDesc(
-        `Advanced settings are dangerous and may make your environment less secure.`
+        t("setting.advancedSettingsDesc")
       )
       .addToggle((cb) => {
         cb.onChange((value) => {
@@ -639,35 +637,24 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       });
 
     if (this.showAdvancedSettings) {
-      new Setting(containerEl).setHeading().setName("Advanced settings");
+      new Setting(containerEl).setHeading().setName(t("setting.advancedSettingsHeading"));
       containerEl.createEl("p", {
-        text: `
-          The settings below are potentially dangerous and
-          are intended for use only by people who know what
-          they are doing. Do not change any of these settings if
-          you do not understand what that setting is used for
-          and what security impacts changing that setting will have.
-        `,
+        text: t("advanced.warning"),
       });
       const noWarrantee = containerEl.createEl("p");
       noWarrantee.createSpan({
-        text: `
-          Use of this software is licensed to you under the
-          MIT license, and it is important that you understand that
-          this license provides you with no warranty.
-          For the complete license text please see
-        `,
+        text: t("advanced.noWarranty1"),
       });
       noWarrantee.createEl("a", {
         href: LicenseUrl,
         text: LicenseUrl,
       });
-      noWarrantee.createSpan({ text: "." });
+      noWarrantee.createSpan({ text: t("period") });
 
       new Setting(containerEl)
-        .setName("Enable encrypted (HTTPS) server")
+        .setName(t("setting.enableSecureServer"))
         .setDesc(
-          "\n          This controls whether the HTTPS server is enabled.  You almost certainly want to leave this switch in its default state ('on'),\n          but may find it useful to turn this switch off for\n          troubleshooting.\n        "
+          t("setting.enableSecureServerDesc")
         )
         .addToggle((cb) =>
           cb
@@ -684,9 +671,9 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         );
 
       new Setting(containerEl)
-        .setName("Encrypted (HTTPS) server port")
+        .setName(t("setting.securePort"))
         .setDesc(
-          "This configures the port on which your REST API will listen for HTTPS connections.  It is recommended that you leave this port with its default setting as tools integrating with this API may expect the default port to be in use.  Under no circumstances is it recommended that you expose this service directly to the internet."
+          t("setting.securePortDesc")
         )
         .addText((cb) =>
           cb
@@ -699,7 +686,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         );
 
       new Setting(containerEl)
-        .setName("Non-encrypted (HTTP) server port")
+        .setName(t("setting.insecurePort"))
         .addText((cb) =>
           cb
             .onChange((value) => {
@@ -710,7 +697,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             .setValue(this.plugin.settings.insecurePort.toString())
         );
 
-      new Setting(containerEl).setName("API key").addText((cb) => {
+      new Setting(containerEl).setName(t("setting.apiKey")).addText((cb) => {
         cb.onChange((value) => {
           this.plugin.settings.apiKey = value;
           void this.plugin.saveSettings();
@@ -718,18 +705,9 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         }).setValue(this.plugin.settings.apiKey ?? "");
       });
       new Setting(containerEl)
-        .setName("Certificate hostnames")
+        .setName(t("setting.certificateHostnames"))
         .setDesc(
-          `
-          List of extra hostnames to add
-          to your certificate's \`subjectAltName\` field.
-          One hostname per line.
-          You must click the "Re-generate Certificates" button above after changing this value
-          for this to have an effect.  This is useful for
-          situations in which you are accessing Obsidian
-          from a hostname other than the host on which
-          it is running.
-      `
+          t("setting.certificateHostnamesDesc")
         )
         .addTextArea((cb) =>
           cb
@@ -739,7 +717,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             })
             .setValue(this.plugin.settings.subjectAltNames ?? "")
         );
-      new Setting(containerEl).setName("Certificate").addTextArea((cb) =>
+      new Setting(containerEl).setName(t("setting.certificate")).addTextArea((cb) =>
         cb
           .onChange((value) => {
             this.plugin.settings.crypto.cert = value;
@@ -748,7 +726,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           })
           .setValue(this.plugin.settings.crypto.cert)
       );
-      new Setting(containerEl).setName("Public key").addTextArea((cb) =>
+      new Setting(containerEl).setName(t("setting.publicKey")).addTextArea((cb) =>
         cb
           .onChange((value) => {
             this.plugin.settings.crypto.publicKey = value;
@@ -757,7 +735,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           })
           .setValue(this.plugin.settings.crypto.publicKey)
       );
-      new Setting(containerEl).setName("Private key").addTextArea((cb) =>
+      new Setting(containerEl).setName(t("setting.privateKey")).addTextArea((cb) =>
         cb
           .onChange((value) => {
             this.plugin.settings.crypto.privateKey = value;
@@ -766,7 +744,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           })
           .setValue(this.plugin.settings.crypto.privateKey)
       );
-      new Setting(containerEl).setName("Authorization header").addText((cb) => {
+      new Setting(containerEl).setName(t("setting.authorizationHeader")).addText((cb) => {
         cb.onChange((value) => {
           if (value !== DefaultBearerTokenHeaderName) {
             this.plugin.settings.authorizationHeaderName = value;
@@ -780,7 +758,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             DefaultBearerTokenHeaderName
         );
       });
-      new Setting(containerEl).setName("Binding host").addText((cb) => {
+      new Setting(containerEl).setName(t("setting.bindingHost")).addText((cb) => {
         cb.onChange((value) => {
           if (value !== DefaultBindingHost) {
             this.plugin.settings.bindingHost = value;
@@ -792,9 +770,9 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         }).setValue(this.plugin.settings.bindingHost ?? DefaultBindingHost);
       });
       new Setting(containerEl)
-        .setName("Enable verbose logging")
+        .setName(t("setting.verboseLogging"))
         .setDesc(
-          "When enabled, logs server startup messages and a one-line access log entry for every request to the browser console."
+          t("setting.verboseLoggingDesc")
         )
         .addToggle((cb) =>
           cb

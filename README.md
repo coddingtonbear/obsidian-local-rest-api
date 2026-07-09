@@ -1,5 +1,7 @@
 # Local REST API with MCP
 
+> **中文文档**：请参阅 [`README-zh.md`](README-zh.md)
+
 Give your scripts, browser extensions, and AI agents a direct line into your Obsidian vault via a secure, authenticated REST API.
 
 **Interactive API docs:** https://coddingtonbear.github.io/obsidian-local-rest-api/
