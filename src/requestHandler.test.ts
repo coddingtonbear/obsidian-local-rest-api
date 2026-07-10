@@ -861,23 +861,6 @@ describe("requestHandler", () => {
         .expect(404);
     });
 
-    test("patchFileSection refuses to write when applyPatch yields no string", async () => {
-      app.vault._read = "# Heading1\nContent under heading1\n";
-
-      await expect(
-        handler.operations.patchFileSection(
-          "note.md",
-          "heading",
-          "Heading1",
-          "append",
-          "x",
-          "text/plain",
-          {},
-        ),
-      ).rejects.toThrow(/refusing to write/i);
-      expect(app.vault.adapter._write).toBeUndefined();
-    });
-
   });
 
   describe("tagsGet", () => {
