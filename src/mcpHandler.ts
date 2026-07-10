@@ -390,11 +390,9 @@ export class McpHandler {
         targetScope?: "content" | "marker" | "markerAndContent";
       }) => {
         try {
-          // Mirror express.json on the REST path: when the caller declares
-          // application/json, the content is interpreted as JSON. MCP clients
-          // routinely pass it as a JSON-encoded string, so parse strings here
-          // into a native value before patching (otherwise yaml.stringify would
-          // store the raw string). Malformed JSON is rejected, as express does.
+          // The REST path has express.json middleware that parses application/json
+          // bodies into native values before they arrive here; the MCP transport
+          // does not, so a string payload must be parsed explicitly.
           const resolvedContentType = contentType ?? ContentType.text;
           let parsedContent = content;
           if (
