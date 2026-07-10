@@ -8,7 +8,7 @@ import express from "express";
 import { TFile } from "obsidian";
 
 import { VaultOperations } from "./vaultOperations";
-import { PatchFailed, PatchOperation, PatchTargetType } from "markdown-patch";
+import { ContentType, PatchFailed, PatchOperation, PatchTargetType } from "markdown-patch";
 import openapiYaml from "../docs/openapi.yaml";
 import { ERROR_CODE_MESSAGES } from "./constants";
 import { LocalRestApiSettings } from "./types";
@@ -331,7 +331,7 @@ export class McpHandler {
           .describe("How to apply the content: replace the section, prepend before it, or append after it"),
         content: z.unknown().describe("Content to apply. For contentType 'text/markdown' pass a string. For contentType 'application/json' you may pass a native JSON value (number, boolean, array, object) and it will be serialised automatically."),
         contentType: z
-          .enum(["text/markdown", "application/json"])
+          .nativeEnum(ContentType)
           .optional()
           .describe(
             "MIME type of content. 'text/markdown' (default) or 'application/json'. " +
@@ -382,7 +382,7 @@ export class McpHandler {
         target: string;
         operation: PatchOperation;
         content: unknown;
-        contentType?: "text/markdown" | "application/json";
+        contentType?: ContentType;
         createTargetIfMissing?: boolean;
         trimTargetWhitespace?: boolean;
         rejectIfContentPreexists?: boolean;
@@ -395,10 +395,10 @@ export class McpHandler {
           // routinely pass it as a JSON-encoded string, so parse strings here
           // into a native value before patching (otherwise yaml.stringify would
           // store the raw string). Malformed JSON is rejected, as express does.
-          const resolvedContentType = contentType ?? "text/markdown";
+          const resolvedContentType = contentType ?? ContentType.text;
           let parsedContent = content;
           if (
-            resolvedContentType === "application/json" &&
+            resolvedContentType === ContentType.json &&
             typeof content === "string"
           ) {
             try {
