@@ -329,7 +329,7 @@ export class McpHandler {
         operation: z
           .enum(["replace", "prepend", "append"])
           .describe("How to apply the content: replace the section, prepend before it, or append after it"),
-        content: z.unknown().describe("Content to apply. For contentType 'text/markdown' pass a string. For contentType 'application/json' you may pass a native JSON value (number, boolean, array, object) and it will be serialised automatically."),
+        content: z.string().describe("Content to apply. For contentType 'text/markdown' pass markdown text. For contentType 'application/json' pass a JSON-encoded string (e.g. '[\"row\",\"cells\"]' for a table row, or '42' for a number)."),
         contentType: z
           .nativeEnum(ContentType)
           .optional()
@@ -381,7 +381,7 @@ export class McpHandler {
         targetType: PatchTargetType;
         target: string;
         operation: PatchOperation;
-        content: unknown;
+        content: string;
         contentType?: ContentType;
         createTargetIfMissing?: boolean;
         trimTargetWhitespace?: boolean;
@@ -390,15 +390,11 @@ export class McpHandler {
         targetScope?: "content" | "marker" | "markerAndContent";
       }) => {
         try {
-          // The REST path has express.json middleware that parses application/json
-          // bodies into native values before they arrive here; the MCP transport
-          // does not, so a string payload must be parsed explicitly.
+          // MCP transport delivers all parameters as strings; parse JSON content
+          // here so downstream code receives a native value, not a serialized string.
           const resolvedContentType = contentType ?? ContentType.text;
-          let parsedContent = content;
-          if (
-            resolvedContentType === ContentType.json &&
-            typeof content === "string"
-          ) {
+          let parsedContent: unknown = content;
+          if (resolvedContentType === ContentType.json) {
             try {
               parsedContent = JSON.parse(content);
             } catch (err) {
