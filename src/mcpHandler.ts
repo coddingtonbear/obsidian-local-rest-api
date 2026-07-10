@@ -8,7 +8,7 @@ import express from "express";
 import { TFile } from "obsidian";
 
 import { VaultOperations } from "./vaultOperations";
-import { PatchFailed, PatchOperation, PatchTargetType } from "markdown-patch";
+import { ContentType, PatchFailed, PatchOperation, PatchTargetType } from "markdown-patch";
 import openapiYaml from "../docs/openapi.yaml";
 import { ERROR_CODE_MESSAGES } from "./constants";
 import { LocalRestApiSettings } from "./types";
@@ -329,9 +329,9 @@ export class McpHandler {
         operation: z
           .enum(["replace", "prepend", "append"])
           .describe("How to apply the content: replace the section, prepend before it, or append after it"),
-        content: z.unknown().describe("Content to apply. For contentType 'text/markdown' pass a string. For contentType 'application/json' you may pass a native JSON value (number, boolean, array, object) and it will be serialised automatically."),
+        content: z.string().describe("Content to apply. For contentType 'text/markdown' pass markdown text. For contentType 'application/json' pass a JSON-encoded string (e.g. '[\"row\",\"cells\"]' for a table row, or '42' for a number)."),
         contentType: z
-          .string()
+          .nativeEnum(ContentType)
           .optional()
           .describe(
             "MIME type of content. 'text/markdown' (default) or 'application/json'. " +
@@ -381,8 +381,8 @@ export class McpHandler {
         targetType: PatchTargetType;
         target: string;
         operation: PatchOperation;
-        content: unknown;
-        contentType?: string;
+        content: string;
+        contentType?: ContentType;
         createTargetIfMissing?: boolean;
         trimTargetWhitespace?: boolean;
         rejectIfContentPreexists?: boolean;
@@ -390,13 +390,26 @@ export class McpHandler {
         targetScope?: "content" | "marker" | "markerAndContent";
       }) => {
         try {
+          // MCP transport delivers all parameters as strings; parse JSON content
+          // here so downstream code receives a native value, not a serialized string.
+          const resolvedContentType = contentType ?? ContentType.text;
+          let parsedContent: unknown = content;
+          if (resolvedContentType === ContentType.json) {
+            try {
+              parsedContent = JSON.parse(content);
+            } catch (err) {
+              throw new Error(
+                `Invalid application/json content: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }
           await this.ops.patchFileSection(
             path,
             targetType,
             target,
             operation,
-            content,
-            contentType ?? "text/markdown",
+            parsedContent,
+            resolvedContentType,
             { createTargetIfMissing, trimTargetWhitespace, rejectIfContentPreexists, targetDelimiter, targetScope },
           );
         } catch (e) {
