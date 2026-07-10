@@ -63,7 +63,7 @@
   rejectIfContentPreexists: {
     name: 'Reject-If-Content-Preexists',
     'in': 'header',
-    description: 'If patch data already exists in Target, reject the patch? Only applies to string (`text/markdown`) content on heading or block targets; it has no effect on `application/json` content (e.g. table rows), which is not a string and so is never compared.',
+    description: 'If patch data already exists in Target, reject the patch?',
     required: false,
     schema: {
       type: 'string',
