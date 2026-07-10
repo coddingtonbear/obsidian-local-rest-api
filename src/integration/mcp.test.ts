@@ -377,10 +377,6 @@ describe("vault_patch tool", () => {
         target: "related",
         operation: "replace",
         contentType: "application/json",
-        // MCP clients commonly send JSON content as a string; it must be parsed
-        // into a native array so it is stored as a YAML sequence, not a quoted
-        // string. frontmatter.related is Obsidian's parsed value, so an array
-        // here proves the on-disk YAML is a real sequence.
         content: '["alpha","beta"]',
         createTargetIfMissing: true,
       },
