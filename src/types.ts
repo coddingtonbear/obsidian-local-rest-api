@@ -4,6 +4,8 @@ import { FileStats, TFile } from "obsidian";
 import { IPeriodicNoteSettings } from "obsidian-daily-notes-interface";
 
 export enum ErrorCode {
+  // Vault content invalid (40005–40009 reserved for this group)
+  InvalidFrontmatter = 40005,
   TextContentEncodingRequired = 40010,
   ContentTypeSpecificationRequired = 40011,
   InvalidContentType = 40012,
