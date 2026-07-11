@@ -4,7 +4,9 @@
 
 ### Commit cadence
 
-Commit frequently in small, self-contained increments. Each commit must leave the repository in a working state — no broken builds, no failing unit tests. A commit that fixes a bug, a commit that adds a test, and a commit that updates documentation are all valid atomic units. Do not batch unrelated changes into a single commit.
+Commit frequently in small, self-contained increments. Each commit on `main` must leave the repository in a working state — no broken builds, no failing unit tests. A commit that fixes a bug, a commit that adds a test, and a commit that updates documentation are all valid atomic units. Do not batch unrelated changes into a single commit.
+
+When working on fixing a bug while on a branch off of `main`, follow a Test-Driven Development approach and start by creating (and committing) failing tests that will later be fixed by fixes your subsequent commits.
 
 ### Push Automatically
 
