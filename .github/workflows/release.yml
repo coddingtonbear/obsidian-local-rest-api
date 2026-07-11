@@ -29,6 +29,12 @@ jobs:
           npm install
           npm run build --if-present
 
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
       - name: Attest build artifacts
         uses: actions/attest-build-provenance@v2
         with:

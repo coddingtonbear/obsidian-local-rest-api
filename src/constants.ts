@@ -11,6 +11,8 @@ export const DEFAULT_SETTINGS: LocalRestApiSettings = {
 };
 
 export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
+  [ErrorCode.InvalidFrontmatter]:
+    "Document frontmatter could not be parsed.",
   [ErrorCode.ApiKeyAuthorizationRequired]:
     "Authorization required.  Find your API Key in the 'Local REST API with MCP' section of your Obsidian settings.",
   [ErrorCode.ContentTypeSpecificationRequired]:
