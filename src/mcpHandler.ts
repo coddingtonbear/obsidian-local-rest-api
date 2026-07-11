@@ -554,17 +554,36 @@ export class McpHandler {
     this.tool(
       "search_query",
       "Search vault files using a JsonLogic query evaluated against each note's metadata.\n\n" +
-        "The query is a JSON object following the JsonLogic spec (https://jsonlogic.com/operations.html). " +
-        "It is evaluated against a NoteJson object for each file; files where the result is truthy are returned.\n\n" +
-        "Each NoteJson has: path (string), content (string), tags (string[]), frontmatter (object), stat ({ctime, mtime, size}), links (string[]), backlinks (string[]).\n\n" +
-        "Extra operators available beyond standard JsonLogic:\n" +
+        "The query is a JSON object evaluated against a NoteJson object for each file; files where the result is truthy are returned.\n\n" +
+        "Example NoteJson shape:\n" +
+        "{\n" +
+        "  \"path\": \"journal/2024-01-15.md\",\n" +
+        "  \"content\": \"# My note\\n\\nSome content here.\",\n" +
+        "  \"tags\": [\"daily\", \"work\"],\n" +
+        "  \"frontmatter\": { \"status\": \"done\", \"url\": \"https://example.com\", \"priority\": 2 },\n" +
+        "  \"stat\": { \"ctime\": 1705276800000, \"mtime\": 1705363200000, \"size\": 1024 },\n" +
+        "  \"links\": [\"projects/foo.md\"],\n" +
+        "  \"backlinks\": [\"index.md\"]\n" +
+        "}\n\n" +
+        "Call vault_read on any file (without targeting) to see the exact shape for a real file in this vault, including its actual frontmatter fields.\n\n" +
+        "Useful JsonLogic operators:\n" +
+        "- {\"==\": [a, b]} — equal\n" +
+        "- {\"!=\": [a, b]} — not equal\n" +
+        "- {\"in\": [value, array]} — array contains value\n" +
+        "- {\"<\": [a, b]}, {\">\": [a, b]}, {\"<=\": [a, b]}, {\">=\": [a, b]} — numeric/string comparison\n" +
+        "- {\"and\": [...]}, {\"or\": [...]}, {\"!\": expr} — boolean logic\n" +
+        "- {\"var\": \"path\"} — access a field (use dot notation for nested: \"frontmatter.status\")\n" +
+        "- {\"if\": [cond, then, else]} — conditional\n\n" +
+        "Extra operators beyond standard JsonLogic:\n" +
         "- {\"glob\": [\"*.foo\", {\"var\": \"path\"}]} — glob pattern match\n" +
         "- {\"regexp\": [\"^daily/\", {\"var\": \"path\"}]} — regular expression match\n\n" +
         "Returns an array of {filename, result} objects where result is the truthy value the query produced for that file.\n\n" +
         "Examples:\n" +
         "- Find by tag: {\"in\": [\"myTag\", {\"var\": \"tags\"}]}\n" +
         "- Find by frontmatter field: {\"==\": [{\"var\": \"frontmatter.status\"}, \"done\"]}\n" +
-        "- Find by path glob: {\"glob\": [\"journal/*\", {\"var\": \"path\"}]}",
+        "- Find by path glob: {\"glob\": [\"journal/*\", {\"var\": \"path\"}]}\n" +
+        "- Modified after a date: {\">\": [{\"var\": \"stat.mtime\"}, 1704067200000]}\n" +
+        "- Multiple conditions: {\"and\": [{\"in\": [\"work\", {\"var\": \"tags\"}]}, {\"==\": [{\"var\": \"frontmatter.status\"}, \"done\"]}]}",
       {
         query: z
           .record(z.unknown())
