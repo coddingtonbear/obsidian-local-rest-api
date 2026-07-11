@@ -4,6 +4,7 @@ import { FileStats, TFile } from "obsidian";
 import { IPeriodicNoteSettings } from "obsidian-daily-notes-interface";
 
 export enum ErrorCode {
+  InvalidFrontmatter = 40005,
   TextContentEncodingRequired = 40010,
   ContentTypeSpecificationRequired = 40011,
   InvalidContentType = 40012,

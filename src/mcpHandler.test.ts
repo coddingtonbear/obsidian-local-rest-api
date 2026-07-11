@@ -44,7 +44,7 @@ import { McpHandler } from "./mcpHandler";
 import { ErrorCode } from "./types";
 import { DEFAULT_SETTINGS } from "./constants";
 import { TFile } from "../mocks/obsidian";
-import { PatchFailed, PatchFailureReason } from "markdown-patch";
+import { FrontmatterParseError, PatchFailed, PatchFailureReason } from "markdown-patch";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -387,6 +387,15 @@ describe("McpHandler", () => {
     await expect(
       cb({ path: "out.md", targetType: "heading", target: "Alpha", operation: "append", content: "x" }),
     ).rejects.toThrow("disk full");
+  });
+
+  test("vault_patch surfaces FrontmatterParseError message as error", async () => {
+    const cb = getToolCallback("vault_patch");
+    const err = new FrontmatterParseError("YAML parse error on line 2: nested mappings are not allowed");
+    ops.patchFileSection.mockRejectedValueOnce(err);
+    await expect(
+      cb({ path: "out.md", targetType: "heading", target: "Heading1", operation: "append", content: "x" }),
+    ).rejects.toThrow(err.message);
   });
 
   test("vault_patch parses a stringified JSON array for application/json into a native array", async () => {

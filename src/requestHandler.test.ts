@@ -18,6 +18,7 @@ import {
   DestinationAlreadyExistsError,
   FileNotFoundError,
 } from "./vaultOperations";
+import { FrontmatterParseError } from "markdown-patch";
 import {
   App,
   TFile,
@@ -859,6 +860,22 @@ describe("requestHandler", () => {
         .set("Operation", "append")
         .send("new content")
         .expect(404);
+    });
+
+    test("FrontmatterParseError returns 400 with errorCode 40005", async () => {
+      jest.spyOn(handler.operations, "patchFileSection").mockRejectedValueOnce(
+        new FrontmatterParseError("YAML parse error on line 2: nested mappings are not allowed")
+      );
+      const res = await request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1")
+        .set("Operation", "append")
+        .send("new content");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40005);
     });
 
   });
@@ -2110,6 +2127,22 @@ describe("requestHandler", () => {
         .send("appended\n")
         .expect(200);
       expect(res.headers["content-location"]).toEqual(periodicFilePath);
+    });
+
+    test("PATCH with FrontmatterParseError returns 400 with errorCode 40005", async () => {
+      jest.spyOn(handler.operations, "patchFileSection").mockRejectedValueOnce(
+        new FrontmatterParseError("YAML parse error on line 2: nested mappings are not allowed")
+      );
+      const res = await request(server)
+        .patch("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .set("Operation", "append")
+        .set("Target-Type", "heading")
+        .set("Target", "Daily")
+        .send("appended\n");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40005);
     });
 
     test("DELETE returns Content-Location", async () => {

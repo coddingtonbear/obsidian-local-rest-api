@@ -8,7 +8,7 @@ import express from "express";
 import { TFile } from "obsidian";
 
 import { VaultOperations } from "./vaultOperations";
-import { ContentType, PatchFailed, PatchOperation, PatchTargetType } from "markdown-patch";
+import { ContentType, FrontmatterParseError, PatchFailed, PatchOperation, PatchTargetType } from "markdown-patch";
 import openapiYaml from "../docs/openapi.yaml";
 import { ERROR_CODE_MESSAGES } from "./constants";
 import { LocalRestApiSettings } from "./types";
@@ -414,6 +414,9 @@ export class McpHandler {
           );
         } catch (e) {
           if (e instanceof PatchFailed) {
+            throw new Error(e.message);
+          }
+          if (e instanceof FrontmatterParseError) {
             throw new Error(e.message);
           }
           throw e;

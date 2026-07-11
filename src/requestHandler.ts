@@ -14,6 +14,7 @@ import mime from "mime-types";
 import responseTime from "response-time";
 import queryString from "query-string";
 import {
+  FrontmatterParseError,
   getDocumentMap,
   PatchFailed,
   PatchOperation,
@@ -605,6 +606,8 @@ export default class RequestHandler {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else if (e instanceof PatchFailed) {
         this.returnCannedResponse(res, { errorCode: ErrorCode.PatchFailed, message: e.reason });
+      } else if (e instanceof FrontmatterParseError) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidFrontmatter, message: e.message });
       } else {
         this.returnCannedResponse(res, { statusCode: 500, message: (e as Error).message });
       }
@@ -665,6 +668,8 @@ export default class RequestHandler {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else if (e instanceof PatchFailed) {
         this.returnCannedResponse(res, { errorCode: ErrorCode.PatchFailed, message: (e).reason });
+      } else if (e instanceof FrontmatterParseError) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidFrontmatter, message: e.message });
       } else {
         this.returnCannedResponse(res, { statusCode: 500, message: (e as Error).message });
       }
