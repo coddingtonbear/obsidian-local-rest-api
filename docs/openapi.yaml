@@ -867,6 +867,89 @@ paths:
         Update the content of the active file open in Obsidian.
       tags:
         - "Active File"
+  "/archive/{filename}":
+    post:
+      description: |
+        Archives a note by moving it into an archive folder (default `Archive`), preserving its relative path underneath. This is a convenience wrapper over a move: file history is preserved and internal Obsidian links are updated. Override the target folder with the `Archive-Folder` header. Returns the source and destination paths.
+      parameters:
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
+          in: "path"
+          name: "filename"
+          required: true
+          schema:
+            format: "path"
+            type: "string"
+        - description: |
+            Optional archive folder relative to your vault root. Defaults to "Archive". Must not escape the vault root.
+          in: "header"
+          name: "Archive-Folder"
+          required: false
+          schema:
+            default: "Archive"
+            format: "path"
+            type: "string"
+        - description: |
+            If "true", the archive proceeds even when a file already exists at the destination. Defaults to "false", which returns a 409 if the destination exists.
+          in: "header"
+          name: "Allow-Overwrite"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                properties:
+                  destination:
+                    example: "Archive/notes/todo.md"
+                    type: "string"
+                  message:
+                    type: "string"
+                  source:
+                    example: "notes/todo.md"
+                    type: "string"
+                type: "object"
+          description: "File successfully archived."
+          headers:
+            Content-Location:
+              description: "The vault-relative path of the file at its archived location. Non-ASCII characters are percent-encoded."
+              schema:
+                type: "string"
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: |
+            Bad request - archive folder escapes the vault root.
+        "404":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Source file does not exist."
+        "405":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: |
+            Your path references a directory instead of a file; this request method is valid only for files.
+        "409":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "A file already exists at the archive destination."
+      summary: |
+        Archive a note into an archive folder.
+      tags:
+        - "Vault Files"
   /commands/:
     get:
       responses:
@@ -918,6 +1001,51 @@ paths:
         Execute a command.
       tags:
         - "Commands"
+  "/export/{filename}":
+    get:
+      description: |
+        Exports a Markdown note as a self-contained, downloadable document. By default an HTML-comment metadata header (source path, timestamps, tags) is prepended to the note body; set the `Include-Metadata` header to `false` to return the body verbatim. Non-Markdown files are returned as a verbatim binary attachment. The response is served with a `Content-Disposition: attachment` header so browsers download it as a file.
+      parameters:
+        - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
+          in: "path"
+          name: "filename"
+          required: true
+          schema:
+            format: "path"
+            type: "string"
+        - description: |
+            If "false", omit the metadata header and return the note body verbatim. Defaults to "true".
+          in: "header"
+          name: "Include-Metadata"
+          required: false
+          schema:
+            default: "true"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+      responses:
+        "200":
+          content:
+            text/markdown:
+              schema:
+                type: "string"
+          description: "The exported document."
+          headers:
+            Content-Disposition:
+              description: "attachment; filename=\"…\" — instructs clients to download the response as a file."
+              schema:
+                type: "string"
+        "404":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "File does not exist."
+      summary: |
+        Export a note as a downloadable document.
+      tags:
+        - "Vault Files"
   /mcp/:
     get:
       description: |
@@ -3114,6 +3242,74 @@ paths:
         - "Vault Directories"
   "/vault/{filename}":
     additionalOperations:
+      copy:
+        description: |
+          Duplicates a file into an independent copy. The copy shares no history with the source and the source is left unchanged. If the Destination header is omitted, a non-colliding "(branch)" sibling name is generated automatically (e.g. "notes/Plan.md" becomes "notes/Plan (branch).md").
+        parameters:
+          - description: |
+              Optional. The path for the new copy, relative to your vault root. The path must not escape the vault root; absolute paths (starting with `/`) are rejected. If the path ends with a trailing slash, the source filename is preserved and the copy is placed in that directory. If omitted, a "(branch)" sibling is auto-named next to the source. Percent-encode non-ASCII characters.
+            in: "header"
+            name: "Destination"
+            required: false
+            schema:
+              format: "path"
+              type: "string"
+          - description: |
+              If "true", the copy proceeds even when a file already exists at the destination. Defaults to "false", which returns a 409 if the destination exists.
+            in: "header"
+            name: "Allow-Overwrite"
+            required: false
+            schema:
+              default: "false"
+              enum:
+                - "true"
+                - "false"
+              type: "string"
+          - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
+            in: "path"
+            name: "filename"
+            required: true
+            schema:
+              format: "path"
+              type: "string"
+        responses:
+          "201":
+            description: "File successfully branched."
+            headers:
+              Content-Location:
+                description: "The vault-relative path of the newly created copy (e.g. `notes/Plan (branch).md`). Non-ASCII characters are percent-encoded."
+                schema:
+                  type: "string"
+          "400":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: |
+              Bad request - malformed percent-encoding, or path escapes the vault root (e.g. starts with "/").
+          "404":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: "Source file does not exist."
+          "405":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: |
+              Your path references a directory instead of a file; this request method is valid only for files.
+          "409":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: "Destination file already exists."
+        summary: |
+          Branch (duplicate) a file to a new location in your vault.
+        tags:
+          - "Vault Files"
       move:
         description: |
           Moves a file from its current location to a new location specified in the Destination header. This operation preserves file history and updates internal links.

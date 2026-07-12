@@ -501,6 +501,170 @@ export class McpHandler {
     );
 
     this.tool(
+      "vault_copy",
+      "Branch (duplicate) a vault file into an independent copy. " +
+        "The copy shares no history with the source; the source is left unchanged. " +
+        "Creates any missing parent directories at the destination automatically. " +
+        "Throws if the source file does not exist. " +
+        "Throws if the destination already exists and allowOverwrite is not set to true.\n\n" +
+        "When destination is omitted, a non-colliding sibling name is generated automatically " +
+        "(e.g. 'notes/Plan.md' becomes 'notes/Plan (branch).md'). " +
+        "When provided, destination must be a vault-relative path that does not escape the vault root; " +
+        "a trailing '/' preserves the source filename in that directory.",
+      {
+        path: z.string().describe("Source file path relative to vault root"),
+        destination: z
+          .string()
+          .optional()
+          .describe(
+            "Optional destination path relative to vault root. " +
+              "Omit to auto-generate a '(branch)' sibling. May end with '/' to preserve the source filename.",
+          ),
+        allowOverwrite: z
+          .boolean()
+          .optional()
+          .describe("If true, copy proceeds even when a file already exists at the destination (default: false)"),
+      },
+      async ({
+        path,
+        destination,
+        allowOverwrite,
+      }: {
+        path: string;
+        destination?: string;
+        allowOverwrite?: boolean;
+      }) => {
+        let resolvedDestination: string;
+        if (destination === undefined || destination.trim() === "") {
+          resolvedDestination = await this.ops.deriveBranchPath(path);
+        } else {
+          const normalized = destination
+            .trim()
+            .replace(/\\/g, "/")
+            .replace(/\/+/g, "/");
+
+          if (normalized.startsWith("/")) {
+            throw new Error(
+              "Destination path must be relative and must not escape the vault root.",
+            );
+          }
+
+          const syntheticRoot = "/vault";
+          const resolved = posix.resolve(syntheticRoot, normalized);
+          if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
+            throw new Error(
+              "Destination path must be relative and must not escape the vault root.",
+            );
+          }
+
+          const sourceFilename = path.includes("/")
+            ? path.slice(path.lastIndexOf("/") + 1)
+            : path;
+
+          resolvedDestination = !normalized || normalized.endsWith("/")
+            ? normalized + sourceFilename
+            : normalized;
+        }
+
+        const actualPath = await this.ops.copyVaultFile(path, resolvedDestination, allowOverwrite ?? false);
+        return this.text({ message: "OK", sourcePath: path, newPath: actualPath });
+      },
+    );
+
+    this.tool(
+      "vault_archive",
+      "Archive a vault file by moving it into an archive folder (default 'Archive'), " +
+        "preserving its relative path underneath. A convenience wrapper over a move. " +
+        "Preserves file history and updates internal Obsidian links. " +
+        "Throws if the source file does not exist. " +
+        "Throws if the destination already exists and allowOverwrite is not set to true.",
+      {
+        path: z.string().describe("File path relative to vault root"),
+        folder: z
+          .string()
+          .optional()
+          .describe("Archive folder relative to vault root (default: 'Archive')"),
+        allowOverwrite: z
+          .boolean()
+          .optional()
+          .describe("If true, archive proceeds even when a file already exists at the destination (default: false)"),
+      },
+      async ({
+        path,
+        folder,
+        allowOverwrite,
+      }: {
+        path: string;
+        folder?: string;
+        allowOverwrite?: boolean;
+      }) => {
+        let archiveFolder = "Archive";
+        if (folder !== undefined && folder.trim() !== "") {
+          archiveFolder = folder
+            .trim()
+            .replace(/\\/g, "/")
+            .replace(/\/+/g, "/")
+            .replace(/\/+$/, "");
+        }
+
+        const destination = `${archiveFolder}/${path}`;
+        const syntheticRoot = "/vault";
+        const resolved = posix.resolve(syntheticRoot, destination);
+        if (archiveFolder.startsWith("/") || (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/"))) {
+          throw new Error(
+            "Archive folder must be relative and must not escape the vault root.",
+          );
+        }
+
+        const actualPath = await this.ops.moveVaultFile(path, destination, allowOverwrite ?? false);
+        return this.text({ message: "OK", source: path, destination: actualPath });
+      },
+    );
+
+    this.tool(
+      "vault_export",
+      "Export a Markdown note as a self-contained document string. " +
+        "By default an HTML-comment metadata header (source path, timestamps, tags) is prepended; " +
+        "set includeMetadata to false to return the note body verbatim. " +
+        "Throws if the file does not exist or is not a Markdown note.",
+      {
+        path: z.string().describe("File path relative to vault root"),
+        includeMetadata: z
+          .boolean()
+          .optional()
+          .describe("If false, omit the metadata header and return the note body verbatim (default: true)"),
+      },
+      async ({
+        path,
+        includeMetadata,
+      }: {
+        path: string;
+        includeMetadata?: boolean;
+      }) => {
+        const file = this.ops.app.vault.getAbstractFileByPath(path);
+        if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
+        if (file.extension !== "md" && file.extension !== "markdown") {
+          throw new Error(`Not a Markdown note: ${path}`);
+        }
+        const meta = await this.ops.getFileMetadataObject(file);
+        let header = "";
+        if (includeMetadata !== false) {
+          const lines = ["<!--", `Exported from: ${meta.path}`];
+          if (meta.stat) {
+            lines.push(`Created: ${new Date(meta.stat.ctime).toISOString()}`);
+            lines.push(`Modified: ${new Date(meta.stat.mtime).toISOString()}`);
+          }
+          if (meta.tags && meta.tags.length) {
+            lines.push(`Tags: ${meta.tags.join(", ")}`);
+          }
+          lines.push("-->", "", "");
+          header = lines.join("\n");
+        }
+        return this.text(header + meta.content);
+      },
+    );
+
+    this.tool(
       "vault_get_document_map",
       "Return the structure of a vault file as a document map: the list of heading paths, " +
         "block reference IDs, and frontmatter field names present in the file. " +

@@ -363,6 +363,69 @@ export class VaultOperations {
     return sourceFile.path;
   }
 
+  async copyVaultFile(
+    sourcePath: string,
+    destinationPath: string,
+    allowOverwrite = false,
+  ): Promise<string> {
+    if (!destinationPath) {
+      throw new Error("Destination path must not be empty.");
+    }
+
+    if (sourcePath === destinationPath) {
+      throw new DestinationAlreadyExistsError(
+        `Destination already exists: ${destinationPath}`,
+      );
+    }
+
+    const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(sourceFile instanceof TFile)) {
+      throw new FileNotFoundError(`File not found: ${sourcePath}`);
+    }
+
+    const destExists = await this.app.vault.adapter.exists(destinationPath);
+    if (destExists) {
+      if (!allowOverwrite) {
+        throw new DestinationAlreadyExistsError(
+          `Destination already exists: ${destinationPath}`,
+        );
+      }
+      await this.app.vault.adapter.remove(destinationPath);
+    }
+
+    const parentDir = destinationPath.substring(
+      0,
+      destinationPath.lastIndexOf("/"),
+    );
+    if (parentDir && !(await this.app.vault.adapter.exists(parentDir))) {
+      await this.app.vault.createFolder(parentDir);
+    }
+
+    // Copy raw bytes so the operation is safe for any file type (notes, images,
+    // PDFs). The copy is an independent file — no shared history with the source.
+    const data = await this.app.vault.adapter.readBinary(sourcePath);
+    await this.app.vault.adapter.writeBinary(destinationPath, data);
+    return destinationPath;
+  }
+
+  // Derive a non-colliding "branch" name next to the source file, e.g.
+  // "notes/Plan.md" -> "notes/Plan (branch).md" (then " (branch 2)", …).
+  async deriveBranchPath(sourcePath: string): Promise<string> {
+    const slash = sourcePath.lastIndexOf("/");
+    const dir = slash >= 0 ? sourcePath.slice(0, slash + 1) : "";
+    const base = slash >= 0 ? sourcePath.slice(slash + 1) : sourcePath;
+    const dot = base.lastIndexOf(".");
+    const stem = dot > 0 ? base.slice(0, dot) : base;
+    const ext = dot > 0 ? base.slice(dot) : "";
+    let candidate = `${dir}${stem} (branch)${ext}`;
+    let n = 2;
+    while (await this.app.vault.adapter.exists(candidate)) {
+      candidate = `${dir}${stem} (branch ${n})${ext}`;
+      n++;
+    }
+    return candidate;
+  }
+
   // Throws PatchFailed on patch error; caller is responsible for mapping to
   // the appropriate HTTP error code or MCP error.
   async patchFileSection(

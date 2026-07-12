@@ -1,0 +1,1 @@
+Archives a note by moving it into an archive folder (default `Archive`), preserving its relative path underneath. This is a convenience wrapper over a move: file history is preserved and internal Obsidian links are updated. Override the target folder with the `Archive-Folder` header. Returns the source and destination paths.

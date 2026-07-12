@@ -1,3 +1,4 @@
+local Copy = import 'lib/copy.jsonnet';
 local Delete = import 'lib/delete.jsonnet';
 local Get = import 'lib/get.jsonnet';
 local Move = import 'lib/move.jsonnet';
@@ -243,6 +244,9 @@ std.manifestYamlDoc(
           move: Move {
             parameters: Move.parameters + [ParamPath],
           },
+          copy: Copy {
+            parameters: Copy.parameters + [ParamPath],
+          },
         },
         delete: Delete {
           tags: [
@@ -250,6 +254,128 @@ std.manifestYamlDoc(
           ],
           summary: 'Delete a particular file in your vault.\n',
           parameters: Delete.parameters + [ParamPath],
+        },
+      },
+      '/archive/{filename}': {
+        post: {
+          tags: [
+            'Vault Files',
+          ],
+          summary: 'Archive a note into an archive folder.\n',
+          description: importstr 'lib/descriptions/archive-post.md',
+          parameters: [
+            ParamPath,
+            {
+              name: 'Archive-Folder',
+              'in': 'header',
+              description: 'Optional archive folder relative to your vault root. Defaults to "Archive". Must not escape the vault root.\n',
+              required: false,
+              schema: {
+                type: 'string',
+                format: 'path',
+                default: 'Archive',
+              },
+            },
+            {
+              name: 'Allow-Overwrite',
+              'in': 'header',
+              description: 'If "true", the archive proceeds even when a file already exists at the destination. Defaults to "false", which returns a 409 if the destination exists.\n',
+              required: false,
+              schema: {
+                type: 'string',
+                enum: ['true', 'false'],
+                default: 'false',
+              },
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'File successfully archived.',
+              headers: {
+                'Content-Location': {
+                  description: 'The vault-relative path of the file at its archived location. Non-ASCII characters are percent-encoded.',
+                  schema: {
+                    type: 'string',
+                  },
+                },
+              },
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      message: { type: 'string' },
+                      source: { type: 'string', example: 'notes/todo.md' },
+                      destination: { type: 'string', example: 'Archive/notes/todo.md' },
+                    },
+                  },
+                },
+              },
+            },
+            '400': {
+              description: 'Bad request - archive folder escapes the vault root.\n',
+              content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
+            },
+            '404': {
+              description: 'Source file does not exist.',
+              content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
+            },
+            '405': {
+              description: 'Your path references a directory instead of a file; this request method is valid only for files.\n',
+              content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
+            },
+            '409': {
+              description: 'A file already exists at the archive destination.',
+              content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
+            },
+          },
+        },
+      },
+      '/export/{filename}': {
+        get: {
+          tags: [
+            'Vault Files',
+          ],
+          summary: 'Export a note as a downloadable document.\n',
+          description: importstr 'lib/descriptions/export-get.md',
+          parameters: [
+            ParamPath,
+            {
+              name: 'Include-Metadata',
+              'in': 'header',
+              description: 'If "false", omit the metadata header and return the note body verbatim. Defaults to "true".\n',
+              required: false,
+              schema: {
+                type: 'string',
+                enum: ['true', 'false'],
+                default: 'true',
+              },
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'The exported document.',
+              headers: {
+                'Content-Disposition': {
+                  description: 'attachment; filename="…" — instructs clients to download the response as a file.',
+                  schema: {
+                    type: 'string',
+                  },
+                },
+              },
+              content: {
+                'text/markdown': {
+                  schema: {
+                    type: 'string',
+                  },
+                },
+              },
+            },
+            '404': {
+              description: 'File does not exist.',
+              content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
+            },
+          },
         },
       },
       '/vault/': {

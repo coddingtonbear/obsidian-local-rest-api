@@ -101,6 +101,8 @@ function makeMockOps() {
     executeCommand: jest.fn(),
     openVaultFile: jest.fn(),
     moveVaultFile: jest.fn().mockResolvedValue(""),
+    copyVaultFile: jest.fn().mockResolvedValue(""),
+    deriveBranchPath: jest.fn().mockResolvedValue("test (branch).md"),
     periodicGetNote: jest.fn().mockReturnValue([mockFile, null]),
     periodicGetOrCreateNote: jest.fn().mockResolvedValue([mockFile, null]),
   };
@@ -165,8 +167,8 @@ describe("McpHandler", () => {
 
   // ---- tool registration --------------------------------------------------
 
-  test("registers all 16 tools", () => {
-    expect(mockTool).toHaveBeenCalledTimes(16);
+  test("registers all 19 tools", () => {
+    expect(mockTool).toHaveBeenCalledTimes(19);
     const names = mockTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -177,6 +179,9 @@ describe("McpHandler", () => {
         "vault_patch",
         "vault_delete",
         "vault_move",
+        "vault_copy",
+        "vault_archive",
+        "vault_export",
         "vault_get_document_map",
         "active_file_get_path",
         "periodic_note_get_path",
@@ -587,6 +592,138 @@ describe("McpHandler", () => {
       await expect(cb({ path: "missing.md", destination: "dest.md" })).rejects.toThrow(
         "File not found",
       );
+    });
+  });
+
+  // ---- vault_copy ---------------------------------------------------------
+
+  describe("vault_copy", () => {
+    test("copies to an explicit destination", async () => {
+      ops.copyVaultFile.mockResolvedValue("archive/copy.md");
+      const cb = getToolCallback("vault_copy");
+      const result = await cb({ path: "folder/file.md", destination: "archive/copy.md" });
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("folder/file.md", "archive/copy.md", false);
+      const parsed = parseText(result);
+      expect(parsed.message).toBe("OK");
+      expect(parsed.sourcePath).toBe("folder/file.md");
+      expect(parsed.newPath).toBe("archive/copy.md");
+    });
+
+    test("auto-generates a branch name when destination omitted", async () => {
+      ops.deriveBranchPath.mockResolvedValue("folder/file (branch).md");
+      ops.copyVaultFile.mockResolvedValue("folder/file (branch).md");
+      const cb = getToolCallback("vault_copy");
+      const result = await cb({ path: "folder/file.md" });
+      expect(ops.deriveBranchPath).toHaveBeenCalledWith("folder/file.md");
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("folder/file.md", "folder/file (branch).md", false);
+      expect(parseText(result).newPath).toBe("folder/file (branch).md");
+    });
+
+    test("trailing-slash destination uses source filename", async () => {
+      ops.copyVaultFile.mockResolvedValue("archive/todo.md");
+      const cb = getToolCallback("vault_copy");
+      await cb({ path: "notes/todo.md", destination: "archive/" });
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("notes/todo.md", "archive/todo.md", false);
+    });
+
+    test("passes allowOverwrite flag", async () => {
+      const cb = getToolCallback("vault_copy");
+      await cb({ path: "a.md", destination: "b.md", allowOverwrite: true });
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("a.md", "b.md", true);
+    });
+
+    test("rejects path traversal in destination", async () => {
+      const cb = getToolCallback("vault_copy");
+      await expect(cb({ path: "a.md", destination: "../../../etc/passwd" })).rejects.toThrow(
+        "must not escape the vault root",
+      );
+      expect(ops.copyVaultFile).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---- vault_archive ------------------------------------------------------
+
+  describe("vault_archive", () => {
+    test("archives into the default Archive folder", async () => {
+      ops.moveVaultFile.mockResolvedValue("Archive/notes/todo.md");
+      const cb = getToolCallback("vault_archive");
+      const result = await cb({ path: "notes/todo.md" });
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "Archive/notes/todo.md", false);
+      const parsed = parseText(result);
+      expect(parsed.source).toBe("notes/todo.md");
+      expect(parsed.destination).toBe("Archive/notes/todo.md");
+    });
+
+    test("honors a custom folder", async () => {
+      ops.moveVaultFile.mockResolvedValue("Old/notes/todo.md");
+      const cb = getToolCallback("vault_archive");
+      await cb({ path: "notes/todo.md", folder: "Old/" });
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "Old/notes/todo.md", false);
+    });
+
+    test("passes allowOverwrite flag", async () => {
+      const cb = getToolCallback("vault_archive");
+      await cb({ path: "notes/todo.md", allowOverwrite: true });
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "Archive/notes/todo.md", true);
+    });
+
+    test("rejects a folder that escapes the vault root", async () => {
+      const cb = getToolCallback("vault_archive");
+      await expect(cb({ path: "notes/todo.md", folder: "../../etc" })).rejects.toThrow(
+        "must not escape the vault root",
+      );
+      expect(ops.moveVaultFile).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---- vault_export -------------------------------------------------------
+
+  describe("vault_export", () => {
+    test("returns markdown with a metadata header by default", async () => {
+      ops.getFileMetadataObject.mockResolvedValue({
+        content: "body text",
+        tags: ["project"],
+        frontmatter: {},
+        stat: { ctime: 0, mtime: 0, size: 9 },
+        path: "notes/todo.md",
+        links: [],
+        backlinks: [],
+      });
+      const cb = getToolCallback("vault_export");
+      const result = await cb({ path: "notes/todo.md" });
+      const text = result.content[0].text;
+      expect(text).toContain("Exported from: notes/todo.md");
+      expect(text).toContain("Tags: project");
+      expect(text).toContain("body text");
+    });
+
+    test("omits the header when includeMetadata is false", async () => {
+      ops.getFileMetadataObject.mockResolvedValue({
+        content: "body text",
+        tags: [],
+        frontmatter: {},
+        stat: { ctime: 0, mtime: 0, size: 9 },
+        path: "notes/todo.md",
+        links: [],
+        backlinks: [],
+      });
+      const cb = getToolCallback("vault_export");
+      const result = await cb({ path: "notes/todo.md", includeMetadata: false });
+      expect(result.content[0].text).toBe("body text");
+    });
+
+    test("throws when the file does not exist", async () => {
+      ops.app.vault.getAbstractFileByPath.mockReturnValue(null);
+      const cb = getToolCallback("vault_export");
+      await expect(cb({ path: "missing.md" })).rejects.toThrow("File not found");
+    });
+
+    test("throws for a non-markdown file", async () => {
+      const img = makeMockFile("image.png");
+      img.extension = "png";
+      ops.app.vault.getAbstractFileByPath.mockReturnValue(img);
+      const cb = getToolCallback("vault_export");
+      await expect(cb({ path: "image.png" })).rejects.toThrow("Not a Markdown note");
     });
   });
 

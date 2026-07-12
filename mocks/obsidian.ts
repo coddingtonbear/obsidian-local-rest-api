@@ -197,6 +197,7 @@ export class FileStats {
 export class TFile {
   path = "somefile.md";
   basename = "somefile";
+  extension = "md";
   stat: FileStats = new FileStats();
 }
 

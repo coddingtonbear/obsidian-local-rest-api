@@ -831,6 +831,254 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("vaultCopy (branch)", () => {
+    test("directory path rejected", async () => {
+      await request(server)
+        .copy("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "somewhere/file.md")
+        .expect(405);
+    });
+
+    test("successful copy with explicit destination", async () => {
+      const oldPath = "folder/file.md";
+      const newPath = "another-folder/copy.md";
+      jest.spyOn(handler.operations, "copyVaultFile").mockResolvedValue(newPath);
+      const response = await request(server)
+        .copy(`/vault/${oldPath}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", newPath)
+        .expect(201);
+      expect(response.headers["content-location"]).toEqual(newPath);
+      expect(handler.operations.copyVaultFile).toHaveBeenCalledWith(
+        oldPath,
+        newPath,
+        false,
+      );
+    });
+
+    test("auto-generates branch name when Destination omitted", async () => {
+      const oldPath = "folder/file.md";
+      const branchPath = "folder/file (branch).md";
+      jest
+        .spyOn(handler.operations, "deriveBranchPath")
+        .mockResolvedValue(branchPath);
+      jest
+        .spyOn(handler.operations, "copyVaultFile")
+        .mockResolvedValue(branchPath);
+      const response = await request(server)
+        .copy(`/vault/${oldPath}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(201);
+      expect(response.headers["content-location"]).toEqual(
+        encodeURI(branchPath),
+      );
+      expect(handler.operations.deriveBranchPath).toHaveBeenCalledWith(oldPath);
+      expect(handler.operations.copyVaultFile).toHaveBeenCalledWith(
+        oldPath,
+        branchPath,
+        false,
+      );
+    });
+
+    test("non-existent source returns 404", async () => {
+      jest
+        .spyOn(handler.operations, "copyVaultFile")
+        .mockRejectedValue(new FileNotFoundError("not found"));
+      await request(server)
+        .copy("/vault/non-existent.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "new/file.md")
+        .expect(404);
+    });
+
+    test("destination already exists returns 409", async () => {
+      jest
+        .spyOn(handler.operations, "copyVaultFile")
+        .mockRejectedValue(new DestinationAlreadyExistsError("exists"));
+      await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "another/existing.md")
+        .expect(409);
+    });
+
+    test("Allow-Overwrite: true passes flag to copyVaultFile", async () => {
+      jest
+        .spyOn(handler.operations, "copyVaultFile")
+        .mockResolvedValue("another/existing.md");
+      await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "another/existing.md")
+        .set("Allow-Overwrite", "true")
+        .expect(201);
+      expect(handler.operations.copyVaultFile).toHaveBeenCalledWith(
+        "folder/file.md",
+        "another/existing.md",
+        true,
+      );
+    });
+
+    test("path traversal attempt returns 400", async () => {
+      const response = await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "../../../etc/passwd")
+        .expect(400);
+      expect(response.body.errorCode).toEqual(40021);
+    });
+
+    test("unauthorized", async () => {
+      await request(server)
+        .copy("/vault/file.md")
+        .set("Destination", "other/file.md")
+        .expect(401);
+    });
+  });
+
+  describe("archivePost", () => {
+    test("directory path rejected", async () => {
+      await request(server)
+        .post("/archive/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(405);
+    });
+
+    test("archives into the default Archive folder", async () => {
+      const source = "notes/todo.md";
+      const destination = "Archive/notes/todo.md";
+      jest
+        .spyOn(handler.operations, "moveVaultFile")
+        .mockResolvedValue(destination);
+      const response = await request(server)
+        .post(`/archive/${source}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(response.body.source).toEqual(source);
+      expect(response.body.destination).toEqual(destination);
+      expect(response.headers["content-location"]).toEqual(
+        encodeURI(destination),
+      );
+      expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
+        source,
+        destination,
+        false,
+      );
+    });
+
+    test("honors a custom Archive-Folder header", async () => {
+      const source = "notes/todo.md";
+      const destination = "Old/notes/todo.md";
+      jest
+        .spyOn(handler.operations, "moveVaultFile")
+        .mockResolvedValue(destination);
+      await request(server)
+        .post(`/archive/${source}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Archive-Folder", "Old")
+        .expect(200);
+      expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
+        source,
+        destination,
+        false,
+      );
+    });
+
+    test("non-existent source returns 404", async () => {
+      jest
+        .spyOn(handler.operations, "moveVaultFile")
+        .mockRejectedValue(new FileNotFoundError("not found"));
+      await request(server)
+        .post("/archive/non-existent.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(404);
+    });
+
+    test("destination already exists returns 409", async () => {
+      jest
+        .spyOn(handler.operations, "moveVaultFile")
+        .mockRejectedValue(new DestinationAlreadyExistsError("exists"));
+      await request(server)
+        .post("/archive/notes/todo.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(409);
+    });
+
+    test("Allow-Overwrite: true passes flag to moveVaultFile", async () => {
+      jest
+        .spyOn(handler.operations, "moveVaultFile")
+        .mockResolvedValue("Archive/notes/todo.md");
+      await request(server)
+        .post("/archive/notes/todo.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Allow-Overwrite", "true")
+        .expect(200);
+      expect(handler.operations.moveVaultFile).toHaveBeenCalledWith(
+        "notes/todo.md",
+        "Archive/notes/todo.md",
+        true,
+      );
+    });
+
+    test("unauthorized", async () => {
+      await request(server).post("/archive/notes/todo.md").expect(401);
+    });
+  });
+
+  describe("exportGet", () => {
+    test("non-existent file returns 404", async () => {
+      app.vault._getAbstractFileByPath = null;
+      await request(server)
+        .get("/export/missing.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(404);
+    });
+
+    test("exports markdown with a metadata header by default", async () => {
+      jest.spyOn(handler.operations, "getFileMetadataObject").mockResolvedValue({
+        tags: ["project", "todo"],
+        frontmatter: {},
+        stat: { ctime: 0, mtime: 0, size: 5 },
+        path: "notes/todo.md",
+        content: "body text",
+        links: [],
+        backlinks: [],
+      });
+      const response = await request(server)
+        .get("/export/notes/todo.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(response.headers["content-type"]).toContain("text/markdown");
+      expect(response.headers["content-disposition"]).toContain("attachment");
+      expect(response.text).toContain("Exported from: notes/todo.md");
+      expect(response.text).toContain("Tags: project, todo");
+      expect(response.text).toContain("body text");
+    });
+
+    test("Include-Metadata: false returns the body verbatim", async () => {
+      jest.spyOn(handler.operations, "getFileMetadataObject").mockResolvedValue({
+        tags: [],
+        frontmatter: {},
+        stat: { ctime: 0, mtime: 0, size: 5 },
+        path: "notes/todo.md",
+        content: "body text",
+        links: [],
+        backlinks: [],
+      });
+      const response = await request(server)
+        .get("/export/notes/todo.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Include-Metadata", "false")
+        .expect(200);
+      expect(response.text).toEqual("body text");
+    });
+
+    test("unauthorized", async () => {
+      await request(server).get("/export/notes/todo.md").expect(401);
+    });
+  });
+
   describe("vaultPatch", () => {
     test("directory", async () => {
       await request(server)

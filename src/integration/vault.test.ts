@@ -590,3 +590,148 @@ describe("MOVE /vault/{file}", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("COPY /vault/{file} (branch)", () => {
+  const COPY_SRC = `${TEST_DIR}/copy-source.md`;
+  const COPY_DST = `${TEST_DIR}/copy-destination.md`;
+  const COPY_BRANCH = `${TEST_DIR}/copy-source (branch).md`;
+
+  beforeEach(async () => {
+    const res = await authedFetch(`/vault/${COPY_SRC}`, {
+      method: "PUT",
+      headers: { "Content-Type": "text/markdown" },
+      body: "copy-source-content\n",
+    });
+    if (res.status !== 204) throw new Error(`COPY_SRC setup failed: ${res.status}`);
+  });
+
+  afterEach(async () => {
+    await deleteFixture(COPY_SRC).catch((_e: unknown): void => {});
+    await deleteFixture(COPY_DST).catch((_e: unknown): void => {});
+    await deleteFixture(COPY_BRANCH).catch((_e: unknown): void => {});
+  });
+
+  test("returns 201, Content-Location, both source and dest exist with same content", async () => {
+    const res = await authedFetch(`/vault/${COPY_SRC}`, {
+      method: "COPY",
+      headers: { Destination: COPY_DST },
+    });
+    expect(res.status).toBe(201);
+    expect(res.headers.get("content-location")).toBe(COPY_DST);
+
+    const srcRes = await authedFetch(`/vault/${COPY_SRC}`);
+    expect(srcRes.status).toBe(200);
+    expect(await srcRes.text()).toContain("copy-source-content");
+
+    const dstRes = await authedFetch(`/vault/${COPY_DST}`);
+    expect(dstRes.status).toBe(200);
+    expect(await dstRes.text()).toContain("copy-source-content");
+  });
+
+  test("auto-generates a (branch) sibling when Destination omitted", async () => {
+    const res = await authedFetch(`/vault/${COPY_SRC}`, { method: "COPY" });
+    expect(res.status).toBe(201);
+    expect(res.headers.get("content-location")).toBe(encodeURI(COPY_BRANCH));
+
+    const branchRes = await authedFetch(`/vault/${COPY_BRANCH}`);
+    expect(branchRes.status).toBe(200);
+  });
+
+  test("returns 409 when destination already exists", async () => {
+    const putRes = await authedFetch(`/vault/${COPY_DST}`, {
+      method: "PUT",
+      headers: { "Content-Type": "text/markdown" },
+      body: "existing content\n",
+    });
+    if (putRes.status !== 204) throw new Error(`COPY_DST setup failed: ${putRes.status}`);
+    const res = await authedFetch(`/vault/${COPY_SRC}`, {
+      method: "COPY",
+      headers: { Destination: COPY_DST },
+    });
+    expect(res.status).toBe(409);
+  });
+
+  test("returns 401 without auth", async () => {
+    const res = await unauthFetch(`/vault/${COPY_SRC}`, {
+      method: "COPY",
+      headers: { Destination: COPY_DST },
+    });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("POST /archive/{file}", () => {
+  const ARCHIVE_SRC = `${TEST_DIR}/archive-source.md`;
+  const ARCHIVE_DST = `Archive/${TEST_DIR}/archive-source.md`;
+
+  beforeEach(async () => {
+    const res = await authedFetch(`/vault/${ARCHIVE_SRC}`, {
+      method: "PUT",
+      headers: { "Content-Type": "text/markdown" },
+      body: "archive-source-content\n",
+    });
+    if (res.status !== 204) throw new Error(`ARCHIVE_SRC setup failed: ${res.status}`);
+  });
+
+  afterEach(async () => {
+    await deleteFixture(ARCHIVE_SRC).catch((_e: unknown): void => {});
+    await deleteFixture(ARCHIVE_DST).catch((_e: unknown): void => {});
+  });
+
+  test("returns 200, moves note under Archive/, source gone", async () => {
+    const res = await authedFetch(`/archive/${ARCHIVE_SRC}`, { method: "POST" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.source).toBe(ARCHIVE_SRC);
+    expect(body.destination).toBe(ARCHIVE_DST);
+
+    const srcRes = await authedFetch(`/vault/${ARCHIVE_SRC}`);
+    expect(srcRes.status).toBe(404);
+
+    const dstRes = await authedFetch(`/vault/${ARCHIVE_DST}`);
+    expect(dstRes.status).toBe(200);
+    expect(await dstRes.text()).toContain("archive-source-content");
+  });
+
+  test("returns 404 for a non-existent source", async () => {
+    const res = await authedFetch(`/archive/${TEST_DIR}/does-not-exist.md`, {
+      method: "POST",
+    });
+    expect(res.status).toBe(404);
+  });
+
+  test("returns 401 without auth", async () => {
+    const res = await unauthFetch(`/archive/${ARCHIVE_SRC}`, { method: "POST" });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("GET /export/{file}", () => {
+  test("returns 200 markdown with a metadata header by default", async () => {
+    const res = await authedFetch(`/export/${TEST_PATH}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/markdown");
+    expect(res.headers.get("content-disposition")).toContain("attachment");
+    const text = await res.text();
+    expect(text).toContain(`Exported from: ${TEST_PATH}`);
+  });
+
+  test("Include-Metadata: false returns the body verbatim", async () => {
+    const res = await authedFetch(`/export/${TEST_PATH}`, {
+      headers: { "Include-Metadata": "false" },
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).not.toContain("Exported from:");
+  });
+
+  test("returns 404 for a non-existent file", async () => {
+    const res = await authedFetch(`/export/${TEST_DIR}/does-not-exist.md`);
+    expect(res.status).toBe(404);
+  });
+
+  test("returns 401 without auth", async () => {
+    const res = await unauthFetch(`/export/${TEST_PATH}`);
+    expect(res.status).toBe(401);
+  });
+});

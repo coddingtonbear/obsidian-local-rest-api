@@ -134,7 +134,9 @@ Any MCP client that supports the Streamable HTTP transport can connect to `https
 
 | Endpoint | Methods | Description |
 |---|---|---|
-| `/vault/{path}` | GET PUT PATCH POST DELETE | Read, write, or delete any file in your vault |
+| `/vault/{path}` | GET PUT PATCH POST DELETE MOVE COPY | Read, write, delete, move, or branch (copy) any file in your vault |
+| `/archive/{path}` | POST | Archive a note into an archive folder (default `Archive`) |
+| `/export/{path}` | GET | Export a note as a downloadable document (with an optional metadata header) |
 | `/active/` | GET PUT PATCH POST DELETE | Operate on the currently open file |
 | `/periodic/{period}/` | GET PUT PATCH POST DELETE | Today's periodic note (`daily`, `weekly`, etc.) |
 | `/periodic/{period}/{year}/{month}/{day}/` | GET PUT PATCH POST DELETE | Periodic note for a specific date |
@@ -265,6 +267,9 @@ The exact config syntax varies by client; see the [Quick start](#mcp-clients) ex
 | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
 | `vault_delete` | Delete a vault file |
 | `vault_move` | Move (rename) a vault file to a new path |
+| `vault_copy` | Branch (duplicate) a vault file into an independent copy |
+| `vault_archive` | Archive a vault file into an archive folder (default `Archive`) |
+| `vault_export` | Export a Markdown note as a self-contained document string |
 | `vault_get_document_map` | List the headings, block references, and frontmatter fields in a file |
 | `active_file_get_path` | Return the vault path of the file currently open in Obsidian |
 | `periodic_note_get_path` | Return the vault path of the current periodic note (`daily`, `weekly`, `monthly`, `quarterly`, `yearly`) |

@@ -870,6 +870,241 @@ export default class RequestHandler {
     return this._vaultMove(path, req, res);
   }
 
+  // Branch: duplicate a note into an independent copy (WebDAV-style COPY). The
+  // Destination header is optional — when omitted a "(branch)" sibling is
+  // auto-named. Mirrors the behavior of _vaultMove but leaves the source intact.
+  async _vaultCopy(
+    path: string,
+    req: express.Request,
+    res: express.Response,
+  ): Promise<void> {
+    if (!path || path.endsWith("/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
+      });
+      return;
+    }
+
+    const rawDestination = req.header("Destination");
+    const allowOverwrite = req.header("Allow-Overwrite") === "true";
+
+    let newPath: string;
+    if (rawDestination === undefined || rawDestination.trim() === "") {
+      newPath = await this.operations.deriveBranchPath(path);
+    } else {
+      const sourceFilename = path.includes("/")
+        ? path.slice(path.lastIndexOf("/") + 1)
+        : path;
+
+      let normalized: string;
+      try {
+        normalized = decodeURIComponent(rawDestination.trim())
+          .replace(/\\/g, "/")
+          .replace(/\/+/g, "/");
+      } catch {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidDestinationHeader,
+        });
+        return;
+      }
+
+      if (normalized.startsWith("/")) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.PathTraversalNotAllowed,
+        });
+        return;
+      }
+
+      const syntheticRoot = "/vault";
+      const resolved = posix.resolve(syntheticRoot, normalized);
+      if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.PathTraversalNotAllowed,
+        });
+        return;
+      }
+
+      newPath = !normalized || normalized.endsWith("/")
+        ? normalized + sourceFilename
+        : normalized;
+    }
+
+    try {
+      const actualPath = await this.operations.copyVaultFile(
+        path,
+        newPath,
+        allowOverwrite,
+      );
+      res.set("Content-Location", encodeURI(actualPath));
+      this.returnCannedResponse(res, { statusCode: 201 });
+    } catch (error) {
+      if (error instanceof FileNotFoundError) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+      } else if (error instanceof DestinationAlreadyExistsError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.DestinationAlreadyExists,
+        });
+      } else {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.FileOperationFailed,
+          message: `Failed to copy file: ${msg}`,
+        });
+      }
+    }
+  }
+
+  async vaultCopy(req: express.Request, res: express.Response): Promise<void> {
+    const path = this.extractVaultPath(req, res);
+    if (path === null) return;
+    return this._vaultCopy(path, req, res);
+  }
+
+  // Archive: move a note into an archive folder (default "Archive"), preserving
+  // its relative path underneath. A thin, intention-revealing wrapper over move.
+  async _archivePost(
+    path: string,
+    req: express.Request,
+    res: express.Response,
+  ): Promise<void> {
+    if (!path || path.endsWith("/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
+      });
+      return;
+    }
+
+    const allowOverwrite = req.header("Allow-Overwrite") === "true";
+    const rawFolder = req.header("Archive-Folder");
+    let folder = "Archive";
+    if (rawFolder !== undefined && rawFolder.trim() !== "") {
+      try {
+        folder = decodeURIComponent(rawFolder.trim())
+          .replace(/\\/g, "/")
+          .replace(/\/+/g, "/")
+          .replace(/\/+$/, "");
+      } catch {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidDestinationHeader,
+        });
+        return;
+      }
+    }
+
+    const destination = `${folder}/${path}`;
+    const syntheticRoot = "/vault";
+    const resolved = posix.resolve(syntheticRoot, destination);
+    if (folder.startsWith("/") || (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/"))) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.PathTraversalNotAllowed,
+      });
+      return;
+    }
+
+    try {
+      const actualPath = await this.operations.moveVaultFile(
+        path,
+        destination,
+        allowOverwrite,
+      );
+      res.set("Content-Location", encodeURI(actualPath));
+      res.status(200).json({ message: "OK", source: path, destination: actualPath });
+    } catch (error) {
+      if (error instanceof FileNotFoundError) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+      } else if (error instanceof DestinationAlreadyExistsError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.DestinationAlreadyExists,
+        });
+      } else {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.FileOperationFailed,
+          message: `Failed to archive file: ${msg}`,
+        });
+      }
+    }
+  }
+
+  async archivePost(req: express.Request, res: express.Response): Promise<void> {
+    const path = this.extractVaultPath(req, res);
+    if (path === null) return;
+    return this._archivePost(path, req, res);
+  }
+
+  // Export: return a note as a self-contained, downloadable Markdown document.
+  // By default an HTML-comment metadata header (source path, timestamps, tags)
+  // is prepended; suppress it with the "Include-Metadata: false" header. Binary
+  // files are returned verbatim as an attachment.
+  async _exportGet(
+    path: string,
+    req: express.Request,
+    res: express.Response,
+  ): Promise<void> {
+    const normalizedPath = path.endsWith("/") ? path.slice(0, -1) : path;
+    if (!normalizedPath) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
+      });
+      return;
+    }
+
+    const file = this.app.vault.getAbstractFileByPath(normalizedPath);
+    if (!(file instanceof TFile)) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
+
+    const base = normalizedPath.includes("/")
+      ? normalizedPath.slice(normalizedPath.lastIndexOf("/") + 1)
+      : normalizedPath;
+    const dot = base.lastIndexOf(".");
+    const ext = dot >= 0 ? base.slice(dot + 1).toLowerCase() : "";
+    const downloadName = encodeURI(base).replace(",", "%2C");
+
+    if (ext === "md" || ext === "markdown") {
+      const includeMetadata = req.header("Include-Metadata") !== "false";
+      const meta = await this.operations.getFileMetadataObject(file);
+      const header = includeMetadata ? this._buildExportHeader(meta) : "";
+      res.set({
+        "Content-Type": "text/markdown; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${downloadName}"`,
+      });
+      res.status(200).send(header + meta.content);
+      return;
+    }
+
+    const data = await this.app.vault.adapter.readBinary(normalizedPath);
+    res.set({
+      "Content-Type": mime.lookup(normalizedPath) || "application/octet-stream",
+      "Content-Disposition": `attachment; filename="${downloadName}"`,
+    });
+    res.status(200).send(Buffer.from(data));
+  }
+
+  private _buildExportHeader(meta: {
+    path: string;
+    stat?: { ctime: number; mtime: number } | null;
+    tags?: string[];
+  }): string {
+    const lines = ["<!--", `Exported from: ${meta.path}`];
+    if (meta.stat) {
+      lines.push(`Created: ${new Date(meta.stat.ctime).toISOString()}`);
+      lines.push(`Modified: ${new Date(meta.stat.mtime).toISOString()}`);
+    }
+    if (meta.tags && meta.tags.length) {
+      lines.push(`Tags: ${meta.tags.join(", ")}`);
+    }
+    lines.push("-->", "", "");
+    return lines.join("\n");
+  }
+
+  async exportGet(req: express.Request, res: express.Response): Promise<void> {
+    const path = this.extractVaultPath(req, res);
+    if (path === null) return;
+    return this._exportGet(path, req, res);
+  }
+
   getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
     return this.operations.getPeriodicNoteInterface();
   }
@@ -1447,10 +1682,10 @@ export default class RequestHandler {
       next();
     });
     this.api.use(responseTime());
-    this.api.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE"] }));
+    this.api.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE", "COPY"] }));
 
     const mcpRouter = express.Router();
-    mcpRouter.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE"] }));
+    mcpRouter.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE", "COPY"] }));
     mcpRouter.use((req, res, next) => {
       if (!this.requestIsAuthenticated(req)) {
         this.returnCannedResponse(res, {
@@ -1519,10 +1754,20 @@ export default class RequestHandler {
       .all((req, res, next) => {
         if (req.method === "MOVE") {
           return this.handle((rq, rs) => this.vaultMove(rq, rs))(req, res, next);
+        } else if (req.method === "COPY") {
+          return this.handle((rq, rs) => this.vaultCopy(rq, rs))(req, res, next);
         } else {
           next();
         }
       });
+
+    this.api
+      .route("/archive/*")
+      .post(this.handle((rq, rs) => this.archivePost(rq, rs)));
+
+    this.api
+      .route("/export/*")
+      .get(this.handle((rq, rs) => this.exportGet(rq, rs)));
 
     this.api
       .route("/periodic/:period/:year(\\d{4})/:month(\\d{1,2})/:day(\\d{1,2})/*")
