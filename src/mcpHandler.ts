@@ -314,7 +314,8 @@ export class McpHandler {
         "- trimTargetWhitespace: strip leading/trailing whitespace from the target section before patching.\n" +
         "- rejectIfContentPreexists: fail the patch if the content string already appears in the target section — use this as an idempotency guard so a retry does not duplicate content.\n" +
         "- targetScope: controls what portion of the target the operation acts on. 'content' (default) patches only the content below the heading or at the block; 'marker' patches only the heading line or block-ID token itself; 'markerAndContent' patches the heading/block-ID together with its content. Only applicable to heading and block targets.\n\n" +
-        "To discover valid heading names and block IDs before patching, call vault_get_document_map first.",
+        "IMPORTANT when renaming a heading (targetType 'heading', targetScope 'marker' or 'markerAndContent', operation 'replace'): the target's marker IS the literal heading line, e.g. '## Subheading' — not just the heading text. The replacement content must include the same leading '#' characters, or the heading will be silently demoted to plain text. The heading's depth (number of '#' characters) equals the number of targetDelimiter-separated segments in target — e.g. target 'Heading 1::Subheading' has 2 segments, so its marker is '## Subheading' and a rename must supply content like '## New Name'. (Stripping the '#' characters entirely is valid too, if the intent is to remove the heading and demote it to a plain paragraph — just make sure that's actually the intent.)\n\n" +
+        "To discover valid heading names and block IDs before patching, call vault_get_document_map first. Note the document map lists heading paths only (e.g. 'Heading 1::Subheading') and does not show '#' markers directly — depth must be inferred from the number of segments as described above.",
       {
         path: z.string().describe("File path relative to vault root"),
         targetType: z
@@ -361,7 +362,10 @@ export class McpHandler {
               "'content' (default): patch the content below the heading or at the block. " +
               "'marker': patch only the heading line or block-ID token. " +
               "'markerAndContent': patch the heading/block-ID together with its content. " +
-              "Only applicable to heading and block targets.",
+              "Only applicable to heading and block targets. " +
+              "For heading targets, the marker is the full heading line including its leading '#' characters " +
+              "(e.g. '## Subheading') — to rename a heading, replacement content must include that same " +
+              "number of '#' characters (depth = number of target segments), not just the bare heading text.",
           ),
       },
       async ({

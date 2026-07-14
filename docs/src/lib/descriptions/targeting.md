@@ -22,3 +22,23 @@ For `heading` and `block` targets, the optional `Target-Scope` header controls w
 - `content` (default): the operation applies to the content region — the area beneath the heading line or at the block, leaving the heading/block-ID token unchanged.
 - `marker`: the operation applies only to the heading line or block-ID token itself, leaving the content unchanged. Useful for renaming a heading in-place with a `replace` operation without touching the section content.
 - `markerAndContent`: the operation applies to the full range covering both the heading/block-ID token and its content, allowing them to be replaced or repositioned together.
+
+### Renaming a heading
+
+Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
+
+The heading's depth isn't shown directly anywhere — `vault_get_document_map` (or the `headings` list it returns) lists heading paths like `Heading 1::Subheading`, not raw markdown, so depth must be inferred from the number of `Target-Delimiter`-separated segments in the target path. A target of `Heading 1::Subheading` has 2 segments, so its marker line is `## Subheading`, and renaming it means replacing with content like `## New Name` — not just `New Name`.
+
+```
+# Rename "## Subheading" to "## New Name" (note the leading "##")
+curl -k -X PATCH \
+  https://127.0.0.1:27124/vault/path/to/note.md \
+  -H "Authorization: Bearer $OBSIDIAN_API_KEY" \
+  -H "Target-Type: heading" \
+  -H "Target: Heading 1::Subheading" \
+  -H "Target-Scope: marker" \
+  -H "Content-Type: text/markdown" \
+  --data "## New Name"
+```
+
+Omitting the `#` characters entirely is valid too — it's how you deliberately remove a heading and demote its line to plain text — just make sure that's actually the intent before doing so.

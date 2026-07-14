@@ -102,6 +102,15 @@
       - `markerAndContent`: the operation applies to the full range covering both the
         heading/block-ID token and its content, allowing them to be replaced or repositioned
         together.
+
+      For heading targets, the marker is the literal heading line *including* its leading
+      `#` characters (e.g. `## Subheading`) — it is not just the heading text. To rename a
+      heading with `marker` or `markerAndContent` and a `replace` operation, the new content
+      must include that same number of `#` characters, or the heading will be demoted to a
+      plain paragraph. The heading's depth equals the number of `Target-Delimiter`-separated
+      segments in `Target` — e.g. a `Target` of `Heading 1::Subheading` has 2 segments, so its
+      marker is `## Subheading`. (Omitting the `#` characters is valid too, if the intent is to
+      remove the heading and demote it to plain text.)
     |||,
     required: false,
     schema: {
