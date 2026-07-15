@@ -67,6 +67,16 @@ but with different results.
 
 > **Note:** The heading line itself (`### Subsubheading 1:1:1`) is not part of the section content. When using `replace`, supply only the body text that should appear beneath the heading — do not include the heading line in the request body, or it will be duplicated.
 
+## Blank Lines Are Not Synthesized
+
+The API only preserves a blank-line separator at the target boundary if one already existed there before the patch — it never inserts a new one. If the boundary you're writing across had no blank line to begin with (a heading immediately followed by its body with no gap, or two headings with nothing between them), your content is spliced in exactly where you supplied it, with no separator added. That includes:
+
+- `append`, `replace`, and `Create-Target-If-Missing` — your content can end up glued directly onto whatever follows it (e.g. the next heading), all on one line.
+- `prepend` — your content can end up glued directly onto whatever precedes it.
+- Renaming a heading with `Target-Scope: marker` — the new heading line can end up glued onto its own body paragraph if there was no blank line separating them originally.
+
+If you need a blank line where you're inserting, include it yourself: end your content with `\n\n` for `append`/`replace`/rename operations that should be separated from what follows, or start it with `\n\n` for `prepend`.
+
 ## Append, Prepend, or Replace Content to a Block Reference
 
 If you wanted to append the content "Hello" below the block referenced by

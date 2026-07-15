@@ -167,6 +167,8 @@ curl -k -X PATCH \
   https://127.0.0.1:27124/vault/path/to/note.md
 ```
 
+> **Note:** Blank-line separators are not synthesized — the API only preserves one at the target boundary if it was already there. If you're patching across a boundary with no existing blank line (e.g. a heading with no gap before its body), include any `\n\n` you need in your own content, or your text can end up glued onto adjacent content.
+
 See the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for the full list of request headers and options.
 
 ## Targeting specific sections
