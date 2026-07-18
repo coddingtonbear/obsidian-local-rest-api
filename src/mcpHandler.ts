@@ -306,7 +306,7 @@ export class McpHandler {
     this.tool(
       "vault_patch",
       "Patch a specific section of a vault file by targeting a heading, block reference, or frontmatter field.\n\n" +
-        "To discover valid heading names and block IDs before patching, call vault_get_document_map first. Note the document map lists heading paths only (e.g. 'Heading 1::Subheading') and does not show '#' markers directly.",
+        "To discover valid heading names and block IDs before patching, call vault_get_document_map first.",
       {
         path: z.string().describe("File path relative to vault root"),
         targetType: z
