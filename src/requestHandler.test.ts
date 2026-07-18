@@ -2162,7 +2162,7 @@ describe("requestHandler", () => {
       const callback = async () => "result";
       api.addMcpTool("my_tool", "Does something", {}, callback);
       // @ts-ignore: registerTool is a jest mock on the McpHandler instance
-      expect(handler.mcpHandler.registerTool).toHaveBeenCalledWith("my_tool", "Does something", {}, callback);
+      expect(handler.mcpHandler.registerTool).toHaveBeenCalledWith("my_tool", "Does something", {}, callback, undefined);
     });
 
     test("unregister calls cleanup for all registered MCP tools", () => {

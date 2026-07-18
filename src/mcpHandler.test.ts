@@ -112,10 +112,20 @@ function getToolCallback(toolName: string) {
     (c: unknown[]) => c[0] === toolName,
   );
   if (!call) throw new Error(`Tool "${toolName}" was not registered`);
-  // tool(name, description, schema, callback) — callback is always last
+  // tool(name, description, schema, annotations, callback) — callback is always last
   return call[call.length - 1] as (args: Record<string, unknown>) => Promise<{
     content: Array<{ type: string; text: string }>;
   }>;
+}
+
+// Returns the annotations object registered for the named tool.
+function getToolAnnotations(toolName: string) {
+  const call = mockTool.mock.calls.find(
+    (c: unknown[]) => c[0] === toolName,
+  );
+  if (!call) throw new Error(`Tool "${toolName}" was not registered`);
+  // tool(name, description, schema, annotations, callback) — annotations is second-to-last
+  return call[call.length - 2] as Record<string, boolean>;
 }
 
 function parseText(result: { content: Array<{ type: string; text: string }> }) {
@@ -188,6 +198,45 @@ describe("McpHandler", () => {
         "open_file",
       ]),
     );
+  });
+
+  // ---- tool annotations -----------------------------------------------------
+
+  describe("tool annotations", () => {
+    test("read-only tools are annotated readOnlyHint/idempotentHint true, destructiveHint false", () => {
+      for (const name of [
+        "vault_list",
+        "vault_read",
+        "vault_get_document_map",
+        "active_file_get_path",
+        "search_query",
+        "search_simple",
+        "tag_list",
+        "command_list",
+      ]) {
+        expect(getToolAnnotations(name)).toEqual({
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        });
+      }
+    });
+
+    test("vault_patch, vault_delete, vault_move, and command_execute are annotated as destructive", () => {
+      for (const name of ["vault_patch", "vault_delete", "vault_move", "command_execute"]) {
+        const annotations = getToolAnnotations(name);
+        expect(annotations.readOnlyHint).toBe(false);
+        expect(annotations.destructiveHint).toBe(true);
+      }
+    });
+
+    test("no tool is annotated openWorldHint true", () => {
+      for (const call of mockTool.mock.calls) {
+        const annotations = call[call.length - 2] as Record<string, boolean>;
+        expect(annotations.openWorldHint).toBe(false);
+      }
+    });
   });
 
   // ---- vault_list ---------------------------------------------------------
@@ -768,7 +817,7 @@ describe("McpHandler", () => {
       const mcp = new McpHandler(ops, DEFAULT_SETTINGS);
       const cleanup = mcp.registerTool("my_tool", "Does something", {}, async () => "result");
       await buildSession(mcp);
-      expect(mockTool).toHaveBeenCalledWith("my_tool", "Does something", {}, expect.any(Function));
+      expect(mockTool).toHaveBeenCalledWith("my_tool", "Does something", {}, {}, expect.any(Function));
       expect(typeof cleanup).toBe("function");
     });
 

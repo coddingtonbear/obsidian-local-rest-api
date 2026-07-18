@@ -1,5 +1,6 @@
 import express from "express";
 import { z } from "zod";
+import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { BUILT_IN_ROUTES } from "./constants";
 import { McpHandler } from "./mcpHandler";
 
@@ -77,9 +78,10 @@ export default class LocalRestApiPublicApi {
     description: string,
     schema: Record<string, z.ZodTypeAny>,
     callback: (args: Record<string, unknown>) => Promise<unknown>,
+    annotations?: ToolAnnotations,
   ): void {
     this.assertRegistered();
-    const cleanup = this.mcpHandler.registerTool(name, description, schema, callback);
+    const cleanup = this.mcpHandler.registerTool(name, description, schema, callback, annotations);
     this.mcpToolCleanups.push(cleanup);
     this.registeredMcpTools.push(name);
   }

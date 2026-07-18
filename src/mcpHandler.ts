@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { posix } from "path";
 import { randomUUID } from "crypto";
@@ -18,7 +18,7 @@ const PERIODS = ["daily", "weekly", "monthly", "quarterly", "yearly"] as const;
 // Minimal structural type for McpServer — typed as a plain interface rather than the SDK's
 // McpServer class to avoid TypeScript heap OOM from evaluating ToolCallback<ZodRawShape>.
 interface MinimalMcpServer {
-  tool(name: string, description: string, schema: unknown, callback: (args: unknown) => Promise<CallToolResult>): { remove: () => void };
+  tool(name: string, description: string, schema: unknown, annotations: ToolAnnotations, callback: (args: unknown) => Promise<CallToolResult>): { remove: () => void };
   connect(transport: StreamableHTTPServerTransport): Promise<void>;
   resource(name: string, uri: string, meta: unknown, handler: (uri: URL) => Promise<unknown>): void;
 }
@@ -27,8 +27,17 @@ interface ToolSpec {
   name: string;
   description: string;
   schema: unknown;
+  annotations: ToolAnnotations;
   callback: (args: unknown) => Promise<CallToolResult>;
 }
+
+// Shared annotation set for tools that only ever read vault/workspace state.
+const READ_ONLY_ANNOTATIONS: ToolAnnotations = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+};
 
 interface ResourceSpec {
   name: string;
@@ -70,7 +79,7 @@ export class McpHandler {
       server.resource(spec.name, spec.uri, spec.meta, spec.handler);
     }
     for (const spec of this.toolSpecs.values()) {
-      toolHandles.set(spec.name, server.tool(spec.name, spec.description, spec.schema, spec.callback));
+      toolHandles.set(spec.name, server.tool(spec.name, spec.description, spec.schema, spec.annotations, spec.callback));
     }
     return { server, toolHandles };
   }
@@ -80,11 +89,12 @@ export class McpHandler {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private tool(name: string, description: string, schema: any, callback: (args: any) => Promise<CallToolResult>): { remove: () => void } {
+  private tool(name: string, description: string, schema: any, annotations: ToolAnnotations, callback: (args: any) => Promise<CallToolResult>): { remove: () => void } {
     const spec: ToolSpec = {
       name,
       description,
       schema,
+      annotations,
       callback: async (args: unknown) => {
         try {
           const result = await callback(args);
@@ -102,7 +112,7 @@ export class McpHandler {
     };
     this.toolSpecs.set(spec.name, spec);
     for (const session of this.sessions.values()) {
-      session.toolHandles.set(spec.name, session.server.tool(spec.name, spec.description, spec.schema, spec.callback));
+      session.toolHandles.set(spec.name, session.server.tool(spec.name, spec.description, spec.schema, spec.annotations, spec.callback));
     }
     return {
       remove: () => {
@@ -123,13 +133,14 @@ export class McpHandler {
     description: string,
     schema: Record<string, z.ZodTypeAny>,
     callback: (args: Record<string, unknown>) => Promise<unknown>,
+    annotations?: ToolAnnotations,
   ): () => void {
     if (this.toolSpecs.has(name)) {
       throw new Error(
         `Cannot register MCP tool "${name}" — a tool with this name is already registered.`,
       );
     }
-    const registered = this.tool(name, description, schema, async (args) =>
+    const registered = this.tool(name, description, schema, annotations ?? {}, async (args) =>
       this.text(await callback(args as Record<string, unknown>)),
     );
     return () => registered.remove();
@@ -213,6 +224,7 @@ export class McpHandler {
         "Returns an array of names; directory entries end with '/'. " +
         "Omit path or pass an empty string to list the vault root.",
       { path: z.string().optional().describe("Directory path relative to vault root (default: root)") },
+      READ_ONLY_ANNOTATIONS,
       async ({ path }: { path?: string }) => {
         const files = await this.ops.listVaultDirectory(path ?? "");
         return this.text({ files });
@@ -249,6 +261,7 @@ export class McpHandler {
           .optional()
           .describe("Delimiter for nested heading paths (default: '::')"),
       },
+      READ_ONLY_ANNOTATIONS,
       async ({
         path,
         targetType,
@@ -283,6 +296,7 @@ export class McpHandler {
         path: z.string().describe("File path relative to vault root"),
         content: z.string().describe("Full file content (markdown text)"),
       },
+      { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
       async ({ path, content }: { path: string; content: string }) => {
         await this.ops.writeFileContent(path, content);
         return this.text({ message: "OK" });
@@ -297,6 +311,7 @@ export class McpHandler {
         path: z.string().describe("File path relative to vault root"),
         content: z.string().describe("Content to append"),
       },
+      { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       async ({ path, content }: { path: string; content: string }) => {
         await this.ops.appendFileContent(path, content);
         return this.text({ message: "OK" });
@@ -368,6 +383,7 @@ export class McpHandler {
               "text; and a trailing newline, or the next line gets glued onto yours.",
           ),
       },
+      { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       async ({
         path,
         targetType,
@@ -433,6 +449,7 @@ export class McpHandler {
       "vault_delete",
       "Delete a file from the vault. Throws if the file does not exist.",
       { path: z.string().describe("File path relative to vault root") },
+      { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       async ({ path }: { path: string }) => {
         await this.ops.deleteVaultFile(path);
         return this.text({ message: "OK" });
@@ -462,6 +479,7 @@ export class McpHandler {
               "otherwise the move throws (default: false).",
           ),
       },
+      { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       async ({
         path,
         destination,
@@ -510,6 +528,7 @@ export class McpHandler {
         "Use this before vault_read or vault_patch with targeting to discover what targets are available " +
         "without parsing the full markdown content yourself.",
       { path: z.string().describe("File path relative to vault root") },
+      READ_ONLY_ANNOTATIONS,
       async ({ path }: { path: string }) => {
         const file = this.ops.app.vault.getAbstractFileByPath(path);
         if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
@@ -525,6 +544,7 @@ export class McpHandler {
         "vault_get_document_map, or vault_delete to operate on the active file. " +
         "Throws if no file is active.",
       {},
+      READ_ONLY_ANNOTATIONS,
       async () => {
         const file = this.getActiveFile();
         return this.text({ path: file.path });
@@ -544,6 +564,7 @@ export class McpHandler {
           .enum(PERIODS)
           .describe("Periodic note period: 'daily', 'weekly', 'monthly', 'quarterly', or 'yearly'"),
       },
+      { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       async ({ period }: { period: typeof PERIODS[number] }) => {
         const [file, err] = await this.ops.periodicGetOrCreateNote(period, Date.now());
         if (err || !file)
@@ -592,6 +613,7 @@ export class McpHandler {
           .record(z.unknown())
           .describe("JsonLogic query object to evaluate against each note"),
       },
+      READ_ONLY_ANNOTATIONS,
       async ({ query }: { query: unknown }) => {
         const results = await this.ops.searchJsonLogic(query);
         return this.text(results);
@@ -610,6 +632,7 @@ export class McpHandler {
           .optional()
           .describe("Number of characters of surrounding context to return per match (default: 100)"),
       },
+      READ_ONLY_ANNOTATIONS,
       async ({ query, contextLength }: { query: string; contextLength?: number }) => {
         const results = await this.ops.simpleSearch(query, contextLength);
         return this.text(results);
@@ -627,6 +650,7 @@ export class McpHandler {
         "the whole field with vault_patch using operation 'replace'. " +
         "For full examples, read the OpenAPI spec resource at obsidian://local-rest-api/openapi.yaml.",
       {},
+      READ_ONLY_ANNOTATIONS,
       async () => {
         return this.text({ tags: this.ops.getAllTags() });
       },
@@ -638,6 +662,7 @@ export class McpHandler {
         "Each entry has an 'id' and a human-readable 'name'. " +
         "Pass the 'id' to command_execute to run a command.",
       {},
+      READ_ONLY_ANNOTATIONS,
       async () => {
         return this.text({ commands: this.ops.listCommands() });
       },
@@ -649,6 +674,9 @@ export class McpHandler {
         "Use command_list to discover available command IDs. " +
         "Throws if the command ID does not exist.",
       { commandId: z.string().describe("The command ID to execute (e.g. 'editor:toggle-bold')") },
+      // Command effects are arbitrary and unpredictable (any registered Obsidian command), so
+      // this is annotated conservatively as destructive and non-idempotent rather than assumed safe.
+      { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       async ({ commandId }: { commandId: string }) => {
         this.ops.executeCommand(commandId);
         return this.text({ message: "OK" });
@@ -664,6 +692,7 @@ export class McpHandler {
         path: z.string().describe("File path relative to vault root"),
         newLeaf: z.boolean().optional().describe("Open in a new leaf/pane (default: false)"),
       },
+      { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       async ({ path, newLeaf }: { path: string; newLeaf?: boolean }) => {
         this.ops.openVaultFile(path, newLeaf);
         return this.text({ message: "OK" });
