@@ -232,7 +232,7 @@ export class McpHandler {
       dedent`
         Read a vault file's content and metadata. Returns a JSON object with: content (full markdown text), path, tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), stat ({ctime, mtime, size}), links (array of vault-relative paths this file links to), and backlinks (array of vault-relative paths of files that link here). Throws if the file does not exist.
 
-        When targetType and target are both provided, returns only the matched section as a plain string (markdown) or JSON value (frontmatter) instead of the full object. Use vault_get_document_map first to discover available targets.
+        When targetType and target are both provided, returns only the matched section as a plain string (markdown) or JSON value (frontmatter) instead of the full object. To save context, call vault_get_document_map first to identify headings, block IDs, or frontmatter keys, and prefer targeted reads over full reads for anything but short files.
       `,
       {
         path: z.string().describe("File path relative to vault root"),
