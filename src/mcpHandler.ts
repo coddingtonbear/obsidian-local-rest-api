@@ -6,6 +6,7 @@ import { randomUUID } from "crypto";
 import { z } from "zod";
 import express from "express";
 import { TFile } from "obsidian";
+import { dedent } from "ts-dedent";
 
 import { VaultOperations } from "./vaultOperations";
 import { ContentType, FrontmatterParseError, PatchFailed, PatchOperation, PatchTargetType } from "markdown-patch";
@@ -200,10 +201,7 @@ export class McpHandler {
       "obsidian://local-rest-api/openapi.yaml",
       {
         mimeType: "application/yaml",
-        description:
-          "Full OpenAPI specification for the Obsidian Local REST API. " +
-          "Contains complete request/response schemas, parameter descriptions, " +
-          "and usage examples for every endpoint.",
+        description: dedent`Full OpenAPI specification for the Obsidian Local REST API. Contains complete request/response schemas, parameter descriptions, and usage examples for every endpoint.`,
       },
       async (uri: URL) => ({
         contents: [
@@ -220,9 +218,7 @@ export class McpHandler {
   private registerTools(): void {
     this.tool(
       "vault_list",
-      "List files and subdirectories inside a vault directory. " +
-        "Returns an array of names; directory entries end with '/'. " +
-        "Omit path or pass an empty string to list the vault root.",
+      dedent`List files and subdirectories inside a vault directory. Returns an array of names; directory entries end with '/'. Omit path or pass an empty string to list the vault root.`,
       { path: z.string().optional().describe("Directory path relative to vault root (default: root)") },
       READ_ONLY_ANNOTATIONS,
       async ({ path }: { path?: string }) => {
@@ -233,16 +229,11 @@ export class McpHandler {
 
     this.tool(
       "vault_read",
-      "Read a vault file's content and metadata. " +
-        "Returns a JSON object with: content (full markdown text), path, " +
-        "tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), " +
-        "stat ({ctime, mtime, size}), " +
-        "links (array of vault-relative paths this file links to), " +
-        "and backlinks (array of vault-relative paths of files that link here). " +
-        "Throws if the file does not exist.\n\n" +
-        "When targetType and target are both provided, returns only the matched section " +
-        "as a plain string (markdown) or JSON value (frontmatter) instead of the full object. " +
-        "Use vault_get_document_map first to discover available targets.",
+      dedent`
+        Read a vault file's content and metadata. Returns a JSON object with: content (full markdown text), path, tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), stat ({ctime, mtime, size}), links (array of vault-relative paths this file links to), and backlinks (array of vault-relative paths of files that link here). Throws if the file does not exist.
+
+        When targetType and target are both provided, returns only the matched section as a plain string (markdown) or JSON value (frontmatter) instead of the full object. Use vault_get_document_map first to discover available targets.
+      `,
       {
         path: z.string().describe("File path relative to vault root"),
         targetType: z
@@ -253,8 +244,7 @@ export class McpHandler {
           .string()
           .optional()
           .describe(
-            "Section to extract. Heading text, block reference ID (without '^'), or frontmatter key. " +
-              "Separate nested heading levels with '::' (e.g. 'Heading 1::Subheading').",
+            dedent`Section to extract. Heading text, block reference ID (without '^'), or frontmatter key. Separate nested heading levels with '::' (e.g. 'Heading 1::Subheading').`,
           ),
         targetDelimiter: z
           .string()
@@ -289,9 +279,7 @@ export class McpHandler {
 
     this.tool(
       "vault_write",
-      "Create or overwrite a vault file with the given content. " +
-        "Creates any missing parent directories automatically. " +
-        "Overwrites without warning if the file already exists.",
+      dedent`Create or overwrite a vault file with the given content. Creates any missing parent directories automatically. Overwrites without warning if the file already exists.`,
       {
         path: z.string().describe("File path relative to vault root"),
         content: z.string().describe("Full file content (markdown text)"),
@@ -305,8 +293,7 @@ export class McpHandler {
 
     this.tool(
       "vault_append",
-      "Append content to the end of a vault file. " +
-        "Creates the file if it does not already exist.",
+      dedent`Append content to the end of a vault file. Creates the file if it does not already exist.`,
       {
         path: z.string().describe("File path relative to vault root"),
         content: z.string().describe("Content to append"),
@@ -320,8 +307,11 @@ export class McpHandler {
 
     this.tool(
       "vault_patch",
-      "Patch a specific section of a vault file by targeting a heading, block reference, or frontmatter field.\n\n" +
-        "To discover valid heading names and block IDs before patching, call vault_get_document_map first.",
+      dedent`
+        Patch a specific section of a vault file by targeting a heading, block reference, or frontmatter field.
+
+        To discover valid heading names and block IDs before patching, call vault_get_document_map first.
+      `,
       {
         path: z.string().describe("File path relative to vault root"),
         targetType: z
@@ -330,8 +320,7 @@ export class McpHandler {
         target: z
           .string()
           .describe(
-            "The section to patch. Heading text, block reference ID (without '^'), or frontmatter key. " +
-              "Separate nested heading levels with '::' (e.g. 'Heading 1::Subheading').",
+            dedent`The section to patch. Heading text, block reference ID (without '^'), or frontmatter key. Separate nested heading levels with '::' (e.g. 'Heading 1::Subheading').`,
           ),
         operation: z
           .enum(["replace", "prepend", "append"])
@@ -339,18 +328,13 @@ export class McpHandler {
         content: z
           .string()
           .describe(
-            "Content to apply. For contentType 'text/markdown' pass markdown text. For contentType 'application/json' pass a JSON-encoded string " +
-              "(e.g. '[\"row\",\"cells\"]' for a table row, or '42' for a number). " +
-              "No blank line is added automatically between your content and whatever sits next to it — only a blank line that was already there " +
-              "gets kept. If you want one, add '\\n\\n' yourself: at the end of content for append, replace, or createTargetIfMissing; at the start " +
-              "of content for prepend.",
+            dedent`Content to apply. For contentType 'text/markdown' pass markdown text. For contentType 'application/json' pass a JSON-encoded string (e.g. '["row","cells"]' for a table row, or '42' for a number). No blank line is added automatically between your content and whatever sits next to it — only a blank line that was already there gets kept. If you want one, add '\\n\\n' yourself: at the end of content for append, replace, or createTargetIfMissing; at the start of content for prepend.`,
           ),
         contentType: z
           .nativeEnum(ContentType)
           .optional()
           .describe(
-            "MIME type of content. 'text/markdown' (default) or 'application/json'. " +
-              "Use 'application/json' to set typed frontmatter values or to append/prepend table rows (2-D array).",
+            dedent`MIME type of content. 'text/markdown' (default) or 'application/json'. Use 'application/json' to set typed frontmatter values or to append/prepend table rows (2-D array).`,
           ),
         createTargetIfMissing: z
           .boolean()
@@ -372,15 +356,7 @@ export class McpHandler {
           .enum(["content", "marker", "markerAndContent"])
           .optional()
           .describe(
-            "Controls which part of the target the operation acts on. " +
-              "'content' (default): the section content only. " +
-              "'marker': just the heading line or block-ID token. " +
-              "'markerAndContent': both together. Only applies to heading and block targets. " +
-              "IMPORTANT — a marker spans more than its visible label: for a heading, the leading '#' characters through the end of the line, " +
-              "including the newline; for a block reference, '^' (plus any preceding whitespace if inline) through the id, including the newline. " +
-              "Replacing 'marker' or 'markerAndContent' replaces that whole span, so match it: the same number of leading '#' as the original " +
-              "(count = targetDelimiter-separated segments in target, e.g. 'Heading 1::Subheading' → '##') or the heading is demoted to plain " +
-              "text; and a trailing newline, or the next line gets glued onto yours.",
+            dedent`Controls which part of the target the operation acts on. 'content' (default): the section content only. 'marker': just the heading line or block-ID token. 'markerAndContent': both together. Only applies to heading and block targets. IMPORTANT — a marker spans more than its visible label: for a heading, the leading '#' characters through the end of the line, including the newline; for a block reference, '^' (plus any preceding whitespace if inline) through the id, including the newline. Replacing 'marker' or 'markerAndContent' replaces that whole span, so match it: the same number of leading '#' as the original (count = targetDelimiter-separated segments in target, e.g. 'Heading 1::Subheading' → '##') or the heading is demoted to plain text; and a trailing newline, or the next line gets glued onto yours.`,
           ),
       },
       { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -458,25 +434,19 @@ export class McpHandler {
 
     this.tool(
       "vault_move",
-      "Move (rename) a vault file to a new path. " +
-        "Creates any missing parent directories at the destination automatically. " +
-        "Preserves file history and updates internal Obsidian links. " +
-        "Throws if the source file does not exist.",
+      dedent`Move (rename) a vault file to a new path. Creates any missing parent directories at the destination automatically. Preserves file history and updates internal Obsidian links. Throws if the source file does not exist.`,
       {
         path: z.string().describe("Source file path relative to vault root"),
         destination: z
           .string()
           .describe(
-            "Destination path relative to vault root; must not escape the vault root. " +
-              "May end with '/' to preserve the source filename in the target directory " +
-              "(e.g. destination 'archive/' moves 'notes/todo.md' to 'archive/todo.md').",
+            dedent`Destination path relative to vault root; must not escape the vault root. May end with '/' to preserve the source filename in the target directory (e.g. destination 'archive/' moves 'notes/todo.md' to 'archive/todo.md').`,
           ),
         allowOverwrite: z
           .boolean()
           .optional()
           .describe(
-            "If true, move proceeds even when a file already exists at the destination; " +
-              "otherwise the move throws (default: false).",
+            dedent`If true, move proceeds even when a file already exists at the destination; otherwise the move throws (default: false).`,
           ),
       },
       { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -523,10 +493,7 @@ export class McpHandler {
 
     this.tool(
       "vault_get_document_map",
-      "Return the structure of a vault file as a document map: the list of heading paths, " +
-        "block reference IDs, and frontmatter field names present in the file. " +
-        "Use this before vault_read or vault_patch with targeting to discover what targets are available " +
-        "without parsing the full markdown content yourself.",
+      dedent`Return the structure of a vault file as a document map: the list of heading paths, block reference IDs, and frontmatter field names present in the file. Use this before vault_read or vault_patch with targeting to discover what targets are available without parsing the full markdown content yourself.`,
       { path: z.string().describe("File path relative to vault root") },
       READ_ONLY_ANNOTATIONS,
       async ({ path }: { path: string }) => {
@@ -539,10 +506,7 @@ export class McpHandler {
 
     this.tool(
       "active_file_get_path",
-      "Return the vault-relative path of the file currently open in Obsidian. " +
-        "Use this path with vault_read, vault_write, vault_append, vault_patch, " +
-        "vault_get_document_map, or vault_delete to operate on the active file. " +
-        "Throws if no file is active.",
+      dedent`Return the vault-relative path of the file currently open in Obsidian. Use this path with vault_read, vault_write, vault_append, vault_patch, vault_get_document_map, or vault_delete to operate on the active file. Throws if no file is active.`,
       {},
       READ_ONLY_ANNOTATIONS,
       async () => {
@@ -553,12 +517,7 @@ export class McpHandler {
 
     this.tool(
       "periodic_note_get_path",
-      "Return the vault-relative path of the current periodic note for the given period " +
-        "(daily, weekly, monthly, quarterly, or yearly). " +
-        "Creates the note file if it does not already exist, applying any configured template. " +
-        "Requires the Periodic Notes or Calendar plugin to be installed and configured. " +
-        "Use the returned path with vault_read, vault_write, vault_append, vault_patch, " +
-        "or vault_get_document_map to operate on the note.",
+      dedent`Return the vault-relative path of the current periodic note for the given period (daily, weekly, monthly, quarterly, or yearly). Creates the note file if it does not already exist, applying any configured template. Requires the Periodic Notes or Calendar plugin to be installed and configured. Use the returned path with vault_read, vault_write, vault_append, vault_patch, or vault_get_document_map to operate on the note.`,
       {
         period: z
           .enum(PERIODS)
@@ -577,37 +536,46 @@ export class McpHandler {
 
     this.tool(
       "search_query",
-      "Search vault files using a JsonLogic query evaluated against each note's metadata.\n\n" +
-        "The query is a JSON object evaluated against a NoteJson object for each file; files where the result is truthy are returned.\n\n" +
-        "Example NoteJson shape:\n" +
-        "{\n" +
-        "  \"path\": \"journal/2024-01-15.md\",\n" +
-        "  \"content\": \"# My note\\n\\nSome content here.\",\n" +
-        "  \"tags\": [\"daily\", \"work\"],\n" +
-        "  \"frontmatter\": { \"status\": \"done\", \"url\": \"https://example.com\", \"priority\": 2 },\n" +
-        "  \"stat\": { \"ctime\": 1705276800000, \"mtime\": 1705363200000, \"size\": 1024 },\n" +
-        "  \"links\": [\"projects/foo.md\"],\n" +
-        "  \"backlinks\": [\"index.md\"]\n" +
-        "}\n\n" +
-        "Call vault_read on any file (without targeting) to see the exact shape for a real file in this vault, including its actual frontmatter fields.\n\n" +
-        "Useful JsonLogic operators:\n" +
-        "- {\"==\": [a, b]} — equal\n" +
-        "- {\"!=\": [a, b]} — not equal\n" +
-        "- {\"in\": [value, array]} — array contains value\n" +
-        "- {\"<\": [a, b]}, {\">\": [a, b]}, {\"<=\": [a, b]}, {\">=\": [a, b]} — numeric/string comparison\n" +
-        "- {\"and\": [...]}, {\"or\": [...]}, {\"!\": expr} — boolean logic\n" +
-        "- {\"var\": \"path\"} — access a field (use dot notation for nested: \"frontmatter.status\")\n" +
-        "- {\"if\": [cond, then, else]} — conditional\n\n" +
-        "Extra operators beyond standard JsonLogic:\n" +
-        "- {\"glob\": [\"*.foo\", {\"var\": \"path\"}]} — glob pattern match\n" +
-        "- {\"regexp\": [\"^daily/\", {\"var\": \"path\"}]} — regular expression match\n\n" +
-        "Returns an array of {filename, result} objects where result is the truthy value the query produced for that file.\n\n" +
-        "Examples:\n" +
-        "- Find by tag: {\"in\": [\"myTag\", {\"var\": \"tags\"}]}\n" +
-        "- Find by frontmatter field: {\"==\": [{\"var\": \"frontmatter.status\"}, \"done\"]}\n" +
-        "- Find by path glob: {\"glob\": [\"journal/*\", {\"var\": \"path\"}]}\n" +
-        "- Modified after a date: {\">\": [{\"var\": \"stat.mtime\"}, 1704067200000]}\n" +
-        "- Multiple conditions: {\"and\": [{\"in\": [\"work\", {\"var\": \"tags\"}]}, {\"==\": [{\"var\": \"frontmatter.status\"}, \"done\"]}]}",
+      dedent`
+        Search vault files using a JsonLogic query evaluated against each note's metadata.
+
+        The query is a JSON object evaluated against a NoteJson object for each file; files where the result is truthy are returned.
+
+        Example NoteJson shape:
+        {
+          "path": "journal/2024-01-15.md",
+          "content": "# My note\\n\\nSome content here.",
+          "tags": ["daily", "work"],
+          "frontmatter": { "status": "done", "url": "https://example.com", "priority": 2 },
+          "stat": { "ctime": 1705276800000, "mtime": 1705363200000, "size": 1024 },
+          "links": ["projects/foo.md"],
+          "backlinks": ["index.md"]
+        }
+
+        Call vault_read on any file (without targeting) to see the exact shape for a real file in this vault, including its actual frontmatter fields.
+
+        Useful JsonLogic operators:
+        - {"==": [a, b]} — equal
+        - {"!=": [a, b]} — not equal
+        - {"in": [value, array]} — array contains value
+        - {"<": [a, b]}, {">": [a, b]}, {"<=": [a, b]}, {">=": [a, b]} — numeric/string comparison
+        - {"and": [...]}, {"or": [...]}, {"!": expr} — boolean logic
+        - {"var": "path"} — access a field (use dot notation for nested: "frontmatter.status")
+        - {"if": [cond, then, else]} — conditional
+
+        Extra operators beyond standard JsonLogic:
+        - {"glob": ["*.foo", {"var": "path"}]} — glob pattern match
+        - {"regexp": ["^daily/", {"var": "path"}]} — regular expression match
+
+        Returns an array of {filename, result} objects where result is the truthy value the query produced for that file.
+
+        Examples:
+        - Find by tag: {"in": ["myTag", {"var": "tags"}]}
+        - Find by frontmatter field: {"==": [{"var": "frontmatter.status"}, "done"]}
+        - Find by path glob: {"glob": ["journal/*", {"var": "path"}]}
+        - Modified after a date: {">": [{"var": "stat.mtime"}, 1704067200000]}
+        - Multiple conditions: {"and": [{"in": ["work", {"var": "tags"}]}, {"==": [{"var": "frontmatter.status"}, "done"]}]}
+      `,
       {
         query: z
           .record(z.unknown())
@@ -622,9 +590,7 @@ export class McpHandler {
 
     this.tool(
       "search_simple",
-      "Search vault files using Obsidian's built-in simple search. " +
-        "Returns an array of {filename, score, matches} objects sorted by relevance score. " +
-        "Each match includes the matched text and surrounding context characters (controlled by contextLength).",
+      dedent`Search vault files using Obsidian's built-in simple search. Returns an array of {filename, score, matches} objects sorted by relevance score. Each match includes the matched text and surrounding context characters (controlled by contextLength).`,
       {
         query: z.string().describe("Search query string"),
         contextLength: z
@@ -641,14 +607,7 @@ export class McpHandler {
 
     this.tool(
       "tag_list",
-      "Return all tags used across the vault, each with a usage count. " +
-        "Tag names do not include the leading '#'. " +
-        "This tool is read-only. To add a tag to a specific file, use vault_patch with " +
-        "targetType 'frontmatter', target 'tags', operation 'append', contentType 'application/json', " +
-        "and content [\"tag-name\"] (set createTargetIfMissing to true if the file may have no tags yet). " +
-        "To remove a tag, read the current tags list with vault_read, filter client-side, then replace " +
-        "the whole field with vault_patch using operation 'replace'. " +
-        "For full examples, read the OpenAPI spec resource at obsidian://local-rest-api/openapi.yaml.",
+      dedent`Return all tags used across the vault, each with a usage count. Tag names do not include the leading '#'. This tool is read-only. To add a tag to a specific file, use vault_patch with targetType 'frontmatter', target 'tags', operation 'append', contentType 'application/json', and content ["tag-name"] (set createTargetIfMissing to true if the file may have no tags yet). To remove a tag, read the current tags list with vault_read, filter client-side, then replace the whole field with vault_patch using operation 'replace'. For full examples, read the OpenAPI spec resource at obsidian://local-rest-api/openapi.yaml.`,
       {},
       READ_ONLY_ANNOTATIONS,
       async () => {
@@ -658,9 +617,7 @@ export class McpHandler {
 
     this.tool(
       "command_list",
-      "Return all registered Obsidian commands. " +
-        "Each entry has an 'id' and a human-readable 'name'. " +
-        "Pass the 'id' to command_execute to run a command.",
+      dedent`Return all registered Obsidian commands. Each entry has an 'id' and a human-readable 'name'. Pass the 'id' to command_execute to run a command.`,
       {},
       READ_ONLY_ANNOTATIONS,
       async () => {
@@ -670,9 +627,7 @@ export class McpHandler {
 
     this.tool(
       "command_execute",
-      "Execute an Obsidian command by its ID. " +
-        "Use command_list to discover available command IDs. " +
-        "Throws if the command ID does not exist.",
+      dedent`Execute an Obsidian command by its ID. Use command_list to discover available command IDs. Throws if the command ID does not exist.`,
       { commandId: z.string().describe("The command ID to execute (e.g. 'editor:toggle-bold')") },
       // Command effects are arbitrary and unpredictable (any registered Obsidian command), so
       // this is annotated conservatively as destructive and non-idempotent rather than assumed safe.
@@ -685,9 +640,7 @@ export class McpHandler {
 
     this.tool(
       "open_file",
-      "Open a file in the Obsidian UI. " +
-        "If the file does not exist, Obsidian will create a new document at that path. " +
-        "Set newLeaf to true to open in a new pane rather than the current one.",
+      dedent`Open a file in the Obsidian UI. If the file does not exist, Obsidian will create a new document at that path. Set newLeaf to true to open in a new pane rather than the current one.`,
       {
         path: z.string().describe("File path relative to vault root"),
         newLeaf: z.boolean().optional().describe("Open in a new leaf/pane (default: false)"),

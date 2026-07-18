@@ -57,6 +57,7 @@
     "obsidian-dataview": "^0.5.47",
     "query-string": "^7.1.1",
     "response-time": "^2.3.2",
+    "ts-dedent": "^2.3.0",
     "uuid": "^8.3.2"
   }
 }
