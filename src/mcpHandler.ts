@@ -306,17 +306,7 @@ export class McpHandler {
     this.tool(
       "vault_patch",
       "Patch a specific section of a vault file by targeting a heading, block reference, or frontmatter field.\n\n" +
-        "- targetType: 'heading' targets the content beneath a markdown heading (the heading line itself is not part of the section and must not appear in the supplied content); 'block' targets a block reference (the ID after '^'); 'frontmatter' targets a YAML front-matter key.\n" +
-        "- target: the heading text, block ID, or frontmatter key. For nested headings use '::' as delimiter (e.g. 'Heading 1::Subheading'); customise with targetDelimiter.\n" +
-        "- operation: 'append' adds content after the section, 'prepend' adds before, 'replace' replaces entirely.\n" +
-        "- contentType: 'text/markdown' (default) treats content as markdown. 'application/json' parses it as JSON — useful for setting typed frontmatter values or appending rows to a table (pass a 2-D array of row cells).\n" +
-        "- createTargetIfMissing: set to true to create the heading or frontmatter key if it does not exist yet.\n" +
-        "- trimTargetWhitespace: strip leading/trailing whitespace from the target section before patching.\n" +
-        "- rejectIfContentPreexists: fail the patch if the content string already appears in the target section — use this as an idempotency guard so a retry does not duplicate content.\n" +
-        "- targetScope: controls what portion of the target the operation acts on. 'content' (default) patches only the content below the heading or at the block; 'marker' patches only the heading line or block-ID token itself; 'markerAndContent' patches the heading/block-ID together with its content. Only applicable to heading and block targets.\n\n" +
-        "IMPORTANT when renaming a heading (targetType 'heading', targetScope 'marker' or 'markerAndContent', operation 'replace'): the target's marker IS the literal heading line, e.g. '## Subheading' — not just the heading text. The replacement content must include the same leading '#' characters, or the heading will be silently demoted to plain text. The heading's depth (number of '#' characters) equals the number of targetDelimiter-separated segments in target — e.g. target 'Heading 1::Subheading' has 2 segments, so its marker is '## Subheading' and a rename must supply content like '## New Name'. (Stripping the '#' characters entirely is valid too, if the intent is to remove the heading and demote it to a plain paragraph — just make sure that's actually the intent.)\n\n" +
-        "IMPORTANT — blank-line separators are not synthesized: this tool only preserves a blank line at the target boundary if one already existed there before the patch; it never inserts one that wasn't already present. If the boundary you're writing across had no blank line (e.g. a heading with no blank line before its body, or two headings with none between them), your content will be spliced in exactly where you put it — with no separator — which can glue your text onto adjacent content on the same line. Include any newlines you need yourself: a trailing blank line ('\\n\\n') on your content if you want it separated from what follows (append, replace, createTargetIfMissing, or a marker-only rename sitting in front of a body paragraph), or a leading one if you want it separated from what precedes (prepend).\n\n" +
-        "To discover valid heading names and block IDs before patching, call vault_get_document_map first. Note the document map lists heading paths only (e.g. 'Heading 1::Subheading') and does not show '#' markers directly — depth must be inferred from the number of segments as described above.",
+        "To discover valid heading names and block IDs before patching, call vault_get_document_map first. Note the document map lists heading paths only (e.g. 'Heading 1::Subheading') and does not show '#' markers directly.",
       {
         path: z.string().describe("File path relative to vault root"),
         targetType: z
@@ -331,7 +321,15 @@ export class McpHandler {
         operation: z
           .enum(["replace", "prepend", "append"])
           .describe("How to apply the content: replace the section, prepend before it, or append after it"),
-        content: z.string().describe("Content to apply. For contentType 'text/markdown' pass markdown text. For contentType 'application/json' pass a JSON-encoded string (e.g. '[\"row\",\"cells\"]' for a table row, or '42' for a number)."),
+        content: z
+          .string()
+          .describe(
+            "Content to apply. For contentType 'text/markdown' pass markdown text. For contentType 'application/json' pass a JSON-encoded string " +
+              "(e.g. '[\"row\",\"cells\"]' for a table row, or '42' for a number). " +
+              "No blank line is added automatically between your content and whatever sits next to it — only a blank line that was already there " +
+              "gets kept. If you want one, add '\\n\\n' yourself: at the end of content for append, replace, or createTargetIfMissing; at the start " +
+              "of content for prepend.",
+          ),
         contentType: z
           .nativeEnum(ContentType)
           .optional()
@@ -360,13 +358,14 @@ export class McpHandler {
           .optional()
           .describe(
             "Controls which part of the target the operation acts on. " +
-              "'content' (default): patch the content below the heading or at the block. " +
-              "'marker': patch only the heading line or block-ID token. " +
-              "'markerAndContent': patch the heading/block-ID together with its content. " +
-              "Only applicable to heading and block targets. " +
-              "For heading targets, the marker is the full heading line including its leading '#' characters " +
-              "(e.g. '## Subheading') — to rename a heading, replacement content must include that same " +
-              "number of '#' characters (depth = number of target segments), not just the bare heading text.",
+              "'content' (default): the section content only. " +
+              "'marker': just the heading line or block-ID token. " +
+              "'markerAndContent': both together. Only applies to heading and block targets. " +
+              "IMPORTANT — a marker spans more than its visible label: for a heading, the leading '#' characters through the end of the line, " +
+              "including the newline; for a block reference, '^' (plus any preceding whitespace if inline) through the id, including the newline. " +
+              "Replacing 'marker' or 'markerAndContent' replaces that whole span, so match it: the same number of leading '#' as the original " +
+              "(count = targetDelimiter-separated segments in target, e.g. 'Heading 1::Subheading' → '##') or the heading is demoted to plain " +
+              "text; and a trailing newline, or the next line gets glued onto yours.",
           ),
       },
       async ({
@@ -445,24 +444,23 @@ export class McpHandler {
       "Move (rename) a vault file to a new path. " +
         "Creates any missing parent directories at the destination automatically. " +
         "Preserves file history and updates internal Obsidian links. " +
-        "Throws if the source file does not exist. " +
-        "Throws if the destination already exists and allowOverwrite is not set to true.\n\n" +
-        "The destination must be a vault-relative path (e.g. 'archive/notes/todo.md'). " +
-        "If the destination ends with '/', the source filename is preserved and the file is " +
-        "placed in that directory (e.g. destination 'archive/' moves 'notes/todo.md' to 'archive/todo.md'). " +
-        "The destination must not escape the vault root (i.e. the resolved path must remain within the vault).",
+        "Throws if the source file does not exist.",
       {
         path: z.string().describe("Source file path relative to vault root"),
         destination: z
           .string()
           .describe(
-            "Destination path relative to vault root. " +
-              "May end with '/' to preserve the source filename in the target directory.",
+            "Destination path relative to vault root; must not escape the vault root. " +
+              "May end with '/' to preserve the source filename in the target directory " +
+              "(e.g. destination 'archive/' moves 'notes/todo.md' to 'archive/todo.md').",
           ),
         allowOverwrite: z
           .boolean()
           .optional()
-          .describe("If true, move proceeds even when a file already exists at the destination (default: false)"),
+          .describe(
+            "If true, move proceeds even when a file already exists at the destination; " +
+              "otherwise the move throws (default: false).",
+          ),
       },
       async ({
         path,
