@@ -44,7 +44,6 @@ import { McpHandler } from "./mcpHandler";
 import { ErrorCode } from "./types";
 import { DEFAULT_SETTINGS } from "./constants";
 import { TFile } from "../mocks/obsidian";
-import { FrontmatterParseError, PatchFailed, PatchFailureReason } from "markdown-patch";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -87,6 +86,9 @@ function makeMockOps() {
     writeFileContent: jest.fn().mockResolvedValue(undefined),
     appendFileContent: jest.fn().mockResolvedValue(undefined),
     patchFileSection: jest.fn().mockResolvedValue("patched content"),
+    patchFileSectionMdp2: jest
+      .fn()
+      .mockResolvedValue({ document: "patched content", warnings: [] }),
     deleteVaultFile: jest.fn().mockResolvedValue(undefined),
     searchJsonLogic: jest
       .fn()
@@ -356,194 +358,139 @@ describe("McpHandler", () => {
 
   // ---- vault_patch --------------------------------------------------------
 
-  test("vault_patch calls patchFileSection with correct args", async () => {
+  test("vault_patch builds a heading content instruction and calls patchFileSectionMdp2", async () => {
     const cb = getToolCallback("vault_patch");
     await cb({
       path: "out.md",
       targetType: "heading",
-      target: "Introduction",
+      target: ["Overview", "Details"],
       operation: "append",
       content: "new text",
-      contentType: "text/markdown",
     });
-    expect(ops.patchFileSection).toHaveBeenCalledWith(
-      "out.md",
-      "heading",
-      "Introduction",
-      "append",
-      "new text",
-      "text/markdown",
-      expect.objectContaining({}),
-    );
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "heading",
+      target: ["Overview", "Details"],
+      operation: "append",
+      content: "new text",
+    });
   });
 
-  test("vault_patch passes rejectIfContentPreexists to patchFileSection", async () => {
+  test("vault_patch omits absent optional fields from the instruction", async () => {
     const cb = getToolCallback("vault_patch");
     await cb({
       path: "out.md",
       targetType: "heading",
-      target: "Introduction",
-      operation: "append",
-      content: "new text",
+      target: ["A"],
+      operation: "replace",
+      content: "x",
+    });
+    const instruction = ops.patchFileSectionMdp2.mock.calls[0][1];
+    expect(instruction).not.toHaveProperty("scope");
+    expect(instruction).not.toHaveProperty("value");
+    expect(instruction).not.toHaveProperty("destination");
+    expect(instruction).not.toHaveProperty("ifMatch");
+  });
+
+  test("vault_patch passes a frontmatter value as native JSON (not a string)", async () => {
+    const cb = getToolCallback("vault_patch");
+    await cb({
+      path: "out.md",
+      targetType: "frontmatter",
+      target: "related",
+      operation: "replace",
+      value: ["alpha", "beta"],
+    });
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "frontmatter",
+      target: "related",
+      operation: "replace",
+      value: ["alpha", "beta"],
+    });
+  });
+
+  test("vault_patch forwards scope, ifMatch, and creation flags", async () => {
+    const cb = getToolCallback("vault_patch");
+    await cb({
+      path: "out.md",
+      targetType: "heading",
+      target: ["A"],
+      operation: "replace",
+      scope: "marker",
+      content: "Renamed",
+      ifMatch: "v1",
+      createTargetIfMissing: true,
       rejectIfContentPreexists: true,
     });
-    expect(ops.patchFileSection).toHaveBeenCalledWith(
-      "out.md",
-      "heading",
-      "Introduction",
-      "append",
-      "new text",
-      "text/markdown",
-      expect.objectContaining({ rejectIfContentPreexists: true }),
-    );
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "heading",
+      target: ["A"],
+      operation: "replace",
+      scope: "marker",
+      content: "Renamed",
+      ifMatch: "v1",
+      createTargetIfMissing: true,
+      rejectIfContentPreexists: true,
+    });
   });
 
-
-  test("vault_patch passes targetScope to patchFileSection", async () => {
+  test("vault_patch forwards a move destination", async () => {
     const cb = getToolCallback("vault_patch");
     await cb({
       path: "out.md",
       targetType: "heading",
-      target: "Introduction",
+      target: ["Overview", "Details"],
       operation: "replace",
-      content: "## New Heading",
-      targetScope: "marker",
+      scope: "parent",
+      destination: { parent: ["Appendix"], place: "last" },
     });
-    expect(ops.patchFileSection).toHaveBeenCalledWith(
-      "out.md",
-      "heading",
-      "Introduction",
-      "replace",
-      "## New Heading",
-      "text/markdown",
-      expect.objectContaining({ targetScope: "marker" }),
-    );
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "heading",
+      target: ["Overview", "Details"],
+      operation: "replace",
+      scope: "parent",
+      destination: { parent: ["Appendix"], place: "last" },
+    });
   });
 
-  test("vault_patch surfaces PatchFailed message as error", async () => {
+  test("vault_patch reports OK on success", async () => {
     const cb = getToolCallback("vault_patch");
-    const err = new PatchFailed(PatchFailureReason.InvalidTarget, { targetType: "heading", target: ["NoSuch"], operation: "append", content: "x" } as any, null);
-    ops.patchFileSection.mockRejectedValueOnce(err);
-    await expect(
-      cb({ path: "out.md", targetType: "heading", target: "NoSuch", operation: "append", content: "x" }),
-    ).rejects.toThrow(err.message);
-  });
-
-  test("vault_patch re-throws non-PatchFailed errors unchanged", async () => {
-    const cb = getToolCallback("vault_patch");
-    const boom = new Error("disk full");
-    ops.patchFileSection.mockRejectedValueOnce(boom);
-    await expect(
-      cb({ path: "out.md", targetType: "heading", target: "Alpha", operation: "append", content: "x" }),
-    ).rejects.toThrow("disk full");
-  });
-
-  test("vault_patch surfaces FrontmatterParseError message as error", async () => {
-    const cb = getToolCallback("vault_patch");
-    const err = new FrontmatterParseError("YAML parse error on line 2: nested mappings are not allowed");
-    ops.patchFileSection.mockRejectedValueOnce(err);
-    await expect(
-      cb({ path: "out.md", targetType: "heading", target: "Heading1", operation: "append", content: "x" }),
-    ).rejects.toThrow(err.message);
-  });
-
-  test("vault_patch parses a stringified JSON array for application/json into a native array", async () => {
-    const cb = getToolCallback("vault_patch");
-    await cb({
+    const result = await cb({
       path: "out.md",
-      targetType: "frontmatter",
-      target: "related",
+      targetType: "heading",
+      target: ["A"],
       operation: "replace",
-      content: '["alpha","beta"]',
-      contentType: "application/json",
+      content: "x",
     });
-    expect(ops.patchFileSection).toHaveBeenCalledWith(
-      "out.md",
-      "frontmatter",
-      "related",
-      "replace",
-      ["alpha", "beta"],
-      "application/json",
-      expect.objectContaining({}),
-    );
+    expect(parseText(result).message).toBe("OK");
   });
 
-  test("vault_patch parses a stringified JSON null for application/json into native null", async () => {
+  test("vault_patch surfaces engine warnings in the result", async () => {
+    ops.patchFileSectionMdp2.mockResolvedValueOnce({
+      document: "patched",
+      warnings: [{ code: "heading-depth-overflow", message: "too deep" }],
+    });
     const cb = getToolCallback("vault_patch");
-    await cb({
+    const result = await cb({
       path: "out.md",
-      targetType: "frontmatter",
-      target: "tags",
+      targetType: "heading",
+      target: ["A"],
       operation: "replace",
-      content: "null",
-      contentType: "application/json",
+      content: "####### x",
     });
-    expect(ops.patchFileSection).toHaveBeenCalledWith(
-      "out.md",
-      "frontmatter",
-      "tags",
-      "replace",
-      null,
-      "application/json",
-      expect.objectContaining({}),
-    );
+    const payload = parseText(result);
+    expect(payload.message).toBe("OK");
+    expect(payload.warnings).toHaveLength(1);
+    expect(payload.warnings[0].code).toBe("heading-depth-overflow");
   });
 
-  test("vault_patch parses a JSON-encoded scalar string for application/json without double-encoding", async () => {
+  test("vault_patch surfaces engine error messages", async () => {
     const cb = getToolCallback("vault_patch");
-    await cb({
-      path: "out.md",
-      targetType: "frontmatter",
-      target: "plan",
-      operation: "replace",
-      content: '"[[../plans/foo]]"',
-      contentType: "application/json",
-    });
-    expect(ops.patchFileSection).toHaveBeenCalledWith(
-      "out.md",
-      "frontmatter",
-      "plan",
-      "replace",
-      "[[../plans/foo]]",
-      "application/json",
-      expect.objectContaining({}),
+    ops.patchFileSectionMdp2.mockRejectedValueOnce(
+      new Error("could not resolve heading target"),
     );
-  });
-
-  test("vault_patch throws on malformed application/json string content and does not patch", async () => {
-    const cb = getToolCallback("vault_patch");
     await expect(
-      cb({
-        path: "out.md",
-        targetType: "frontmatter",
-        target: "plan",
-        operation: "replace",
-        content: "[[../plans/foo]]",
-        contentType: "application/json",
-      }),
-    ).rejects.toThrow(/json/i);
-    expect(ops.patchFileSection).not.toHaveBeenCalled();
-  });
-
-  test("vault_patch does not parse string content for text/markdown", async () => {
-    const cb = getToolCallback("vault_patch");
-    await cb({
-      path: "out.md",
-      targetType: "frontmatter",
-      target: "related",
-      operation: "replace",
-      content: '["alpha","beta"]',
-      contentType: "text/markdown",
-    });
-    expect(ops.patchFileSection).toHaveBeenCalledWith(
-      "out.md",
-      "frontmatter",
-      "related",
-      "replace",
-      '["alpha","beta"]',
-      "text/markdown",
-      expect.objectContaining({}),
-    );
+      cb({ path: "out.md", targetType: "heading", target: ["NoSuch"], operation: "replace", content: "x" }),
+    ).rejects.toThrow("could not resolve heading target");
   });
 
   // ---- vault_delete -------------------------------------------------------
