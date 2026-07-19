@@ -319,7 +319,7 @@ describe("vault_patch tool", () => {
       arguments: {
         path: TEST_PATH,
         targetType: "heading",
-        target: HEADING_DELTA,
+        target: [HEADING_DELTA],
         operation: "append",
         content: "mcp-patch-append\n",
       },
@@ -337,7 +337,7 @@ describe("vault_patch tool", () => {
       arguments: {
         path: TEST_PATH,
         targetType: "heading",
-        target: HEADING_DELTA,
+        target: [HEADING_DELTA],
         operation: "replace",
         content: "mcp-patch-replace\n",
       },
@@ -349,7 +349,7 @@ describe("vault_patch tool", () => {
     expect(body.content).not.toContain(TERM_DELTA);
   });
 
-  test("replaces a frontmatter field", async () => {
+  test("replaces a frontmatter field with a native JSON value", async () => {
     await client.callTool({
       name: "vault_patch",
       arguments: {
@@ -357,9 +357,7 @@ describe("vault_patch tool", () => {
         targetType: "frontmatter",
         target: "title",
         operation: "replace",
-        // Default contentType is text/markdown, so the string is stored verbatim.
-        // (application/json content is parsed into a native value — see below.)
-        content: "MCP Patched Title",
+        value: "MCP Patched Title",
       },
     });
     const body = jsonOf<any>(
@@ -368,7 +366,7 @@ describe("vault_patch tool", () => {
     expect(body.frontmatter?.title).toBe("MCP Patched Title");
   });
 
-  test("parses a stringified JSON array for application/json into a real list", async () => {
+  test("sets a frontmatter list from a native JSON array value", async () => {
     await client.callTool({
       name: "vault_patch",
       arguments: {
@@ -376,8 +374,7 @@ describe("vault_patch tool", () => {
         targetType: "frontmatter",
         target: "related",
         operation: "replace",
-        contentType: "application/json",
-        content: '["alpha","beta"]',
+        value: ["alpha", "beta"],
         createTargetIfMissing: true,
       },
     });
@@ -387,17 +384,15 @@ describe("vault_patch tool", () => {
     expect(body.frontmatter?.related).toEqual(["alpha", "beta"]);
   });
 
-  test("rejects malformed application/json content", async () => {
+  test("surfaces an error for an unresolvable target", async () => {
     const result = await client.callTool({
       name: "vault_patch",
       arguments: {
         path: TEST_PATH,
-        targetType: "frontmatter",
-        target: "related",
+        targetType: "heading",
+        target: ["NoSuchHeadingMcp"],
         operation: "replace",
-        contentType: "application/json",
-        content: "[[../plans/foo]]",
-        createTargetIfMissing: true,
+        content: "x",
       },
     });
     expect(result.isError).toBe(true);
