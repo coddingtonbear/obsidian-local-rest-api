@@ -585,6 +585,12 @@ export default class RequestHandler {
       return this._vaultPatchMdp2(path, body as Record<string, unknown>, res);
     }
 
+    // Past this point the request is served by the deprecated 1.x header-driven
+    // format. Advertise the deprecation and planned removal (RFC 8594) on every
+    // 1.x response — success or error — so clients are nudged toward the JSON
+    // instruction body handled above.
+    res.setHeader("Deprecation", 'true; sunset-version="5.0"');
+
     const operation = req.get("Operation");
     const targetType = req.get("Target-Type");
     const rawTarget = decodeURIComponent(req.get("Target") ?? "");

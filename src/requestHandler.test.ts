@@ -878,6 +878,20 @@ describe("requestHandler", () => {
       expect(res.body.errorCode).toBe(40005);
     });
 
+    test("a 1.x PATCH response carries the Deprecation header", async () => {
+      jest.spyOn(handler.operations, "patchFileSection").mockResolvedValueOnce("# Patched\n");
+      const res = await request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1")
+        .set("Operation", "append")
+        .send("new content");
+      expect(res.status).toBe(200);
+      expect(res.headers["deprecation"]).toBe('true; sunset-version="5.0"');
+    });
+
   });
 
   describe("vaultPatch — markdown-patch 2.0 (JSON instruction body)", () => {
@@ -948,6 +962,18 @@ describe("requestHandler", () => {
       const warnings = JSON.parse(res.headers["md-patch-warnings"]);
       expect(warnings).toHaveLength(1);
       expect(warnings[0].code).toBe("heading-depth-overflow");
+    });
+
+    test("the 2.0 path does not carry the Deprecation header", async () => {
+      app.vault._read = DOC;
+      const res = await patchV2({
+        targetType: "heading",
+        target: ["A", "B"],
+        operation: "append",
+        scope: "content",
+        content: "x",
+      });
+      expect(res.headers["deprecation"]).toBeUndefined();
     });
 
     test("no MD-Patch-Warnings header when there are no warnings", async () => {
