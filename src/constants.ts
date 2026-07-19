@@ -43,6 +43,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.InvalidTargetHeader]: "The 'Target' header you provided was invalid.",
   [ErrorCode.PatchFailed]:
     "The patch you provided could not be applied to the target content.",
+  [ErrorCode.InvalidPatchInstruction]:
+    "The patch instruction you provided was malformed or outside the supported algebra.",
   [ErrorCode.InvalidSearch]: "The search query you provided is not valid.",
   [ErrorCode.ConflictingTargetSpecification]:
     "Target type/target specified in both URL path and request headers. Use one or the other.",

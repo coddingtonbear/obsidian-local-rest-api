@@ -15,6 +15,8 @@ import {
   PatchOperation,
   PatchTargetType,
 } from "markdown-patch";
+import { patch as patchV2 } from "markdown-patch-2";
+import type { InstructionInput, PatchResult } from "markdown-patch-2";
  
 const jsonLogic = require("json-logic-js") as {
   apply: (logic: unknown, data?: unknown) => unknown;
@@ -405,6 +407,25 @@ export class VaultOperations {
     const patched = applyPatch(fileContents, instruction);
     await this.app.vault.adapter.write(filePath, patched);
     return patched;
+  }
+
+  // Applies a single markdown-patch 2.0 instruction and writes the result.
+  // Throws FileNotFoundError when the file is missing; lets the 2.0 engine's
+  // typed errors (TargetNotFoundError, PreconditionFailedError, …) propagate for
+  // the caller to map to HTTP responses. Returns the patched document alongside
+  // any advisory warnings the engine surfaced (e.g. heading-depth overflow).
+  async patchFileSectionV2(
+    filePath: string,
+    instruction: InstructionInput,
+  ): Promise<PatchResult> {
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    if (!(file instanceof TFile)) {
+      throw new FileNotFoundError(`File not found: ${filePath}`);
+    }
+    const fileContents = await this.app.vault.read(file);
+    const result = patchV2(fileContents, instruction);
+    await this.app.vault.adapter.write(filePath, result.document);
+    return result;
   }
 
   getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {

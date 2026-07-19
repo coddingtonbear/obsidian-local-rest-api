@@ -880,6 +880,184 @@ describe("requestHandler", () => {
 
   });
 
+  describe("vaultPatch — markdown-patch 2.0 (MD-Patch-Version: 2)", () => {
+    // The 2.0 engine runs for real here (no mock of patchFileSectionV2), driven
+    // by the mock vault: `vault.read` returns `app.vault._read`, and the write
+    // is captured in `app.vault.adapter._write`. Fixtures mirror the engine's
+    // own unit tests so expected output is authoritative.
+    const DOC = "# A\na-body\n\n## B\nb-body\n\n# C\nc-body\n";
+
+    function patchV2(instruction: unknown) {
+      return request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MD-Patch-Version", "2")
+        .send(instruction as object);
+    }
+
+    test("append @ content edits the section body and returns the patched document", async () => {
+      app.vault._read = DOC;
+      const res = await patchV2({
+        targetType: "heading",
+        target: ["A", "B"],
+        operation: "append",
+        scope: "content",
+        content: "x",
+      });
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("b-body\nx");
+      // The patched document was written back to the vault.
+      expect(app.vault.adapter._write[1]).toContain("b-body\nx");
+    });
+
+    test("an omitted scope defaults to content", async () => {
+      app.vault._read = DOC;
+      const res = await patchV2({
+        targetType: "heading",
+        target: ["A", "B"],
+        operation: "replace",
+        content: "z",
+      });
+      expect(res.status).toBe(200);
+      expect(res.text).toBe("# A\na-body\n\n## B\nz\n\n# C\nc-body\n");
+    });
+
+    test("frontmatter value carried in the JSON `value` field", async () => {
+      app.vault._read = "---\ntitle: Hello\n---\nbody\n";
+      const res = await patchV2({
+        targetType: "frontmatter",
+        target: "title",
+        operation: "replace",
+        value: "Bye",
+      });
+      expect(res.status).toBe(200);
+      expect(res.text).toBe("---\ntitle: Bye\n---\nbody\n");
+    });
+
+    test("engine warnings are surfaced in the MD-Patch-Warnings header", async () => {
+      app.vault._read = DOC;
+      const res = await patchV2({
+        targetType: "heading",
+        target: ["A", "B"],
+        operation: "replace",
+        scope: "content",
+        content: "##### deep", // level 5 + baseline 2 = 7, overflows h6
+      });
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("####### deep");
+      const warnings = JSON.parse(res.headers["md-patch-warnings"]);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0].code).toBe("heading-depth-overflow");
+    });
+
+    test("no MD-Patch-Warnings header when there are no warnings", async () => {
+      app.vault._read = DOC;
+      const res = await patchV2({
+        targetType: "heading",
+        target: ["A", "B"],
+        operation: "append",
+        scope: "content",
+        content: "x",
+      });
+      expect(res.headers["md-patch-warnings"]).toBeUndefined();
+    });
+
+    test("an ifMatch mismatch returns 412", async () => {
+      app.vault._read = DOC;
+      const res = await patchV2({
+        targetType: "heading",
+        target: ["A", "B"],
+        operation: "append",
+        scope: "content",
+        content: "x",
+        ifMatch: "deadbeef",
+      });
+      expect(res.status).toBe(412);
+    });
+
+    test("an unresolvable target returns 404", async () => {
+      app.vault._read = DOC;
+      const res = await patchV2({
+        targetType: "heading",
+        target: ["Nope"],
+        operation: "replace",
+        scope: "content",
+        content: "x",
+      });
+      expect(res.status).toBe(404);
+    });
+
+    test("a missing file returns 404", async () => {
+      app.vault._read = DOC;
+      app.vault._getAbstractFileByPath = null;
+      const res = await patchV2({
+        targetType: "heading",
+        target: ["A"],
+        operation: "replace",
+        scope: "content",
+        content: "x",
+      });
+      expect(res.status).toBe(404);
+    });
+
+    test("a non-object body returns 400 InvalidPatchInstruction", async () => {
+      const res = await request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MD-Patch-Version", "2")
+        .set("Content-Type", "text/markdown")
+        .send("just some text");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40081);
+    });
+
+    test("an invalid targetType returns 400", async () => {
+      const res = await patchV2({
+        targetType: "nonsense",
+        target: ["A"],
+        operation: "replace",
+        content: "x",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40054);
+    });
+
+    test("an invalid operation returns 400", async () => {
+      const res = await patchV2({
+        targetType: "heading",
+        target: ["A"],
+        operation: "nonsense",
+        content: "x",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40057);
+    });
+
+    test("an invalid scope returns 400", async () => {
+      const res = await patchV2({
+        targetType: "heading",
+        target: ["A"],
+        operation: "replace",
+        scope: "nonsense",
+        content: "x",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40059);
+    });
+
+    test("without the header, the request still routes to the 1.x engine", async () => {
+      // No MD-Patch-Version header and no Target-Type header -> the 1.x path's
+      // missing-Target-Type error, proving v1 still governs by default.
+      const res = await request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/json")
+        .send({ targetType: "heading", target: ["A"], operation: "replace", content: "x" });
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40053);
+    });
+  });
+
   describe("path traversal prevention", () => {
     // Two ..%2F segments are enough to escape the synthetic /vault root.
     const traversal = "/vault/..%2F..%2Fetc%2Fpasswd";

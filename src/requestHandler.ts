@@ -19,6 +19,13 @@ import {
   PatchFailed,
   PatchOperation,
 } from "markdown-patch";
+import {
+  ContentPreexistsError,
+  InvalidCellError,
+  PreconditionFailedError,
+  TargetNotFoundError,
+} from "markdown-patch-2";
+import type { InstructionInput } from "markdown-patch-2";
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/sdk/types.js";
 
 import {
@@ -46,6 +53,9 @@ import {
   isPatchOperation,
   isPatchTargetScope,
   isPatchTargetType,
+  isV2Operation,
+  isV2Scope,
+  isV2TargetType,
 } from "./typeGuards";
 import LocalRestApiPublicApi from "./api";
 import {
@@ -558,6 +568,13 @@ export default class RequestHandler {
       return;
     }
 
+    // Opt-in routing to the markdown-patch 2.0 engine. Without this header the
+    // request is served by the header-driven 1.x path below, byte-for-byte as
+    // before, so existing clients are unaffected.
+    if (req.get("MD-Patch-Version") === "2") {
+      return this._vaultPatchV2(path, req, res);
+    }
+
     const operation = req.get("Operation");
     const targetType = req.get("Target-Type");
     const rawTarget = decodeURIComponent(req.get("Target") ?? "");
@@ -618,6 +635,76 @@ export default class RequestHandler {
     const rawPath = this.extractVaultPath(req, res);
     if (rawPath === null) return;
     return this._vaultPatch(rawPath, req, res);
+  }
+
+  /** The markdown-patch 2.0 PATCH path, selected by `MD-Patch-Version: 2`.
+   *  The whole instruction rides in a JSON request body (an `InstructionInput`);
+   *  the URL supplies only the file. On success the patched document is returned
+   *  as the body, with any advisory warnings JSON-encoded in the
+   *  `MD-Patch-Warnings` response header. */
+  async _vaultPatchV2(
+    path: string,
+    req: express.Request,
+    res: express.Response,
+  ): Promise<void> {
+    const body: unknown = req.body;
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidPatchInstruction,
+      });
+      return;
+    }
+    const candidate = body as Record<string, unknown>;
+
+    // Validate the discriminants up front so malformed input gets a clean 400
+    // rather than surfacing as an opaque engine failure.
+    if (!isV2TargetType(candidate.targetType)) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetTypeHeader });
+      return;
+    }
+    if (!isV2Operation(candidate.operation)) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidOperation });
+      return;
+    }
+    if (candidate.scope !== undefined && !isV2Scope(candidate.scope)) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetScopeHeader });
+      return;
+    }
+
+    try {
+      const result = await this.operations.patchFileSectionV2(
+        path,
+        candidate as unknown as InstructionInput,
+      );
+      if (result.warnings.length > 0) {
+        res.setHeader("MD-Patch-Warnings", JSON.stringify(result.warnings));
+      }
+      res.setHeader("Content-Type", ContentTypes.markdown + "; charset=utf-8");
+      res.status(200).send(result.document);
+    } catch (e) {
+      if (e instanceof FileNotFoundError) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+      } else if (e instanceof PreconditionFailedError) {
+        this.returnCannedResponse(res, { statusCode: 412, message: e.message });
+      } else if (e instanceof TargetNotFoundError) {
+        this.returnCannedResponse(res, { statusCode: 404, message: e.message });
+      } else if (e instanceof ContentPreexistsError) {
+        this.returnCannedResponse(res, { statusCode: 409, message: e.message });
+      } else if (e instanceof InvalidCellError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidPatchInstruction,
+          message: e.message,
+        });
+      } else {
+        // Any other failure to compute the patch is a client error against the
+        // supplied instruction, mirroring the coarse PatchFailed semantics of
+        // the 1.x endpoint rather than reporting a server fault.
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.PatchFailed,
+          message: (e as Error).message,
+        });
+      }
+    }
   }
 
   async _vaultPatchTargeted(
