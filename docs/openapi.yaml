@@ -457,7 +457,7 @@ paths:
       description: |
         Modifies the currently-open note with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.
         
-        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
+        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body.
         
         > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
         
@@ -467,7 +467,7 @@ paths:
         - **scope** (optional, default `content`):
           - `content` — the node's body. For a heading, that's its whole subtree *below* the heading line.
           - `marker` — the label only: a heading line, a block `^id`, or a frontmatter key. `replace` renames it.
-          - `markerAndContent` — the whole node/subtree. `prepend`/`append` insert a *sibling* before/after it.
+          - `markerAndContent` — the marker *and* the body together: for a heading, its heading line plus everything beneath it. Unlike `content`, the heading line is inside the edited span, so a `replace` here rewrites the heading itself. `prepend`/`append` insert a *sibling* before/after it.
           - `parent` — a heading's place in the tree. Valid only with `replace`, and carries a `destination` (a **move**).
         - **target** — for a heading, an array of heading texts from the top level down (`["Overview","Details"]`), or `null`/`[]` for the document root; for a block, the bare id without `^`; for a frontmatter field, the key.
         - **payload** — carried in exactly one field, chosen by what it is:
@@ -477,7 +477,9 @@ paths:
         
         Not every combination is meaningful; invalid ones are rejected with a `400`.
         
-        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header.
+        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. Nesting inside your content is preserved as you wrote it — replacing a `##` section with `# New\n\n## Child` yields `## New` and `### Child`. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header.
+        
+        > **Note:** because the heading line is part of the `markerAndContent` span, a `replace` whose content has *no* heading removes it — the section is dissolved into a plain paragraph. Include a leading `#` (at any depth; it is rebased for you) to keep it a heading.
         
         # How to Use & Examples
         
@@ -1621,7 +1623,7 @@ paths:
       description: |
         Modifies the current periodic note for the specified period with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.
         
-        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
+        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body.
         
         > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
         
@@ -1631,7 +1633,7 @@ paths:
         - **scope** (optional, default `content`):
           - `content` — the node's body. For a heading, that's its whole subtree *below* the heading line.
           - `marker` — the label only: a heading line, a block `^id`, or a frontmatter key. `replace` renames it.
-          - `markerAndContent` — the whole node/subtree. `prepend`/`append` insert a *sibling* before/after it.
+          - `markerAndContent` — the marker *and* the body together: for a heading, its heading line plus everything beneath it. Unlike `content`, the heading line is inside the edited span, so a `replace` here rewrites the heading itself. `prepend`/`append` insert a *sibling* before/after it.
           - `parent` — a heading's place in the tree. Valid only with `replace`, and carries a `destination` (a **move**).
         - **target** — for a heading, an array of heading texts from the top level down (`["Overview","Details"]`), or `null`/`[]` for the document root; for a block, the bare id without `^`; for a frontmatter field, the key.
         - **payload** — carried in exactly one field, chosen by what it is:
@@ -1641,7 +1643,9 @@ paths:
         
         Not every combination is meaningful; invalid ones are rejected with a `400`.
         
-        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header.
+        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. Nesting inside your content is preserved as you wrote it — replacing a `##` section with `# New\n\n## Child` yields `## New` and `### Child`. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header.
+        
+        > **Note:** because the heading line is part of the `markerAndContent` span, a `replace` whose content has *no* heading removes it — the section is dissolved into a plain paragraph. Include a leading `#` (at any depth; it is rebased for you) to keep it a heading.
         
         # How to Use & Examples
         
@@ -2565,7 +2569,7 @@ paths:
       description: |
         Modifies a periodic note for the specified period and date with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.
         
-        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
+        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body.
         
         > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
         
@@ -2575,7 +2579,7 @@ paths:
         - **scope** (optional, default `content`):
           - `content` — the node's body. For a heading, that's its whole subtree *below* the heading line.
           - `marker` — the label only: a heading line, a block `^id`, or a frontmatter key. `replace` renames it.
-          - `markerAndContent` — the whole node/subtree. `prepend`/`append` insert a *sibling* before/after it.
+          - `markerAndContent` — the marker *and* the body together: for a heading, its heading line plus everything beneath it. Unlike `content`, the heading line is inside the edited span, so a `replace` here rewrites the heading itself. `prepend`/`append` insert a *sibling* before/after it.
           - `parent` — a heading's place in the tree. Valid only with `replace`, and carries a `destination` (a **move**).
         - **target** — for a heading, an array of heading texts from the top level down (`["Overview","Details"]`), or `null`/`[]` for the document root; for a block, the bare id without `^`; for a frontmatter field, the key.
         - **payload** — carried in exactly one field, chosen by what it is:
@@ -2585,7 +2589,9 @@ paths:
         
         Not every combination is meaningful; invalid ones are rejected with a `400`.
         
-        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header.
+        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. Nesting inside your content is preserved as you wrote it — replacing a `##` section with `# New\n\n## Child` yields `## New` and `### Child`. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header.
+        
+        > **Note:** because the heading line is part of the `markerAndContent` span, a `replace` whose content has *no* heading removes it — the section is dissolved into a plain paragraph. Include a leading `#` (at any depth; it is rebased for you) to keep it a heading.
         
         # How to Use & Examples
         
@@ -3797,7 +3803,7 @@ paths:
       description: |
         Modifies an existing note with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.
         
-        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
+        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body.
         
         > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
         
@@ -3807,7 +3813,7 @@ paths:
         - **scope** (optional, default `content`):
           - `content` — the node's body. For a heading, that's its whole subtree *below* the heading line.
           - `marker` — the label only: a heading line, a block `^id`, or a frontmatter key. `replace` renames it.
-          - `markerAndContent` — the whole node/subtree. `prepend`/`append` insert a *sibling* before/after it.
+          - `markerAndContent` — the marker *and* the body together: for a heading, its heading line plus everything beneath it. Unlike `content`, the heading line is inside the edited span, so a `replace` here rewrites the heading itself. `prepend`/`append` insert a *sibling* before/after it.
           - `parent` — a heading's place in the tree. Valid only with `replace`, and carries a `destination` (a **move**).
         - **target** — for a heading, an array of heading texts from the top level down (`["Overview","Details"]`), or `null`/`[]` for the document root; for a block, the bare id without `^`; for a frontmatter field, the key.
         - **payload** — carried in exactly one field, chosen by what it is:
@@ -3817,7 +3823,9 @@ paths:
         
         Not every combination is meaningful; invalid ones are rejected with a `400`.
         
-        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header.
+        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. Nesting inside your content is preserved as you wrote it — replacing a `##` section with `# New\n\n## Child` yields `## New` and `### Child`. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header.
+        
+        > **Note:** because the heading line is part of the `markerAndContent` span, a `replace` whose content has *no* heading removes it — the section is dissolved into a plain paragraph. Include a leading `#` (at any depth; it is rebased for you) to keep it a heading.
         
         # How to Use & Examples
         
