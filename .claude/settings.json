@@ -14,7 +14,12 @@
       "Bash(OBSIDIAN_API_KEY=44be0dc95a1d0ecce5f0bb42cac1a570852a758c0578b0c96aebe30dbdf5d908 npm run test:integration -- --verbose)",
       "WebFetch(domain:docs.cursor.com)",
       "WebFetch(domain:support.claude.com)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "mcp__obsidian__vault_list",
+      "mcp__obsidian__vault_write",
+      "Bash(NODE_OPTIONS=--experimental-vm-modules npx jest model.property)",
+      "Bash(NODE_OPTIONS=--experimental-vm-modules npx jest conformance.test)",
+      "Bash(NODE_OPTIONS=--experimental-vm-modules npx jest src/tests/instructions.test.ts)"
     ]
   }
 }

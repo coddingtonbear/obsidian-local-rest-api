@@ -69,6 +69,27 @@ import { McpHandler } from "./mcpHandler";
 // Import openapi.yaml as a string
 import openapiYaml from "../docs/openapi.yaml";
 
+/** The header that selects which markdown-patch format a request speaks. */
+export const MARKDOWN_PATCH_VERSION_HEADER = "Markdown-Patch-Version";
+
+/** The `sunset-version` advertised for the deprecated 1.x format (RFC 8594). */
+export const MARKDOWN_PATCH_V1_SUNSET = "6.0";
+
+/**
+ * Resolve which markdown-patch engine a request selects via the
+ * {@link MARKDOWN_PATCH_VERSION_HEADER} header. The 2.0 format is the default:
+ * an absent header or an explicit `"2"` selects it; `"1"` opts back into the
+ * deprecated header-driven format; any other value is invalid (`null`).
+ */
+export function resolvePatchVersion(
+  req: express.Request,
+): 1 | 2 | null {
+  const raw = req.get(MARKDOWN_PATCH_VERSION_HEADER);
+  if (raw === undefined || raw === "2") return 2;
+  if (raw === "1") return 1;
+  return null;
+}
+
 export default class RequestHandler {
   app: App;
   api: express.Express;
@@ -568,20 +589,25 @@ export default class RequestHandler {
       return;
     }
 
-    // Select the engine by request shape rather than a version header. The 1.x
-    // path is entirely header-driven and always requires a Target-Type header;
-    // a markdown-patch 2.0 request instead carries its whole instruction in a
-    // JSON body and sets no Target-Type. So a request with no Target-Type header
-    // and an object body is a 2.0 patch. Everything else stays on the 1.x path
-    // below, preserving its behavior — including the missing-Target-Type error
-    // for a malformed 1.x request — byte-for-byte.
-    const body: unknown = req.body;
-    if (
-      !req.get("Target-Type") &&
-      typeof body === "object" &&
-      body !== null &&
-      !Array.isArray(body)
-    ) {
+    // Select the engine by the Markdown-Patch-Version header. The 2.0 format is
+    // the default: its whole instruction is the JSON request body, so any
+    // request that does not opt into 1.x is routed there. `Markdown-Patch-Version: 1`
+    // opts back into the deprecated header-driven format below.
+    const version = resolvePatchVersion(req);
+    if (version === null) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidPatchVersionHeader });
+      return;
+    }
+    if (version === 2) {
+      const body: unknown = req.body;
+      if (typeof body !== "object" || body === null || Array.isArray(body)) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidPatchInstruction,
+          message:
+            "A markdown-patch 2.0 PATCH expects a JSON instruction object as the request body (send Content-Type: application/json). To use the deprecated 1.x header-driven format, set the 'Markdown-Patch-Version: 1' header.",
+        });
+        return;
+      }
       return this._vaultPatchMdp2(path, body as Record<string, unknown>, res);
     }
 
@@ -589,7 +615,7 @@ export default class RequestHandler {
     // format. Advertise the deprecation and planned removal (RFC 8594) on every
     // 1.x response — success or error — so clients are nudged toward the JSON
     // instruction body handled above.
-    res.setHeader("Deprecation", 'true; sunset-version="5.0"');
+    res.setHeader("Deprecation", `true; sunset-version="${MARKDOWN_PATCH_V1_SUNSET}"`);
 
     const operation = req.get("Operation");
     const targetType = req.get("Target-Type");

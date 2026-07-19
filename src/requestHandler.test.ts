@@ -843,6 +843,7 @@ describe("requestHandler", () => {
       await request(server)
         .patch("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Markdown-Patch-Version", "1")
         .set("Content-Type", "text/markdown")
         .send("bytes")
         .expect(400);
@@ -854,6 +855,7 @@ describe("requestHandler", () => {
       await request(server)
         .patch("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Markdown-Patch-Version", "1")
         .set("Content-Type", "text/markdown")
         .set("Target-Type", "heading")
         .set("Target", "Heading1")
@@ -869,6 +871,7 @@ describe("requestHandler", () => {
       const res = await request(server)
         .patch("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Markdown-Patch-Version", "1")
         .set("Content-Type", "text/markdown")
         .set("Target-Type", "heading")
         .set("Target", "Heading1")
@@ -883,13 +886,35 @@ describe("requestHandler", () => {
       const res = await request(server)
         .patch("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Markdown-Patch-Version", "1")
         .set("Content-Type", "text/markdown")
         .set("Target-Type", "heading")
         .set("Target", "Heading1")
         .set("Operation", "append")
         .send("new content");
       expect(res.status).toBe(200);
-      expect(res.headers["deprecation"]).toBe('true; sunset-version="5.0"');
+      expect(res.headers["deprecation"]).toBe('true; sunset-version="6.0"');
+    });
+
+    test("an invalid Markdown-Patch-Version header returns 400 (40082)", async () => {
+      const res = await request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Markdown-Patch-Version", "9")
+        .set("Content-Type", "application/json")
+        .send({ targetType: "heading", target: ["Heading1"], operation: "append", content: "x" });
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40082);
+    });
+
+    test("the 2.0 default rejects a non-object body with 400 (40081)", async () => {
+      const res = await request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("just some text, not an instruction");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40081);
     });
 
   });
@@ -899,7 +924,8 @@ describe("requestHandler", () => {
     // by the mock vault: `vault.read` returns `app.vault._read`, and the write
     // is captured in `app.vault.adapter._write`. Fixtures mirror the engine's
     // own unit tests so expected output is authoritative. Routing to the 2.0
-    // engine is by request shape: no Target-Type header + an object JSON body.
+    // engine is the default (no Markdown-Patch-Version header) with an object
+    // JSON body.
     const DOC = "# A\na-body\n\n## B\nb-body\n\n# C\nc-body\n";
 
     function patchV2(instruction: unknown) {
@@ -1026,16 +1052,16 @@ describe("requestHandler", () => {
       expect(res.status).toBe(404);
     });
 
-    test("a non-object (text) body with no Target-Type falls through to the 1.x engine", async () => {
-      // Not an object body -> not a 2.0 instruction -> the 1.x path runs and
-      // reports its own missing-Target-Type error, unchanged.
+    test("an explicit Markdown-Patch-Version: 2 also routes to the 2.0 engine", async () => {
+      app.vault._read = DOC;
       const res = await request(server)
         .patch("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Content-Type", "text/markdown")
-        .send("just some text");
-      expect(res.status).toBe(400);
-      expect(res.body.errorCode).toBe(40053);
+        .set("Markdown-Patch-Version", "2")
+        .set("Content-Type", "application/json")
+        .send({ targetType: "heading", target: ["A"], operation: "append", content: "x" });
+      expect(res.status).toBe(200);
+      expect(res.headers["deprecation"]).toBeUndefined();
     });
 
     test("an invalid targetType returns 400", async () => {
@@ -1072,13 +1098,14 @@ describe("requestHandler", () => {
       expect(res.body.errorCode).toBe(40059);
     });
 
-    test("a Target-Type header forces the 1.x engine even with a JSON body", async () => {
-      // Presence of Target-Type -> 1.x path. Omitting Operation triggers the
-      // 1.x missing-Operation error (which the 2.0 path has no notion of),
-      // proving the 1.x engine governed the request.
+    test("Markdown-Patch-Version: 1 forces the 1.x engine even with a JSON body", async () => {
+      // The opt-in header selects the 1.x path regardless of body shape. Omitting
+      // Operation triggers the 1.x missing-Operation error (which the 2.0 path has
+      // no notion of), proving the 1.x engine governed the request.
       const res = await request(server)
         .patch("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Markdown-Patch-Version", "1")
         .set("Target-Type", "heading")
         .set("Target", "A")
         .set("Content-Type", "application/json")
@@ -2328,6 +2355,7 @@ describe("requestHandler", () => {
       const res = await request(server)
         .patch("/periodic/daily/")
         .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Markdown-Patch-Version", "1")
         .set("Content-Type", "text/markdown")
         .set("Operation", "append")
         .set("Target-Type", "heading")
@@ -2344,6 +2372,7 @@ describe("requestHandler", () => {
       const res = await request(server)
         .patch("/periodic/daily/")
         .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Markdown-Patch-Version", "1")
         .set("Content-Type", "text/markdown")
         .set("Operation", "append")
         .set("Target-Type", "heading")
@@ -2428,6 +2457,7 @@ describe("requestHandler", () => {
       const res = await request(server)
         .patch("/active/")
         .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Markdown-Patch-Version", "1")
         .set("Content-Type", "text/markdown")
         .set("Operation", "append")
         .set("Target-Type", "heading")

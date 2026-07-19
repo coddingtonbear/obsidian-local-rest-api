@@ -19,6 +19,7 @@ export enum ErrorCode {
   MissingOperation = 40056,
   InvalidOperation = 40057,
   InvalidTargetHeader = 40058,
+  InvalidPatchVersionHeader = 40082,
   PeriodIsNotEnabled = 40060,
   InvalidFilterQuery = 40070,
   PatchFailed = 40080,

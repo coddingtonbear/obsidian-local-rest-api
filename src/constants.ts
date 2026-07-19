@@ -41,6 +41,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.InvalidOperation]:
     "The 'Operation' header you provided was invalid.",
   [ErrorCode.InvalidTargetHeader]: "The 'Target' header you provided was invalid.",
+  [ErrorCode.InvalidPatchVersionHeader]:
+    "The 'Markdown-Patch-Version' header you provided was invalid. Valid values are '1' (the deprecated header-driven format) and '2' (the default JSON-instruction format).",
   [ErrorCode.PatchFailed]:
     "The patch you provided could not be applied to the target content.",
   [ErrorCode.InvalidPatchInstruction]:
