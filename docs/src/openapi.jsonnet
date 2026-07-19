@@ -167,7 +167,7 @@ std.manifestYamlDoc(
           type: 'object',
           description: |||
             A single edit expressed as one operation applied to a scope of a
-            target node (the markdown-patch 2.0 algebra). The payload rides in
+            target node. The payload rides in
             exactly one of `content`, `value`, or `destination`, chosen by what
             it is. Not every operation×scope×targetType combination is valid;
             invalid ones are rejected with a 400.

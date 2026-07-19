@@ -1,15 +1,15 @@
 local T = import 'targeting.params.jsonnet';
 
 {
-  // The 2.0 PATCH's whole instruction is the JSON body; the only header it reads
-  // is Markdown-Patch-Version (2 by default; 1 opts into the deprecated
+  // A PATCH's whole instruction is the JSON body; the only header it reads is
+  // Markdown-Patch-Version (2 by default; 1 opts into the deprecated
   // header-driven format documented below). Each path adds its own path parameter
   // via `super.parameters`.
   parameters: [
     T.markdownPatchVersion,
   ],
   requestBody: {
-    description: 'A single patch instruction (the markdown-patch 2.0 format).',
+    description: 'A single patch instruction.',
     required: true,
     content: {
       'application/json': {
@@ -81,7 +81,7 @@ local T = import 'targeting.params.jsonnet';
       },
     },
     '400': {
-      description: 'Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, or a 2.0 request had a non-object body. See response message for details.',
+      description: 'Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, or the request had a non-object body. See response message for details.',
       content: {
         'application/json': {
           schema: {

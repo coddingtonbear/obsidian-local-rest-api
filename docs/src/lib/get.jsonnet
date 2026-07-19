@@ -25,9 +25,9 @@ local T = import 'targeting.params.jsonnet';
         'application/vnd.olrapi.document-map+json': {
           schema: {
             description: |||
-              The document map. This is the 2.0 shape (the default). To receive the
-              deprecated 1.x shape — heading paths as `::`-joined strings, block ids
-              prefixed with `^`, and no `version` — send `Markdown-Patch-Version: 1`.
+              The document map. To receive the deprecated 1.x shape — heading paths as
+              `::`-joined strings, block ids prefixed with `^`, and no `version` —
+              send `Markdown-Patch-Version: 1`.
             |||,
             type: 'object',
             properties: {

@@ -68,7 +68,7 @@ components:
     PatchInstruction:
       description: |
         A single edit expressed as one operation applied to a scope of a
-        target node (the markdown-patch 2.0 algebra). The payload rides in
+        target node. The payload rides in
         exactly one of `content`, `value`, or `destination`, chosen by what
         it is. Not every operation×scope×targetType combination is valid;
         invalid ones are rejected with a 400.
@@ -301,7 +301,7 @@ paths:
         
         Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The default (2.0) map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
@@ -328,13 +328,13 @@ paths:
         If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
       parameters:
         - description: |
-            Selects which markdown-patch format governs this request. The 2.0 format is
-            the default: for PATCH the whole instruction is the JSON request body, and
-            the document map returns heading addresses as arrays plus a `version` token.
-            Set to `1` to opt back into the deprecated 1.x header-driven PATCH format and
-            the 1.x `::`-joined document map. Responses served by the 1.x format carry a
-            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or
-            `2` returns `400 InvalidPatchVersionHeader`.
+            Selects which markdown-patch format governs this request. You do not normally
+            need to send this header: by default, a PATCH carries its whole instruction in
+            the JSON request body, and the document map returns heading addresses as arrays
+            plus a `version` token. Set it to `1` to opt back into the deprecated 1.x
+            header-driven PATCH format and the 1.x `::`-joined document map. Responses
+            served by the 1.x format carry a `Deprecation: true; sunset-version="6.0"`
+            header. Any value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -386,9 +386,9 @@ paths:
             "application/vnd.olrapi.document-map+json":
               schema:
                 description: |
-                  The document map. This is the 2.0 shape (the default). To receive the
-                  deprecated 1.x shape — heading paths as `::`-joined strings, block ids
-                  prefixed with `^`, and no `version` — send `Markdown-Patch-Version: 1`.
+                  The document map. To receive the deprecated 1.x shape — heading paths as
+                  `::`-joined strings, block ids prefixed with `^`, and no `version` —
+                  send `Markdown-Patch-Version: 1`.
                 properties:
                   blocks:
                     description: "Block reference ids, bare (no leading `^`), in document order."
@@ -457,7 +457,7 @@ paths:
       description: |
         Modifies the currently-open note with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.
         
-        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). This is the markdown-patch 2.0 format: the whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
+        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
         
         > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
         
@@ -629,9 +629,9 @@ paths:
         
         The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 6.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="6.0"` header.
         
-        The 2.0 format is now the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without it (or with `Markdown-Patch-Version: 2`), the 2.0 engine described above handles the request, and a non-object body is rejected with `400 InvalidPatchInstruction`. To upgrade, drop the header and move each 1.x header into the JSON body:
+        The JSON-instruction format described above is the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without it (or with `Markdown-Patch-Version: 2`), the instruction format described above handles the request, and a non-object body is rejected with `400 InvalidPatchInstruction`. To upgrade, drop the header and move each 1.x header into the JSON body:
         
-        | 1.x header | 2.0 field |
+        | 1.x header | Instruction field |
         | --- | --- |
         | `Operation: append` | `"operation": "append"` (now also `"delete"`) |
         | `Target-Type: heading` | `"targetType": "heading"` |
@@ -641,16 +641,16 @@ paths:
         | body (`application/json` value) | `"value": <json>` |
         | `Create-Target-If-Missing: true` | `"createTargetIfMissing": true` |
         | `Reject-If-Content-Preexists: true` | `"rejectIfContentPreexists": true` |
-        | `Trim-Target-Whitespace` | *(dropped; the 2.0 engine owns boundary whitespace)* |
+        | `Trim-Target-Whitespace` | *(dropped; the engine owns boundary whitespace)* |
       parameters:
         - description: |
-            Selects which markdown-patch format governs this request. The 2.0 format is
-            the default: for PATCH the whole instruction is the JSON request body, and
-            the document map returns heading addresses as arrays plus a `version` token.
-            Set to `1` to opt back into the deprecated 1.x header-driven PATCH format and
-            the 1.x `::`-joined document map. Responses served by the 1.x format carry a
-            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or
-            `2` returns `400 InvalidPatchVersionHeader`.
+            Selects which markdown-patch format governs this request. You do not normally
+            need to send this header: by default, a PATCH carries its whole instruction in
+            the JSON request body, and the document map returns heading addresses as arrays
+            plus a `version` token. Set it to `1` to opt back into the deprecated 1.x
+            header-driven PATCH format and the 1.x `::`-joined document map. Responses
+            served by the 1.x format carry a `Deprecation: true; sunset-version="6.0"`
+            header. Any value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -714,7 +714,7 @@ paths:
                   value: 2
             schema:
               "$ref": "#/components/schemas/PatchInstruction"
-        description: "A single patch instruction (the markdown-patch 2.0 format)."
+        description: "A single patch instruction."
         required: true
       responses:
         "200":
@@ -730,7 +730,7 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, or a 2.0 request had a non-object body. See response message for details."
+          description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, or the request had a non-object body. See response message for details."
         "404":
           content:
             application/json:
@@ -793,7 +793,7 @@ paths:
         
         Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The default (2.0) map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
@@ -956,7 +956,7 @@ paths:
         
         Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The default (2.0) map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
@@ -1452,7 +1452,7 @@ paths:
         
         Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The default (2.0) map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
@@ -1492,13 +1492,13 @@ paths:
               - "yearly"
             type: "string"
         - description: |
-            Selects which markdown-patch format governs this request. The 2.0 format is
-            the default: for PATCH the whole instruction is the JSON request body, and
-            the document map returns heading addresses as arrays plus a `version` token.
-            Set to `1` to opt back into the deprecated 1.x header-driven PATCH format and
-            the 1.x `::`-joined document map. Responses served by the 1.x format carry a
-            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or
-            `2` returns `400 InvalidPatchVersionHeader`.
+            Selects which markdown-patch format governs this request. You do not normally
+            need to send this header: by default, a PATCH carries its whole instruction in
+            the JSON request body, and the document map returns heading addresses as arrays
+            plus a `version` token. Set it to `1` to opt back into the deprecated 1.x
+            header-driven PATCH format and the 1.x `::`-joined document map. Responses
+            served by the 1.x format carry a `Deprecation: true; sunset-version="6.0"`
+            header. Any value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -1550,9 +1550,9 @@ paths:
             "application/vnd.olrapi.document-map+json":
               schema:
                 description: |
-                  The document map. This is the 2.0 shape (the default). To receive the
-                  deprecated 1.x shape — heading paths as `::`-joined strings, block ids
-                  prefixed with `^`, and no `version` — send `Markdown-Patch-Version: 1`.
+                  The document map. To receive the deprecated 1.x shape — heading paths as
+                  `::`-joined strings, block ids prefixed with `^`, and no `version` —
+                  send `Markdown-Patch-Version: 1`.
                 properties:
                   blocks:
                     description: "Block reference ids, bare (no leading `^`), in document order."
@@ -1621,7 +1621,7 @@ paths:
       description: |
         Modifies the current periodic note for the specified period with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.
         
-        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). This is the markdown-patch 2.0 format: the whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
+        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
         
         > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
         
@@ -1793,9 +1793,9 @@ paths:
         
         The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 6.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="6.0"` header.
         
-        The 2.0 format is now the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without it (or with `Markdown-Patch-Version: 2`), the 2.0 engine described above handles the request, and a non-object body is rejected with `400 InvalidPatchInstruction`. To upgrade, drop the header and move each 1.x header into the JSON body:
+        The JSON-instruction format described above is the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without it (or with `Markdown-Patch-Version: 2`), the instruction format described above handles the request, and a non-object body is rejected with `400 InvalidPatchInstruction`. To upgrade, drop the header and move each 1.x header into the JSON body:
         
-        | 1.x header | 2.0 field |
+        | 1.x header | Instruction field |
         | --- | --- |
         | `Operation: append` | `"operation": "append"` (now also `"delete"`) |
         | `Target-Type: heading` | `"targetType": "heading"` |
@@ -1805,7 +1805,7 @@ paths:
         | body (`application/json` value) | `"value": <json>` |
         | `Create-Target-If-Missing: true` | `"createTargetIfMissing": true` |
         | `Reject-If-Content-Preexists: true` | `"rejectIfContentPreexists": true` |
-        | `Trim-Target-Whitespace` | *(dropped; the 2.0 engine owns boundary whitespace)* |
+        | `Trim-Target-Whitespace` | *(dropped; the engine owns boundary whitespace)* |
       parameters:
         - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
@@ -1821,13 +1821,13 @@ paths:
               - "yearly"
             type: "string"
         - description: |
-            Selects which markdown-patch format governs this request. The 2.0 format is
-            the default: for PATCH the whole instruction is the JSON request body, and
-            the document map returns heading addresses as arrays plus a `version` token.
-            Set to `1` to opt back into the deprecated 1.x header-driven PATCH format and
-            the 1.x `::`-joined document map. Responses served by the 1.x format carry a
-            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or
-            `2` returns `400 InvalidPatchVersionHeader`.
+            Selects which markdown-patch format governs this request. You do not normally
+            need to send this header: by default, a PATCH carries its whole instruction in
+            the JSON request body, and the document map returns heading addresses as arrays
+            plus a `version` token. Set it to `1` to opt back into the deprecated 1.x
+            header-driven PATCH format and the 1.x `::`-joined document map. Responses
+            served by the 1.x format carry a `Deprecation: true; sunset-version="6.0"`
+            header. Any value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -1891,7 +1891,7 @@ paths:
                   value: 2
             schema:
               "$ref": "#/components/schemas/PatchInstruction"
-        description: "A single patch instruction (the markdown-patch 2.0 format)."
+        description: "A single patch instruction."
         required: true
       responses:
         "200":
@@ -1907,7 +1907,7 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, or a 2.0 request had a non-object body. See response message for details."
+          description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, or the request had a non-object body. See response message for details."
         "404":
           content:
             application/json:
@@ -1970,7 +1970,7 @@ paths:
         
         Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The default (2.0) map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
@@ -2146,7 +2146,7 @@ paths:
         
         Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The default (2.0) map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
@@ -2378,7 +2378,7 @@ paths:
         
         Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The default (2.0) map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
@@ -2436,13 +2436,13 @@ paths:
               - "yearly"
             type: "string"
         - description: |
-            Selects which markdown-patch format governs this request. The 2.0 format is
-            the default: for PATCH the whole instruction is the JSON request body, and
-            the document map returns heading addresses as arrays plus a `version` token.
-            Set to `1` to opt back into the deprecated 1.x header-driven PATCH format and
-            the 1.x `::`-joined document map. Responses served by the 1.x format carry a
-            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or
-            `2` returns `400 InvalidPatchVersionHeader`.
+            Selects which markdown-patch format governs this request. You do not normally
+            need to send this header: by default, a PATCH carries its whole instruction in
+            the JSON request body, and the document map returns heading addresses as arrays
+            plus a `version` token. Set it to `1` to opt back into the deprecated 1.x
+            header-driven PATCH format and the 1.x `::`-joined document map. Responses
+            served by the 1.x format carry a `Deprecation: true; sunset-version="6.0"`
+            header. Any value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -2494,9 +2494,9 @@ paths:
             "application/vnd.olrapi.document-map+json":
               schema:
                 description: |
-                  The document map. This is the 2.0 shape (the default). To receive the
-                  deprecated 1.x shape — heading paths as `::`-joined strings, block ids
-                  prefixed with `^`, and no `version` — send `Markdown-Patch-Version: 1`.
+                  The document map. To receive the deprecated 1.x shape — heading paths as
+                  `::`-joined strings, block ids prefixed with `^`, and no `version` —
+                  send `Markdown-Patch-Version: 1`.
                 properties:
                   blocks:
                     description: "Block reference ids, bare (no leading `^`), in document order."
@@ -2565,7 +2565,7 @@ paths:
       description: |
         Modifies a periodic note for the specified period and date with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.
         
-        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). This is the markdown-patch 2.0 format: the whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
+        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
         
         > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
         
@@ -2737,9 +2737,9 @@ paths:
         
         The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 6.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="6.0"` header.
         
-        The 2.0 format is now the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without it (or with `Markdown-Patch-Version: 2`), the 2.0 engine described above handles the request, and a non-object body is rejected with `400 InvalidPatchInstruction`. To upgrade, drop the header and move each 1.x header into the JSON body:
+        The JSON-instruction format described above is the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without it (or with `Markdown-Patch-Version: 2`), the instruction format described above handles the request, and a non-object body is rejected with `400 InvalidPatchInstruction`. To upgrade, drop the header and move each 1.x header into the JSON body:
         
-        | 1.x header | 2.0 field |
+        | 1.x header | Instruction field |
         | --- | --- |
         | `Operation: append` | `"operation": "append"` (now also `"delete"`) |
         | `Target-Type: heading` | `"targetType": "heading"` |
@@ -2749,7 +2749,7 @@ paths:
         | body (`application/json` value) | `"value": <json>` |
         | `Create-Target-If-Missing: true` | `"createTargetIfMissing": true` |
         | `Reject-If-Content-Preexists: true` | `"rejectIfContentPreexists": true` |
-        | `Trim-Target-Whitespace` | *(dropped; the 2.0 engine owns boundary whitespace)* |
+        | `Trim-Target-Whitespace` | *(dropped; the engine owns boundary whitespace)* |
       parameters:
         - description: "The year of the date for which you would like to grab a periodic note."
           in: "path"
@@ -2783,13 +2783,13 @@ paths:
               - "yearly"
             type: "string"
         - description: |
-            Selects which markdown-patch format governs this request. The 2.0 format is
-            the default: for PATCH the whole instruction is the JSON request body, and
-            the document map returns heading addresses as arrays plus a `version` token.
-            Set to `1` to opt back into the deprecated 1.x header-driven PATCH format and
-            the 1.x `::`-joined document map. Responses served by the 1.x format carry a
-            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or
-            `2` returns `400 InvalidPatchVersionHeader`.
+            Selects which markdown-patch format governs this request. You do not normally
+            need to send this header: by default, a PATCH carries its whole instruction in
+            the JSON request body, and the document map returns heading addresses as arrays
+            plus a `version` token. Set it to `1` to opt back into the deprecated 1.x
+            header-driven PATCH format and the 1.x `::`-joined document map. Responses
+            served by the 1.x format carry a `Deprecation: true; sunset-version="6.0"`
+            header. Any value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -2853,7 +2853,7 @@ paths:
                   value: 2
             schema:
               "$ref": "#/components/schemas/PatchInstruction"
-        description: "A single patch instruction (the markdown-patch 2.0 format)."
+        description: "A single patch instruction."
         required: true
       responses:
         "200":
@@ -2869,7 +2869,7 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, or a 2.0 request had a non-object body. See response message for details."
+          description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, or the request had a non-object body. See response message for details."
         "404":
           content:
             application/json:
@@ -2932,7 +2932,7 @@ paths:
         
         Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The default (2.0) map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
@@ -3126,7 +3126,7 @@ paths:
         
         Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The default (2.0) map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
@@ -3640,7 +3640,7 @@ paths:
         
         Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The default (2.0) map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
@@ -3674,13 +3674,13 @@ paths:
             format: "path"
             type: "string"
         - description: |
-            Selects which markdown-patch format governs this request. The 2.0 format is
-            the default: for PATCH the whole instruction is the JSON request body, and
-            the document map returns heading addresses as arrays plus a `version` token.
-            Set to `1` to opt back into the deprecated 1.x header-driven PATCH format and
-            the 1.x `::`-joined document map. Responses served by the 1.x format carry a
-            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or
-            `2` returns `400 InvalidPatchVersionHeader`.
+            Selects which markdown-patch format governs this request. You do not normally
+            need to send this header: by default, a PATCH carries its whole instruction in
+            the JSON request body, and the document map returns heading addresses as arrays
+            plus a `version` token. Set it to `1` to opt back into the deprecated 1.x
+            header-driven PATCH format and the 1.x `::`-joined document map. Responses
+            served by the 1.x format carry a `Deprecation: true; sunset-version="6.0"`
+            header. Any value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -3732,9 +3732,9 @@ paths:
             "application/vnd.olrapi.document-map+json":
               schema:
                 description: |
-                  The document map. This is the 2.0 shape (the default). To receive the
-                  deprecated 1.x shape — heading paths as `::`-joined strings, block ids
-                  prefixed with `^`, and no `version` — send `Markdown-Patch-Version: 1`.
+                  The document map. To receive the deprecated 1.x shape — heading paths as
+                  `::`-joined strings, block ids prefixed with `^`, and no `version` —
+                  send `Markdown-Patch-Version: 1`.
                 properties:
                   blocks:
                     description: "Block reference ids, bare (no leading `^`), in document order."
@@ -3797,7 +3797,7 @@ paths:
       description: |
         Modifies an existing note with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.
         
-        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). This is the markdown-patch 2.0 format: the whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
+        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
         
         > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
         
@@ -3969,9 +3969,9 @@ paths:
         
         The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 6.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="6.0"` header.
         
-        The 2.0 format is now the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without it (or with `Markdown-Patch-Version: 2`), the 2.0 engine described above handles the request, and a non-object body is rejected with `400 InvalidPatchInstruction`. To upgrade, drop the header and move each 1.x header into the JSON body:
+        The JSON-instruction format described above is the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without it (or with `Markdown-Patch-Version: 2`), the instruction format described above handles the request, and a non-object body is rejected with `400 InvalidPatchInstruction`. To upgrade, drop the header and move each 1.x header into the JSON body:
         
-        | 1.x header | 2.0 field |
+        | 1.x header | Instruction field |
         | --- | --- |
         | `Operation: append` | `"operation": "append"` (now also `"delete"`) |
         | `Target-Type: heading` | `"targetType": "heading"` |
@@ -3981,7 +3981,7 @@ paths:
         | body (`application/json` value) | `"value": <json>` |
         | `Create-Target-If-Missing: true` | `"createTargetIfMissing": true` |
         | `Reject-If-Content-Preexists: true` | `"rejectIfContentPreexists": true` |
-        | `Trim-Target-Whitespace` | *(dropped; the 2.0 engine owns boundary whitespace)* |
+        | `Trim-Target-Whitespace` | *(dropped; the engine owns boundary whitespace)* |
       parameters:
         - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
@@ -3991,13 +3991,13 @@ paths:
             format: "path"
             type: "string"
         - description: |
-            Selects which markdown-patch format governs this request. The 2.0 format is
-            the default: for PATCH the whole instruction is the JSON request body, and
-            the document map returns heading addresses as arrays plus a `version` token.
-            Set to `1` to opt back into the deprecated 1.x header-driven PATCH format and
-            the 1.x `::`-joined document map. Responses served by the 1.x format carry a
-            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or
-            `2` returns `400 InvalidPatchVersionHeader`.
+            Selects which markdown-patch format governs this request. You do not normally
+            need to send this header: by default, a PATCH carries its whole instruction in
+            the JSON request body, and the document map returns heading addresses as arrays
+            plus a `version` token. Set it to `1` to opt back into the deprecated 1.x
+            header-driven PATCH format and the 1.x `::`-joined document map. Responses
+            served by the 1.x format carry a `Deprecation: true; sunset-version="6.0"`
+            header. Any value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -4061,7 +4061,7 @@ paths:
                   value: 2
             schema:
               "$ref": "#/components/schemas/PatchInstruction"
-        description: "A single patch instruction (the markdown-patch 2.0 format)."
+        description: "A single patch instruction."
         required: true
       responses:
         "200":
@@ -4076,7 +4076,7 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, or a 2.0 request had a non-object body. See response message for details."
+          description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, or the request had a non-object body. See response message for details."
         "404":
           content:
             application/json:
@@ -4139,7 +4139,7 @@ paths:
         
         Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The default (2.0) map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
@@ -4299,7 +4299,7 @@ paths:
         
         Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The default (2.0) map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")

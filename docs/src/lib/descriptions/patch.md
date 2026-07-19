@@ -1,4 +1,4 @@
-Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). This is the markdown-patch 2.0 format: the whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
+Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
 
 > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
 
@@ -170,9 +170,9 @@ Issue a GET request to `/vault/{path}` with an `Accept` header of `application/v
 
 The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 6.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="6.0"` header.
 
-The 2.0 format is now the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without it (or with `Markdown-Patch-Version: 2`), the 2.0 engine described above handles the request, and a non-object body is rejected with `400 InvalidPatchInstruction`. To upgrade, drop the header and move each 1.x header into the JSON body:
+The JSON-instruction format described above is the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without it (or with `Markdown-Patch-Version: 2`), the instruction format described above handles the request, and a non-object body is rejected with `400 InvalidPatchInstruction`. To upgrade, drop the header and move each 1.x header into the JSON body:
 
-| 1.x header | 2.0 field |
+| 1.x header | Instruction field |
 | --- | --- |
 | `Operation: append` | `"operation": "append"` (now also `"delete"`) |
 | `Target-Type: heading` | `"targetType": "heading"` |
@@ -182,4 +182,4 @@ The 2.0 format is now the default. To use the deprecated format, send `Markdown-
 | body (`application/json` value) | `"value": <json>` |
 | `Create-Target-If-Missing: true` | `"createTargetIfMissing": true` |
 | `Reject-If-Content-Preexists: true` | `"rejectIfContentPreexists": true` |
-| `Trim-Target-Whitespace` | *(dropped; the 2.0 engine owns boundary whitespace)* |
+| `Trim-Target-Whitespace` | *(dropped; the engine owns boundary whitespace)* |

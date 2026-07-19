@@ -668,7 +668,7 @@ export default class RequestHandler {
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.InvalidPatchInstruction,
           message:
-            "A markdown-patch 2.0 PATCH expects a JSON instruction object as the request body (send Content-Type: application/json). To use the deprecated 1.x header-driven format, set the 'Markdown-Patch-Version: 1' header.",
+            "A PATCH expects a JSON instruction object as the request body (send Content-Type: application/json). To use the deprecated 1.x header-driven format, set the 'Markdown-Patch-Version: 1' header.",
         });
         return;
       }

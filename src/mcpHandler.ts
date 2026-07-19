@@ -318,7 +318,7 @@ export class McpHandler {
     this.tool(
       "vault_patch",
       dedent`
-        Edit a vault file with a single structured instruction: an operation applied to a scope of a target node (the markdown-patch 2.0 algebra).
+        Edit a vault file with a single structured instruction: an operation applied to a scope of a target node.
 
         - operation: 'replace', 'prepend', 'append', or 'delete'.
         - scope (default 'content'): 'content' = the node's body; 'marker' = its label (heading line / block '^id' / frontmatter key); 'markerAndContent' = the whole node/subtree; 'parent' = the node's place in the tree (heading move only).
