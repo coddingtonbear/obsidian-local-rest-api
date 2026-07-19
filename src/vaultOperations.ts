@@ -15,8 +15,16 @@ import {
   PatchOperation,
   PatchTargetType,
 } from "markdown-patch";
-import { patch as patchV2 } from "markdown-patch-2";
-import type { InstructionInput, PatchResult } from "markdown-patch-2";
+import {
+  patch as patchV2,
+  projectMap,
+  buildModel,
+} from "markdown-patch-2";
+import type {
+  InstructionInput,
+  PatchResult,
+  PublicMap,
+} from "markdown-patch-2";
  
 const jsonLogic = require("json-logic-js") as {
   apply: (logic: unknown, data?: unknown) => unknown;
@@ -119,6 +127,16 @@ export class VaultOperations {
       blocks: Object.keys(documentMap.block),
       frontmatterFields: Object.keys(documentMap.frontmatter),
     };
+  }
+
+  /**
+   * The markdown-patch 2.0 document map: heading addresses as null-padded
+   * arrays, bare block ids, frontmatter field names, and the content-hash
+   * `version` token clients pass back as a patch `ifMatch` precondition.
+   */
+  async getDocumentMapV2Object(file: TFile): Promise<PublicMap> {
+    const content = await this.app.vault.adapter.read(file.path);
+    return projectMap(buildModel(content));
   }
 
   async readFileSection(

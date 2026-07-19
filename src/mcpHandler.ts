@@ -507,13 +507,17 @@ export class McpHandler {
 
     this.tool(
       "vault_get_document_map",
-      dedent`Return the structure of a vault file as a document map: the list of heading paths, block reference IDs, and frontmatter field names present in the file. Use this before vault_read or vault_patch with targeting to discover what targets are available without parsing the full markdown content yourself.`,
+      dedent`
+        Return the structure of a vault file as a document map: heading addresses, block reference IDs, and frontmatter field names present in the file, plus a version token. Use this before vault_read or vault_patch with targeting to discover what targets are available without parsing the full markdown content yourself.
+
+        Each heading address is an array giving the path from the top level down to that heading (e.g. ['Overview', 'Details']); pass it directly as a vault_patch or vault_read heading target. blocks are bare reference IDs (no '^'); frontmatterFields are top-level key names. version is a content hash of the file — pass it back as vault_patch's ifMatch to make an edit conditional on the file being unchanged.
+      `,
       { path: z.string().describe("File path relative to vault root") },
       READ_ONLY_ANNOTATIONS,
       async ({ path }: { path: string }) => {
         const file = this.ops.app.vault.getAbstractFileByPath(path);
         if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
-        const map = await this.ops.getDocumentMapObject(file);
+        const map = await this.ops.getDocumentMapV2Object(file);
         return this.text(map);
       },
     );

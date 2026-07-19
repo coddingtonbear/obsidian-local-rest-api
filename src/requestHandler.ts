@@ -25,7 +25,7 @@ import {
   PreconditionFailedError,
   TargetNotFoundError,
 } from "markdown-patch-2";
-import type { InstructionInput } from "markdown-patch-2";
+import type { InstructionInput, PublicMap } from "markdown-patch-2";
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/sdk/types.js";
 
 import {
@@ -185,6 +185,10 @@ export default class RequestHandler {
 
   async getDocumentMapObject(file: TFile): Promise<DocumentMapObject> {
     return this.operations.getDocumentMapObject(file);
+  }
+
+  async getDocumentMapV2Object(file: TFile): Promise<PublicMap> {
+    return this.operations.getDocumentMapV2Object(file);
   }
 
   async getFileMetadataObject(file: TFile): Promise<FileMetadataObject> {
@@ -368,10 +372,25 @@ export default class RequestHandler {
         this.returnCannedResponse(res, { statusCode: 404 });
         return;
       }
+      // The document map defaults to the 2.0 shape (array heading addresses plus
+      // the `version` token); Markdown-Patch-Version: 1 returns the deprecated
+      // 1.x shape (`::`-joined heading paths, no version).
+      const version = resolvePatchVersion(req);
+      if (version === null) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidPatchVersionHeader });
+        return;
+      }
       res.setHeader("Content-Type", ContentTypes.olrapiDocumentMap);
-      res.send(
-        JSON.stringify(await this.getDocumentMapObject(file), null, 2),
-      );
+      if (version === 1) {
+        res.setHeader("Deprecation", `true; sunset-version="${MARKDOWN_PATCH_V1_SUNSET}"`);
+        res.send(
+          JSON.stringify(await this.getDocumentMapObject(file), null, 2),
+        );
+      } else {
+        res.send(
+          JSON.stringify(await this.getDocumentMapV2Object(file), null, 2),
+        );
+      }
       return;
     }
 

@@ -82,6 +82,12 @@ function makeMockOps() {
       blocks: ["beta-block"],
       frontmatterFields: ["title", "priority"],
     }),
+    getDocumentMapV2Object: jest.fn().mockResolvedValue({
+      version: "abc123",
+      headings: [["Alpha"], ["Alpha", "Subsection"]],
+      blocks: ["beta-block"],
+      frontmatterFields: ["title", "priority"],
+    }),
     readFileSection: jest.fn().mockResolvedValue("section content"),
     writeFileContent: jest.fn().mockResolvedValue(undefined),
     appendFileContent: jest.fn().mockResolvedValue(undefined),
@@ -321,12 +327,13 @@ describe("McpHandler", () => {
   // ---- vault_get_document_map ---------------------------------------------
 
   describe("vault_get_document_map", () => {
-    test("calls getDocumentMapObject and returns the map", async () => {
+    test("calls getDocumentMapV2Object and returns the 2.0 map with array addresses and version", async () => {
       const cb = getToolCallback("vault_get_document_map");
       const result = await cb({ path: "test.md" });
-      expect(ops.getDocumentMapObject).toHaveBeenCalled();
+      expect(ops.getDocumentMapV2Object).toHaveBeenCalled();
       const body = parseText(result);
-      expect(body.headings).toEqual(["Alpha", "Alpha::Subsection"]);
+      expect(body.version).toBe("abc123");
+      expect(body.headings).toEqual([["Alpha"], ["Alpha", "Subsection"]]);
       expect(body.blocks).toEqual(["beta-block"]);
       expect(body.frontmatterFields).toEqual(["title", "priority"]);
     });

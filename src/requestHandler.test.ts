@@ -434,6 +434,72 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("vaultGet document map", () => {
+    const mapDoc = [
+      "---",
+      "title: Test Doc",
+      "priority: 3",
+      "---",
+      "# Heading1",
+      "Content ^blk",
+      "## SubHeading",
+      "Sub content",
+      "# Heading2",
+      "More",
+      "",
+    ].join("\n");
+    const MAP_CT = "application/vnd.olrapi.document-map+json";
+
+    test("defaults to the 2.0 map with array heading addresses and a version token", async () => {
+      app.vault.adapter._read = mapDoc;
+      const res = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", MAP_CT)
+        .expect(200);
+      expect(res.headers["content-type"]).toContain("document-map");
+      expect(res.headers["deprecation"]).toBeUndefined();
+      expect(res.body.headings).toEqual([
+        ["Heading1"],
+        ["Heading1", "SubHeading"],
+        ["Heading2"],
+      ]);
+      expect(res.body.blocks).toEqual(["blk"]);
+      expect(res.body.frontmatterFields).toEqual(["title", "priority"]);
+      expect(res.body.version).toMatch(/^[0-9a-f]{6}$/);
+    });
+
+    test("Markdown-Patch-Version: 1 returns the deprecated ::-joined map with a Deprecation header", async () => {
+      app.vault.adapter._read = mapDoc;
+      const res = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", MAP_CT)
+        .set("Markdown-Patch-Version", "1")
+        .expect(200);
+      expect(res.headers["deprecation"]).toBe('true; sunset-version="6.0"');
+      expect(res.body.headings).toEqual([
+        "Heading1",
+        "Heading1::SubHeading",
+        "Heading2",
+      ]);
+      expect(res.body.version).toBeUndefined();
+    });
+
+    test("an invalid Markdown-Patch-Version returns 400 (40082)", async () => {
+      app.vault.adapter._read = mapDoc;
+      const res = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", MAP_CT)
+        .set("Markdown-Patch-Version", "9");
+      expect(res.status).toBe(400);
+      // This GET path pre-sets a text/markdown Content-Type, so the canned JSON
+      // error body is not auto-parsed by supertest; read it from res.text.
+      expect(JSON.parse(res.text).errorCode).toBe(40082);
+    });
+  });
+
   describe("vaultPut", () => {
     test("directory", async () => {
       await request(server)
