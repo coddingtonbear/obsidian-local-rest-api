@@ -16,7 +16,7 @@ local GetShared = TargetingShared + '\n' + importstr 'lib/descriptions/get-share
 local PostShared = TargetingShared + '\n' + importstr 'lib/descriptions/post-shared.md';
 local PutShared = TargetingShared + '\n' + importstr 'lib/descriptions/put-shared.md';
 local PatchDescription(fileRef) =
-  'Inserts content into ' + fileRef + ' relative to a heading, block reference, or frontmatter field within that document.\n\n' + Patch.description;
+  'Modifies ' + fileRef + ' with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.\n\n' + Patch.description;
 
 local ContentLocationHeader = {
   'Content-Location': {
@@ -150,6 +150,118 @@ std.manifestYamlDoc(
               type: 'number',
               description: 'A 5-digit error code uniquely identifying this particular type of error.\n',
               example: 40149,
+            },
+          },
+        },
+        HeadingAddress: {
+          description: |||
+            A heading address: the path of heading texts from the top level down
+            to the target. Use `null` or `[]` for the document root.
+          |||,
+          oneOf: [
+            { type: 'array', items: { type: 'string' } },
+            { type: 'null' },
+          ],
+        },
+        PatchInstruction: {
+          type: 'object',
+          description: |||
+            A single edit expressed as one operation applied to a scope of a
+            target node (the markdown-patch 2.0 algebra). The payload rides in
+            exactly one of `content`, `value`, or `destination`, chosen by what
+            it is. Not every operation×scope×targetType combination is valid;
+            invalid ones are rejected with a 400.
+          |||,
+          required: ['targetType', 'target', 'operation'],
+          properties: {
+            targetType: {
+              type: 'string',
+              enum: ['heading', 'block', 'frontmatter'],
+              description: 'The kind of node to edit.',
+            },
+            target: {
+              description: |||
+                The node to edit. For a heading: an array of heading texts from
+                the top level down to the target (e.g. `["Overview","Details"]`),
+                or `null`/`[]` for the document root. For a block: the bare block
+                id, without the leading `^`. For a frontmatter field: the key.
+              |||,
+              oneOf: [
+                { type: 'array', items: { type: 'string' } },
+                { type: 'string' },
+                { type: 'null' },
+              ],
+            },
+            operation: {
+              type: 'string',
+              enum: ['replace', 'prepend', 'append', 'delete'],
+              description: 'What happens to the scoped span: replace it, insert before (`prepend`) or after (`append`), or `delete` it.',
+            },
+            scope: {
+              type: 'string',
+              enum: ['content', 'marker', 'markerAndContent', 'parent'],
+              default: 'content',
+              description: |||
+                Which part of the target the operation acts on (default
+                `content`).
+                - `content`: the node body — for a heading, its whole subtree
+                  below the heading line.
+                - `marker`: the label only — a heading line, a block `^id`, or a
+                  frontmatter key (`replace` renames it).
+                - `markerAndContent`: the whole node/subtree (`prepend`/`append`
+                  insert a sibling).
+                - `parent`: a heading's place in the tree — only with operation
+                  `replace`, carrying a `destination` (a move).
+              |||,
+            },
+            content: {
+              type: 'string',
+              description: |||
+                String payload: a heading/block body or label, or a new
+                frontmatter key name for a `marker` rename. Heading levels are
+                relative to the edited span (a leading `#` becomes a direct
+                child). Provide exactly one of `content`, `value`, or
+                `destination`.
+              |||,
+            },
+            value: {
+              description: |||
+                Structured JSON payload for a frontmatter value — any JSON
+                (string, number, boolean, array, object, null). For
+                `prepend`/`append` this merges (list concat, dict merge, string
+                concat). Provide exactly one of `content`, `value`, or
+                `destination`.
+              |||,
+            },
+            destination: {
+              type: 'object',
+              description: 'For a heading move (operation `replace`, scope `parent`): where the section is re-parented. Provide exactly one of `content`, `value`, or `destination`.',
+              required: ['parent', 'place'],
+              properties: {
+                parent: { '$ref': '#/components/schemas/HeadingAddress' },
+                place: {
+                  description: "Position among the new parent's children.",
+                  oneOf: [
+                    { type: 'string', enum: ['first', 'last'] },
+                    { type: 'object', required: ['before'], properties: { before: { '$ref': '#/components/schemas/HeadingAddress' } } },
+                    { type: 'object', required: ['after'], properties: { after: { '$ref': '#/components/schemas/HeadingAddress' } } },
+                  ],
+                },
+              },
+            },
+            ifMatch: {
+              type: 'string',
+              description: "Optimistic-concurrency token (the `version` from a prior document map). If set and the document has changed since, the patch fails with 412 without modifying the file.",
+            },
+            createTargetIfMissing: {
+              type: 'boolean',
+              default: false,
+              description: 'Create the target (heading path, block id, or frontmatter key) if it does not already exist.',
+            },
+            rejectIfContentPreexists: {
+              type: 'boolean',
+              default: false,
+              description: 'Fail a `prepend`/`append` when the string content already appears in the target span (makes those operations idempotent on retry).',
             },
           },
         },
@@ -1000,7 +1112,7 @@ std.manifestYamlDoc(
                         arguments: {
                           path: 'path/to/note.md',
                           targetType: 'heading',
-                          target: 'My Section',
+                          target: ['My Section'],
                           operation: 'append',
                           content: 'New line of content\n',
                         },

@@ -12,6 +12,15 @@ components:
           example: "A brief description of the error."
           type: "string"
       type: "object"
+    HeadingAddress:
+      description: |
+        A heading address: the path of heading texts from the top level down
+        to the target. Use `null` or `[]` for the document root.
+      oneOf:
+        - items:
+            type: "string"
+          type: "array"
+        - type: "null"
     NoteJson:
       properties:
         backlinks:
@@ -55,6 +64,119 @@ components:
         - "content"
         - "links"
         - "backlinks"
+      type: "object"
+    PatchInstruction:
+      description: |
+        A single edit expressed as one operation applied to a scope of a
+        target node (the markdown-patch 2.0 algebra). The payload rides in
+        exactly one of `content`, `value`, or `destination`, chosen by what
+        it is. Not every operation×scope×targetType combination is valid;
+        invalid ones are rejected with a 400.
+      properties:
+        content:
+          description: |
+            String payload: a heading/block body or label, or a new
+            frontmatter key name for a `marker` rename. Heading levels are
+            relative to the edited span (a leading `#` becomes a direct
+            child). Provide exactly one of `content`, `value`, or
+            `destination`.
+          type: "string"
+        createTargetIfMissing:
+          default: false
+          description: "Create the target (heading path, block id, or frontmatter key) if it does not already exist."
+          type: "boolean"
+        destination:
+          description: "For a heading move (operation `replace`, scope `parent`): where the section is re-parented. Provide exactly one of `content`, `value`, or `destination`."
+          properties:
+            parent:
+              "$ref": "#/components/schemas/HeadingAddress"
+            place:
+              description: "Position among the new parent's children."
+              oneOf:
+                - enum:
+                    - "first"
+                    - "last"
+                  type: "string"
+                - properties:
+                    before:
+                      "$ref": "#/components/schemas/HeadingAddress"
+                  required:
+                    - "before"
+                  type: "object"
+                - properties:
+                    after:
+                      "$ref": "#/components/schemas/HeadingAddress"
+                  required:
+                    - "after"
+                  type: "object"
+          required:
+            - "parent"
+            - "place"
+          type: "object"
+        ifMatch:
+          description: "Optimistic-concurrency token (the `version` from a prior document map). If set and the document has changed since, the patch fails with 412 without modifying the file."
+          type: "string"
+        operation:
+          description: "What happens to the scoped span: replace it, insert before (`prepend`) or after (`append`), or `delete` it."
+          enum:
+            - "replace"
+            - "prepend"
+            - "append"
+            - "delete"
+          type: "string"
+        rejectIfContentPreexists:
+          default: false
+          description: "Fail a `prepend`/`append` when the string content already appears in the target span (makes those operations idempotent on retry)."
+          type: "boolean"
+        scope:
+          default: "content"
+          description: |
+            Which part of the target the operation acts on (default
+            `content`).
+            - `content`: the node body — for a heading, its whole subtree
+              below the heading line.
+            - `marker`: the label only — a heading line, a block `^id`, or a
+              frontmatter key (`replace` renames it).
+            - `markerAndContent`: the whole node/subtree (`prepend`/`append`
+              insert a sibling).
+            - `parent`: a heading's place in the tree — only with operation
+              `replace`, carrying a `destination` (a move).
+          enum:
+            - "content"
+            - "marker"
+            - "markerAndContent"
+            - "parent"
+          type: "string"
+        target:
+          description: |
+            The node to edit. For a heading: an array of heading texts from
+            the top level down to the target (e.g. `["Overview","Details"]`),
+            or `null`/`[]` for the document root. For a block: the bare block
+            id, without the leading `^`. For a frontmatter field: the key.
+          oneOf:
+            - items:
+                type: "string"
+              type: "array"
+            - type: "string"
+            - type: "null"
+        targetType:
+          description: "The kind of node to edit."
+          enum:
+            - "heading"
+            - "block"
+            - "frontmatter"
+          type: "string"
+        value:
+          description: |
+            Structured JSON payload for a frontmatter value — any JSON
+            (string, number, boolean, array, object, null). For
+            `prepend`/`append` this merges (list concat, dict merge, string
+            concat). Provide exactly one of `content`, `value`, or
+            `destination`.
+      required:
+        - "targetType"
+        - "target"
+        - "operation"
       type: "object"
   securitySchemes:
     apiKeyAuth:
@@ -296,14 +418,33 @@ paths:
         - "Active File"
     patch:
       description: |
-        Inserts content into the currently-open note relative to a heading, block reference, or frontmatter field within that document.
+        Modifies the currently-open note with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.
         
-        Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
+        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). This is the markdown-patch 2.0 format: the whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
+        
+        > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
+        
+        # The algebra
+        
+        - **operation** — `replace`, `prepend`, `append`, or `delete`.
+        - **scope** (optional, default `content`):
+          - `content` — the node's body. For a heading, that's its whole subtree *below* the heading line.
+          - `marker` — the label only: a heading line, a block `^id`, or a frontmatter key. `replace` renames it.
+          - `markerAndContent` — the whole node/subtree. `prepend`/`append` insert a *sibling* before/after it.
+          - `parent` — a heading's place in the tree. Valid only with `replace`, and carries a `destination` (a **move**).
+        - **target** — for a heading, an array of heading texts from the top level down (`["Overview","Details"]`), or `null`/`[]` for the document root; for a block, the bare id without `^`; for a frontmatter field, the key.
+        - **payload** — carried in exactly one field, chosen by what it is:
+          - `content` — a markdown/text string (heading & block bodies/labels, or a frontmatter key rename).
+          - `value` — arbitrary JSON (frontmatter values).
+          - `destination` — where a moved heading lands.
+        
+        Not every combination is meaningful; invalid ones are rejected with a `400`.
+        
+        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header.
         
         # How to Use & Examples
         
-        All of the below examples assume you have a document that looks like
-        this:
+        All of the below examples assume you have a document that looks like this:
         
         ```markdown
         ---
@@ -352,251 +493,178 @@ paths:
         ^2c7cfa
         ```
         
-        ## Append, Prepend, or Replace Content Below a Heading
+        ## Append, prepend, or replace content below a heading
         
-        If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
-        you could send a request with the following headers:
+        To append the content "Hello" below "Subsubheading 1:1:1" under "Heading 1":
         
-        - `Operation`: `append`
-        - `Target-Type`: `heading`
-        - `Target`: `Heading 1::Subheading 1:1:1` (percent-encode any non-ASCII characters, e.g. `H%C3%A9llo` for `Héllo`)
-        - with the request body: `Hello`
+        ```json
+        {
+          "targetType": "heading",
+          "target": ["Heading 1", "Subheading 1:1", "Subsubheading 1:1:1"],
+          "operation": "append",
+          "content": "Hello"
+        }
+        ```
         
-        The above would work just fine for `prepend` or `replace`, too, of course,
-        but with different results.
+        `prepend` and `replace` work the same way, with different results. Because `target` is an array, a heading whose text contains `::` needs no escaping.
         
-        > **Note:** The heading line itself (`### Subsubheading 1:1:1`) is not part of the section content. When using `replace`, supply only the body text that should appear beneath the heading — do not include the heading line in the request body, or it will be duplicated.
+        > **Note:** the heading line itself is not part of the `content` scope. When you `replace` a heading's content, supply only the body — do not include the heading line, or it will be duplicated. To rename the heading, use `scope: "marker"`.
         
-        ## Blank Lines Are Not Synthesized
+        ## Blank lines are not synthesized
         
-        The API only preserves a blank-line separator at the target boundary if one already existed there before the patch — it never inserts a new one. If the boundary you're writing across had no blank line to begin with (a heading immediately followed by its body with no gap, or two headings with nothing between them), your content is spliced in exactly where you supplied it, with no separator added. That includes:
+        The API preserves a blank-line separator at the target boundary only if one already existed — it never inserts a new one. If the boundary had no blank line (a heading immediately followed by its body, or two adjacent headings), your content is spliced in exactly where you supplied it. If you need a blank line, include it yourself: end your `content` with `\n\n` for `append`/`replace`/rename, or start it with `\n\n` for `prepend`.
         
-        - `append`, `replace`, and `Create-Target-If-Missing` — your content can end up glued directly onto whatever follows it (e.g. the next heading), all on one line.
-        - `prepend` — your content can end up glued directly onto whatever precedes it.
-        - Renaming a heading with `Target-Scope: marker` — the new heading line can end up glued onto its own body paragraph if there was no blank line separating them originally.
+        ## Append, prepend, or replace content of a block reference
         
-        If you need a blank line where you're inserting, include it yourself: end your content with `\n\n` for `append`/`replace`/rename operations that should be separated from what follows, or start it with `\n\n` for `prepend`.
+        To append "Hello" below the block referenced by `2d9b4a`:
         
-        ## Append, Prepend, or Replace Content to a Block Reference
+        ```json
+        { "targetType": "block", "target": "2d9b4a", "operation": "append", "content": "Hello" }
+        ```
         
-        If you wanted to append the content "Hello" below the block referenced by
-        "2d9b4a" above ("More random text."), you could send the following headers:
+        ## Append, prepend, or replace table rows via a block reference
         
-        - `Operation`: `append`
-        - `Target-Type`: `block`
-        - `Target`: `2d9b4a`
-        - with the request body: `Hello`
+        To add a new city/population pair to the table referenced by `2c7cfa`, pass the row(s) as a 2-D JSON array in `value`:
         
-        The above would work just fine for `prepend` or `replace`, too, of course,
-        but with different results.
+        ```json
+        { "targetType": "block", "target": "2c7cfa", "operation": "append", "value": [["Chicago, IL", "16"]] }
+        ```
         
-        ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
+        `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply.
         
-        If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
-        referenced by the block reference `2c7cfa`, you could send the following
-        headers:
+        ## Setting a frontmatter field
         
-        - `Operation`: `append`
-        - `Target-Type`: `block`
-        - `Target`: `2c7cfa`
-        - `Content-Type`: `application/json`
-        - with the request body: `[["Chicago, IL", "16"]]`
+        Frontmatter values are JSON, so they ride in `value` (not `content`). To set `alpha` to `2`:
         
-        The use of a `Content-Type` of `application/json` allows the API
-        to infer that member of your array represents rows and columns of your
-        to append to the referenced table.  You can of course just use a
-        `Content-Type` of `text/markdown`, but in such a case you'll have to
-        format your table row manually instead of letting the library figure
-        it out for you.
+        ```json
+        { "targetType": "frontmatter", "target": "alpha", "operation": "replace", "value": 2 }
+        ```
         
-        You also have the option of using `prepend` (in which case, your new
-        row would be the first -- right below the table heading) or `replace` (in which
-        case all rows except the table heading would be replaced by the new row(s)
-        you supplied).
+        Add `"createTargetIfMissing": true` to create a field that might not exist yet. For `append`/`prepend`, `value` is merged into the existing value (list concat, dict merge, string concat).
         
-        ## Setting a Frontmatter Field
+        ## Adding and removing tags
         
-        If you wanted to set the frontmatter field `alpha` to `2`, you could
-        send the following headers:
+        Obsidian stores frontmatter tags in the `tags` field. To add `project/active`, merging into the list and creating it if absent:
         
-        - `Operation`: `replace`
-        - `Target-Type`: `frontmatter`
-        - `Target`: `beep`
-        - with the request body `2`
+        ```json
+        { "targetType": "frontmatter", "target": "tags", "operation": "append", "value": ["project/active"], "createTargetIfMissing": true }
+        ```
         
-        If you're setting a frontmatter field that might not already exist
-        you may want to use the `Create-Target-If-Missing` header so the
-        new frontmatter field is created and set to your specified value
-        if it doesn't already exist.
+        There is no direct "remove item" operation. To remove a tag, read the current list (GET, or `vault_read` in the MCP API), filter it client-side, and replace the whole field:
         
-        You may find using a `Content-Type` of `application/json` to be
-        particularly useful in the case of frontmatter since frontmatter
-        fields' values are JSON data, and the API can be smarter about
-        interpreting your `prepend` or `append` requests if you specify
-        your data as JSON (particularly when appending, for example,
-        list items).
+        ```json
+        { "targetType": "frontmatter", "target": "tags", "operation": "replace", "value": ["remaining-tag-1", "remaining-tag-2"] }
+        ```
         
-        ## Adding and Removing Tags
+        ## Moving a heading section
         
-        Obsidian stores tags in two places: the `tags` frontmatter field and as
-        inline `#tag` syntax in the document body. You can manage frontmatter tags
-        with the PATCH API.
+        `scope: "parent"` with `operation: "replace"` re-parents (and re-levels) a section. To move "Details" under "Appendix" as its last child:
         
-        ### Adding a tag
+        ```json
+        {
+          "targetType": "heading",
+          "target": ["Overview", "Details"],
+          "operation": "replace",
+          "scope": "parent",
+          "destination": { "parent": ["Appendix"], "place": "last" }
+        }
+        ```
         
-        To add the tag `project/active` to a document's frontmatter `tags` list:
+        `place` may be `"first"`, `"last"`, `{ "before": <heading path> }`, or `{ "after": <heading path> }`. Use `"parent": null` to move to the document root.
         
-        - `Operation`: `append`
-        - `Target-Type`: `frontmatter`
-        - `Target`: `tags`
-        - `Content-Type`: `application/json`
-        - `Create-Target-If-Missing`: `true`
-        - with the request body: `["project/active"]`
+        ## Deleting
         
-        Passing an array as `application/json` tells the API to merge individual
-        items into the existing list rather than replace the whole field.
-        `Create-Target-If-Missing` ensures the `tags` key is created when the
-        document has no frontmatter tags yet.
+        `operation: "delete"` empties the `content` scope, removes the whole subtree (`markerAndContent`), or dissolves just the heading line (`marker`):
         
-        ### Removing a tag
+        ```json
+        { "targetType": "heading", "target": ["Heading 1", "Subheading 1:2"], "operation": "delete", "scope": "markerAndContent" }
+        ```
         
-        There is no direct "remove item from list" operation. To remove a tag,
-        first read the current tags via GET (or `vault_read` in the MCP API),
-        filter out the unwanted tag client-side, then replace the entire field:
+        ## Optimistic concurrency
         
-        - `Operation`: `replace`
-        - `Target-Type`: `frontmatter`
-        - `Target`: `tags`
-        - `Content-Type`: `application/json`
-        - with the request body: `["remaining-tag-1", "remaining-tag-2"]`
+        Pass `ifMatch` with the `version` token from a document map (see below). If the file changed since, the patch fails with `412` and the file is untouched — refetch and retry.
         
-        ## Identifying Patch Targets in a File
+        ## Identifying patch targets in a file
         
-        You can issue a GET request to `/vault/files/{path}` with an `Accept` header
-        of `application/vnd.olrapi.document-map+json` to get a JSON object
-        outlining what headings, block references, and frontmatter fields exist.
-      parameters:
-        - description: "Patch operation to perform"
-          in: "header"
-          name: "Operation"
-          required: true
-          schema:
-            enum:
-              - "append"
-              - "prepend"
-              - "replace"
-            type: "string"
-        - description: "If the specified Target does not exist, create it?"
-          in: "header"
-          name: "Create-Target-If-Missing"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "If patch data already exists in Target, reject the patch?"
-          in: "header"
-          name: "Reject-If-Content-Preexists"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "Trim whitespace from Target content before applying the operation?"
-          in: "header"
-          name: "Trim-Target-Whitespace"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: |
-            Controls which part of the target the operation acts on. Only applicable to
-            `heading` and `block` targets; ignored for `frontmatter`.
-            
-            - `content` (default): the operation applies to the content region only — the area
-              below the heading line or at the block, leaving the heading/block-ID token unchanged.
-            - `marker`: the operation applies only to the heading line or block-ID token itself,
-              leaving the content unchanged.
-            - `markerAndContent`: the operation applies to the full range covering both the
-              heading/block-ID token and its content, allowing them to be replaced or repositioned
-              together.
-            
-            For heading targets, the marker is the literal heading line *including* its leading
-            `#` characters (e.g. `## Subheading`) — it is not just the heading text. To rename a
-            heading with `marker` or `markerAndContent` and a `replace` operation, the new content
-            must include that same number of `#` characters, or the heading will be demoted to a
-            plain paragraph. The heading's depth equals the number of `Target-Delimiter`-separated
-            segments in `Target` — e.g. a `Target` of `Heading 1::Subheading` has 2 segments, so its
-            marker is `## Subheading`. (Omitting the `#` characters is valid too, if the intent is to
-            remove the heading and demote it to plain text.)
-          in: "header"
-          name: "Target-Scope"
-          required: false
-          schema:
-            default: "content"
-            enum:
-              - "content"
-              - "marker"
-              - "markerAndContent"
-            type: "string"
-        - description: |
-            Type of sub-document section to target. When specified, the operation
-            applies only to the matching section rather than the whole file. Must
-            be used together with the `Target` header.
-            
-            - `heading`: a markdown heading section.
-            - `block`: a block reference.
-            - `frontmatter`: a frontmatter field.
-          in: "header"
-          name: "Target-Type"
-          required: true
-          schema:
-            enum:
-              - "heading"
-              - "block"
-              - "frontmatter"
-            type: "string"
-        - description: |
-            The section to target; required when `Target-Type` is specified.
-            This value can be URL-Encoded and *must* be URL-Encoded if it
-            includes non-ASCII characters.
-          in: "header"
-          name: "Target"
-          required: true
-          schema:
-            type: "string"
-        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
-          in: "header"
-          name: "Target-Delimiter"
-          required: false
-          schema:
-            default: "::"
-            type: "string"
+        Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token).
+        
+        # Deprecated: the 1.x header-driven format
+        
+        The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 5.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="5.0"` header.
+        
+        A request is treated as the deprecated format whenever it sends a `Target-Type` header; a request with **no `Target-Type` header and a JSON object body** is handled by the 2.0 engine described above. To upgrade, move each header into the JSON body:
+        
+        | 1.x header | 2.0 field |
+        | --- | --- |
+        | `Operation: append` | `"operation": "append"` (now also `"delete"`) |
+        | `Target-Type: heading` | `"targetType": "heading"` |
+        | `Target: A::B` (+ `Target-Delimiter`) | `"target": ["A", "B"]` (a real array — no delimiter) |
+        | `Target-Scope: content` | `"scope": "content"` (adds `"parent"` for moves) |
+        | body (`text/markdown`) | `"content": "..."` |
+        | body (`application/json` value) | `"value": <json>` |
+        | `Create-Target-If-Missing: true` | `"createTargetIfMissing": true` |
+        | `Reject-If-Content-Preexists: true` | `"rejectIfContentPreexists": true` |
+        | `Trim-Target-Whitespace` | *(dropped; the 2.0 engine owns boundary whitespace)* |
+      parameters: []
       requestBody:
         content:
           application/json:
+            examples:
+              addTag:
+                summary: "Add a tag (merge into the tags list, creating it if absent)"
+                value:
+                  createTargetIfMissing: true
+                  operation: "append"
+                  target: "tags"
+                  targetType: "frontmatter"
+                  value:
+                    - "project/active"
+              appendTableRow:
+                summary: "Append a row to a table addressed by a block reference"
+                value:
+                  operation: "append"
+                  target: "2c7cfa"
+                  targetType: "block"
+                  value:
+                    -
+                      - "Chicago, IL"
+                      - "16"
+              appendUnderHeading:
+                summary: "Append text below a heading"
+                value:
+                  content: "Hello"
+                  operation: "append"
+                  target:
+                    - "Heading 1"
+                    - "Subheading 1:1:1"
+                  targetType: "heading"
+              moveSection:
+                summary: "Move a heading section under a new parent"
+                value:
+                  destination:
+                    parent:
+                      - "Appendix"
+                    place: "last"
+                  operation: "replace"
+                  scope: "parent"
+                  target:
+                    - "Overview"
+                    - "Details"
+                  targetType: "heading"
+              setFrontmatter:
+                summary: "Set a frontmatter field to a JSON value"
+                value:
+                  operation: "replace"
+                  target: "alpha"
+                  targetType: "frontmatter"
+                  value: 2
             schema:
-              example: "['one', 'two']"
-              type: "string"
-          text/markdown:
-            schema:
-              example: |
-                # This is my document
-                
-                something else here
-              type: "string"
-        description: "Content you would like to insert."
+              "$ref": "#/components/schemas/PatchInstruction"
+        description: "A single patch instruction (the markdown-patch 2.0 format)."
         required: true
       responses:
         "200":
-          description: "Success"
+          description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded in the `MD-Patch-Warnings` response header."
           headers:
             Content-Location:
               description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
@@ -608,13 +676,13 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Bad Request; see response message for details."
+          description: "Bad Request; the instruction was malformed or the operation×scope×targetType combination is not part of the algebra. See response message for details."
         "404":
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Does not exist"
+          description: "The file, or the addressed target within it, does not exist (and `createTargetIfMissing` was not set)."
         "405":
           content:
             application/json:
@@ -622,6 +690,18 @@ paths:
                 "$ref": "#/components/schemas/Error"
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
+        "409":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "`rejectIfContentPreexists` was set and the content already appears in the target span."
+        "412":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Precondition Failed: the `ifMatch` token did not match the current document version; the file was not modified."
       summary: |
         Partially update content in the currently open note.
       tags:
@@ -1106,7 +1186,8 @@ paths:
                         New line of content
                       operation: "append"
                       path: "path/to/note.md"
-                      target: "My Section"
+                      target:
+                        - "My Section"
                       targetType: "heading"
                     name: "vault_patch"
               call_vault_read:
@@ -1447,14 +1528,33 @@ paths:
         - "Periodic Notes"
     patch:
       description: |
-        Inserts content into the current periodic note for the specified period relative to a heading, block reference, or frontmatter field within that document.
+        Modifies the current periodic note for the specified period with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.
         
-        Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
+        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). This is the markdown-patch 2.0 format: the whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
+        
+        > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
+        
+        # The algebra
+        
+        - **operation** — `replace`, `prepend`, `append`, or `delete`.
+        - **scope** (optional, default `content`):
+          - `content` — the node's body. For a heading, that's its whole subtree *below* the heading line.
+          - `marker` — the label only: a heading line, a block `^id`, or a frontmatter key. `replace` renames it.
+          - `markerAndContent` — the whole node/subtree. `prepend`/`append` insert a *sibling* before/after it.
+          - `parent` — a heading's place in the tree. Valid only with `replace`, and carries a `destination` (a **move**).
+        - **target** — for a heading, an array of heading texts from the top level down (`["Overview","Details"]`), or `null`/`[]` for the document root; for a block, the bare id without `^`; for a frontmatter field, the key.
+        - **payload** — carried in exactly one field, chosen by what it is:
+          - `content` — a markdown/text string (heading & block bodies/labels, or a frontmatter key rename).
+          - `value` — arbitrary JSON (frontmatter values).
+          - `destination` — where a moved heading lands.
+        
+        Not every combination is meaningful; invalid ones are rejected with a `400`.
+        
+        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header.
         
         # How to Use & Examples
         
-        All of the below examples assume you have a document that looks like
-        this:
+        All of the below examples assume you have a document that looks like this:
         
         ```markdown
         ---
@@ -1503,129 +1603,118 @@ paths:
         ^2c7cfa
         ```
         
-        ## Append, Prepend, or Replace Content Below a Heading
+        ## Append, prepend, or replace content below a heading
         
-        If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
-        you could send a request with the following headers:
+        To append the content "Hello" below "Subsubheading 1:1:1" under "Heading 1":
         
-        - `Operation`: `append`
-        - `Target-Type`: `heading`
-        - `Target`: `Heading 1::Subheading 1:1:1` (percent-encode any non-ASCII characters, e.g. `H%C3%A9llo` for `Héllo`)
-        - with the request body: `Hello`
+        ```json
+        {
+          "targetType": "heading",
+          "target": ["Heading 1", "Subheading 1:1", "Subsubheading 1:1:1"],
+          "operation": "append",
+          "content": "Hello"
+        }
+        ```
         
-        The above would work just fine for `prepend` or `replace`, too, of course,
-        but with different results.
+        `prepend` and `replace` work the same way, with different results. Because `target` is an array, a heading whose text contains `::` needs no escaping.
         
-        > **Note:** The heading line itself (`### Subsubheading 1:1:1`) is not part of the section content. When using `replace`, supply only the body text that should appear beneath the heading — do not include the heading line in the request body, or it will be duplicated.
+        > **Note:** the heading line itself is not part of the `content` scope. When you `replace` a heading's content, supply only the body — do not include the heading line, or it will be duplicated. To rename the heading, use `scope: "marker"`.
         
-        ## Blank Lines Are Not Synthesized
+        ## Blank lines are not synthesized
         
-        The API only preserves a blank-line separator at the target boundary if one already existed there before the patch — it never inserts a new one. If the boundary you're writing across had no blank line to begin with (a heading immediately followed by its body with no gap, or two headings with nothing between them), your content is spliced in exactly where you supplied it, with no separator added. That includes:
+        The API preserves a blank-line separator at the target boundary only if one already existed — it never inserts a new one. If the boundary had no blank line (a heading immediately followed by its body, or two adjacent headings), your content is spliced in exactly where you supplied it. If you need a blank line, include it yourself: end your `content` with `\n\n` for `append`/`replace`/rename, or start it with `\n\n` for `prepend`.
         
-        - `append`, `replace`, and `Create-Target-If-Missing` — your content can end up glued directly onto whatever follows it (e.g. the next heading), all on one line.
-        - `prepend` — your content can end up glued directly onto whatever precedes it.
-        - Renaming a heading with `Target-Scope: marker` — the new heading line can end up glued onto its own body paragraph if there was no blank line separating them originally.
+        ## Append, prepend, or replace content of a block reference
         
-        If you need a blank line where you're inserting, include it yourself: end your content with `\n\n` for `append`/`replace`/rename operations that should be separated from what follows, or start it with `\n\n` for `prepend`.
+        To append "Hello" below the block referenced by `2d9b4a`:
         
-        ## Append, Prepend, or Replace Content to a Block Reference
+        ```json
+        { "targetType": "block", "target": "2d9b4a", "operation": "append", "content": "Hello" }
+        ```
         
-        If you wanted to append the content "Hello" below the block referenced by
-        "2d9b4a" above ("More random text."), you could send the following headers:
+        ## Append, prepend, or replace table rows via a block reference
         
-        - `Operation`: `append`
-        - `Target-Type`: `block`
-        - `Target`: `2d9b4a`
-        - with the request body: `Hello`
+        To add a new city/population pair to the table referenced by `2c7cfa`, pass the row(s) as a 2-D JSON array in `value`:
         
-        The above would work just fine for `prepend` or `replace`, too, of course,
-        but with different results.
+        ```json
+        { "targetType": "block", "target": "2c7cfa", "operation": "append", "value": [["Chicago, IL", "16"]] }
+        ```
         
-        ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
+        `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply.
         
-        If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
-        referenced by the block reference `2c7cfa`, you could send the following
-        headers:
+        ## Setting a frontmatter field
         
-        - `Operation`: `append`
-        - `Target-Type`: `block`
-        - `Target`: `2c7cfa`
-        - `Content-Type`: `application/json`
-        - with the request body: `[["Chicago, IL", "16"]]`
+        Frontmatter values are JSON, so they ride in `value` (not `content`). To set `alpha` to `2`:
         
-        The use of a `Content-Type` of `application/json` allows the API
-        to infer that member of your array represents rows and columns of your
-        to append to the referenced table.  You can of course just use a
-        `Content-Type` of `text/markdown`, but in such a case you'll have to
-        format your table row manually instead of letting the library figure
-        it out for you.
+        ```json
+        { "targetType": "frontmatter", "target": "alpha", "operation": "replace", "value": 2 }
+        ```
         
-        You also have the option of using `prepend` (in which case, your new
-        row would be the first -- right below the table heading) or `replace` (in which
-        case all rows except the table heading would be replaced by the new row(s)
-        you supplied).
+        Add `"createTargetIfMissing": true` to create a field that might not exist yet. For `append`/`prepend`, `value` is merged into the existing value (list concat, dict merge, string concat).
         
-        ## Setting a Frontmatter Field
+        ## Adding and removing tags
         
-        If you wanted to set the frontmatter field `alpha` to `2`, you could
-        send the following headers:
+        Obsidian stores frontmatter tags in the `tags` field. To add `project/active`, merging into the list and creating it if absent:
         
-        - `Operation`: `replace`
-        - `Target-Type`: `frontmatter`
-        - `Target`: `beep`
-        - with the request body `2`
+        ```json
+        { "targetType": "frontmatter", "target": "tags", "operation": "append", "value": ["project/active"], "createTargetIfMissing": true }
+        ```
         
-        If you're setting a frontmatter field that might not already exist
-        you may want to use the `Create-Target-If-Missing` header so the
-        new frontmatter field is created and set to your specified value
-        if it doesn't already exist.
+        There is no direct "remove item" operation. To remove a tag, read the current list (GET, or `vault_read` in the MCP API), filter it client-side, and replace the whole field:
         
-        You may find using a `Content-Type` of `application/json` to be
-        particularly useful in the case of frontmatter since frontmatter
-        fields' values are JSON data, and the API can be smarter about
-        interpreting your `prepend` or `append` requests if you specify
-        your data as JSON (particularly when appending, for example,
-        list items).
+        ```json
+        { "targetType": "frontmatter", "target": "tags", "operation": "replace", "value": ["remaining-tag-1", "remaining-tag-2"] }
+        ```
         
-        ## Adding and Removing Tags
+        ## Moving a heading section
         
-        Obsidian stores tags in two places: the `tags` frontmatter field and as
-        inline `#tag` syntax in the document body. You can manage frontmatter tags
-        with the PATCH API.
+        `scope: "parent"` with `operation: "replace"` re-parents (and re-levels) a section. To move "Details" under "Appendix" as its last child:
         
-        ### Adding a tag
+        ```json
+        {
+          "targetType": "heading",
+          "target": ["Overview", "Details"],
+          "operation": "replace",
+          "scope": "parent",
+          "destination": { "parent": ["Appendix"], "place": "last" }
+        }
+        ```
         
-        To add the tag `project/active` to a document's frontmatter `tags` list:
+        `place` may be `"first"`, `"last"`, `{ "before": <heading path> }`, or `{ "after": <heading path> }`. Use `"parent": null` to move to the document root.
         
-        - `Operation`: `append`
-        - `Target-Type`: `frontmatter`
-        - `Target`: `tags`
-        - `Content-Type`: `application/json`
-        - `Create-Target-If-Missing`: `true`
-        - with the request body: `["project/active"]`
+        ## Deleting
         
-        Passing an array as `application/json` tells the API to merge individual
-        items into the existing list rather than replace the whole field.
-        `Create-Target-If-Missing` ensures the `tags` key is created when the
-        document has no frontmatter tags yet.
+        `operation: "delete"` empties the `content` scope, removes the whole subtree (`markerAndContent`), or dissolves just the heading line (`marker`):
         
-        ### Removing a tag
+        ```json
+        { "targetType": "heading", "target": ["Heading 1", "Subheading 1:2"], "operation": "delete", "scope": "markerAndContent" }
+        ```
         
-        There is no direct "remove item from list" operation. To remove a tag,
-        first read the current tags via GET (or `vault_read` in the MCP API),
-        filter out the unwanted tag client-side, then replace the entire field:
+        ## Optimistic concurrency
         
-        - `Operation`: `replace`
-        - `Target-Type`: `frontmatter`
-        - `Target`: `tags`
-        - `Content-Type`: `application/json`
-        - with the request body: `["remaining-tag-1", "remaining-tag-2"]`
+        Pass `ifMatch` with the `version` token from a document map (see below). If the file changed since, the patch fails with `412` and the file is untouched — refetch and retry.
         
-        ## Identifying Patch Targets in a File
+        ## Identifying patch targets in a file
         
-        You can issue a GET request to `/vault/files/{path}` with an `Accept` header
-        of `application/vnd.olrapi.document-map+json` to get a JSON object
-        outlining what headings, block references, and frontmatter fields exist.
+        Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token).
+        
+        # Deprecated: the 1.x header-driven format
+        
+        The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 5.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="5.0"` header.
+        
+        A request is treated as the deprecated format whenever it sends a `Target-Type` header; a request with **no `Target-Type` header and a JSON object body** is handled by the 2.0 engine described above. To upgrade, move each header into the JSON body:
+        
+        | 1.x header | 2.0 field |
+        | --- | --- |
+        | `Operation: append` | `"operation": "append"` (now also `"delete"`) |
+        | `Target-Type: heading` | `"targetType": "heading"` |
+        | `Target: A::B` (+ `Target-Delimiter`) | `"target": ["A", "B"]` (a real array — no delimiter) |
+        | `Target-Scope: content` | `"scope": "content"` (adds `"parent"` for moves) |
+        | body (`text/markdown`) | `"content": "..."` |
+        | body (`application/json` value) | `"value": <json>` |
+        | `Create-Target-If-Missing: true` | `"createTargetIfMissing": true` |
+        | `Reject-If-Content-Preexists: true` | `"rejectIfContentPreexists": true` |
+        | `Trim-Target-Whitespace` | *(dropped; the 2.0 engine owns boundary whitespace)* |
       parameters:
         - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
@@ -1640,127 +1729,65 @@ paths:
               - "quarterly"
               - "yearly"
             type: "string"
-        - description: "Patch operation to perform"
-          in: "header"
-          name: "Operation"
-          required: true
-          schema:
-            enum:
-              - "append"
-              - "prepend"
-              - "replace"
-            type: "string"
-        - description: "If the specified Target does not exist, create it?"
-          in: "header"
-          name: "Create-Target-If-Missing"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "If patch data already exists in Target, reject the patch?"
-          in: "header"
-          name: "Reject-If-Content-Preexists"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "Trim whitespace from Target content before applying the operation?"
-          in: "header"
-          name: "Trim-Target-Whitespace"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: |
-            Controls which part of the target the operation acts on. Only applicable to
-            `heading` and `block` targets; ignored for `frontmatter`.
-            
-            - `content` (default): the operation applies to the content region only — the area
-              below the heading line or at the block, leaving the heading/block-ID token unchanged.
-            - `marker`: the operation applies only to the heading line or block-ID token itself,
-              leaving the content unchanged.
-            - `markerAndContent`: the operation applies to the full range covering both the
-              heading/block-ID token and its content, allowing them to be replaced or repositioned
-              together.
-            
-            For heading targets, the marker is the literal heading line *including* its leading
-            `#` characters (e.g. `## Subheading`) — it is not just the heading text. To rename a
-            heading with `marker` or `markerAndContent` and a `replace` operation, the new content
-            must include that same number of `#` characters, or the heading will be demoted to a
-            plain paragraph. The heading's depth equals the number of `Target-Delimiter`-separated
-            segments in `Target` — e.g. a `Target` of `Heading 1::Subheading` has 2 segments, so its
-            marker is `## Subheading`. (Omitting the `#` characters is valid too, if the intent is to
-            remove the heading and demote it to plain text.)
-          in: "header"
-          name: "Target-Scope"
-          required: false
-          schema:
-            default: "content"
-            enum:
-              - "content"
-              - "marker"
-              - "markerAndContent"
-            type: "string"
-        - description: |
-            Type of sub-document section to target. When specified, the operation
-            applies only to the matching section rather than the whole file. Must
-            be used together with the `Target` header.
-            
-            - `heading`: a markdown heading section.
-            - `block`: a block reference.
-            - `frontmatter`: a frontmatter field.
-          in: "header"
-          name: "Target-Type"
-          required: true
-          schema:
-            enum:
-              - "heading"
-              - "block"
-              - "frontmatter"
-            type: "string"
-        - description: |
-            The section to target; required when `Target-Type` is specified.
-            This value can be URL-Encoded and *must* be URL-Encoded if it
-            includes non-ASCII characters.
-          in: "header"
-          name: "Target"
-          required: true
-          schema:
-            type: "string"
-        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
-          in: "header"
-          name: "Target-Delimiter"
-          required: false
-          schema:
-            default: "::"
-            type: "string"
       requestBody:
         content:
           application/json:
+            examples:
+              addTag:
+                summary: "Add a tag (merge into the tags list, creating it if absent)"
+                value:
+                  createTargetIfMissing: true
+                  operation: "append"
+                  target: "tags"
+                  targetType: "frontmatter"
+                  value:
+                    - "project/active"
+              appendTableRow:
+                summary: "Append a row to a table addressed by a block reference"
+                value:
+                  operation: "append"
+                  target: "2c7cfa"
+                  targetType: "block"
+                  value:
+                    -
+                      - "Chicago, IL"
+                      - "16"
+              appendUnderHeading:
+                summary: "Append text below a heading"
+                value:
+                  content: "Hello"
+                  operation: "append"
+                  target:
+                    - "Heading 1"
+                    - "Subheading 1:1:1"
+                  targetType: "heading"
+              moveSection:
+                summary: "Move a heading section under a new parent"
+                value:
+                  destination:
+                    parent:
+                      - "Appendix"
+                    place: "last"
+                  operation: "replace"
+                  scope: "parent"
+                  target:
+                    - "Overview"
+                    - "Details"
+                  targetType: "heading"
+              setFrontmatter:
+                summary: "Set a frontmatter field to a JSON value"
+                value:
+                  operation: "replace"
+                  target: "alpha"
+                  targetType: "frontmatter"
+                  value: 2
             schema:
-              example: "['one', 'two']"
-              type: "string"
-          text/markdown:
-            schema:
-              example: |
-                # This is my document
-                
-                something else here
-              type: "string"
-        description: "Content you would like to insert."
+              "$ref": "#/components/schemas/PatchInstruction"
+        description: "A single patch instruction (the markdown-patch 2.0 format)."
         required: true
       responses:
         "200":
-          description: "Success"
+          description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded in the `MD-Patch-Warnings` response header."
           headers:
             Content-Location:
               description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
@@ -1772,13 +1799,13 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Bad Request; see response message for details."
+          description: "Bad Request; the instruction was malformed or the operation×scope×targetType combination is not part of the algebra. See response message for details."
         "404":
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Does not exist"
+          description: "The file, or the addressed target within it, does not exist (and `createTargetIfMissing` was not set)."
         "405":
           content:
             application/json:
@@ -1786,6 +1813,18 @@ paths:
                 "$ref": "#/components/schemas/Error"
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
+        "409":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "`rejectIfContentPreexists` was set and the content already appears in the target span."
+        "412":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Precondition Failed: the `ifMatch` token did not match the current document version; the file was not modified."
       summary: |
         Partially update content in the current periodic note for the specified period.
       tags:
@@ -2379,14 +2418,33 @@ paths:
         - "Periodic Notes"
     patch:
       description: |
-        Inserts content into a periodic note for the specified period and date relative to a heading, block reference, or frontmatter field within that document.
+        Modifies a periodic note for the specified period and date with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.
         
-        Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
+        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). This is the markdown-patch 2.0 format: the whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
+        
+        > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
+        
+        # The algebra
+        
+        - **operation** — `replace`, `prepend`, `append`, or `delete`.
+        - **scope** (optional, default `content`):
+          - `content` — the node's body. For a heading, that's its whole subtree *below* the heading line.
+          - `marker` — the label only: a heading line, a block `^id`, or a frontmatter key. `replace` renames it.
+          - `markerAndContent` — the whole node/subtree. `prepend`/`append` insert a *sibling* before/after it.
+          - `parent` — a heading's place in the tree. Valid only with `replace`, and carries a `destination` (a **move**).
+        - **target** — for a heading, an array of heading texts from the top level down (`["Overview","Details"]`), or `null`/`[]` for the document root; for a block, the bare id without `^`; for a frontmatter field, the key.
+        - **payload** — carried in exactly one field, chosen by what it is:
+          - `content` — a markdown/text string (heading & block bodies/labels, or a frontmatter key rename).
+          - `value` — arbitrary JSON (frontmatter values).
+          - `destination` — where a moved heading lands.
+        
+        Not every combination is meaningful; invalid ones are rejected with a `400`.
+        
+        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header.
         
         # How to Use & Examples
         
-        All of the below examples assume you have a document that looks like
-        this:
+        All of the below examples assume you have a document that looks like this:
         
         ```markdown
         ---
@@ -2435,129 +2493,118 @@ paths:
         ^2c7cfa
         ```
         
-        ## Append, Prepend, or Replace Content Below a Heading
+        ## Append, prepend, or replace content below a heading
         
-        If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
-        you could send a request with the following headers:
+        To append the content "Hello" below "Subsubheading 1:1:1" under "Heading 1":
         
-        - `Operation`: `append`
-        - `Target-Type`: `heading`
-        - `Target`: `Heading 1::Subheading 1:1:1` (percent-encode any non-ASCII characters, e.g. `H%C3%A9llo` for `Héllo`)
-        - with the request body: `Hello`
+        ```json
+        {
+          "targetType": "heading",
+          "target": ["Heading 1", "Subheading 1:1", "Subsubheading 1:1:1"],
+          "operation": "append",
+          "content": "Hello"
+        }
+        ```
         
-        The above would work just fine for `prepend` or `replace`, too, of course,
-        but with different results.
+        `prepend` and `replace` work the same way, with different results. Because `target` is an array, a heading whose text contains `::` needs no escaping.
         
-        > **Note:** The heading line itself (`### Subsubheading 1:1:1`) is not part of the section content. When using `replace`, supply only the body text that should appear beneath the heading — do not include the heading line in the request body, or it will be duplicated.
+        > **Note:** the heading line itself is not part of the `content` scope. When you `replace` a heading's content, supply only the body — do not include the heading line, or it will be duplicated. To rename the heading, use `scope: "marker"`.
         
-        ## Blank Lines Are Not Synthesized
+        ## Blank lines are not synthesized
         
-        The API only preserves a blank-line separator at the target boundary if one already existed there before the patch — it never inserts a new one. If the boundary you're writing across had no blank line to begin with (a heading immediately followed by its body with no gap, or two headings with nothing between them), your content is spliced in exactly where you supplied it, with no separator added. That includes:
+        The API preserves a blank-line separator at the target boundary only if one already existed — it never inserts a new one. If the boundary had no blank line (a heading immediately followed by its body, or two adjacent headings), your content is spliced in exactly where you supplied it. If you need a blank line, include it yourself: end your `content` with `\n\n` for `append`/`replace`/rename, or start it with `\n\n` for `prepend`.
         
-        - `append`, `replace`, and `Create-Target-If-Missing` — your content can end up glued directly onto whatever follows it (e.g. the next heading), all on one line.
-        - `prepend` — your content can end up glued directly onto whatever precedes it.
-        - Renaming a heading with `Target-Scope: marker` — the new heading line can end up glued onto its own body paragraph if there was no blank line separating them originally.
+        ## Append, prepend, or replace content of a block reference
         
-        If you need a blank line where you're inserting, include it yourself: end your content with `\n\n` for `append`/`replace`/rename operations that should be separated from what follows, or start it with `\n\n` for `prepend`.
+        To append "Hello" below the block referenced by `2d9b4a`:
         
-        ## Append, Prepend, or Replace Content to a Block Reference
+        ```json
+        { "targetType": "block", "target": "2d9b4a", "operation": "append", "content": "Hello" }
+        ```
         
-        If you wanted to append the content "Hello" below the block referenced by
-        "2d9b4a" above ("More random text."), you could send the following headers:
+        ## Append, prepend, or replace table rows via a block reference
         
-        - `Operation`: `append`
-        - `Target-Type`: `block`
-        - `Target`: `2d9b4a`
-        - with the request body: `Hello`
+        To add a new city/population pair to the table referenced by `2c7cfa`, pass the row(s) as a 2-D JSON array in `value`:
         
-        The above would work just fine for `prepend` or `replace`, too, of course,
-        but with different results.
+        ```json
+        { "targetType": "block", "target": "2c7cfa", "operation": "append", "value": [["Chicago, IL", "16"]] }
+        ```
         
-        ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
+        `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply.
         
-        If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
-        referenced by the block reference `2c7cfa`, you could send the following
-        headers:
+        ## Setting a frontmatter field
         
-        - `Operation`: `append`
-        - `Target-Type`: `block`
-        - `Target`: `2c7cfa`
-        - `Content-Type`: `application/json`
-        - with the request body: `[["Chicago, IL", "16"]]`
+        Frontmatter values are JSON, so they ride in `value` (not `content`). To set `alpha` to `2`:
         
-        The use of a `Content-Type` of `application/json` allows the API
-        to infer that member of your array represents rows and columns of your
-        to append to the referenced table.  You can of course just use a
-        `Content-Type` of `text/markdown`, but in such a case you'll have to
-        format your table row manually instead of letting the library figure
-        it out for you.
+        ```json
+        { "targetType": "frontmatter", "target": "alpha", "operation": "replace", "value": 2 }
+        ```
         
-        You also have the option of using `prepend` (in which case, your new
-        row would be the first -- right below the table heading) or `replace` (in which
-        case all rows except the table heading would be replaced by the new row(s)
-        you supplied).
+        Add `"createTargetIfMissing": true` to create a field that might not exist yet. For `append`/`prepend`, `value` is merged into the existing value (list concat, dict merge, string concat).
         
-        ## Setting a Frontmatter Field
+        ## Adding and removing tags
         
-        If you wanted to set the frontmatter field `alpha` to `2`, you could
-        send the following headers:
+        Obsidian stores frontmatter tags in the `tags` field. To add `project/active`, merging into the list and creating it if absent:
         
-        - `Operation`: `replace`
-        - `Target-Type`: `frontmatter`
-        - `Target`: `beep`
-        - with the request body `2`
+        ```json
+        { "targetType": "frontmatter", "target": "tags", "operation": "append", "value": ["project/active"], "createTargetIfMissing": true }
+        ```
         
-        If you're setting a frontmatter field that might not already exist
-        you may want to use the `Create-Target-If-Missing` header so the
-        new frontmatter field is created and set to your specified value
-        if it doesn't already exist.
+        There is no direct "remove item" operation. To remove a tag, read the current list (GET, or `vault_read` in the MCP API), filter it client-side, and replace the whole field:
         
-        You may find using a `Content-Type` of `application/json` to be
-        particularly useful in the case of frontmatter since frontmatter
-        fields' values are JSON data, and the API can be smarter about
-        interpreting your `prepend` or `append` requests if you specify
-        your data as JSON (particularly when appending, for example,
-        list items).
+        ```json
+        { "targetType": "frontmatter", "target": "tags", "operation": "replace", "value": ["remaining-tag-1", "remaining-tag-2"] }
+        ```
         
-        ## Adding and Removing Tags
+        ## Moving a heading section
         
-        Obsidian stores tags in two places: the `tags` frontmatter field and as
-        inline `#tag` syntax in the document body. You can manage frontmatter tags
-        with the PATCH API.
+        `scope: "parent"` with `operation: "replace"` re-parents (and re-levels) a section. To move "Details" under "Appendix" as its last child:
         
-        ### Adding a tag
+        ```json
+        {
+          "targetType": "heading",
+          "target": ["Overview", "Details"],
+          "operation": "replace",
+          "scope": "parent",
+          "destination": { "parent": ["Appendix"], "place": "last" }
+        }
+        ```
         
-        To add the tag `project/active` to a document's frontmatter `tags` list:
+        `place` may be `"first"`, `"last"`, `{ "before": <heading path> }`, or `{ "after": <heading path> }`. Use `"parent": null` to move to the document root.
         
-        - `Operation`: `append`
-        - `Target-Type`: `frontmatter`
-        - `Target`: `tags`
-        - `Content-Type`: `application/json`
-        - `Create-Target-If-Missing`: `true`
-        - with the request body: `["project/active"]`
+        ## Deleting
         
-        Passing an array as `application/json` tells the API to merge individual
-        items into the existing list rather than replace the whole field.
-        `Create-Target-If-Missing` ensures the `tags` key is created when the
-        document has no frontmatter tags yet.
+        `operation: "delete"` empties the `content` scope, removes the whole subtree (`markerAndContent`), or dissolves just the heading line (`marker`):
         
-        ### Removing a tag
+        ```json
+        { "targetType": "heading", "target": ["Heading 1", "Subheading 1:2"], "operation": "delete", "scope": "markerAndContent" }
+        ```
         
-        There is no direct "remove item from list" operation. To remove a tag,
-        first read the current tags via GET (or `vault_read` in the MCP API),
-        filter out the unwanted tag client-side, then replace the entire field:
+        ## Optimistic concurrency
         
-        - `Operation`: `replace`
-        - `Target-Type`: `frontmatter`
-        - `Target`: `tags`
-        - `Content-Type`: `application/json`
-        - with the request body: `["remaining-tag-1", "remaining-tag-2"]`
+        Pass `ifMatch` with the `version` token from a document map (see below). If the file changed since, the patch fails with `412` and the file is untouched — refetch and retry.
         
-        ## Identifying Patch Targets in a File
+        ## Identifying patch targets in a file
         
-        You can issue a GET request to `/vault/files/{path}` with an `Accept` header
-        of `application/vnd.olrapi.document-map+json` to get a JSON object
-        outlining what headings, block references, and frontmatter fields exist.
+        Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token).
+        
+        # Deprecated: the 1.x header-driven format
+        
+        The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 5.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="5.0"` header.
+        
+        A request is treated as the deprecated format whenever it sends a `Target-Type` header; a request with **no `Target-Type` header and a JSON object body** is handled by the 2.0 engine described above. To upgrade, move each header into the JSON body:
+        
+        | 1.x header | 2.0 field |
+        | --- | --- |
+        | `Operation: append` | `"operation": "append"` (now also `"delete"`) |
+        | `Target-Type: heading` | `"targetType": "heading"` |
+        | `Target: A::B` (+ `Target-Delimiter`) | `"target": ["A", "B"]` (a real array — no delimiter) |
+        | `Target-Scope: content` | `"scope": "content"` (adds `"parent"` for moves) |
+        | body (`text/markdown`) | `"content": "..."` |
+        | body (`application/json` value) | `"value": <json>` |
+        | `Create-Target-If-Missing: true` | `"createTargetIfMissing": true` |
+        | `Reject-If-Content-Preexists: true` | `"rejectIfContentPreexists": true` |
+        | `Trim-Target-Whitespace` | *(dropped; the 2.0 engine owns boundary whitespace)* |
       parameters:
         - description: "The year of the date for which you would like to grab a periodic note."
           in: "path"
@@ -2590,127 +2637,65 @@ paths:
               - "quarterly"
               - "yearly"
             type: "string"
-        - description: "Patch operation to perform"
-          in: "header"
-          name: "Operation"
-          required: true
-          schema:
-            enum:
-              - "append"
-              - "prepend"
-              - "replace"
-            type: "string"
-        - description: "If the specified Target does not exist, create it?"
-          in: "header"
-          name: "Create-Target-If-Missing"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "If patch data already exists in Target, reject the patch?"
-          in: "header"
-          name: "Reject-If-Content-Preexists"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "Trim whitespace from Target content before applying the operation?"
-          in: "header"
-          name: "Trim-Target-Whitespace"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: |
-            Controls which part of the target the operation acts on. Only applicable to
-            `heading` and `block` targets; ignored for `frontmatter`.
-            
-            - `content` (default): the operation applies to the content region only — the area
-              below the heading line or at the block, leaving the heading/block-ID token unchanged.
-            - `marker`: the operation applies only to the heading line or block-ID token itself,
-              leaving the content unchanged.
-            - `markerAndContent`: the operation applies to the full range covering both the
-              heading/block-ID token and its content, allowing them to be replaced or repositioned
-              together.
-            
-            For heading targets, the marker is the literal heading line *including* its leading
-            `#` characters (e.g. `## Subheading`) — it is not just the heading text. To rename a
-            heading with `marker` or `markerAndContent` and a `replace` operation, the new content
-            must include that same number of `#` characters, or the heading will be demoted to a
-            plain paragraph. The heading's depth equals the number of `Target-Delimiter`-separated
-            segments in `Target` — e.g. a `Target` of `Heading 1::Subheading` has 2 segments, so its
-            marker is `## Subheading`. (Omitting the `#` characters is valid too, if the intent is to
-            remove the heading and demote it to plain text.)
-          in: "header"
-          name: "Target-Scope"
-          required: false
-          schema:
-            default: "content"
-            enum:
-              - "content"
-              - "marker"
-              - "markerAndContent"
-            type: "string"
-        - description: |
-            Type of sub-document section to target. When specified, the operation
-            applies only to the matching section rather than the whole file. Must
-            be used together with the `Target` header.
-            
-            - `heading`: a markdown heading section.
-            - `block`: a block reference.
-            - `frontmatter`: a frontmatter field.
-          in: "header"
-          name: "Target-Type"
-          required: true
-          schema:
-            enum:
-              - "heading"
-              - "block"
-              - "frontmatter"
-            type: "string"
-        - description: |
-            The section to target; required when `Target-Type` is specified.
-            This value can be URL-Encoded and *must* be URL-Encoded if it
-            includes non-ASCII characters.
-          in: "header"
-          name: "Target"
-          required: true
-          schema:
-            type: "string"
-        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
-          in: "header"
-          name: "Target-Delimiter"
-          required: false
-          schema:
-            default: "::"
-            type: "string"
       requestBody:
         content:
           application/json:
+            examples:
+              addTag:
+                summary: "Add a tag (merge into the tags list, creating it if absent)"
+                value:
+                  createTargetIfMissing: true
+                  operation: "append"
+                  target: "tags"
+                  targetType: "frontmatter"
+                  value:
+                    - "project/active"
+              appendTableRow:
+                summary: "Append a row to a table addressed by a block reference"
+                value:
+                  operation: "append"
+                  target: "2c7cfa"
+                  targetType: "block"
+                  value:
+                    -
+                      - "Chicago, IL"
+                      - "16"
+              appendUnderHeading:
+                summary: "Append text below a heading"
+                value:
+                  content: "Hello"
+                  operation: "append"
+                  target:
+                    - "Heading 1"
+                    - "Subheading 1:1:1"
+                  targetType: "heading"
+              moveSection:
+                summary: "Move a heading section under a new parent"
+                value:
+                  destination:
+                    parent:
+                      - "Appendix"
+                    place: "last"
+                  operation: "replace"
+                  scope: "parent"
+                  target:
+                    - "Overview"
+                    - "Details"
+                  targetType: "heading"
+              setFrontmatter:
+                summary: "Set a frontmatter field to a JSON value"
+                value:
+                  operation: "replace"
+                  target: "alpha"
+                  targetType: "frontmatter"
+                  value: 2
             schema:
-              example: "['one', 'two']"
-              type: "string"
-          text/markdown:
-            schema:
-              example: |
-                # This is my document
-                
-                something else here
-              type: "string"
-        description: "Content you would like to insert."
+              "$ref": "#/components/schemas/PatchInstruction"
+        description: "A single patch instruction (the markdown-patch 2.0 format)."
         required: true
       responses:
         "200":
-          description: "Success"
+          description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded in the `MD-Patch-Warnings` response header."
           headers:
             Content-Location:
               description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
@@ -2722,13 +2707,13 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Bad Request; see response message for details."
+          description: "Bad Request; the instruction was malformed or the operation×scope×targetType combination is not part of the algebra. See response message for details."
         "404":
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Does not exist"
+          description: "The file, or the addressed target within it, does not exist (and `createTargetIfMissing` was not set)."
         "405":
           content:
             application/json:
@@ -2736,6 +2721,18 @@ paths:
                 "$ref": "#/components/schemas/Error"
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
+        "409":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "`rejectIfContentPreexists` was set and the content already appears in the target span."
+        "412":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Precondition Failed: the `ifMatch` token did not match the current document version; the file was not modified."
       summary: |
         Partially update content in the periodic note for the specified period and date.
       tags:
@@ -3599,14 +3596,33 @@ paths:
         - "Vault Files"
     patch:
       description: |
-        Inserts content into an existing note relative to a heading, block reference, or frontmatter field within that document.
+        Modifies an existing note with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.
         
-        Allows you to modify the content relative to a heading, block reference, or frontmatter field in your document.
+        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). This is the markdown-patch 2.0 format: the whole instruction travels as a JSON request body, so there are no `Operation`/`Target-*` headers to set.
+        
+        > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
+        
+        # The algebra
+        
+        - **operation** — `replace`, `prepend`, `append`, or `delete`.
+        - **scope** (optional, default `content`):
+          - `content` — the node's body. For a heading, that's its whole subtree *below* the heading line.
+          - `marker` — the label only: a heading line, a block `^id`, or a frontmatter key. `replace` renames it.
+          - `markerAndContent` — the whole node/subtree. `prepend`/`append` insert a *sibling* before/after it.
+          - `parent` — a heading's place in the tree. Valid only with `replace`, and carries a `destination` (a **move**).
+        - **target** — for a heading, an array of heading texts from the top level down (`["Overview","Details"]`), or `null`/`[]` for the document root; for a block, the bare id without `^`; for a frontmatter field, the key.
+        - **payload** — carried in exactly one field, chosen by what it is:
+          - `content` — a markdown/text string (heading & block bodies/labels, or a frontmatter key rename).
+          - `value` — arbitrary JSON (frontmatter values).
+          - `destination` — where a moved heading lands.
+        
+        Not every combination is meaningful; invalid ones are rejected with a `400`.
+        
+        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header.
         
         # How to Use & Examples
         
-        All of the below examples assume you have a document that looks like
-        this:
+        All of the below examples assume you have a document that looks like this:
         
         ```markdown
         ---
@@ -3655,129 +3671,118 @@ paths:
         ^2c7cfa
         ```
         
-        ## Append, Prepend, or Replace Content Below a Heading
+        ## Append, prepend, or replace content below a heading
         
-        If you wanted to append the content "Hello" below "Subheading 1:1:1" under "Heading 1",
-        you could send a request with the following headers:
+        To append the content "Hello" below "Subsubheading 1:1:1" under "Heading 1":
         
-        - `Operation`: `append`
-        - `Target-Type`: `heading`
-        - `Target`: `Heading 1::Subheading 1:1:1` (percent-encode any non-ASCII characters, e.g. `H%C3%A9llo` for `Héllo`)
-        - with the request body: `Hello`
+        ```json
+        {
+          "targetType": "heading",
+          "target": ["Heading 1", "Subheading 1:1", "Subsubheading 1:1:1"],
+          "operation": "append",
+          "content": "Hello"
+        }
+        ```
         
-        The above would work just fine for `prepend` or `replace`, too, of course,
-        but with different results.
+        `prepend` and `replace` work the same way, with different results. Because `target` is an array, a heading whose text contains `::` needs no escaping.
         
-        > **Note:** The heading line itself (`### Subsubheading 1:1:1`) is not part of the section content. When using `replace`, supply only the body text that should appear beneath the heading — do not include the heading line in the request body, or it will be duplicated.
+        > **Note:** the heading line itself is not part of the `content` scope. When you `replace` a heading's content, supply only the body — do not include the heading line, or it will be duplicated. To rename the heading, use `scope: "marker"`.
         
-        ## Blank Lines Are Not Synthesized
+        ## Blank lines are not synthesized
         
-        The API only preserves a blank-line separator at the target boundary if one already existed there before the patch — it never inserts a new one. If the boundary you're writing across had no blank line to begin with (a heading immediately followed by its body with no gap, or two headings with nothing between them), your content is spliced in exactly where you supplied it, with no separator added. That includes:
+        The API preserves a blank-line separator at the target boundary only if one already existed — it never inserts a new one. If the boundary had no blank line (a heading immediately followed by its body, or two adjacent headings), your content is spliced in exactly where you supplied it. If you need a blank line, include it yourself: end your `content` with `\n\n` for `append`/`replace`/rename, or start it with `\n\n` for `prepend`.
         
-        - `append`, `replace`, and `Create-Target-If-Missing` — your content can end up glued directly onto whatever follows it (e.g. the next heading), all on one line.
-        - `prepend` — your content can end up glued directly onto whatever precedes it.
-        - Renaming a heading with `Target-Scope: marker` — the new heading line can end up glued onto its own body paragraph if there was no blank line separating them originally.
+        ## Append, prepend, or replace content of a block reference
         
-        If you need a blank line where you're inserting, include it yourself: end your content with `\n\n` for `append`/`replace`/rename operations that should be separated from what follows, or start it with `\n\n` for `prepend`.
+        To append "Hello" below the block referenced by `2d9b4a`:
         
-        ## Append, Prepend, or Replace Content to a Block Reference
+        ```json
+        { "targetType": "block", "target": "2d9b4a", "operation": "append", "content": "Hello" }
+        ```
         
-        If you wanted to append the content "Hello" below the block referenced by
-        "2d9b4a" above ("More random text."), you could send the following headers:
+        ## Append, prepend, or replace table rows via a block reference
         
-        - `Operation`: `append`
-        - `Target-Type`: `block`
-        - `Target`: `2d9b4a`
-        - with the request body: `Hello`
+        To add a new city/population pair to the table referenced by `2c7cfa`, pass the row(s) as a 2-D JSON array in `value`:
         
-        The above would work just fine for `prepend` or `replace`, too, of course,
-        but with different results.
+        ```json
+        { "targetType": "block", "target": "2c7cfa", "operation": "append", "value": [["Chicago, IL", "16"]] }
+        ```
         
-        ## Append, Prepend, or Replace a Row or Rows to/in a Table Referenced by a Block Reference
+        `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply.
         
-        If you wanted to add a new city ("Chicago, IL") and population ("16") pair to the table above
-        referenced by the block reference `2c7cfa`, you could send the following
-        headers:
+        ## Setting a frontmatter field
         
-        - `Operation`: `append`
-        - `Target-Type`: `block`
-        - `Target`: `2c7cfa`
-        - `Content-Type`: `application/json`
-        - with the request body: `[["Chicago, IL", "16"]]`
+        Frontmatter values are JSON, so they ride in `value` (not `content`). To set `alpha` to `2`:
         
-        The use of a `Content-Type` of `application/json` allows the API
-        to infer that member of your array represents rows and columns of your
-        to append to the referenced table.  You can of course just use a
-        `Content-Type` of `text/markdown`, but in such a case you'll have to
-        format your table row manually instead of letting the library figure
-        it out for you.
+        ```json
+        { "targetType": "frontmatter", "target": "alpha", "operation": "replace", "value": 2 }
+        ```
         
-        You also have the option of using `prepend` (in which case, your new
-        row would be the first -- right below the table heading) or `replace` (in which
-        case all rows except the table heading would be replaced by the new row(s)
-        you supplied).
+        Add `"createTargetIfMissing": true` to create a field that might not exist yet. For `append`/`prepend`, `value` is merged into the existing value (list concat, dict merge, string concat).
         
-        ## Setting a Frontmatter Field
+        ## Adding and removing tags
         
-        If you wanted to set the frontmatter field `alpha` to `2`, you could
-        send the following headers:
+        Obsidian stores frontmatter tags in the `tags` field. To add `project/active`, merging into the list and creating it if absent:
         
-        - `Operation`: `replace`
-        - `Target-Type`: `frontmatter`
-        - `Target`: `beep`
-        - with the request body `2`
+        ```json
+        { "targetType": "frontmatter", "target": "tags", "operation": "append", "value": ["project/active"], "createTargetIfMissing": true }
+        ```
         
-        If you're setting a frontmatter field that might not already exist
-        you may want to use the `Create-Target-If-Missing` header so the
-        new frontmatter field is created and set to your specified value
-        if it doesn't already exist.
+        There is no direct "remove item" operation. To remove a tag, read the current list (GET, or `vault_read` in the MCP API), filter it client-side, and replace the whole field:
         
-        You may find using a `Content-Type` of `application/json` to be
-        particularly useful in the case of frontmatter since frontmatter
-        fields' values are JSON data, and the API can be smarter about
-        interpreting your `prepend` or `append` requests if you specify
-        your data as JSON (particularly when appending, for example,
-        list items).
+        ```json
+        { "targetType": "frontmatter", "target": "tags", "operation": "replace", "value": ["remaining-tag-1", "remaining-tag-2"] }
+        ```
         
-        ## Adding and Removing Tags
+        ## Moving a heading section
         
-        Obsidian stores tags in two places: the `tags` frontmatter field and as
-        inline `#tag` syntax in the document body. You can manage frontmatter tags
-        with the PATCH API.
+        `scope: "parent"` with `operation: "replace"` re-parents (and re-levels) a section. To move "Details" under "Appendix" as its last child:
         
-        ### Adding a tag
+        ```json
+        {
+          "targetType": "heading",
+          "target": ["Overview", "Details"],
+          "operation": "replace",
+          "scope": "parent",
+          "destination": { "parent": ["Appendix"], "place": "last" }
+        }
+        ```
         
-        To add the tag `project/active` to a document's frontmatter `tags` list:
+        `place` may be `"first"`, `"last"`, `{ "before": <heading path> }`, or `{ "after": <heading path> }`. Use `"parent": null` to move to the document root.
         
-        - `Operation`: `append`
-        - `Target-Type`: `frontmatter`
-        - `Target`: `tags`
-        - `Content-Type`: `application/json`
-        - `Create-Target-If-Missing`: `true`
-        - with the request body: `["project/active"]`
+        ## Deleting
         
-        Passing an array as `application/json` tells the API to merge individual
-        items into the existing list rather than replace the whole field.
-        `Create-Target-If-Missing` ensures the `tags` key is created when the
-        document has no frontmatter tags yet.
+        `operation: "delete"` empties the `content` scope, removes the whole subtree (`markerAndContent`), or dissolves just the heading line (`marker`):
         
-        ### Removing a tag
+        ```json
+        { "targetType": "heading", "target": ["Heading 1", "Subheading 1:2"], "operation": "delete", "scope": "markerAndContent" }
+        ```
         
-        There is no direct "remove item from list" operation. To remove a tag,
-        first read the current tags via GET (or `vault_read` in the MCP API),
-        filter out the unwanted tag client-side, then replace the entire field:
+        ## Optimistic concurrency
         
-        - `Operation`: `replace`
-        - `Target-Type`: `frontmatter`
-        - `Target`: `tags`
-        - `Content-Type`: `application/json`
-        - with the request body: `["remaining-tag-1", "remaining-tag-2"]`
+        Pass `ifMatch` with the `version` token from a document map (see below). If the file changed since, the patch fails with `412` and the file is untouched — refetch and retry.
         
-        ## Identifying Patch Targets in a File
+        ## Identifying patch targets in a file
         
-        You can issue a GET request to `/vault/files/{path}` with an `Accept` header
-        of `application/vnd.olrapi.document-map+json` to get a JSON object
-        outlining what headings, block references, and frontmatter fields exist.
+        Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token).
+        
+        # Deprecated: the 1.x header-driven format
+        
+        The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 5.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="5.0"` header.
+        
+        A request is treated as the deprecated format whenever it sends a `Target-Type` header; a request with **no `Target-Type` header and a JSON object body** is handled by the 2.0 engine described above. To upgrade, move each header into the JSON body:
+        
+        | 1.x header | 2.0 field |
+        | --- | --- |
+        | `Operation: append` | `"operation": "append"` (now also `"delete"`) |
+        | `Target-Type: heading` | `"targetType": "heading"` |
+        | `Target: A::B` (+ `Target-Delimiter`) | `"target": ["A", "B"]` (a real array — no delimiter) |
+        | `Target-Scope: content` | `"scope": "content"` (adds `"parent"` for moves) |
+        | body (`text/markdown`) | `"content": "..."` |
+        | body (`application/json` value) | `"value": <json>` |
+        | `Create-Target-If-Missing: true` | `"createTargetIfMissing": true` |
+        | `Reject-If-Content-Preexists: true` | `"rejectIfContentPreexists": true` |
+        | `Trim-Target-Whitespace` | *(dropped; the 2.0 engine owns boundary whitespace)* |
       parameters:
         - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
@@ -3786,139 +3791,82 @@ paths:
           schema:
             format: "path"
             type: "string"
-        - description: "Patch operation to perform"
-          in: "header"
-          name: "Operation"
-          required: true
-          schema:
-            enum:
-              - "append"
-              - "prepend"
-              - "replace"
-            type: "string"
-        - description: "If the specified Target does not exist, create it?"
-          in: "header"
-          name: "Create-Target-If-Missing"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "If patch data already exists in Target, reject the patch?"
-          in: "header"
-          name: "Reject-If-Content-Preexists"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: "Trim whitespace from Target content before applying the operation?"
-          in: "header"
-          name: "Trim-Target-Whitespace"
-          required: false
-          schema:
-            default: "false"
-            enum:
-              - "true"
-              - "false"
-            type: "string"
-        - description: |
-            Controls which part of the target the operation acts on. Only applicable to
-            `heading` and `block` targets; ignored for `frontmatter`.
-            
-            - `content` (default): the operation applies to the content region only — the area
-              below the heading line or at the block, leaving the heading/block-ID token unchanged.
-            - `marker`: the operation applies only to the heading line or block-ID token itself,
-              leaving the content unchanged.
-            - `markerAndContent`: the operation applies to the full range covering both the
-              heading/block-ID token and its content, allowing them to be replaced or repositioned
-              together.
-            
-            For heading targets, the marker is the literal heading line *including* its leading
-            `#` characters (e.g. `## Subheading`) — it is not just the heading text. To rename a
-            heading with `marker` or `markerAndContent` and a `replace` operation, the new content
-            must include that same number of `#` characters, or the heading will be demoted to a
-            plain paragraph. The heading's depth equals the number of `Target-Delimiter`-separated
-            segments in `Target` — e.g. a `Target` of `Heading 1::Subheading` has 2 segments, so its
-            marker is `## Subheading`. (Omitting the `#` characters is valid too, if the intent is to
-            remove the heading and demote it to plain text.)
-          in: "header"
-          name: "Target-Scope"
-          required: false
-          schema:
-            default: "content"
-            enum:
-              - "content"
-              - "marker"
-              - "markerAndContent"
-            type: "string"
-        - description: |
-            Type of sub-document section to target. When specified, the operation
-            applies only to the matching section rather than the whole file. Must
-            be used together with the `Target` header.
-            
-            - `heading`: a markdown heading section.
-            - `block`: a block reference.
-            - `frontmatter`: a frontmatter field.
-          in: "header"
-          name: "Target-Type"
-          required: true
-          schema:
-            enum:
-              - "heading"
-              - "block"
-              - "frontmatter"
-            type: "string"
-        - description: |
-            The section to target; required when `Target-Type` is specified.
-            This value can be URL-Encoded and *must* be URL-Encoded if it
-            includes non-ASCII characters.
-          in: "header"
-          name: "Target"
-          required: true
-          schema:
-            type: "string"
-        - description: "Delimiter used when specifying nested heading targets (e.g. \"Heading 1::Subheading\"). Defaults to \"::\"."
-          in: "header"
-          name: "Target-Delimiter"
-          required: false
-          schema:
-            default: "::"
-            type: "string"
       requestBody:
         content:
           application/json:
+            examples:
+              addTag:
+                summary: "Add a tag (merge into the tags list, creating it if absent)"
+                value:
+                  createTargetIfMissing: true
+                  operation: "append"
+                  target: "tags"
+                  targetType: "frontmatter"
+                  value:
+                    - "project/active"
+              appendTableRow:
+                summary: "Append a row to a table addressed by a block reference"
+                value:
+                  operation: "append"
+                  target: "2c7cfa"
+                  targetType: "block"
+                  value:
+                    -
+                      - "Chicago, IL"
+                      - "16"
+              appendUnderHeading:
+                summary: "Append text below a heading"
+                value:
+                  content: "Hello"
+                  operation: "append"
+                  target:
+                    - "Heading 1"
+                    - "Subheading 1:1:1"
+                  targetType: "heading"
+              moveSection:
+                summary: "Move a heading section under a new parent"
+                value:
+                  destination:
+                    parent:
+                      - "Appendix"
+                    place: "last"
+                  operation: "replace"
+                  scope: "parent"
+                  target:
+                    - "Overview"
+                    - "Details"
+                  targetType: "heading"
+              setFrontmatter:
+                summary: "Set a frontmatter field to a JSON value"
+                value:
+                  operation: "replace"
+                  target: "alpha"
+                  targetType: "frontmatter"
+                  value: 2
             schema:
-              example: "['one', 'two']"
-              type: "string"
-          text/markdown:
-            schema:
-              example: |
-                # This is my document
-                
-                something else here
-              type: "string"
-        description: "Content you would like to insert."
+              "$ref": "#/components/schemas/PatchInstruction"
+        description: "A single patch instruction (the markdown-patch 2.0 format)."
         required: true
       responses:
         "200":
-          description: "Success"
+          description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded in the `MD-Patch-Warnings` response header."
+          headers:
+            MD-Patch-Warnings:
+              description: "Present only when the patch produced warnings: a JSON array of `{ code, message }` objects."
+              schema:
+                type: "string"
         "400":
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Bad Request; see response message for details."
+          description: "Bad Request; the instruction was malformed or the operation×scope×targetType combination is not part of the algebra. See response message for details."
         "404":
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Does not exist"
+          description: "The file, or the addressed target within it, does not exist (and `createTargetIfMissing` was not set)."
         "405":
           content:
             application/json:
@@ -3926,6 +3874,18 @@ paths:
                 "$ref": "#/components/schemas/Error"
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
+        "409":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "`rejectIfContentPreexists` was set and the content already appears in the target span."
+        "412":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Precondition Failed: the `ifMatch` token did not match the current document version; the file was not modified."
       summary: |
         Partially update content in an existing note.
       tags:
