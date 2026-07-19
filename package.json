@@ -49,6 +49,7 @@
     "glob-to-regexp": "^0.4.1",
     "json-logic-js": "^2.0.2",
     "markdown-patch": "^1.1.0",
+    "markdown-patch-2": "file:../markdown-patch",
     "matcher": "^5.0.0",
     "mime-types": "^2.1.35",
     "minimatch": "^5.0.1",
