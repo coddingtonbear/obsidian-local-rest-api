@@ -9,7 +9,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
 Access your vault through the **REST API** or the **built-in [MCP server](https://modelcontextprotocol.io/)** — both interfaces expose the same core capabilities, so scripts, browser extensions, and AI agents all speak the same language.
 
 - **Read, create, update, or delete notes** — full CRUD on any file in your vault, including binary files
-- **Surgically patch specific sections** — target a heading, block reference, or frontmatter key and append, prepend, or replace just that section without touching the rest of the file
+- **Surgically patch specific sections** — target a heading, block reference, or frontmatter key and append, prepend, replace, delete, or move just that section without touching the rest of the file
 - **Search your vault** — simple full-text search or structured [JsonLogic](https://jsonlogic.com/) queries against note metadata (frontmatter, tags, path, content)
 - **Access the active file** — read or write whatever note is currently open in Obsidian
 - **Work with periodic notes** — get or create daily, weekly, monthly, quarterly, and yearly notes
@@ -42,14 +42,11 @@ curl -k -H "Authorization: Bearer <your-api-key>" \
 curl -k -H "Authorization: Bearer <your-api-key>" \
   https://127.0.0.1:27124/vault/path/to/note.md/heading/My%20Section
 
-# Append a line to a specific heading (PATCH with headers)
+# Append a line to a specific heading (PATCH with a JSON instruction)
 curl -k -X PATCH \
   -H "Authorization: Bearer <your-api-key>" \
-  -H "Operation: append" \
-  -H "Target-Type: heading" \
-  -H "Target: My Section" \
-  -H "Content-Type: text/plain" \
-  --data "New line of content" \
+  -H "Content-Type: application/json" \
+  --data '{"targetType":"heading","target":["My Section"],"operation":"append","content":"New line of content"}' \
   https://127.0.0.1:27124/vault/path/to/note.md
 ```
 
@@ -153,27 +150,28 @@ For full request/response details, see the [interactive docs](https://coddington
 
 The `PATCH` method is one of the most useful features of this API. It lets you make targeted edits without rewriting entire files.
 
-Specify a **target** (a heading, block reference, or frontmatter key) and an **operation** (`append`, `prepend`, or `replace`), and the plugin will apply the change precisely:
+Send a JSON **instruction**: an **operation** (`replace`, `prepend`, `append`, or `delete`) applied to a **scope** (`content`, `marker`, `markerAndContent`, or `parent`) of a **target** — a heading (addressed as an array of heading texts from the top level down), a block reference, or a frontmatter key. The payload rides in `content` (a string), `value` (JSON, for frontmatter values), or `destination` (a heading move):
 
 ```sh
 # Replace the value of a frontmatter field
 curl -k -X PATCH \
   -H "Authorization: Bearer <your-api-key>" \
-  -H "Operation: replace" \
-  -H "Target-Type: frontmatter" \
-  -H "Target: status" \
   -H "Content-Type: application/json" \
-  --data '"done"' \
+  --data '{"targetType":"frontmatter","target":"status","operation":"replace","value":"done"}' \
   https://127.0.0.1:27124/vault/path/to/note.md
 ```
 
+Heading levels inside a `content` string are relative to the target (a leading `#` becomes a direct child). Advisory warnings (e.g. a heading rebased past level 6) come back in the `MD-Patch-Warnings` response header. Pass `ifMatch` (the `version` from a document map) for optimistic concurrency.
+
 > **Note:** Blank-line separators are not synthesized — the API only preserves one at the target boundary if it was already there. If you're patching across a boundary with no existing blank line (e.g. a heading with no gap before its body), include any `\n\n` you need in your own content, or your text can end up glued onto adjacent content.
 
-See the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for the full list of request headers and options.
+> **Deprecated:** The earlier header-driven PATCH format — `Operation`, `Target-Type`, `Target`, `Target-Scope`, etc. headers with the payload in the request body — is **deprecated and will be removed in 5.0**. A request is treated as the legacy format whenever it sends a `Target-Type` header, and such responses carry a `Deprecation: true; sunset-version="5.0"` header. To upgrade, move each header into the JSON body (see the interactive docs for the mapping table).
+
+See the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for the full instruction schema and options.
 
 ## Targeting specific sections
 
-You can read or write a specific part of a note — a heading, block reference, or frontmatter field — without fetching or replacing the whole file. This works on GET, PUT, POST, and PATCH requests.
+You can read or write a specific part of a note — a heading, block reference, or frontmatter field — without fetching or replacing the whole file. This works on GET, PUT, and POST requests. (`PATCH` has its own JSON instruction body — see [Patching notes](#patching-notes) above — and its header-based targeting is the deprecated 1.x form.)
 
 There are two ways to specify the target:
 
