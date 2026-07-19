@@ -1,6 +1,28 @@
 // Shared targeting parameter definitions, imported by get/put/post/patch.jsonnet.
 // PATCH overrides `required` on targetType and target (they are required there).
 {
+  markdownPatchVersion: {
+    name: 'Markdown-Patch-Version',
+    'in': 'header',
+    description: |||
+      Selects which markdown-patch format governs this request. The 2.0 format is
+      the default: for PATCH the whole instruction is the JSON request body, and
+      the document map returns heading addresses as arrays plus a `version` token.
+      Set to `1` to opt back into the deprecated 1.x header-driven PATCH format and
+      the 1.x `::`-joined document map. Responses served by the 1.x format carry a
+      `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or
+      `2` returns `400 InvalidPatchVersionHeader`.
+    |||,
+    required: false,
+    schema: {
+      type: 'string',
+      enum: [
+        '1',
+        '2',
+      ],
+      default: '2',
+    },
+  },
   targetType: {
     name: 'Target-Type',
     'in': 'header',

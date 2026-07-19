@@ -168,9 +168,9 @@ Issue a GET request to `/vault/{path}` with an `Accept` header of `application/v
 
 # Deprecated: the 1.x header-driven format
 
-The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 5.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="5.0"` header.
+The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 6.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="6.0"` header.
 
-A request is treated as the deprecated format whenever it sends a `Target-Type` header; a request with **no `Target-Type` header and a JSON object body** is handled by the 2.0 engine described above. To upgrade, move each header into the JSON body:
+The 2.0 format is now the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without it (or with `Markdown-Patch-Version: 2`), the 2.0 engine described above handles the request, and a non-object body is rejected with `400 InvalidPatchInstruction`. To upgrade, drop the header and move each 1.x header into the JSON body:
 
 | 1.x header | 2.0 field |
 | --- | --- |
