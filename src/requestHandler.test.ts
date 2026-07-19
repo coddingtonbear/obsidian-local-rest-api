@@ -880,18 +880,18 @@ describe("requestHandler", () => {
 
   });
 
-  describe("vaultPatch — markdown-patch 2.0 (MD-Patch-Version: 2)", () => {
-    // The 2.0 engine runs for real here (no mock of patchFileSectionV2), driven
+  describe("vaultPatch — markdown-patch 2.0 (JSON instruction body)", () => {
+    // The 2.0 engine runs for real here (no mock of patchFileSectionMdp2), driven
     // by the mock vault: `vault.read` returns `app.vault._read`, and the write
     // is captured in `app.vault.adapter._write`. Fixtures mirror the engine's
-    // own unit tests so expected output is authoritative.
+    // own unit tests so expected output is authoritative. Routing to the 2.0
+    // engine is by request shape: no Target-Type header + an object JSON body.
     const DOC = "# A\na-body\n\n## B\nb-body\n\n# C\nc-body\n";
 
     function patchV2(instruction: unknown) {
       return request(server)
         .patch("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
-        .set("MD-Patch-Version", "2")
         .send(instruction as object);
     }
 
@@ -1000,15 +1000,16 @@ describe("requestHandler", () => {
       expect(res.status).toBe(404);
     });
 
-    test("a non-object body returns 400 InvalidPatchInstruction", async () => {
+    test("a non-object (text) body with no Target-Type falls through to the 1.x engine", async () => {
+      // Not an object body -> not a 2.0 instruction -> the 1.x path runs and
+      // reports its own missing-Target-Type error, unchanged.
       const res = await request(server)
         .patch("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
-        .set("MD-Patch-Version", "2")
         .set("Content-Type", "text/markdown")
         .send("just some text");
       expect(res.status).toBe(400);
-      expect(res.body.errorCode).toBe(40081);
+      expect(res.body.errorCode).toBe(40053);
     });
 
     test("an invalid targetType returns 400", async () => {
@@ -1045,16 +1046,19 @@ describe("requestHandler", () => {
       expect(res.body.errorCode).toBe(40059);
     });
 
-    test("without the header, the request still routes to the 1.x engine", async () => {
-      // No MD-Patch-Version header and no Target-Type header -> the 1.x path's
-      // missing-Target-Type error, proving v1 still governs by default.
+    test("a Target-Type header forces the 1.x engine even with a JSON body", async () => {
+      // Presence of Target-Type -> 1.x path. Omitting Operation triggers the
+      // 1.x missing-Operation error (which the 2.0 path has no notion of),
+      // proving the 1.x engine governed the request.
       const res = await request(server)
         .patch("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Target-Type", "heading")
+        .set("Target", "A")
         .set("Content-Type", "application/json")
-        .send({ targetType: "heading", target: ["A"], operation: "replace", content: "x" });
+        .send({ some: "json" });
       expect(res.status).toBe(400);
-      expect(res.body.errorCode).toBe(40053);
+      expect(res.body.errorCode).toBe(40056);
     });
   });
 

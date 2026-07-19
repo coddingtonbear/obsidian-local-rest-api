@@ -568,11 +568,21 @@ export default class RequestHandler {
       return;
     }
 
-    // Opt-in routing to the markdown-patch 2.0 engine. Without this header the
-    // request is served by the header-driven 1.x path below, byte-for-byte as
-    // before, so existing clients are unaffected.
-    if (req.get("MD-Patch-Version") === "2") {
-      return this._vaultPatchV2(path, req, res);
+    // Select the engine by request shape rather than a version header. The 1.x
+    // path is entirely header-driven and always requires a Target-Type header;
+    // a markdown-patch 2.0 request instead carries its whole instruction in a
+    // JSON body and sets no Target-Type. So a request with no Target-Type header
+    // and an object body is a 2.0 patch. Everything else stays on the 1.x path
+    // below, preserving its behavior — including the missing-Target-Type error
+    // for a malformed 1.x request — byte-for-byte.
+    const body: unknown = req.body;
+    if (
+      !req.get("Target-Type") &&
+      typeof body === "object" &&
+      body !== null &&
+      !Array.isArray(body)
+    ) {
+      return this._vaultPatchMdp2(path, body as Record<string, unknown>, res);
     }
 
     const operation = req.get("Operation");
@@ -637,25 +647,18 @@ export default class RequestHandler {
     return this._vaultPatch(rawPath, req, res);
   }
 
-  /** The markdown-patch 2.0 PATCH path, selected by `MD-Patch-Version: 2`.
-   *  The whole instruction rides in a JSON request body (an `InstructionInput`);
-   *  the URL supplies only the file. On success the patched document is returned
-   *  as the body, with any advisory warnings JSON-encoded in the
-   *  `MD-Patch-Warnings` response header. */
-  async _vaultPatchV2(
+  /** The markdown-patch 2.0 PATCH path. ("Mdp2" = markdown-patch 2.0, not the
+   *  removed API version 2.0 heading-based PATCH.) `_vaultPatch` routes here
+   *  when a request omits the Target-Type header and carries an object body: the
+   *  whole instruction is that JSON body (an `InstructionInput`), and the URL
+   *  supplies only the file. On success the patched document is returned as the
+   *  body, with any advisory warnings JSON-encoded in the `MD-Patch-Warnings`
+   *  response header. */
+  async _vaultPatchMdp2(
     path: string,
-    req: express.Request,
+    candidate: Record<string, unknown>,
     res: express.Response,
   ): Promise<void> {
-    const body: unknown = req.body;
-    if (typeof body !== "object" || body === null || Array.isArray(body)) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.InvalidPatchInstruction,
-      });
-      return;
-    }
-    const candidate = body as Record<string, unknown>;
-
     // Validate the discriminants up front so malformed input gets a clean 400
     // rather than surfacing as an opaque engine failure.
     if (!isV2TargetType(candidate.targetType)) {
@@ -672,7 +675,7 @@ export default class RequestHandler {
     }
 
     try {
-      const result = await this.operations.patchFileSectionV2(
+      const result = await this.operations.patchFileSectionMdp2(
         path,
         candidate as unknown as InstructionInput,
       );

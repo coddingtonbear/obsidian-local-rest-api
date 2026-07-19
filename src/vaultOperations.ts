@@ -410,11 +410,12 @@ export class VaultOperations {
   }
 
   // Applies a single markdown-patch 2.0 instruction and writes the result.
+  // ("Mdp2" = markdown-patch 2.0, not the removed API version 2.0 PATCH.)
   // Throws FileNotFoundError when the file is missing; lets the 2.0 engine's
   // typed errors (TargetNotFoundError, PreconditionFailedError, …) propagate for
   // the caller to map to HTTP responses. Returns the patched document alongside
   // any advisory warnings the engine surfaced (e.g. heading-depth overflow).
-  async patchFileSectionV2(
+  async patchFileSectionMdp2(
     filePath: string,
     instruction: InstructionInput,
   ): Promise<PatchResult> {
