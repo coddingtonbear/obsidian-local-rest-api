@@ -9,7 +9,7 @@ import { TFile } from "obsidian";
 import { dedent } from "ts-dedent";
 
 import { VaultOperations } from "./vaultOperations";
-import type { InstructionInput } from "markdown-patch-2";
+import type { InstructionInput, ReadTarget } from "markdown-patch-2";
 import openapiYaml from "../docs/openapi.yaml";
 import { ERROR_CODE_MESSAGES } from "./constants";
 import { LocalRestApiSettings } from "./types";
@@ -241,36 +241,42 @@ export class McpHandler {
           .optional()
           .describe("Type of section to extract: 'heading', 'block' reference, or 'frontmatter' key"),
         target: z
-          .string()
+          .union([z.array(z.string().nullable()), z.string()])
           .optional()
           .describe(
-            dedent`Section to extract. Heading text, block reference ID (without '^'), or frontmatter key. Separate nested heading levels with '::' (e.g. 'Heading 1::Subheading').`,
+            dedent`Section to extract. For a heading: an array of heading texts naming the path from the top level down to the target (e.g. ["Heading 1","Subheading"]); a bare string is accepted as a single top-level heading. For a block: the bare block id without '^'. For a frontmatter field: the key name. Use vault_get_document_map to discover valid heading paths and block ids.`,
           ),
-        targetDelimiter: z
-          .string()
-          .optional()
-          .describe("Delimiter for nested heading paths (default: '::')"),
       },
       READ_ONLY_ANNOTATIONS,
       async ({
         path,
         targetType,
         target,
-        targetDelimiter,
       }: {
         path: string;
         targetType?: "heading" | "block" | "frontmatter";
-        target?: string;
-        targetDelimiter?: string;
+        target?: (string | null)[] | string;
       }) => {
         const file = this.ops.app.vault.getAbstractFileByPath(path);
         if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
         if ((targetType == null) !== (target == null)) {
           throw new Error("targetType and target must be provided together");
         }
-        if (targetType && target) {
-          const section = await this.ops.readFileSection(file, targetType, target, targetDelimiter);
-          return this.text(section);
+        if (targetType && target != null) {
+          let address: ReadTarget;
+          if (targetType === "heading") {
+            address = {
+              targetType: "heading",
+              target: Array.isArray(target) ? target : [target],
+            };
+          } else {
+            if (Array.isArray(target)) {
+              throw new Error(`A ${targetType} target must be a string, not an array`);
+            }
+            address = { targetType, target };
+          }
+          const result = await this.ops.readFileSectionMdp2(file, address);
+          return this.text(result.kind === "frontmatter" ? result.value : result.content);
         }
         const meta = await this.ops.getFileMetadataObject(file);
         return this.text(meta);

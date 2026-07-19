@@ -19,11 +19,14 @@ import {
   patch as patchV2,
   projectMap,
   buildModel,
+  readTarget,
 } from "markdown-patch-2";
 import type {
   InstructionInput,
   PatchResult,
   PublicMap,
+  ReadTarget,
+  ReadResult,
 } from "markdown-patch-2";
  
 const jsonLogic = require("json-logic-js") as {
@@ -137,6 +140,20 @@ export class VaultOperations {
   async getDocumentMapV2Object(file: TFile): Promise<PublicMap> {
     const content = await this.app.vault.adapter.read(file.path);
     return projectMap(buildModel(content));
+  }
+
+  /**
+   * The markdown-patch 2.0 targeted read: resolve a `(targetType, target)`
+   * address — a heading path array, a bare block id, or a frontmatter key — and
+   * return the section body (headings/blocks) or parsed value (frontmatter).
+   * Throws {@link TargetNotFoundError} when the address does not resolve.
+   */
+  async readFileSectionMdp2(
+    file: TFile,
+    target: ReadTarget,
+  ): Promise<ReadResult> {
+    const content = await this.app.vault.adapter.read(file.path);
+    return readTarget(content, target);
   }
 
   async readFileSection(

@@ -89,6 +89,9 @@ function makeMockOps() {
       frontmatterFields: ["title", "priority"],
     }),
     readFileSection: jest.fn().mockResolvedValue("section content"),
+    readFileSectionMdp2: jest
+      .fn()
+      .mockResolvedValue({ kind: "heading", content: "section content" }),
     writeFileContent: jest.fn().mockResolvedValue(undefined),
     appendFileContent: jest.fn().mockResolvedValue(undefined),
     patchFileSection: jest.fn().mockResolvedValue("patched content"),
@@ -285,28 +288,51 @@ describe("McpHandler", () => {
       );
     });
 
-    test("calls readFileSection when targetType and target are provided", async () => {
+    test("calls readFileSectionMdp2 with an array heading address", async () => {
       const cb = getToolCallback("vault_read");
-      const result = await cb({ path: "test.md", targetType: "heading", target: "Alpha" });
-      expect(ops.readFileSection).toHaveBeenCalledWith(
+      const result = await cb({
+        path: "test.md",
+        targetType: "heading",
+        target: ["Alpha", "Subsection"],
+      });
+      expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
         expect.objectContaining({ path: "test.md" }),
-        "heading",
-        "Alpha",
-        undefined,
+        { targetType: "heading", target: ["Alpha", "Subsection"] },
       );
       expect(ops.getFileMetadataObject).not.toHaveBeenCalled();
       expect(parseText(result)).toBe("section content");
     });
 
-    test("passes targetDelimiter to readFileSection", async () => {
+    test("wraps a bare string heading target in a single-element array", async () => {
       const cb = getToolCallback("vault_read");
-      await cb({ path: "test.md", targetType: "heading", target: "A>B", targetDelimiter: ">" });
-      expect(ops.readFileSection).toHaveBeenCalledWith(
+      await cb({ path: "test.md", targetType: "heading", target: "Alpha" });
+      expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
         expect.anything(),
-        "heading",
-        "A>B",
-        ">",
+        { targetType: "heading", target: ["Alpha"] },
       );
+    });
+
+    test("passes a block target through as a string", async () => {
+      const cb = getToolCallback("vault_read");
+      await cb({ path: "test.md", targetType: "block", target: "beta-block" });
+      expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
+        expect.anything(),
+        { targetType: "block", target: "beta-block" },
+      );
+    });
+
+    test("returns a frontmatter value from readFileSectionMdp2", async () => {
+      ops.readFileSectionMdp2.mockResolvedValueOnce({ kind: "frontmatter", value: 3 });
+      const cb = getToolCallback("vault_read");
+      const result = await cb({ path: "test.md", targetType: "frontmatter", target: "priority" });
+      expect(parseText(result)).toBe(3);
+    });
+
+    test("rejects an array target for a non-heading targetType", async () => {
+      const cb = getToolCallback("vault_read");
+      await expect(
+        cb({ path: "test.md", targetType: "block", target: ["a", "b"] }),
+      ).rejects.toThrow("must be a string, not an array");
     });
 
     test("throws when targetType is provided without target", async () => {

@@ -24,8 +24,13 @@ import {
   InvalidCellError,
   PreconditionFailedError,
   TargetNotFoundError,
+  readTarget,
 } from "markdown-patch-2";
-import type { InstructionInput, PublicMap } from "markdown-patch-2";
+import type {
+  InstructionInput,
+  PublicMap,
+  ReadTarget,
+} from "markdown-patch-2";
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/sdk/types.js";
 
 import {
@@ -429,8 +434,48 @@ export default class RequestHandler {
       }
 
       const fileContent = Buffer.from(content).toString("utf-8");
-      const documentMap = getDocumentMap(fileContent);
       const targetDelimiter = req.get("Target-Delimiter") || "::";
+
+      // Targeted reads default to the 2.0 model; Markdown-Patch-Version: 1 keeps
+      // the deprecated 1.x extraction. Both produce identical section text; the
+      // difference is the address grammar (a heading is an array, split here from
+      // the Target-Delimiter string) and the Deprecation nudge on the 1.x path.
+      const version = resolvePatchVersion(req);
+      if (version === null) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidPatchVersionHeader });
+        return;
+      }
+
+      if (version === 2) {
+        const address: ReadTarget =
+          targetType === "heading"
+            ? { targetType: "heading", target: rawTarget.split(targetDelimiter) }
+            : targetType === "block"
+              ? { targetType: "block", target: rawTarget }
+              : { targetType: "frontmatter", target: rawTarget };
+        let result;
+        try {
+          result = readTarget(fileContent, address);
+        } catch (e) {
+          if (e instanceof TargetNotFoundError) {
+            this.returnCannedResponse(res, { statusCode: 404 });
+            return;
+          }
+          throw e;
+        }
+        if (result.kind === "frontmatter") {
+          res.setHeader("Content-Type", ContentTypes.json);
+          res.json(result.value);
+        } else {
+          res.setHeader("Content-Type", ContentTypes.markdown + "; charset=utf-8");
+          res.send(result.content);
+        }
+        return;
+      }
+
+      // version === 1: deprecated 1.x header-driven extraction.
+      res.setHeader("Deprecation", `true; sunset-version="${MARKDOWN_PATCH_V1_SUNSET}"`);
+      const documentMap = getDocumentMap(fileContent);
 
       if (targetType === "frontmatter") {
         const value: unknown = documentMap.frontmatter[rawTarget];

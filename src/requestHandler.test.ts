@@ -432,6 +432,51 @@ describe("requestHandler", () => {
       expect(result.text).toContain("Sub content");
       expect(result.text).not.toContain("Content under heading2");
     });
+
+    test("a default (2.0) read carries no Deprecation header", async () => {
+      setFileContent(markdownWithHeadings);
+
+      const result = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading2")
+        .expect(200);
+
+      expect(result.text).toEqual("Content under heading2\n");
+      expect(result.headers["deprecation"]).toBeUndefined();
+    });
+
+    test("a Markdown-Patch-Version: 1 read still works and is marked deprecated", async () => {
+      setFileContent(markdownWithHeadings);
+
+      const result = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Markdown-Patch-Version", "1")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1::SubHeading")
+        .expect(200);
+
+      expect(result.text).toEqual("Sub content\n");
+      expect(result.headers["deprecation"]).toBe('true; sunset-version="6.0"');
+    });
+
+    test("an invalid Markdown-Patch-Version on a targeted read returns 400 (40082)", async () => {
+      setFileContent(markdownWithHeadings);
+
+      const res = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Markdown-Patch-Version", "9")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading2");
+      expect(res.status).toBe(400);
+      expect(JSON.parse(res.text).errorCode).toBe(40082);
+    });
   });
 
   describe("vaultGet document map", () => {
