@@ -71,17 +71,17 @@ describe("POST /active/ — append", () => {
 });
 
 describe("PATCH /active/", () => {
-  maybeTest("patches active file via v3 API and returns 200", async () => {
+  maybeTest("patches active file via the 2.0 API and returns 200", async () => {
     const res = await authedFetch("/active/", {
       method: "PATCH",
-      headers: {
-        "Content-Type": "text/markdown",
-        Operation: "append",
-        "Target-Type": "heading",
-        Target: "Active File",
-        "Create-Target-If-Missing": "true",
-      },
-      body: "Patched by integration test.\n",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        targetType: "heading",
+        target: ["Active File"],
+        operation: "append",
+        content: "Patched by integration test.\n",
+        createTargetIfMissing: true,
+      }),
     });
     expect(res.status).toBe(200);
   });

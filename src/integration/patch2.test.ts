@@ -289,6 +289,7 @@ describe("PATCH 2.0 — errors and routing", () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       method: "PATCH",
       headers: {
+        "Markdown-Patch-Version": "1",
         "Content-Type": "text/markdown",
         Operation: "append",
         "Target-Type": "heading",
@@ -297,6 +298,32 @@ describe("PATCH 2.0 — errors and routing", () => {
       body: "legacy-still-works\n",
     });
     expect(res.status).toBe(200);
-    expect(res.headers.get("Deprecation")).toBe('true; sunset-version="5.0"');
+    expect(res.headers.get("Deprecation")).toBe('true; sunset-version="6.0"');
+  });
+
+  test("a 1.x-style request without the opt-in header hits the 2.0 engine (400)", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "text/markdown",
+        Operation: "append",
+        "Target-Type": "heading",
+        Target: "Delta",
+      },
+      body: "legacy-without-optin\n",
+    });
+    // No version header -> 2.0 default -> a text body is not an instruction.
+    expect(res.status).toBe(400);
+    expect((await res.json()).errorCode).toBe(40081);
+  });
+
+  test("an invalid Markdown-Patch-Version returns 400 (40082)", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "Markdown-Patch-Version": "9" },
+      body: JSON.stringify({ targetType: "heading", target: ["Delta"], operation: "append", content: "x" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).errorCode).toBe(40082);
   });
 });

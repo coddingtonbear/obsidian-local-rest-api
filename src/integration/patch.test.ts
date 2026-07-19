@@ -12,6 +12,10 @@ import {
   TERM_DELTA,
 } from "./fixtures";
 
+// These exercise the deprecated 1.x header-driven PATCH format, which is no
+// longer the default: every request opts in with `Markdown-Patch-Version: 1`.
+// The 2.0 (default) format is covered by patch2.test.ts.
+
 beforeAll(async () => {
   await ensureServerReachable();
 });
@@ -33,6 +37,7 @@ describe("PATCH v3 — append to heading", () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       method: "PATCH",
       headers: {
+        "Markdown-Patch-Version": "1",
         "Content-Type": "text/markdown",
         Operation: "append",
         "Target-Type": "heading",
@@ -52,6 +57,7 @@ describe("PATCH v3 — prepend to heading", () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       method: "PATCH",
       headers: {
+        "Markdown-Patch-Version": "1",
         "Content-Type": "text/markdown",
         Operation: "prepend",
         "Target-Type": "heading",
@@ -71,6 +77,7 @@ describe("PATCH v3 — replace heading", () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       method: "PATCH",
       headers: {
+        "Markdown-Patch-Version": "1",
         "Content-Type": "text/markdown",
         Operation: "replace",
         "Target-Type": "heading",
@@ -94,6 +101,7 @@ describe("PATCH v3 — block targets", () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       method: "PATCH",
       headers: {
+        "Markdown-Patch-Version": "1",
         "Content-Type": "text/markdown",
         Operation: "append",
         "Target-Type": "block",
@@ -111,6 +119,7 @@ describe("PATCH v3 — block targets", () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       method: "PATCH",
       headers: {
+        "Markdown-Patch-Version": "1",
         "Content-Type": "text/markdown",
         Operation: "replace",
         "Target-Type": "block",
@@ -133,6 +142,7 @@ describe("PATCH v3 — frontmatter targets", () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       method: "PATCH",
       headers: {
+        "Markdown-Patch-Version": "1",
         "Content-Type": "application/json",
         Operation: "replace",
         "Target-Type": "frontmatter",
@@ -149,6 +159,7 @@ describe("PATCH v3 — frontmatter targets", () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       method: "PATCH",
       headers: {
+        "Markdown-Patch-Version": "1",
         "Content-Type": "application/json",
         Operation: "append",
         "Target-Type": "frontmatter",
@@ -169,6 +180,7 @@ describe("PATCH v3 — error cases", () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       method: "PATCH",
       headers: {
+        "Markdown-Patch-Version": "1",
         "Content-Type": "text/markdown",
         "Target-Type": "heading",
         Target: "Delta",
@@ -184,6 +196,7 @@ describe("PATCH v3 — error cases", () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       method: "PATCH",
       headers: {
+        "Markdown-Patch-Version": "1",
         "Content-Type": "text/markdown",
         Operation: "append",
         Target: "Delta",
@@ -199,6 +212,7 @@ describe("PATCH v3 — error cases", () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       method: "PATCH",
       headers: {
+        "Markdown-Patch-Version": "1",
         "Content-Type": "text/markdown",
         Operation: "obliterate",
         "Target-Type": "heading",
@@ -215,6 +229,7 @@ describe("PATCH v3 — error cases", () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       method: "PATCH",
       headers: {
+        "Markdown-Patch-Version": "1",
         "Content-Type": "text/markdown",
         Operation: "append",
         "Target-Type": "paragraph",
@@ -231,6 +246,7 @@ describe("PATCH v3 — error cases", () => {
     const res = await authedFetch(`/vault/${TEST_DIR}/`, {
       method: "PATCH",
       headers: {
+        "Markdown-Patch-Version": "1",
         "Content-Type": "text/markdown",
         Operation: "append",
         "Target-Type": "heading",
@@ -253,6 +269,7 @@ describe("PATCH v3 — Create-Target-If-Missing", () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       method: "PATCH",
       headers: {
+        "Markdown-Patch-Version": "1",
         "Content-Type": "text/markdown",
         Operation: "append",
         "Target-Type": "heading",
@@ -271,6 +288,7 @@ describe("PATCH v3 — Create-Target-If-Missing", () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       method: "PATCH",
       headers: {
+        "Markdown-Patch-Version": "1",
         "Content-Type": "text/markdown",
         Operation: "append",
         "Target-Type": "heading",

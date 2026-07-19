@@ -164,13 +164,13 @@ describe("vault_read tool", () => {
     expect(text).not.toContain(TERM_DELTA);
   });
 
-  test("returns nested heading section using :: delimiter", async () => {
+  test("returns nested heading section using an array address", async () => {
     const result = await client.callTool({
       name: "vault_read",
       arguments: {
         path: TEST_PATH,
         targetType: "heading",
-        target: `${HEADING_ALPHA}::${HEADING_SUB}`,
+        target: [HEADING_ALPHA, HEADING_SUB],
       },
     });
     const text = textOf(result);
@@ -224,11 +224,13 @@ describe("vault_get_document_map tool", () => {
       arguments: { path: TEST_PATH },
     });
     const body = jsonOf<any>(result);
+    expect(typeof body.version).toBe("string");
     expect(Array.isArray(body.headings)).toBe(true);
     expect(Array.isArray(body.blocks)).toBe(true);
     expect(Array.isArray(body.frontmatterFields)).toBe(true);
-    expect(body.headings).toContain(HEADING_ALPHA);
-    expect(body.headings.some((h: string) => h.includes(HEADING_SUB))).toBe(true);
+    // 2.0 map: heading addresses are arrays, block ids are bare.
+    expect(body.headings).toContainEqual([HEADING_ALPHA]);
+    expect(body.headings).toContainEqual([HEADING_ALPHA, HEADING_SUB]);
     expect(body.blocks).toContain(BLOCK_BETA);
     expect(body.frontmatterFields).toContain(FM_TITLE);
     expect(body.frontmatterFields).toContain(FM_PRIORITY);

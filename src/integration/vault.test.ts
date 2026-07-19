@@ -14,6 +14,7 @@ import {
   TERM_SUB,
   TERM_DELTA,
   HEADING_ALPHA,
+  HEADING_SUB,
   BLOCK_BETA,
   FM_TITLE,
   FM_PRIORITY,
@@ -112,16 +113,35 @@ describe("GET /vault/{file} with Accept: application/vnd.olrapi.note+json", () =
 // ---------------------------------------------------------------------------
 
 describe("GET /vault/{file} with Accept: application/vnd.olrapi.document-map+json", () => {
-  test("returns DocumentMapObject with headings, blocks, and frontmatterFields", async () => {
+  test("defaults to the 2.0 map: array heading addresses, bare blocks, and a version", async () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       headers: { Accept: "application/vnd.olrapi.document-map+json" },
     });
     expect(res.status).toBe(200);
+    expect(res.headers.get("Deprecation")).toBeNull();
     const body = await res.json();
-    expect(body.headings).toContain(HEADING_ALPHA);
+    expect(typeof body.version).toBe("string");
+    expect(body.headings).toContainEqual([HEADING_ALPHA]);
+    expect(body.headings).toContainEqual([HEADING_ALPHA, HEADING_SUB]);
     expect(body.blocks).toContain(BLOCK_BETA);
     expect(body.frontmatterFields).toContain(FM_TITLE);
     expect(body.frontmatterFields).toContain(FM_PRIORITY);
+  });
+
+  test("Markdown-Patch-Version: 1 returns the deprecated ::-joined map", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}`, {
+      headers: {
+        Accept: "application/vnd.olrapi.document-map+json",
+        "Markdown-Patch-Version": "1",
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Deprecation")).toBe('true; sunset-version="6.0"');
+    const body = await res.json();
+    expect(body.version).toBeUndefined();
+    expect(body.headings).toContain(HEADING_ALPHA);
+    expect(body.headings).toContain(`${HEADING_ALPHA}::${HEADING_SUB}`);
+    expect(body.blocks).toContain(BLOCK_BETA);
   });
 });
 
@@ -138,6 +158,29 @@ describe("GET /vault/{file} with Target-Type: heading", () => {
     const text = await res.text();
     expect(text).toContain(TERM_ALPHA);
     expect(text).not.toContain(TERM_BETA);
+  });
+
+  test("a default (2.0) read carries no Deprecation header", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}`, {
+      headers: { Accept: "text/markdown", "Target-Type": "heading", Target: "Alpha" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Deprecation")).toBeNull();
+    expect(await res.text()).toContain(TERM_ALPHA);
+  });
+
+  test("a Markdown-Patch-Version: 1 read still works and is marked deprecated", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}`, {
+      headers: {
+        Accept: "text/markdown",
+        "Markdown-Patch-Version": "1",
+        "Target-Type": "heading",
+        Target: "Alpha",
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Deprecation")).toBe('true; sunset-version="6.0"');
+    expect(await res.text()).toContain(TERM_ALPHA);
   });
 
   test("returns nested heading via :: delimiter", async () => {
