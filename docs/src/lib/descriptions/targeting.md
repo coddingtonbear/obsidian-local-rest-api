@@ -20,29 +20,11 @@ Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-D
 For `heading` and `block` targets, the optional `Target-Scope` header controls which portion of the target the operation acts on:
 
 - `content` (default): the operation applies to the content region — the area beneath the heading line or at the block, leaving the heading/block-ID token unchanged.
-- `marker`: the operation applies only to the heading line or block-ID token itself, leaving the content unchanged. Useful for renaming a heading in-place with a `replace` operation without touching the section content.
+- `marker`: the operation applies only to the heading line or block-ID token itself, leaving the content unchanged.
 - `markerAndContent`: the operation applies to the full range covering both the heading/block-ID token and its content, allowing them to be replaced or repositioned together.
 
-### Renaming a heading
+Here the `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is demoted to a plain paragraph. Omitting them is how you demote a heading deliberately.
 
-**Prefer `PATCH` for this.** Its JSON instruction format renames a heading from just the new text — `{"targetType": "heading", "target": ["Heading 1", "Subheading"], "operation": "replace", "scope": "marker", "content": "New Name"}` — with no `#` characters and no need to know the heading's depth. See the `PATCH` documentation.
-
-On the header-driven verbs below, the rules are different and stricter. Here the `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is silently demoted to a plain paragraph:
-
-```
-# Rename "## Subheading" to "## New Name" (note the leading "##")
-curl -k -X PUT \
-  https://127.0.0.1:27124/vault/path/to/note.md \
-  -H "Authorization: Bearer $OBSIDIAN_API_KEY" \
-  -H "Target-Type: heading" \
-  -H "Target: Heading 1::Subheading" \
-  -H "Target-Scope: marker" \
-  -H "Content-Type: text/markdown" \
-  --data "## New Name"
-```
-
-The depth isn't shown directly anywhere: the document map lists heading paths, not raw markdown, so infer it from the path length — `["Heading 1", "Subheading"]` is 2 deep, hence `##`.
-
-Omitting the `#`s is valid, and is how you deliberately demote a heading to plain text — just make sure that is the intent.
+To rename a heading, use `PATCH` — see its documentation.
 
 > **Migrating to `PATCH`?** These two rules are exact opposites. `PATCH` does not strip `#` characters; it takes them as part of the label, so a carried-over `"## New Name"` renames the heading to the literal text `## New Name`. Drop the `#`s when you move.
