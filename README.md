@@ -163,7 +163,7 @@ curl -k -X PATCH \
 
 Heading levels inside a `content` string are relative to the target (a leading `#` becomes a direct child). Advisory warnings (e.g. a heading rebased past level 6) come back in the `MD-Patch-Warnings` response header. Pass `ifMatch` (the `version` from a document map) for optimistic concurrency.
 
-> **Note:** Blank-line separators are not synthesized — the API only preserves one at the target boundary if it was already there. If you're patching across a boundary with no existing blank line (e.g. a heading with no gap before its body), include any `\n\n` you need in your own content, or your text can end up glued onto adjacent content.
+> **Note:** Whitespace is spliced verbatim — your content goes in exactly as written at the edge of the target's span, and the API adds none of its own. A leading `\n` in your content is what produces a blank line before it, for `append` as much as for `prepend`. Without one your text ends up flush against whatever it lands next to, even where the document already looked well-spaced. See the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for worked examples.
 
 > **Already using the older header-driven PATCH format?** It spread the instruction across request headers instead of a JSON body, and is **deprecated and will be removed in 6.0**. It still works — send `Markdown-Patch-Version: 1` to opt back into it (the same header also selects the legacy `::`-joined document map on GET), and responses served by it carry a `Deprecation: true; sunset-version="6.0"` header. To upgrade, drop that header and move each header into the JSON body; the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) have the field-by-field mapping table.
 

@@ -90,9 +90,25 @@ To append the content "Hello" below "Subsubheading 1:1:1" under "Heading 1":
 
 > **Note:** the heading line itself is not part of the `content` scope. When you `replace` a heading's content, supply only the body — do not include the heading line, or it will be duplicated. To rename the heading, use `scope: "marker"`.
 
-## Blank lines are not synthesized
+## Whitespace is spliced verbatim
 
-The API preserves a blank-line separator at the target boundary only if one already existed — it never inserts a new one. If the boundary had no blank line (a heading immediately followed by its body, or two adjacent headings), your content is spliced in exactly where you supplied it. If you need a blank line, include it yourself: end your `content` with `\n\n` for `append`/`replace`/rename, or start it with `\n\n` for `prepend`.
+Your `content` is inserted exactly as written at one edge of the target's span; the API adds no whitespace of its own. For a heading, that span begins immediately *after* the heading line and ends after the last line of its subtree. Given a document containing:
+
+```markdown
+# One
+
+body of one
+```
+
+- `prepend` lands flush against the heading line → `# One\nX\n\nbody of one\n`
+- `append` lands flush against the section's last line → `# One\n\nbody of one\nX\n`
+- `replace` clears the whole span, blank line included → `# One\nX\n`
+
+In all three cases **a leading `\n` in your content is what buys you a blank line before it**. Sending `"\nX\n"` instead gives `# One\n\nX\n\nbody of one\n`, `# One\n\nbody of one\n\nX\n`, and `# One\n\nX\n` respectively.
+
+Note that this is a *leading* newline even for `append`: the gap you usually want is between the existing text and yours, and that edge comes first. Trailing newlines control the gap *after* your content, and are trimmed at the very end of a document — so padding the end of an `append` at the end of a file does nothing.
+
+The case that most often surprises: prepending into a section whose heading is already followed by a blank line still yields `# One\nX`, with no gap. That blank line is part of the body, not of the boundary, so it is pushed below your text rather than kept above it.
 
 ## Append, prepend, or replace content of a block reference
 
