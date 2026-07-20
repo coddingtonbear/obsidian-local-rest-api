@@ -88,7 +88,27 @@ To append the content "Hello" below "Subsubheading 1:1:1" under "Heading 1":
 
 `prepend` and `replace` work the same way, with different results. Because `target` is an array, a heading whose text contains `::` needs no escaping.
 
-> **Note:** the heading line itself is not part of the `content` scope. When you `replace` a heading's content, supply only the body — do not include the heading line, or it will be duplicated. To rename the heading, use `scope: "marker"`.
+> **Note:** the heading line itself is not part of the `content` scope. When you `replace` a heading's content, supply only the body — do not include the heading line, or it will be duplicated. To rename the heading, see below.
+
+## Renaming a heading
+
+Give the new text. That's all — no `#` characters, and nothing to look up:
+
+```json
+{
+  "targetType": "heading",
+  "target": ["Heading 1", "Subheading 1:1"],
+  "operation": "replace",
+  "scope": "marker",
+  "content": "New Name"
+}
+```
+
+`marker` scope addresses the label rather than the line, so the heading keeps whatever level it had and the body underneath is untouched. You never need to know the heading's depth to rename it.
+
+> **Do not include `#` characters here.** They are not stripped — they become part of the heading text, so `"## New Name"` renames the heading to `## New Name` and renders as `## ## New Name`. (This is the reverse of the deprecated 1.x format, where the `#`s were required. If you are migrating, drop them.)
+
+The same instruction shape renames a block id (`targetType: "block"`, new id without `^`) or a frontmatter key (`targetType: "frontmatter"`, new key name in `content`).
 
 ## Whitespace is spliced verbatim
 

@@ -25,13 +25,13 @@ For `heading` and `block` targets, the optional `Target-Scope` header controls w
 
 ### Renaming a heading
 
-Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
+**Prefer `PATCH` for this.** Its JSON instruction format renames a heading from just the new text — `{"targetType": "heading", "target": ["Heading 1", "Subheading"], "operation": "replace", "scope": "marker", "content": "New Name"}` — with no `#` characters and no need to know the heading's depth. See the `PATCH` documentation.
 
-The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+On the header-driven verbs below, the rules are different and stricter. Here the `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is silently demoted to a plain paragraph:
 
 ```
 # Rename "## Subheading" to "## New Name" (note the leading "##")
-curl -k -X PATCH \
+curl -k -X PUT \
   https://127.0.0.1:27124/vault/path/to/note.md \
   -H "Authorization: Bearer $OBSIDIAN_API_KEY" \
   -H "Target-Type: heading" \
@@ -41,4 +41,8 @@ curl -k -X PATCH \
   --data "## New Name"
 ```
 
-Omitting the `#` characters entirely is valid too — it's how you deliberately remove a heading and demote its line to plain text — just make sure that's actually the intent before doing so.
+The depth isn't shown directly anywhere: the document map lists heading paths, not raw markdown, so infer it from the path length — `["Heading 1", "Subheading"]` is 2 deep, hence `##`.
+
+Omitting the `#`s is valid, and is how you deliberately demote a heading to plain text — just make sure that is the intent.
+
+> **Migrating to `PATCH`?** These two rules are exact opposites. `PATCH` does not strip `#` characters; it takes them as part of the label, so a carried-over `"## New Name"` renames the heading to the literal text `## New Name`. Drop the `#`s when you move.

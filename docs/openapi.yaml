@@ -299,13 +299,13 @@ paths:
         
         ### Renaming a heading
         
-        Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
+        **Prefer `PATCH` for this.** Its JSON instruction format renames a heading from just the new text — `{"targetType": "heading", "target": ["Heading 1", "Subheading"], "operation": "replace", "scope": "marker", "content": "New Name"}` — with no `#` characters and no need to know the heading's depth. See the `PATCH` documentation.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        On the header-driven verbs below, the rules are different and stricter. Here the `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is silently demoted to a plain paragraph:
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
-        curl -k -X PATCH \
+        curl -k -X PUT \
           https://127.0.0.1:27124/vault/path/to/note.md \
           -H "Authorization: Bearer $OBSIDIAN_API_KEY" \
           -H "Target-Type: heading" \
@@ -315,7 +315,11 @@ paths:
           --data "## New Name"
         ```
         
-        Omitting the `#` characters entirely is valid too — it's how you deliberately remove a heading and demote its line to plain text — just make sure that's actually the intent before doing so.
+        The depth isn't shown directly anywhere: the document map lists heading paths, not raw markdown, so infer it from the path length — `["Heading 1", "Subheading"]` is 2 deep, hence `##`.
+        
+        Omitting the `#`s is valid, and is how you deliberately demote a heading to plain text — just make sure that is the intent.
+        
+        > **Migrating to `PATCH`?** These two rules are exact opposites. `PATCH` does not strip `#` characters; it takes them as part of the label, so a carried-over `"## New Name"` renames the heading to the literal text `## New Name`. Drop the `#`s when you move.
         
         # Retrieving Document Metadata
         
@@ -547,7 +551,27 @@ paths:
         
         `prepend` and `replace` work the same way, with different results. Because `target` is an array, a heading whose text contains `::` needs no escaping.
         
-        > **Note:** the heading line itself is not part of the `content` scope. When you `replace` a heading's content, supply only the body — do not include the heading line, or it will be duplicated. To rename the heading, use `scope: "marker"`.
+        > **Note:** the heading line itself is not part of the `content` scope. When you `replace` a heading's content, supply only the body — do not include the heading line, or it will be duplicated. To rename the heading, see below.
+        
+        ## Renaming a heading
+        
+        Give the new text. That's all — no `#` characters, and nothing to look up:
+        
+        ```json
+        {
+          "targetType": "heading",
+          "target": ["Heading 1", "Subheading 1:1"],
+          "operation": "replace",
+          "scope": "marker",
+          "content": "New Name"
+        }
+        ```
+        
+        `marker` scope addresses the label rather than the line, so the heading keeps whatever level it had and the body underneath is untouched. You never need to know the heading's depth to rename it.
+        
+        > **Do not include `#` characters here.** They are not stripped — they become part of the heading text, so `"## New Name"` renames the heading to `## New Name` and renders as `## ## New Name`. (This is the reverse of the deprecated 1.x format, where the `#`s were required. If you are migrating, drop them.)
+        
+        The same instruction shape renames a block id (`targetType: "block"`, new id without `^`) or a frontmatter key (`targetType: "frontmatter"`, new key name in `content`).
         
         ## Whitespace is spliced verbatim
         
@@ -809,13 +833,13 @@ paths:
         
         ### Renaming a heading
         
-        Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
+        **Prefer `PATCH` for this.** Its JSON instruction format renames a heading from just the new text — `{"targetType": "heading", "target": ["Heading 1", "Subheading"], "operation": "replace", "scope": "marker", "content": "New Name"}` — with no `#` characters and no need to know the heading's depth. See the `PATCH` documentation.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        On the header-driven verbs below, the rules are different and stricter. Here the `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is silently demoted to a plain paragraph:
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
-        curl -k -X PATCH \
+        curl -k -X PUT \
           https://127.0.0.1:27124/vault/path/to/note.md \
           -H "Authorization: Bearer $OBSIDIAN_API_KEY" \
           -H "Target-Type: heading" \
@@ -825,7 +849,11 @@ paths:
           --data "## New Name"
         ```
         
-        Omitting the `#` characters entirely is valid too — it's how you deliberately remove a heading and demote its line to plain text — just make sure that's actually the intent before doing so.
+        The depth isn't shown directly anywhere: the document map lists heading paths, not raw markdown, so infer it from the path length — `["Heading 1", "Subheading"]` is 2 deep, hence `##`.
+        
+        Omitting the `#`s is valid, and is how you deliberately demote a heading to plain text — just make sure that is the intent.
+        
+        > **Migrating to `PATCH`?** These two rules are exact opposites. `PATCH` does not strip `#` characters; it takes them as part of the label, so a carried-over `"## New Name"` renames the heading to the literal text `## New Name`. Drop the `#`s when you move.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
@@ -972,13 +1000,13 @@ paths:
         
         ### Renaming a heading
         
-        Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
+        **Prefer `PATCH` for this.** Its JSON instruction format renames a heading from just the new text — `{"targetType": "heading", "target": ["Heading 1", "Subheading"], "operation": "replace", "scope": "marker", "content": "New Name"}` — with no `#` characters and no need to know the heading's depth. See the `PATCH` documentation.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        On the header-driven verbs below, the rules are different and stricter. Here the `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is silently demoted to a plain paragraph:
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
-        curl -k -X PATCH \
+        curl -k -X PUT \
           https://127.0.0.1:27124/vault/path/to/note.md \
           -H "Authorization: Bearer $OBSIDIAN_API_KEY" \
           -H "Target-Type: heading" \
@@ -988,7 +1016,11 @@ paths:
           --data "## New Name"
         ```
         
-        Omitting the `#` characters entirely is valid too — it's how you deliberately remove a heading and demote its line to plain text — just make sure that's actually the intent before doing so.
+        The depth isn't shown directly anywhere: the document map lists heading paths, not raw markdown, so infer it from the path length — `["Heading 1", "Subheading"]` is 2 deep, hence `##`.
+        
+        Omitting the `#`s is valid, and is how you deliberately demote a heading to plain text — just make sure that is the intent.
+        
+        > **Migrating to `PATCH`?** These two rules are exact opposites. `PATCH` does not strip `#` characters; it takes them as part of the label, so a carried-over `"## New Name"` renames the heading to the literal text `## New Name`. Drop the `#`s when you move.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
@@ -1468,13 +1500,13 @@ paths:
         
         ### Renaming a heading
         
-        Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
+        **Prefer `PATCH` for this.** Its JSON instruction format renames a heading from just the new text — `{"targetType": "heading", "target": ["Heading 1", "Subheading"], "operation": "replace", "scope": "marker", "content": "New Name"}` — with no `#` characters and no need to know the heading's depth. See the `PATCH` documentation.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        On the header-driven verbs below, the rules are different and stricter. Here the `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is silently demoted to a plain paragraph:
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
-        curl -k -X PATCH \
+        curl -k -X PUT \
           https://127.0.0.1:27124/vault/path/to/note.md \
           -H "Authorization: Bearer $OBSIDIAN_API_KEY" \
           -H "Target-Type: heading" \
@@ -1484,7 +1516,11 @@ paths:
           --data "## New Name"
         ```
         
-        Omitting the `#` characters entirely is valid too — it's how you deliberately remove a heading and demote its line to plain text — just make sure that's actually the intent before doing so.
+        The depth isn't shown directly anywhere: the document map lists heading paths, not raw markdown, so infer it from the path length — `["Heading 1", "Subheading"]` is 2 deep, hence `##`.
+        
+        Omitting the `#`s is valid, and is how you deliberately demote a heading to plain text — just make sure that is the intent.
+        
+        > **Migrating to `PATCH`?** These two rules are exact opposites. `PATCH` does not strip `#` characters; it takes them as part of the label, so a carried-over `"## New Name"` renames the heading to the literal text `## New Name`. Drop the `#`s when you move.
         
         # Retrieving Document Metadata
         
@@ -1729,7 +1765,27 @@ paths:
         
         `prepend` and `replace` work the same way, with different results. Because `target` is an array, a heading whose text contains `::` needs no escaping.
         
-        > **Note:** the heading line itself is not part of the `content` scope. When you `replace` a heading's content, supply only the body — do not include the heading line, or it will be duplicated. To rename the heading, use `scope: "marker"`.
+        > **Note:** the heading line itself is not part of the `content` scope. When you `replace` a heading's content, supply only the body — do not include the heading line, or it will be duplicated. To rename the heading, see below.
+        
+        ## Renaming a heading
+        
+        Give the new text. That's all — no `#` characters, and nothing to look up:
+        
+        ```json
+        {
+          "targetType": "heading",
+          "target": ["Heading 1", "Subheading 1:1"],
+          "operation": "replace",
+          "scope": "marker",
+          "content": "New Name"
+        }
+        ```
+        
+        `marker` scope addresses the label rather than the line, so the heading keeps whatever level it had and the body underneath is untouched. You never need to know the heading's depth to rename it.
+        
+        > **Do not include `#` characters here.** They are not stripped — they become part of the heading text, so `"## New Name"` renames the heading to `## New Name` and renders as `## ## New Name`. (This is the reverse of the deprecated 1.x format, where the `#`s were required. If you are migrating, drop them.)
+        
+        The same instruction shape renames a block id (`targetType: "block"`, new id without `^`) or a frontmatter key (`targetType: "frontmatter"`, new key name in `content`).
         
         ## Whitespace is spliced verbatim
         
@@ -2004,13 +2060,13 @@ paths:
         
         ### Renaming a heading
         
-        Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
+        **Prefer `PATCH` for this.** Its JSON instruction format renames a heading from just the new text — `{"targetType": "heading", "target": ["Heading 1", "Subheading"], "operation": "replace", "scope": "marker", "content": "New Name"}` — with no `#` characters and no need to know the heading's depth. See the `PATCH` documentation.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        On the header-driven verbs below, the rules are different and stricter. Here the `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is silently demoted to a plain paragraph:
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
-        curl -k -X PATCH \
+        curl -k -X PUT \
           https://127.0.0.1:27124/vault/path/to/note.md \
           -H "Authorization: Bearer $OBSIDIAN_API_KEY" \
           -H "Target-Type: heading" \
@@ -2020,7 +2076,11 @@ paths:
           --data "## New Name"
         ```
         
-        Omitting the `#` characters entirely is valid too — it's how you deliberately remove a heading and demote its line to plain text — just make sure that's actually the intent before doing so.
+        The depth isn't shown directly anywhere: the document map lists heading paths, not raw markdown, so infer it from the path length — `["Heading 1", "Subheading"]` is 2 deep, hence `##`.
+        
+        Omitting the `#`s is valid, and is how you deliberately demote a heading to plain text — just make sure that is the intent.
+        
+        > **Migrating to `PATCH`?** These two rules are exact opposites. `PATCH` does not strip `#` characters; it takes them as part of the label, so a carried-over `"## New Name"` renames the heading to the literal text `## New Name`. Drop the `#`s when you move.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
@@ -2180,13 +2240,13 @@ paths:
         
         ### Renaming a heading
         
-        Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
+        **Prefer `PATCH` for this.** Its JSON instruction format renames a heading from just the new text — `{"targetType": "heading", "target": ["Heading 1", "Subheading"], "operation": "replace", "scope": "marker", "content": "New Name"}` — with no `#` characters and no need to know the heading's depth. See the `PATCH` documentation.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        On the header-driven verbs below, the rules are different and stricter. Here the `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is silently demoted to a plain paragraph:
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
-        curl -k -X PATCH \
+        curl -k -X PUT \
           https://127.0.0.1:27124/vault/path/to/note.md \
           -H "Authorization: Bearer $OBSIDIAN_API_KEY" \
           -H "Target-Type: heading" \
@@ -2196,7 +2256,11 @@ paths:
           --data "## New Name"
         ```
         
-        Omitting the `#` characters entirely is valid too — it's how you deliberately remove a heading and demote its line to plain text — just make sure that's actually the intent before doing so.
+        The depth isn't shown directly anywhere: the document map lists heading paths, not raw markdown, so infer it from the path length — `["Heading 1", "Subheading"]` is 2 deep, hence `##`.
+        
+        Omitting the `#`s is valid, and is how you deliberately demote a heading to plain text — just make sure that is the intent.
+        
+        > **Migrating to `PATCH`?** These two rules are exact opposites. `PATCH` does not strip `#` characters; it takes them as part of the label, so a carried-over `"## New Name"` renames the heading to the literal text `## New Name`. Drop the `#`s when you move.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
@@ -2412,13 +2476,13 @@ paths:
         
         ### Renaming a heading
         
-        Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
+        **Prefer `PATCH` for this.** Its JSON instruction format renames a heading from just the new text — `{"targetType": "heading", "target": ["Heading 1", "Subheading"], "operation": "replace", "scope": "marker", "content": "New Name"}` — with no `#` characters and no need to know the heading's depth. See the `PATCH` documentation.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        On the header-driven verbs below, the rules are different and stricter. Here the `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is silently demoted to a plain paragraph:
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
-        curl -k -X PATCH \
+        curl -k -X PUT \
           https://127.0.0.1:27124/vault/path/to/note.md \
           -H "Authorization: Bearer $OBSIDIAN_API_KEY" \
           -H "Target-Type: heading" \
@@ -2428,7 +2492,11 @@ paths:
           --data "## New Name"
         ```
         
-        Omitting the `#` characters entirely is valid too — it's how you deliberately remove a heading and demote its line to plain text — just make sure that's actually the intent before doing so.
+        The depth isn't shown directly anywhere: the document map lists heading paths, not raw markdown, so infer it from the path length — `["Heading 1", "Subheading"]` is 2 deep, hence `##`.
+        
+        Omitting the `#`s is valid, and is how you deliberately demote a heading to plain text — just make sure that is the intent.
+        
+        > **Migrating to `PATCH`?** These two rules are exact opposites. `PATCH` does not strip `#` characters; it takes them as part of the label, so a carried-over `"## New Name"` renames the heading to the literal text `## New Name`. Drop the `#`s when you move.
         
         # Retrieving Document Metadata
         
@@ -2691,7 +2759,27 @@ paths:
         
         `prepend` and `replace` work the same way, with different results. Because `target` is an array, a heading whose text contains `::` needs no escaping.
         
-        > **Note:** the heading line itself is not part of the `content` scope. When you `replace` a heading's content, supply only the body — do not include the heading line, or it will be duplicated. To rename the heading, use `scope: "marker"`.
+        > **Note:** the heading line itself is not part of the `content` scope. When you `replace` a heading's content, supply only the body — do not include the heading line, or it will be duplicated. To rename the heading, see below.
+        
+        ## Renaming a heading
+        
+        Give the new text. That's all — no `#` characters, and nothing to look up:
+        
+        ```json
+        {
+          "targetType": "heading",
+          "target": ["Heading 1", "Subheading 1:1"],
+          "operation": "replace",
+          "scope": "marker",
+          "content": "New Name"
+        }
+        ```
+        
+        `marker` scope addresses the label rather than the line, so the heading keeps whatever level it had and the body underneath is untouched. You never need to know the heading's depth to rename it.
+        
+        > **Do not include `#` characters here.** They are not stripped — they become part of the heading text, so `"## New Name"` renames the heading to `## New Name` and renders as `## ## New Name`. (This is the reverse of the deprecated 1.x format, where the `#`s were required. If you are migrating, drop them.)
+        
+        The same instruction shape renames a block id (`targetType: "block"`, new id without `^`) or a frontmatter key (`targetType: "frontmatter"`, new key name in `content`).
         
         ## Whitespace is spliced verbatim
         
@@ -2984,13 +3072,13 @@ paths:
         
         ### Renaming a heading
         
-        Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
+        **Prefer `PATCH` for this.** Its JSON instruction format renames a heading from just the new text — `{"targetType": "heading", "target": ["Heading 1", "Subheading"], "operation": "replace", "scope": "marker", "content": "New Name"}` — with no `#` characters and no need to know the heading's depth. See the `PATCH` documentation.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        On the header-driven verbs below, the rules are different and stricter. Here the `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is silently demoted to a plain paragraph:
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
-        curl -k -X PATCH \
+        curl -k -X PUT \
           https://127.0.0.1:27124/vault/path/to/note.md \
           -H "Authorization: Bearer $OBSIDIAN_API_KEY" \
           -H "Target-Type: heading" \
@@ -3000,7 +3088,11 @@ paths:
           --data "## New Name"
         ```
         
-        Omitting the `#` characters entirely is valid too — it's how you deliberately remove a heading and demote its line to plain text — just make sure that's actually the intent before doing so.
+        The depth isn't shown directly anywhere: the document map lists heading paths, not raw markdown, so infer it from the path length — `["Heading 1", "Subheading"]` is 2 deep, hence `##`.
+        
+        Omitting the `#`s is valid, and is how you deliberately demote a heading to plain text — just make sure that is the intent.
+        
+        > **Migrating to `PATCH`?** These two rules are exact opposites. `PATCH` does not strip `#` characters; it takes them as part of the label, so a carried-over `"## New Name"` renames the heading to the literal text `## New Name`. Drop the `#`s when you move.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
@@ -3178,13 +3270,13 @@ paths:
         
         ### Renaming a heading
         
-        Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
+        **Prefer `PATCH` for this.** Its JSON instruction format renames a heading from just the new text — `{"targetType": "heading", "target": ["Heading 1", "Subheading"], "operation": "replace", "scope": "marker", "content": "New Name"}` — with no `#` characters and no need to know the heading's depth. See the `PATCH` documentation.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        On the header-driven verbs below, the rules are different and stricter. Here the `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is silently demoted to a plain paragraph:
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
-        curl -k -X PATCH \
+        curl -k -X PUT \
           https://127.0.0.1:27124/vault/path/to/note.md \
           -H "Authorization: Bearer $OBSIDIAN_API_KEY" \
           -H "Target-Type: heading" \
@@ -3194,7 +3286,11 @@ paths:
           --data "## New Name"
         ```
         
-        Omitting the `#` characters entirely is valid too — it's how you deliberately remove a heading and demote its line to plain text — just make sure that's actually the intent before doing so.
+        The depth isn't shown directly anywhere: the document map lists heading paths, not raw markdown, so infer it from the path length — `["Heading 1", "Subheading"]` is 2 deep, hence `##`.
+        
+        Omitting the `#`s is valid, and is how you deliberately demote a heading to plain text — just make sure that is the intent.
+        
+        > **Migrating to `PATCH`?** These two rules are exact opposites. `PATCH` does not strip `#` characters; it takes them as part of the label, so a carried-over `"## New Name"` renames the heading to the literal text `## New Name`. Drop the `#`s when you move.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
@@ -3692,13 +3788,13 @@ paths:
         
         ### Renaming a heading
         
-        Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
+        **Prefer `PATCH` for this.** Its JSON instruction format renames a heading from just the new text — `{"targetType": "heading", "target": ["Heading 1", "Subheading"], "operation": "replace", "scope": "marker", "content": "New Name"}` — with no `#` characters and no need to know the heading's depth. See the `PATCH` documentation.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        On the header-driven verbs below, the rules are different and stricter. Here the `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is silently demoted to a plain paragraph:
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
-        curl -k -X PATCH \
+        curl -k -X PUT \
           https://127.0.0.1:27124/vault/path/to/note.md \
           -H "Authorization: Bearer $OBSIDIAN_API_KEY" \
           -H "Target-Type: heading" \
@@ -3708,7 +3804,11 @@ paths:
           --data "## New Name"
         ```
         
-        Omitting the `#` characters entirely is valid too — it's how you deliberately remove a heading and demote its line to plain text — just make sure that's actually the intent before doing so.
+        The depth isn't shown directly anywhere: the document map lists heading paths, not raw markdown, so infer it from the path length — `["Heading 1", "Subheading"]` is 2 deep, hence `##`.
+        
+        Omitting the `#`s is valid, and is how you deliberately demote a heading to plain text — just make sure that is the intent.
+        
+        > **Migrating to `PATCH`?** These two rules are exact opposites. `PATCH` does not strip `#` characters; it takes them as part of the label, so a carried-over `"## New Name"` renames the heading to the literal text `## New Name`. Drop the `#`s when you move.
         
         # Retrieving Document Metadata
         
@@ -3941,7 +4041,27 @@ paths:
         
         `prepend` and `replace` work the same way, with different results. Because `target` is an array, a heading whose text contains `::` needs no escaping.
         
-        > **Note:** the heading line itself is not part of the `content` scope. When you `replace` a heading's content, supply only the body — do not include the heading line, or it will be duplicated. To rename the heading, use `scope: "marker"`.
+        > **Note:** the heading line itself is not part of the `content` scope. When you `replace` a heading's content, supply only the body — do not include the heading line, or it will be duplicated. To rename the heading, see below.
+        
+        ## Renaming a heading
+        
+        Give the new text. That's all — no `#` characters, and nothing to look up:
+        
+        ```json
+        {
+          "targetType": "heading",
+          "target": ["Heading 1", "Subheading 1:1"],
+          "operation": "replace",
+          "scope": "marker",
+          "content": "New Name"
+        }
+        ```
+        
+        `marker` scope addresses the label rather than the line, so the heading keeps whatever level it had and the body underneath is untouched. You never need to know the heading's depth to rename it.
+        
+        > **Do not include `#` characters here.** They are not stripped — they become part of the heading text, so `"## New Name"` renames the heading to `## New Name` and renders as `## ## New Name`. (This is the reverse of the deprecated 1.x format, where the `#`s were required. If you are migrating, drop them.)
+        
+        The same instruction shape renames a block id (`targetType: "block"`, new id without `^`) or a frontmatter key (`targetType: "frontmatter"`, new key name in `content`).
         
         ## Whitespace is spliced verbatim
         
@@ -4209,13 +4329,13 @@ paths:
         
         ### Renaming a heading
         
-        Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
+        **Prefer `PATCH` for this.** Its JSON instruction format renames a heading from just the new text — `{"targetType": "heading", "target": ["Heading 1", "Subheading"], "operation": "replace", "scope": "marker", "content": "New Name"}` — with no `#` characters and no need to know the heading's depth. See the `PATCH` documentation.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        On the header-driven verbs below, the rules are different and stricter. Here the `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is silently demoted to a plain paragraph:
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
-        curl -k -X PATCH \
+        curl -k -X PUT \
           https://127.0.0.1:27124/vault/path/to/note.md \
           -H "Authorization: Bearer $OBSIDIAN_API_KEY" \
           -H "Target-Type: heading" \
@@ -4225,7 +4345,11 @@ paths:
           --data "## New Name"
         ```
         
-        Omitting the `#` characters entirely is valid too — it's how you deliberately remove a heading and demote its line to plain text — just make sure that's actually the intent before doing so.
+        The depth isn't shown directly anywhere: the document map lists heading paths, not raw markdown, so infer it from the path length — `["Heading 1", "Subheading"]` is 2 deep, hence `##`.
+        
+        Omitting the `#`s is valid, and is how you deliberately demote a heading to plain text — just make sure that is the intent.
+        
+        > **Migrating to `PATCH`?** These two rules are exact opposites. `PATCH` does not strip `#` characters; it takes them as part of the label, so a carried-over `"## New Name"` renames the heading to the literal text `## New Name`. Drop the `#`s when you move.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
@@ -4369,13 +4493,13 @@ paths:
         
         ### Renaming a heading
         
-        Unlike the `content` scope (where the heading line `## My Section` must *not* appear in the patched content), the `marker` and `markerAndContent` scopes target the heading line itself — `#` characters included. To rename a heading, the replacement content must include the same number of leading `#` characters as the original, or the heading will be silently demoted to a plain paragraph.
+        **Prefer `PATCH` for this.** Its JSON instruction format renames a heading from just the new text — `{"targetType": "heading", "target": ["Heading 1", "Subheading"], "operation": "replace", "scope": "marker", "content": "New Name"}` — with no `#` characters and no need to know the heading's depth. See the `PATCH` documentation.
         
-        The heading's depth isn't shown directly anywhere — the document map (`vault_get_document_map`, or a GET with `Accept: application/vnd.olrapi.document-map+json`) lists heading paths, not raw markdown, so depth must be inferred from the path length. The map returns each heading as an array, so its depth is the array length: `["Heading 1", "Subheading"]` is 2 deep, so its marker line is `## Subheading`. (With `Markdown-Patch-Version: 1` the same path is the `::`-joined string `Heading 1::Subheading`, and depth is the number of `Target-Delimiter`-separated segments.) Renaming it means replacing with content like `## New Name` — not just `New Name`.
+        On the header-driven verbs below, the rules are different and stricter. Here the `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is silently demoted to a plain paragraph:
         
         ```
         # Rename "## Subheading" to "## New Name" (note the leading "##")
-        curl -k -X PATCH \
+        curl -k -X PUT \
           https://127.0.0.1:27124/vault/path/to/note.md \
           -H "Authorization: Bearer $OBSIDIAN_API_KEY" \
           -H "Target-Type: heading" \
@@ -4385,7 +4509,11 @@ paths:
           --data "## New Name"
         ```
         
-        Omitting the `#` characters entirely is valid too — it's how you deliberately remove a heading and demote its line to plain text — just make sure that's actually the intent before doing so.
+        The depth isn't shown directly anywhere: the document map lists heading paths, not raw markdown, so infer it from the path length — `["Heading 1", "Subheading"]` is 2 deep, hence `##`.
+        
+        Omitting the `#`s is valid, and is how you deliberately demote a heading to plain text — just make sure that is the intent.
+        
+        > **Migrating to `PATCH`?** These two rules are exact opposites. `PATCH` does not strip `#` characters; it takes them as part of the label, so a carried-over `"## New Name"` renames the heading to the literal text `## New Name`. Drop the `#`s when you move.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
