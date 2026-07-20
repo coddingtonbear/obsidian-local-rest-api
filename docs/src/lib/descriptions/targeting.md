@@ -23,8 +23,6 @@ For `heading` and `block` targets, the optional `Target-Scope` header controls w
 - `marker`: the operation applies only to the heading line or block-ID token itself, leaving the content unchanged.
 - `markerAndContent`: the operation applies to the full range covering both the heading/block-ID token and its content, allowing them to be replaced or repositioned together.
 
-Here the `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is demoted to a plain paragraph. Omitting them is how you demote a heading deliberately.
+The `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is demoted to a plain paragraph. Omitting them is how you demote a heading deliberately.
 
 To rename a heading, use `PATCH` — see its documentation.
-
-> **Migrating to `PATCH`?** These two rules are exact opposites. `PATCH` does not strip `#` characters; it takes them as part of the label, so a carried-over `"## New Name"` renames the heading to the literal text `## New Name`. Drop the `#`s when you move.
