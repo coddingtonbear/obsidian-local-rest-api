@@ -133,8 +133,9 @@ export class VaultOperations {
   }
 
   /**
-   * The markdown-patch 2.0 document map: heading addresses as null-padded
-   * arrays, bare block ids, frontmatter field names, and the content-hash
+   * The markdown-patch 2.0 document map: headings nested by containment (each
+   * heading text maps to its child headings; a repeated sibling keeps its first
+   * occurrence), bare block ids, frontmatter field names, and the content-hash
    * `version` token clients pass back as a patch `ifMatch` precondition.
    */
   async getDocumentMapV2Object(file: TFile): Promise<PublicMap> {

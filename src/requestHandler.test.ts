@@ -495,7 +495,7 @@ describe("requestHandler", () => {
     ].join("\n");
     const MAP_CT = "application/vnd.olrapi.document-map+json";
 
-    test("defaults to the 2.0 map with array heading addresses and a version token", async () => {
+    test("defaults to the 2.0 map with a nested heading tree and a version token", async () => {
       app.vault.adapter._read = mapDoc;
       const res = await request(server)
         .get("/vault/somefile.md")
@@ -504,11 +504,10 @@ describe("requestHandler", () => {
         .expect(200);
       expect(res.headers["content-type"]).toContain("document-map");
       expect(res.headers["deprecation"]).toBeUndefined();
-      expect(res.body.headings).toEqual([
-        ["Heading1"],
-        ["Heading1", "SubHeading"],
-        ["Heading2"],
-      ]);
+      expect(res.body.headings).toEqual({
+        Heading1: { SubHeading: {} },
+        Heading2: {},
+      });
       expect(res.body.blocks).toEqual(["blk"]);
       expect(res.body.frontmatterFields).toEqual(["title", "priority"]);
       expect(res.body.version).toMatch(/^[0-9a-f]{6}$/);

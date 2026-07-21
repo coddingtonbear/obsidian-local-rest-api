@@ -21,6 +21,24 @@ components:
             type: "string"
           type: "array"
         - type: "null"
+    HeadingTree:
+      additionalProperties:
+        "$ref": "#/components/schemas/HeadingTree"
+      description: |
+        The document's headings nested by containment: each heading's text
+        maps to a HeadingTree of its child headings, and a leaf heading maps
+        to `{}`. Nesting carries no heading level — a level skipped in the
+        source leaves no hole. A repeated sibling heading appears once, at
+        its first occurrence in document order; later same-name siblings
+        (and their subtrees) are omitted. To target a heading, use the path
+        of keys from the top level down to it as a HeadingAddress; to reach a
+        heading shadowed by an earlier duplicate, target the next-higher
+        heading or the document as a whole.
+      example:
+        Appendix: {}
+        Overview:
+          Details: {}
+      type: "object"
     NoteJson:
       properties:
         backlinks:
@@ -391,22 +409,7 @@ paths:
                       type: "string"
                     type: "array"
                   headings:
-                    description: "One entry per heading, in document order. Each entry is the path of heading texts from the top level down to that heading; pass one straight back as a PATCH or read heading target. A `null` element marks a skipped level."
-                    example:
-                      -
-                        - "Heading 1"
-                      -
-                        - "Heading 1"
-                        - "Subhead of Heading 1"
-                      -
-                        - "Heading 2"
-                    items:
-                      items:
-                        type:
-                          - "string"
-                          - "null"
-                      type: "array"
-                    type: "array"
+                    "$ref": "#/components/schemas/HeadingTree"
                   version:
                     description: "Content-hash token for the file; pass it back as a PATCH `ifMatch` to make an edit conditional on the file being unchanged."
                     example: "a1b2c3"
@@ -1545,22 +1548,7 @@ paths:
                       type: "string"
                     type: "array"
                   headings:
-                    description: "One entry per heading, in document order. Each entry is the path of heading texts from the top level down to that heading; pass one straight back as a PATCH or read heading target. A `null` element marks a skipped level."
-                    example:
-                      -
-                        - "Heading 1"
-                      -
-                        - "Heading 1"
-                        - "Subhead of Heading 1"
-                      -
-                        - "Heading 2"
-                    items:
-                      items:
-                        type:
-                          - "string"
-                          - "null"
-                      type: "array"
-                    type: "array"
+                    "$ref": "#/components/schemas/HeadingTree"
                   version:
                     description: "Content-hash token for the file; pass it back as a PATCH `ifMatch` to make an edit conditional on the file being unchanged."
                     example: "a1b2c3"
@@ -2479,22 +2467,7 @@ paths:
                       type: "string"
                     type: "array"
                   headings:
-                    description: "One entry per heading, in document order. Each entry is the path of heading texts from the top level down to that heading; pass one straight back as a PATCH or read heading target. A `null` element marks a skipped level."
-                    example:
-                      -
-                        - "Heading 1"
-                      -
-                        - "Heading 1"
-                        - "Subhead of Heading 1"
-                      -
-                        - "Heading 2"
-                    items:
-                      items:
-                        type:
-                          - "string"
-                          - "null"
-                      type: "array"
-                    type: "array"
+                    "$ref": "#/components/schemas/HeadingTree"
                   version:
                     description: "Content-hash token for the file; pass it back as a PATCH `ifMatch` to make an edit conditional on the file being unchanged."
                     example: "a1b2c3"
@@ -3707,22 +3680,7 @@ paths:
                       type: "string"
                     type: "array"
                   headings:
-                    description: "One entry per heading, in document order. Each entry is the path of heading texts from the top level down to that heading; pass one straight back as a PATCH or read heading target. A `null` element marks a skipped level."
-                    example:
-                      -
-                        - "Heading 1"
-                      -
-                        - "Heading 1"
-                        - "Subhead of Heading 1"
-                      -
-                        - "Heading 2"
-                    items:
-                      items:
-                        type:
-                          - "string"
-                          - "null"
-                      type: "array"
-                    type: "array"
+                    "$ref": "#/components/schemas/HeadingTree"
                   version:
                     description: "Content-hash token for the file; pass it back as a PATCH `ifMatch` to make an edit conditional on the file being unchanged."
                     example: "a1b2c3"

@@ -241,7 +241,7 @@ export class McpHandler {
           .optional()
           .describe("Type of section to extract: 'heading', 'block' reference, or 'frontmatter' key"),
         target: z
-          .union([z.array(z.string().nullable()), z.string()])
+          .union([z.array(z.string()), z.string()])
           .optional()
           .describe(
             dedent`Section to extract. For a heading: an array of heading texts naming the path from the top level down to the target (e.g. ["Heading 1","Subheading"]); a bare string is accepted as a single top-level heading. For a block: the bare block id without '^'. For a frontmatter field: the key name. Use vault_get_document_map to discover valid heading paths and block ids.`,
@@ -255,7 +255,7 @@ export class McpHandler {
       }: {
         path: string;
         targetType?: "heading" | "block" | "frontmatter";
-        target?: (string | null)[] | string;
+        target?: string[] | string;
       }) => {
         const file = this.ops.app.vault.getAbstractFileByPath(path);
         if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
@@ -311,10 +311,10 @@ export class McpHandler {
       },
     );
 
-    // A heading address: the path of heading texts from the top level down to
-    // the target. `null` marks a skipped level; `null`/`[]` for the whole
-    // address means the document root.
-    const headingAddress = z.union([z.array(z.string().nullable()), z.null()]);
+    // A heading address: the containment path of heading texts from the top
+    // level down to the target (a skipped source level is not encoded — the
+    // engine owns depth). `null`/`[]` means the document root.
+    const headingAddress = z.union([z.array(z.string()), z.null()]);
     this.tool(
       "vault_patch",
       dedent`
@@ -401,7 +401,7 @@ export class McpHandler {
       }: {
         path: string;
         targetType: "heading" | "block" | "frontmatter";
-        target: (string | null)[] | string | null;
+        target: string[] | string | null;
         operation: "replace" | "prepend" | "append" | "delete";
         scope?: "content" | "marker" | "markerAndContent" | "parent";
         content?: string;
@@ -514,9 +514,9 @@ export class McpHandler {
     this.tool(
       "vault_get_document_map",
       dedent`
-        Return the structure of a vault file as a document map: heading addresses, block reference IDs, and frontmatter field names present in the file, plus a version token. Use this before vault_read or vault_patch with targeting to discover what targets are available without parsing the full markdown content yourself.
+        Return the structure of a vault file as a document map: its heading tree, block reference IDs, and frontmatter field names, plus a version token. Use this before vault_read or vault_patch with targeting to discover what targets are available without parsing the full markdown content yourself.
 
-        Each heading address is an array giving the path from the top level down to that heading (e.g. ['Overview', 'Details']); pass it directly as a vault_patch or vault_read heading target. blocks are bare reference IDs (no '^'); frontmatterFields are top-level key names. version is a content hash of the file — pass it back as vault_patch's ifMatch to make an edit conditional on the file being unchanged.
+        headings is a nested object mirroring the document's heading nesting: each heading's text maps to an object of its child headings, and a leaf heading maps to {} (e.g. {"Overview": {"Details": {}}}). To target a heading, use the path of keys from the top level down to it (e.g. ['Overview', 'Details']) as a vault_patch or vault_read heading target. A repeated sibling heading appears once — its first occurrence in document order; to reach one shadowed by an earlier duplicate, target the next-higher heading or the whole document. blocks are bare reference IDs (no '^'); frontmatterFields are top-level key names. version is a content hash of the file — pass it back as vault_patch's ifMatch to make an edit conditional on the file being unchanged.
       `,
       { path: z.string().describe("File path relative to vault root") },
       READ_ONLY_ANNOTATIONS,

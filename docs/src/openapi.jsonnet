@@ -163,6 +163,22 @@ std.manifestYamlDoc(
             { type: 'null' },
           ],
         },
+        HeadingTree: {
+          type: 'object',
+          description: |||
+            The document's headings nested by containment: each heading's text
+            maps to a HeadingTree of its child headings, and a leaf heading maps
+            to `{}`. Nesting carries no heading level — a level skipped in the
+            source leaves no hole. A repeated sibling heading appears once, at
+            its first occurrence in document order; later same-name siblings
+            (and their subtrees) are omitted. To target a heading, use the path
+            of keys from the top level down to it as a HeadingAddress; to reach a
+            heading shadowed by an earlier duplicate, target the next-higher
+            heading or the document as a whole.
+          |||,
+          additionalProperties: { '$ref': '#/components/schemas/HeadingTree' },
+          example: { Overview: { Details: {} }, Appendix: {} },
+        },
         PatchInstruction: {
           type: 'object',
           description: |||

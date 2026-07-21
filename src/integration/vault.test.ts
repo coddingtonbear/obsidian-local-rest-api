@@ -113,7 +113,7 @@ describe("GET /vault/{file} with Accept: application/vnd.olrapi.note+json", () =
 // ---------------------------------------------------------------------------
 
 describe("GET /vault/{file} with Accept: application/vnd.olrapi.document-map+json", () => {
-  test("defaults to the 2.0 map: array heading addresses, bare blocks, and a version", async () => {
+  test("defaults to the 2.0 map: nested heading tree, bare blocks, and a version", async () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       headers: { Accept: "application/vnd.olrapi.document-map+json" },
     });
@@ -121,8 +121,9 @@ describe("GET /vault/{file} with Accept: application/vnd.olrapi.document-map+jso
     expect(res.headers.get("Deprecation")).toBeNull();
     const body = await res.json();
     expect(typeof body.version).toBe("string");
-    expect(body.headings).toContainEqual([HEADING_ALPHA]);
-    expect(body.headings).toContainEqual([HEADING_ALPHA, HEADING_SUB]);
+    expect(Array.isArray(body.headings)).toBe(false);
+    expect(body.headings).toHaveProperty(HEADING_ALPHA);
+    expect(body.headings[HEADING_ALPHA]).toHaveProperty(HEADING_SUB);
     expect(body.blocks).toContain(BLOCK_BETA);
     expect(body.frontmatterFields).toContain(FM_TITLE);
     expect(body.frontmatterFields).toContain(FM_PRIORITY);

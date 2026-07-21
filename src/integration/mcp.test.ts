@@ -225,12 +225,12 @@ describe("vault_get_document_map tool", () => {
     });
     const body = jsonOf<any>(result);
     expect(typeof body.version).toBe("string");
-    expect(Array.isArray(body.headings)).toBe(true);
     expect(Array.isArray(body.blocks)).toBe(true);
     expect(Array.isArray(body.frontmatterFields)).toBe(true);
-    // 2.0 map: heading addresses are arrays, block ids are bare.
-    expect(body.headings).toContainEqual([HEADING_ALPHA]);
-    expect(body.headings).toContainEqual([HEADING_ALPHA, HEADING_SUB]);
+    // 2.0 map: headings nest by containment (Sub under Alpha); block ids bare.
+    expect(Array.isArray(body.headings)).toBe(false);
+    expect(body.headings).toHaveProperty(HEADING_ALPHA);
+    expect(body.headings[HEADING_ALPHA]).toHaveProperty(HEADING_SUB);
     expect(body.blocks).toContain(BLOCK_BETA);
     expect(body.frontmatterFields).toContain(FM_TITLE);
     expect(body.frontmatterFields).toContain(FM_PRIORITY);

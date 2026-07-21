@@ -37,15 +37,7 @@ local T = import 'targeting.params.jsonnet';
                 example: 'a1b2c3',
               },
               headings: {
-                type: 'array',
-                description: 'One entry per heading, in document order. Each entry is the path of heading texts from the top level down to that heading; pass one straight back as a PATCH or read heading target. A `null` element marks a skipped level.',
-                items: {
-                  type: 'array',
-                  items: {
-                    type: ['string', 'null'],
-                  },
-                },
-                example: [['Heading 1'], ['Heading 1', 'Subhead of Heading 1'], ['Heading 2']],
+                '$ref': '#/components/schemas/HeadingTree',
               },
               blocks: {
                 type: 'array',
