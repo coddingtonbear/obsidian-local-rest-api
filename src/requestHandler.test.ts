@@ -250,18 +250,37 @@ describe("requestHandler", () => {
       app.vault.adapter._readBinary = buf;
     }
 
-    test("heading section returns only that heading's content", async () => {
+    // Header-based targeting is a deprecated 1.x feature and is only processed
+    // under Markdown-Patch-Version: 1; the 2.0 (default) way to target a read is
+    // URL path elements (covered in the "URL segment targeting" block below).
+    test("heading section (1.x header targeting) returns only that heading's content", async () => {
       setFileContent(markdownWithHeadings);
 
       const result = await request(server)
         .get("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Accept", "text/markdown")
+        .set("Markdown-Patch-Version", "1")
         .set("Target-Type", "heading")
         .set("Target", "Heading2")
         .expect(200);
 
       expect(result.text).toEqual("Content under heading2\n");
+      expect(result.headers["deprecation"]).toBe('true; sunset-version="6.0"');
+    });
+
+    test("header targeting without Markdown-Patch-Version: 1 is rejected (40083)", async () => {
+      setFileContent(markdownWithHeadings);
+
+      const res = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading2");
+
+      expect(res.status).toBe(400);
+      expect(JSON.parse(res.text).errorCode).toBe(40083);
     });
 
     test("nested heading section via delimiter", async () => {
@@ -271,6 +290,7 @@ describe("requestHandler", () => {
         .get("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Accept", "text/markdown")
+        .set("Markdown-Patch-Version", "1")
         .set("Target-Type", "heading")
         .set("Target", "Heading1::SubHeading")
         .expect(200);
@@ -285,6 +305,7 @@ describe("requestHandler", () => {
         .get("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Accept", "text/markdown")
+        .set("Markdown-Patch-Version", "1")
         .set("Target-Type", "heading")
         .set("Target", "Heading1||SubHeading")
         .set("Target-Delimiter", "||")
@@ -300,6 +321,7 @@ describe("requestHandler", () => {
         .get("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Accept", "text/markdown")
+        .set("Markdown-Patch-Version", "1")
         .set("Target-Type", "block")
         .set("Target", "myblock")
         .expect(200);
@@ -313,6 +335,7 @@ describe("requestHandler", () => {
       const result = await request(server)
         .get("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Markdown-Patch-Version", "1")
         .set("Target-Type", "frontmatter")
         .set("Target", "title")
         .expect(200);
@@ -327,6 +350,7 @@ describe("requestHandler", () => {
         .get("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Accept", "text/markdown")
+        .set("Markdown-Patch-Version", "1")
         .set("Target-Type", "heading")
         .set("Target", "NoSuchHeading")
         .expect(404);
@@ -339,6 +363,7 @@ describe("requestHandler", () => {
         .get("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Accept", "text/markdown")
+        .set("Markdown-Patch-Version", "1")
         .set("Target-Type", "block")
         .set("Target", "nonexistent")
         .expect(404);
@@ -350,6 +375,7 @@ describe("requestHandler", () => {
       await request(server)
         .get("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Markdown-Patch-Version", "1")
         .set("Target-Type", "frontmatter")
         .set("Target", "nonexistent")
         .expect(404);
@@ -362,6 +388,7 @@ describe("requestHandler", () => {
         .get("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Accept", "text/markdown")
+        .set("Markdown-Patch-Version", "1")
         .set("Target-Type", "heading")
         .expect(400);
     });
@@ -423,6 +450,7 @@ describe("requestHandler", () => {
         .get("/vault/somefile.md")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Accept", "text/markdown")
+        .set("Markdown-Patch-Version", "1")
         .set("Target-Type", "heading")
         .set("Target", "Heading1")
         .expect(200);
@@ -433,15 +461,14 @@ describe("requestHandler", () => {
       expect(result.text).not.toContain("Content under heading2");
     });
 
-    test("a default (2.0) read carries no Deprecation header", async () => {
+    test("a default (2.0) path-targeted read carries no Deprecation header", async () => {
       setFileContent(markdownWithHeadings);
+      app.vault.adapter._statForPath = "somefile.md";
 
       const result = await request(server)
-        .get("/vault/somefile.md")
+        .get("/vault/somefile.md/heading/Heading2")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Accept", "text/markdown")
-        .set("Target-Type", "heading")
-        .set("Target", "Heading2")
         .expect(200);
 
       expect(result.text).toEqual("Content under heading2\n");
@@ -1519,6 +1546,53 @@ describe("requestHandler", () => {
           .send("content")
           .expect(422);
       });
+
+      test("normalizes heading levels in the written content (2.0 engine)", async () => {
+        // Heading2 is an h1; under `content` scope a leading `#` in the body
+        // rebases to a direct child (h2), proving the 2.0 engine — not the
+        // level-blind 1.x engine — handled the path-targeted write.
+        const result = await request(server)
+          .put("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("# Child\n")
+          .expect(200);
+
+        expect(result.text).toContain("## Child");
+        expect(result.text).not.toContain("\n# Child");
+        expect(result.headers["deprecation"]).toBeUndefined();
+      });
+
+      test("header targeting without Markdown-Patch-Version: 1 is rejected (40083)", async () => {
+        const res = await request(server)
+          .put("/vault/somefile.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Target-Type", "heading")
+          .set("Target", "Heading2")
+          .send("content");
+
+        expect(res.status).toBe(400);
+        expect(JSON.parse(res.text).errorCode).toBe(40083);
+      });
+
+      test("header targeting under Markdown-Patch-Version: 1 still writes and is deprecated", async () => {
+        jest
+          .spyOn(handler.operations, "patchFileSection")
+          .mockResolvedValueOnce("# Patched\n");
+
+        const result = await request(server)
+          .put("/vault/somefile.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Markdown-Patch-Version", "1")
+          .set("Target-Type", "heading")
+          .set("Target", "Heading2")
+          .send("Replaced via 1.x\n")
+          .expect(200);
+
+        expect(result.headers["deprecation"]).toBe('true; sunset-version="6.0"');
+      });
     });
 
     describe("POST", () => {
@@ -1542,6 +1616,19 @@ describe("requestHandler", () => {
           .set("Target", "Heading2")
           .send("content")
           .expect(422);
+      });
+
+      test("header targeting without Markdown-Patch-Version: 1 is rejected (40083)", async () => {
+        const res = await request(server)
+          .post("/vault/somefile.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Target-Type", "heading")
+          .set("Target", "Heading2")
+          .send("content");
+
+        expect(res.status).toBe(400);
+        expect(JSON.parse(res.text).errorCode).toBe(40083);
       });
     });
 

@@ -43,6 +43,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.InvalidTargetHeader]: "The 'Target' header you provided was invalid.",
   [ErrorCode.InvalidPatchVersionHeader]:
     "The 'Markdown-Patch-Version' header you provided was invalid. Valid values are '1' (the deprecated header-driven format) and '2' (the default JSON-instruction format).",
+  [ErrorCode.HeaderTargetingRequiresVersion1]:
+    "Header-based targeting (Target-Type/Target and the related Target-Scope/Target-Delimiter/Trim-Target-Whitespace headers) is deprecated and only processed when you also send 'Markdown-Patch-Version: 1'. Without it, reach a sub-part of a document with path-element targeting instead (e.g. /vault/note.md/heading/My%20Heading).",
   [ErrorCode.PatchFailed]:
     "The patch you provided could not be applied to the target content.",
   [ErrorCode.InvalidPatchInstruction]:

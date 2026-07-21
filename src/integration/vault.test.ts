@@ -150,10 +150,18 @@ describe("GET /vault/{file} with Accept: application/vnd.olrapi.document-map+jso
 // Target-Type: heading (header-based)
 // ---------------------------------------------------------------------------
 
-describe("GET /vault/{file} with Target-Type: heading", () => {
+// Header-based targeting is a deprecated 1.x feature: it is only processed
+// under Markdown-Patch-Version: 1 (which carries the sunset advisory). The 2.0
+// (default) way to target a read is URL path elements, covered further below.
+describe("GET /vault/{file} with Target-Type: heading (deprecated 1.x header targeting)", () => {
   test("returns content of named heading section", async () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
-      headers: { Accept: "text/markdown", "Target-Type": "heading", Target: "Alpha" },
+      headers: {
+        Accept: "text/markdown",
+        "Markdown-Patch-Version": "1",
+        "Target-Type": "heading",
+        Target: "Alpha",
+      },
     });
     expect(res.status).toBe(200);
     const text = await res.text();
@@ -161,13 +169,13 @@ describe("GET /vault/{file} with Target-Type: heading", () => {
     expect(text).not.toContain(TERM_BETA);
   });
 
-  test("a default (2.0) read carries no Deprecation header", async () => {
+  test("without Markdown-Patch-Version: 1 the header is rejected (40083)", async () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       headers: { Accept: "text/markdown", "Target-Type": "heading", Target: "Alpha" },
     });
-    expect(res.status).toBe(200);
-    expect(res.headers.get("Deprecation")).toBeNull();
-    expect(await res.text()).toContain(TERM_ALPHA);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.errorCode).toBe(40083);
   });
 
   test("a Markdown-Patch-Version: 1 read still works and is marked deprecated", async () => {
@@ -188,6 +196,7 @@ describe("GET /vault/{file} with Target-Type: heading", () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       headers: {
         Accept: "text/markdown",
+        "Markdown-Patch-Version": "1",
         "Target-Type": "heading",
         Target: "Alpha::Subsection",
       },
@@ -200,14 +209,18 @@ describe("GET /vault/{file} with Target-Type: heading", () => {
 
   test("returns 404 for non-existent heading", async () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
-      headers: { "Target-Type": "heading", Target: "NoSuchHeading" },
+      headers: {
+        "Markdown-Patch-Version": "1",
+        "Target-Type": "heading",
+        Target: "NoSuchHeading",
+      },
     });
     expect(res.status).toBe(404);
   });
 
   test("returns 400 with errorCode 40055 when Target-Type provided without Target", async () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
-      headers: { "Target-Type": "heading" },
+      headers: { "Markdown-Patch-Version": "1", "Target-Type": "heading" },
     });
     expect(res.status).toBe(400);
     const body = await res.json();
@@ -228,10 +241,15 @@ describe("GET /vault/{file} with Target-Type: heading", () => {
 // Target-Type: block (header-based)
 // ---------------------------------------------------------------------------
 
-describe("GET /vault/{file} with Target-Type: block", () => {
+describe("GET /vault/{file} with Target-Type: block (deprecated 1.x header targeting)", () => {
   test("returns content of named block", async () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
-      headers: { Accept: "text/markdown", "Target-Type": "block", Target: "beta-block" },
+      headers: {
+        Accept: "text/markdown",
+        "Markdown-Patch-Version": "1",
+        "Target-Type": "block",
+        Target: "beta-block",
+      },
     });
     expect(res.status).toBe(200);
     const text = await res.text();
@@ -240,7 +258,11 @@ describe("GET /vault/{file} with Target-Type: block", () => {
 
   test("returns 404 for non-existent block ID", async () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
-      headers: { "Target-Type": "block", Target: "no-such-block" },
+      headers: {
+        "Markdown-Patch-Version": "1",
+        "Target-Type": "block",
+        Target: "no-such-block",
+      },
     });
     expect(res.status).toBe(404);
   });
@@ -250,10 +272,10 @@ describe("GET /vault/{file} with Target-Type: block", () => {
 // Target-Type: frontmatter (header-based)
 // ---------------------------------------------------------------------------
 
-describe("GET /vault/{file} with Target-Type: frontmatter", () => {
+describe("GET /vault/{file} with Target-Type: frontmatter (deprecated 1.x header targeting)", () => {
   test("returns string field as JSON string", async () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
-      headers: { "Target-Type": "frontmatter", Target: "title" },
+      headers: { "Markdown-Patch-Version": "1", "Target-Type": "frontmatter", Target: "title" },
     });
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -262,7 +284,7 @@ describe("GET /vault/{file} with Target-Type: frontmatter", () => {
 
   test("returns numeric field as JSON number", async () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
-      headers: { "Target-Type": "frontmatter", Target: "priority" },
+      headers: { "Markdown-Patch-Version": "1", "Target-Type": "frontmatter", Target: "priority" },
     });
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -271,7 +293,7 @@ describe("GET /vault/{file} with Target-Type: frontmatter", () => {
 
   test("returns boolean field as JSON boolean", async () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
-      headers: { "Target-Type": "frontmatter", Target: "active" },
+      headers: { "Markdown-Patch-Version": "1", "Target-Type": "frontmatter", Target: "active" },
     });
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -280,7 +302,7 @@ describe("GET /vault/{file} with Target-Type: frontmatter", () => {
 
   test("returns array field as JSON array", async () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
-      headers: { "Target-Type": "frontmatter", Target: "tags" },
+      headers: { "Markdown-Patch-Version": "1", "Target-Type": "frontmatter", Target: "tags" },
     });
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -290,7 +312,7 @@ describe("GET /vault/{file} with Target-Type: frontmatter", () => {
 
   test("returns 404 for missing frontmatter field", async () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
-      headers: { "Target-Type": "frontmatter", Target: "nonexistent-field" },
+      headers: { "Markdown-Patch-Version": "1", "Target-Type": "frontmatter", Target: "nonexistent-field" },
     });
     expect(res.status).toBe(404);
   });
@@ -412,6 +434,39 @@ describe("PUT /vault/{file}/heading/{name} — section replacement", () => {
       body: "data\n",
     });
     expect(res.status).toBe(422);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Header-based write targeting is a deprecated 1.x feature (only processed
+// under Markdown-Patch-Version: 1); use URL path elements for 2.0 writes.
+// ---------------------------------------------------------------------------
+
+describe("Header-based targeting on writes (deprecated 1.x)", () => {
+  test("PUT with a Target-Type header and no version is rejected (40083)", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}`, {
+      method: "PUT",
+      headers: { "Content-Type": "text/markdown", "Target-Type": "heading", Target: "Delta" },
+      body: "data\n",
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.errorCode).toBe(40083);
+  });
+
+  test("PUT with a Target-Type header under Markdown-Patch-Version: 1 still writes and is deprecated", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "text/markdown",
+        "Markdown-Patch-Version": "1",
+        "Target-Type": "heading",
+        Target: "Delta",
+      },
+      body: "Replaced via 1.x header.\n",
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Deprecation")).toBe('true; sunset-version="6.0"');
   });
 });
 

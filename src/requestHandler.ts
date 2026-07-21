@@ -308,6 +308,7 @@ export default class RequestHandler {
     let filePath = normalizedPath;
     let urlTargetType: string | undefined;
     let urlTarget: string | undefined;
+    let urlTargetSegments: string[] | undefined;
 
     let exactStat = null;
     try {
@@ -346,6 +347,7 @@ export default class RequestHandler {
       filePath = resolved.filePath;
       urlTargetType = resolved.targetType;
       urlTarget = resolved.target;
+      urlTargetSegments = resolved.targetSegments;
     }
 
     const content = await this.app.vault.adapter.readBinary(filePath);
@@ -406,6 +408,7 @@ export default class RequestHandler {
       return;
     }
 
+    const isHeaderTargeting = urlTargetType === undefined;
     const targetType = urlTargetType ?? req.get("Target-Type");
     if (targetType) {
       if (!["heading", "block", "frontmatter"].includes(targetType)) {
@@ -414,6 +417,23 @@ export default class RequestHandler {
         });
         return;
       }
+
+      const version = resolvePatchVersion(req);
+      if (version === null) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidPatchVersionHeader });
+        return;
+      }
+
+      // Header-based targeting is a deprecated 1.x feature: it is only processed
+      // under Markdown-Patch-Version: 1 (which carries the sunset advisory). Under
+      // the default (2.0), reach a sub-part with URL path elements instead.
+      if (isHeaderTargeting && version !== 1) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.HeaderTargetingRequiresVersion1,
+        });
+        return;
+      }
+
       let rawTarget = "";
       try {
         rawTarget =
@@ -436,20 +456,13 @@ export default class RequestHandler {
       const fileContent = Buffer.from(content).toString("utf-8");
       const targetDelimiter = req.get("Target-Delimiter") || "::";
 
-      // Targeted reads default to the 2.0 model; Markdown-Patch-Version: 1 keeps
-      // the deprecated 1.x extraction. Both produce identical section text; the
-      // difference is the address grammar (a heading is an array, split here from
-      // the Target-Delimiter string) and the Deprecation nudge on the 1.x path.
-      const version = resolvePatchVersion(req);
-      if (version === null) {
-        this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidPatchVersionHeader });
-        return;
-      }
-
       if (version === 2) {
+        // v2 targeting is always path-based (header targeting is rejected above),
+        // so a heading is addressed array-natively via its URL path segments — no
+        // delimiter split that a heading containing `::` would otherwise break.
         const address: ReadTarget =
           targetType === "heading"
-            ? { targetType: "heading", target: rawTarget.split(targetDelimiter) }
+            ? { targetType: "heading", target: urlTargetSegments ?? rawTarget.split(targetDelimiter) }
             : targetType === "block"
               ? { targetType: "block", target: rawTarget }
               : { targetType: "frontmatter", target: rawTarget };
@@ -530,6 +543,7 @@ export default class RequestHandler {
     filePath: string;
     targetType?: string;
     target?: string;
+    targetSegments?: string[];
   } | null> {
     return this.operations.resolvePathAndTarget(rawPath);
   }
@@ -624,7 +638,7 @@ export default class RequestHandler {
         "replace",
         req,
         res,
-        { createTargetIfMissing: true },
+        { createTargetIfMissing: true, source: "path", targetSegments: resolved.targetSegments },
       );
     }
     const headerTarget = this._getHeaderTarget(req, res);
@@ -637,7 +651,7 @@ export default class RequestHandler {
         "replace",
         req,
         res,
-        { createTargetIfMissing: true },
+        { createTargetIfMissing: true, source: "header" },
       );
     }
     return this._vaultPut(rawPath, req, res);
@@ -770,10 +784,23 @@ export default class RequestHandler {
       return;
     }
 
+    return this._respondMdp2(path, candidate as unknown as InstructionInput, res);
+  }
+
+  /** Apply a single markdown-patch 2.0 instruction and write the standard 2.0
+   *  response: the patched document as the body, any advisory warnings in the
+   *  `MD-Patch-Warnings` header, and the engine's typed failures mapped to HTTP
+   *  status codes. Shared by the JSON-body PATCH endpoint and the path-element
+   *  targeted GET/PUT/POST writes. */
+  async _respondMdp2(
+    filePath: string,
+    instruction: InstructionInput,
+    res: express.Response,
+  ): Promise<void> {
     try {
       const result = await this.operations.patchFileSectionMdp2(
-        path,
-        candidate as unknown as InstructionInput,
+        filePath,
+        instruction,
       );
       if (result.warnings.length > 0) {
         res.setHeader("MD-Patch-Warnings", JSON.stringify(result.warnings));
@@ -806,6 +833,18 @@ export default class RequestHandler {
     }
   }
 
+  /** Apply a targeted PUT/POST write to a sub-part of a document.
+   *
+   *  `source` records how the target was addressed:
+   *  - `"path"` — URL path elements (`.../heading/A/B`). The going-forward 2.0
+   *    way: routed through the 2.0 engine (heading levels normalized, engine owns
+   *    boundary whitespace), addressed array-natively via `targetSegments`.
+   *  - `"header"` — the deprecated `Target-Type`/`Target` headers. Only processed
+   *    when the caller opts into 1.x with `Markdown-Patch-Version: 1`; otherwise
+   *    rejected so a header-targeted write never silently clobbers the whole file.
+   *
+   *  Every 1.x request (either source under `Markdown-Patch-Version: 1`) carries
+   *  the sunset `Deprecation` advisory. */
   async _vaultPatchTargeted(
     filePath: string,
     targetType: string,
@@ -813,29 +852,78 @@ export default class RequestHandler {
     operation: PatchOperation,
     req: express.Request,
     res: express.Response,
-    extraOpts?: { createTargetIfMissing?: boolean },
+    extraOpts: {
+      source: "path" | "header";
+      createTargetIfMissing?: boolean;
+      targetSegments?: string[];
+    },
   ): Promise<void> {
-    const contentType = req.get("Content-Type");
-    const createTargetIfMissing =
-      extraOpts?.createTargetIfMissing ??
-      req.get("Create-Target-If-Missing") == "true";
-    const rejectIfContentPreexists =
-      req.get("Reject-If-Content-Preexists") == "true";
-    const trimTargetWhitespace = req.get("Trim-Target-Whitespace") == "true";
-    const targetDelimiter = req.get("Target-Delimiter") || "::";
-    const rawTargetScope = req.get("Target-Scope");
-    const targetScope = rawTargetScope || undefined;
-
-    if (!isPatchTargetType(targetType)) {
-      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetTypeHeader });
+    const version = resolvePatchVersion(req);
+    if (version === null) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidPatchVersionHeader });
       return;
     }
+
+    if (extraOpts.source === "header" && version !== 1) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.HeaderTargetingRequiresVersion1 });
+      return;
+    }
+
+    const contentType = req.get("Content-Type");
     if (!isContentType(contentType)) {
       this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidContentType });
       return;
     }
-    if (targetScope && !isPatchTargetScope(targetScope)) {
-      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetScopeHeader });
+    const createTargetIfMissing =
+      extraOpts.createTargetIfMissing ??
+      req.get("Create-Target-If-Missing") == "true";
+    const rejectIfContentPreexists =
+      req.get("Reject-If-Content-Preexists") == "true";
+
+    if (version === 1) {
+      res.setHeader("Deprecation", `true; sunset-version="${MARKDOWN_PATCH_V1_SUNSET}"`);
+
+      const trimTargetWhitespace = req.get("Trim-Target-Whitespace") == "true";
+      const targetDelimiter = req.get("Target-Delimiter") || "::";
+      const rawTargetScope = req.get("Target-Scope");
+      const targetScope = rawTargetScope || undefined;
+
+      if (!isPatchTargetType(targetType)) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetTypeHeader });
+        return;
+      }
+      if (targetScope && !isPatchTargetScope(targetScope)) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetScopeHeader });
+        return;
+      }
+      if (!target) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.MissingTargetHeader });
+        return;
+      }
+
+      try {
+        const patched = await this.operations.patchFileSection(
+          filePath, targetType, target, operation, req.body, contentType,
+          { createTargetIfMissing, rejectIfContentPreexists, trimTargetWhitespace, targetDelimiter, targetScope },
+        );
+        res.status(200).send(patched);
+      } catch (e) {
+        if (e instanceof FileNotFoundError) {
+          this.returnCannedResponse(res, { statusCode: 404 });
+        } else if (e instanceof PatchFailed) {
+          this.returnCannedResponse(res, { errorCode: ErrorCode.PatchFailed, message: (e).reason });
+        } else if (e instanceof FrontmatterParseError) {
+          this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidFrontmatter, message: e.message });
+        } else {
+          this.returnCannedResponse(res, { statusCode: 500, message: (e as Error).message });
+        }
+      }
+      return;
+    }
+
+    // version === 2 with path-element targeting → the 2.0 engine.
+    if (!isV2TargetType(targetType)) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetTypeHeader });
       return;
     }
     if (!target) {
@@ -843,23 +931,36 @@ export default class RequestHandler {
       return;
     }
 
-    try {
-      const patched = await this.operations.patchFileSection(
-        filePath, targetType, target, operation, req.body, contentType,
-        { createTargetIfMissing, rejectIfContentPreexists, trimTargetWhitespace, targetDelimiter, targetScope },
-      );
-      res.status(200).send(patched);
-    } catch (e) {
-      if (e instanceof FileNotFoundError) {
-        this.returnCannedResponse(res, { statusCode: 404 });
-      } else if (e instanceof PatchFailed) {
-        this.returnCannedResponse(res, { errorCode: ErrorCode.PatchFailed, message: (e).reason });
-      } else if (e instanceof FrontmatterParseError) {
-        this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidFrontmatter, message: e.message });
-      } else {
-        this.returnCannedResponse(res, { statusCode: 500, message: (e as Error).message });
-      }
-    }
+    // `operation` is only ever "replace" (PUT) or "append" (POST) from the call
+    // sites; both are valid 2.0 content-scope operations. A single cast bridges
+    // the 1.x operation union to the 2.0 discriminated instruction union, which
+    // TypeScript cannot narrow from a union-typed variable.
+    const instruction = (
+      targetType === "frontmatter"
+        ? {
+            targetType: "frontmatter",
+            target,
+            operation,
+            scope: "content",
+            value: req.body,
+            createTargetIfMissing,
+            rejectIfContentPreexists,
+          }
+        : {
+            targetType,
+            target:
+              targetType === "heading"
+                ? extraOpts.targetSegments ?? [target]
+                : target,
+            operation,
+            scope: "content",
+            content: typeof req.body === "string" ? req.body : String(req.body ?? ""),
+            createTargetIfMissing,
+            rejectIfContentPreexists,
+          }
+    ) as InstructionInput;
+
+    return this._respondMdp2(filePath, instruction, res);
   }
 
   async _vaultPost(
@@ -911,6 +1012,7 @@ export default class RequestHandler {
         "append",
         req,
         res,
+        { source: "path", targetSegments: resolved.targetSegments },
       );
     }
     const headerTarget = this._getHeaderTarget(req, res);
@@ -923,6 +1025,7 @@ export default class RequestHandler {
         "append",
         req,
         res,
+        { source: "header" },
       );
     }
     return this._vaultPost(rawPath, req, res);
@@ -1163,7 +1266,7 @@ export default class RequestHandler {
           "replace",
           req,
           res,
-          { createTargetIfMissing: true },
+          { createTargetIfMissing: true, source: "path", targetSegments: resolved.targetSegments },
         );
       }
     }
@@ -1178,7 +1281,7 @@ export default class RequestHandler {
         "replace",
         req,
         res,
-        { createTargetIfMissing: true },
+        { createTargetIfMissing: true, source: "header" },
       );
     }
     return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPut(p, rq, rs); });
@@ -1217,6 +1320,7 @@ export default class RequestHandler {
           "append",
           req,
           res,
+          { source: "path", targetSegments: resolved.targetSegments },
         );
       }
     }
@@ -1231,6 +1335,7 @@ export default class RequestHandler {
         "append",
         req,
         res,
+        { source: "header" },
       );
     }
     return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPost(p, rq, rs); });
@@ -1331,7 +1436,7 @@ export default class RequestHandler {
           "replace",
           req,
           res,
-          { createTargetIfMissing: true },
+          { createTargetIfMissing: true, source: "path", targetSegments: resolved.targetSegments },
         );
       }
     }
@@ -1346,7 +1451,7 @@ export default class RequestHandler {
         "replace",
         req,
         res,
-        { createTargetIfMissing: true },
+        { createTargetIfMissing: true, source: "header" },
       );
     }
     return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPut(p, rq, rs); });
@@ -1379,6 +1484,7 @@ export default class RequestHandler {
           "append",
           req,
           res,
+          { source: "path", targetSegments: resolved.targetSegments },
         );
       }
     }
@@ -1393,6 +1499,7 @@ export default class RequestHandler {
         "append",
         req,
         res,
+        { source: "header" },
       );
     }
     return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPost(p, rq, rs); });

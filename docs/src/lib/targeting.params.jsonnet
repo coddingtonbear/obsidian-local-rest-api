@@ -6,12 +6,16 @@
     'in': 'header',
     description: |||
       Selects which markdown-patch format governs this request. You do not normally
-      need to send this header: by default, a PATCH carries its whole instruction in
-      the JSON request body, and the document map returns heading addresses as arrays
-      plus a `version` token. Set it to `1` to opt back into the deprecated 1.x
-      header-driven PATCH format and the 1.x `::`-joined document map. Responses
-      served by the 1.x format carry a `Deprecation: true; sunset-version="6.0"`
-      header. Any value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+      need to send this header. By default (2.0), a PATCH carries its whole instruction
+      in the JSON request body, the document map returns a nested heading tree plus a
+      `version` token, and a sub-part of a document is targeted with URL path elements
+      (e.g. `.../heading/My%20Section`). Set it to `1` to opt into the deprecated 1.x
+      behavior: the header-driven PATCH format, header-based targeting
+      (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
+      the `::`-joined document map. Responses served by 1.x carry a
+      `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
+      without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
+      value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
     |||,
     required: false,
     schema: {
@@ -125,14 +129,11 @@
         heading/block-ID token and its content, allowing them to be replaced or repositioned
         together.
 
-      For heading targets, the marker is the literal heading line *including* its leading
-      `#` characters (e.g. `## Subheading`) — it is not just the heading text. To rename a
-      heading with `marker` or `markerAndContent` and a `replace` operation, the new content
-      must include that same number of `#` characters, or the heading will be demoted to a
-      plain paragraph. The heading's depth equals the number of `Target-Delimiter`-separated
-      segments in `Target` — e.g. a `Target` of `Heading 1::Subheading` has 2 segments, so its
-      marker is `## Subheading`. (Omitting the `#` characters is valid too, if the intent is to
-      remove the heading and demote it to plain text.)
+      For `heading` targets, `marker` addresses the heading line itself and
+      `markerAndContent` addresses that line together with the body beneath it. For
+      structured heading edits with the level preserved for you, use PATCH's JSON
+      instruction format; see the PATCH documentation for the exact `replace` behavior at
+      each scope.
     |||,
     required: false,
     schema: {

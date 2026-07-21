@@ -173,32 +173,14 @@ See the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-
 
 You can read or write a specific part of a note — a heading, block reference, or frontmatter field — without fetching or replacing the whole file. This works on GET, PUT, and POST requests. (`PATCH` has its own JSON instruction body — see [Patching notes](#patching-notes) above — and its header-based targeting is the deprecated 1.x form.)
 
-There are two ways to specify the target:
-
-**Headers** — add `Target-Type` and `Target` to any request:
+**Append `/<target-type>/<target>` after the filename.** Each nested heading level is its own path segment, so a heading whose text contains `::` needs no escaping:
 
 ```sh
 # Read the content under a specific heading
 curl -k -H "Authorization: Bearer <your-api-key>" \
-  -H "Target-Type: heading" \
-  -H "Target: My Section" \
-  https://127.0.0.1:27124/vault/path/to/note.md
-
-# Read a frontmatter field
-curl -k -H "Authorization: Bearer <your-api-key>" \
-  -H "Target-Type: frontmatter" \
-  -H "Target: status" \
-  https://127.0.0.1:27124/vault/path/to/note.md
-```
-
-**URL path segments** (GET, PUT, and POST only) — append `/<target-type>/<target>` after the filename:
-
-```sh
-# Read a specific heading
-curl -k -H "Authorization: Bearer <your-api-key>" \
   https://127.0.0.1:27124/vault/path/to/note.md/heading/My%20Section
 
-# Read a nested heading (levels separated by ::)
+# Read a nested heading (one path segment per level)
 curl -k -H "Authorization: Bearer <your-api-key>" \
   https://127.0.0.1:27124/vault/path/to/note.md/heading/Work/Meetings
 
@@ -206,22 +188,24 @@ curl -k -H "Authorization: Bearer <your-api-key>" \
 curl -k -H "Authorization: Bearer <your-api-key>" \
   https://127.0.0.1:27124/vault/path/to/note.md/frontmatter/status
 
-# Replace the content of a heading via PUT
+# Replace the content of a heading via PUT (heading levels are normalized for you)
 curl -k -X PUT \
   -H "Authorization: Bearer <your-api-key>" \
-  -H "Content-Type: text/plain" \
+  -H "Content-Type: text/markdown" \
   --data "Updated content" \
   https://127.0.0.1:27124/vault/path/to/note.md/heading/My%20Section
 
 # Append to a heading via POST
 curl -k -X POST \
   -H "Authorization: Bearer <your-api-key>" \
-  -H "Content-Type: text/plain" \
+  -H "Content-Type: text/markdown" \
   --data "Appended content" \
   https://127.0.0.1:27124/vault/path/to/note.md/heading/My%20Section
 ```
 
-Supported target types: `heading`, `block`, `frontmatter`. Supplying both URL-embedded targets and the equivalent headers on the same request returns `422 Unprocessable Entity`.
+Supported target types: `heading`, `block`, `frontmatter`.
+
+> **Deprecated: header-based targeting.** Earlier releases targeted a section with `Target-Type`, `Target`, and `Target-Delimiter` headers (plus `Target-Scope`/`Trim-Target-Whitespace`). That form is **deprecated and will be removed in 6.0**; it is only processed when you also send `Markdown-Patch-Version: 1` (responses then carry a `Deprecation` header). Without it, supplying those targeting headers is rejected with `400`. Supplying both URL-path targeting and the header form on one request returns `422 Unprocessable Entity`.
 
 ## Searching
 

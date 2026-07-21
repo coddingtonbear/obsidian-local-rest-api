@@ -1,28 +1,16 @@
 # Targeting a Sub-part of your Document
 
-You can operate on a specific section of a note instead of the whole file by providing `Target-Type` and `Target` headers:
+You can operate on a specific section of a note instead of the whole file by embedding a target in the URL path, immediately after the note identifier. The first segment after the note is the target type, and the remaining segments address the target:
 
-- Set `Target-Type` to `heading`, `block`, or `frontmatter`. When `Target-Type` is `heading`, the operation applies to the body content *beneath* that heading line — the heading line itself (`## My Section`) is not part of the section and should not appear in the patched content.
-- Set `Target` to the name of the heading, block reference, or frontmatter field. If the target contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `H%C3%A9llo` for `Héllo`).
-- For nested headings, use the `Target-Delimiter` header (default `::`) to separate levels.
-
-You can also embed the target type and target directly in the URL path after the note identifier instead of using headers. The segment immediately following the note identifier is the target type, and the remaining segments form the target:
-
-- `.../heading/My%20Section` is equivalent to supplying `Target-Type: heading` and `Target: My%20Section`.
-- For nested headings, add additional path segments: `.../heading/My%20Section/Subsection` is equivalent to `Target: My%20Section::Subsection`.
-- `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
+- `.../heading/My%20Section` targets the section beneath the `My Section` heading — the body content below the heading line.
+- For a nested heading, add one path segment per level: `.../heading/My%20Section/Subsection` targets `Subsection` under `My Section`. Because each level is its own segment, a heading whose text contains `::` (or any other delimiter) needs no escaping.
 - `.../block/abc123` targets the block with reference ID `abc123`.
+- `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
 
-Do not combine URL-embedded targeting with `Target-Type`, `Target`, or `Target-Delimiter` headers in the same request. If both are provided, the request fails with `422 ConflictingTargetSpecification`.
+Percent-encode any segment that contains non-ASCII characters or a literal `/` (e.g. `H%C3%A9llo` for `Héllo`).
 
-## Target-Scope
+`GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
 
-For `heading` and `block` targets, the optional `Target-Scope` header controls which portion of the target the operation acts on:
+## Deprecated: header-based targeting
 
-- `content` (default): the operation applies to the content region — the area beneath the heading line or at the block, leaving the heading/block-ID token unchanged.
-- `marker`: the operation applies only to the heading line or block-ID token itself, leaving the content unchanged.
-- `markerAndContent`: the operation applies to the full range covering both the heading/block-ID token and its content, allowing them to be replaced or repositioned together.
-
-The `marker` and `markerAndContent` scopes address the heading *line*, `#` characters included, so a replacement must carry the same number of leading `#`s as the original or the heading is demoted to a plain paragraph. Omitting them is how you demote a heading deliberately.
-
-To rename a heading, use `PATCH` — see its documentation.
+Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. Without that header a request that supplies those targeting headers is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.

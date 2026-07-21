@@ -243,6 +243,11 @@ export class VaultOperations {
     filePath: string;
     targetType?: string;
     target?: string;
+    // For a heading target, the raw path segments as an array (e.g. ["A", "B"]
+    // for `.../heading/A/B`). Preserved alongside the `::`-joined `target` so the
+    // 2.0 engine can address headings array-natively without a delimiter split
+    // that a heading containing `::` would break.
+    targetSegments?: string[];
   } | null> {
     const normalizedPath = rawPath.endsWith("/")
       ? rawPath.slice(0, -1)
@@ -272,11 +277,13 @@ export class VaultOperations {
       if (s?.type === "file") {
         const remainder = segments.slice(i);
         const targetType = remainder[0];
+        const targetSegments =
+          targetType === "heading" ? remainder.slice(1) : undefined;
         const target =
           targetType === "heading"
             ? remainder.slice(1).join("::")
             : remainder[1];
-        return { filePath: candidate, targetType, target };
+        return { filePath: candidate, targetType, target, targetSegments };
       }
     }
 

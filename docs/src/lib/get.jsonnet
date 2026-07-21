@@ -3,9 +3,6 @@ local T = import 'targeting.params.jsonnet';
 {
   parameters: [
     T.markdownPatchVersion,
-    T.targetType,
-    T.target,
-    T.targetDelimiter,
   ],
   responses: {
     '200': {
@@ -58,7 +55,7 @@ local T = import 'targeting.params.jsonnet';
           },
         },
         'application/json': {
-          description: 'Returned when `Target-Type` is `frontmatter`; the JSON value of the specified frontmatter field.',
+          description: 'Returned when the URL path targets a frontmatter field (`.../frontmatter/fieldName`); the JSON value of that field.',
           schema: {},
         },
       },
