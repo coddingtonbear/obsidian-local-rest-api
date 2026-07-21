@@ -1235,6 +1235,46 @@ describe("requestHandler", () => {
       expect(res.body.errorCode).toBe(40059);
     });
 
+    // The engine's schema validates the whole instruction, not just the enum
+    // fields, so a well-typed but malformed instruction (a valid cell missing
+    // its payload carrier, or an operation×scope outside the algebra) is
+    // rejected as an invalid patch instruction rather than silently misapplied.
+    test("a heading write missing its content carrier returns InvalidPatchInstruction", async () => {
+      app.vault._read = DOC;
+      const res = await patchV2({
+        targetType: "heading",
+        target: ["A"],
+        operation: "replace",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40081);
+    });
+
+    test("a frontmatter value write carrying content instead of value is rejected", async () => {
+      app.vault._read = "---\ntitle: Hello\n---\nbody\n";
+      const res = await patchV2({
+        targetType: "frontmatter",
+        target: "title",
+        operation: "replace",
+        content: "Bye",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40081);
+    });
+
+    test("an operation×scope outside the algebra returns InvalidPatchInstruction", async () => {
+      app.vault._read = DOC;
+      const res = await patchV2({
+        targetType: "block",
+        target: "abc",
+        operation: "replace",
+        scope: "parent",
+        destination: { parent: null, place: "last" },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40081);
+    });
+
     test("Markdown-Patch-Version: 1 forces the 1.x engine even with a JSON body", async () => {
       // The opt-in header selects the 1.x path regardless of body shape. Omitting
       // Operation triggers the 1.x missing-Operation error (which the 2.0 path has

@@ -26,13 +26,13 @@ local T = import 'targeting.params.jsonnet';
               content: 'Hello',
             },
           },
-          appendTableRow: {
-            summary: 'Append a row to a table addressed by a block reference',
+          appendToBlock: {
+            summary: 'Append text to a block addressed by its reference id',
             value: {
               targetType: 'block',
               target: '2c7cfa',
               operation: 'append',
-              value: [['Chicago, IL', '16']],
+              content: 'More detail for this block.',
             },
           },
           setFrontmatter: {

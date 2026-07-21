@@ -8,7 +8,7 @@
     "dev": "node esbuild.config.mjs",
     "build": "node esbuild.config.mjs production",
     "typecheck": "node --max-old-space-size=6144 node_modules/.bin/tsc -noEmit -skipLibCheck",
-    "build-docs": "jsonnet -J docs/src/lib/ -S docs/src/openapi.jsonnet -o docs/openapi.yaml",
+    "build-docs": "node scripts/gen-patch-schema.mjs && jsonnet -J docs/src/lib/ -S docs/src/openapi.jsonnet -o docs/openapi.yaml",
     "serve-docs": "npx serve docs",
     "version": "node version-bump.mjs && git add manifest.json versions.json",
     "lint": "eslint src/",
@@ -39,7 +39,8 @@
     "tslib": "2.4.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.3",
-    "zod": "3.25.76"
+    "zod": "3.25.76",
+    "zod-to-json-schema": "^3.25.2"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.24.3",

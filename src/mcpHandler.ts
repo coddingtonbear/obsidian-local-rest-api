@@ -10,6 +10,7 @@ import { dedent } from "ts-dedent";
 
 import { VaultOperations } from "./vaultOperations";
 import type { InstructionInput, ReadTarget } from "markdown-patch-2";
+import { InstructionInputObjectSchema } from "markdown-patch-2";
 import openapiYaml from "../docs/openapi.yaml";
 import { ERROR_CODE_MESSAGES } from "./constants";
 import { LocalRestApiSettings } from "./types";
@@ -311,10 +312,6 @@ export class McpHandler {
       },
     );
 
-    // A heading address: the containment path of heading texts from the top
-    // level down to the target (a skipped source level is not encoded — the
-    // engine owns depth). `null`/`[]` means the document root.
-    const headingAddress = z.union([z.array(z.string()), z.null()]);
     this.tool(
       "vault_patch",
       dedent`
@@ -328,62 +325,12 @@ export class McpHandler {
       `,
       {
         path: z.string().describe("File path relative to vault root"),
-        targetType: z
-          .enum(["heading", "block", "frontmatter"])
-          .describe("Type of target node: 'heading', 'block' reference, or 'frontmatter' key"),
-        target: z
-          .union([z.array(z.string().nullable()), z.string(), z.null()])
-          .describe(
-            dedent`The node to edit. For a heading: an array of heading texts naming the path from the top level down to the target (e.g. ["Overview","Details"]); use null or [] for the document root. For a block: the bare block id without '^'. For a frontmatter field: the key name.`,
-          ),
-        operation: z
-          .enum(["replace", "prepend", "append", "delete"])
-          .describe("What happens to the scoped span: replace it, insert before ('prepend') or after ('append'), or delete it"),
-        scope: z
-          .enum(["content", "marker", "markerAndContent", "parent"])
-          .optional()
-          .describe(
-            dedent`Which part of the target the operation acts on (default 'content'). 'content': the node body (for a heading, its whole subtree below the heading line). 'marker': the label only — a heading line, a block '^id', or a frontmatter key (replace = rename). 'markerAndContent': the whole node/subtree (prepend/append insert a sibling). 'parent': a heading's place in the tree — only valid with operation 'replace', and carries a 'destination' (a move). Not every combination is valid; invalid ones are rejected.`,
-          ),
-        content: z
-          .string()
-          .optional()
-          .describe(
-            dedent`String payload: a heading/block body or label, or a new frontmatter key name for a 'marker' rename. Heading levels are relative to the edited span. No blank line is inserted automatically between your text and its neighbour — add '\\n\\n' yourself if you want one. Provide exactly one of content, value, or destination.`,
-          ),
-        value: z
-          .unknown()
-          .optional()
-          .describe(
-            dedent`Structured JSON payload for a frontmatter value — any JSON (string, number, boolean, array, object, null). For prepend/append this merges (list concat, dict merge, string concat). Pass real JSON, not a JSON-encoded string. Provide exactly one of content, value, or destination.`,
-          ),
-        destination: z
-          .object({
-            parent: headingAddress.describe("The moved section's new parent heading path, or null/[] for the document root."),
-            place: z
-              .union([
-                z.enum(["first", "last"]),
-                z.object({ before: headingAddress }),
-                z.object({ after: headingAddress }),
-              ])
-              .describe("Position among the new parent's children: 'first', 'last', {before: <heading path>}, or {after: <heading path>}."),
-          })
-          .optional()
-          .describe(
-            dedent`For a heading move (operation 'replace', scope 'parent'): where the section is re-parented. Provide exactly one of content, value, or destination.`,
-          ),
-        ifMatch: z
-          .string()
-          .optional()
-          .describe("Optimistic-concurrency token (the 'version' from a prior vault_get_document_map). If set and the document has changed since, the patch fails without modifying the file."),
-        createTargetIfMissing: z
-          .boolean()
-          .optional()
-          .describe("Create the target (heading path, block id, or frontmatter key) if it does not already exist (default: false)"),
-        rejectIfContentPreexists: z
-          .boolean()
-          .optional()
-          .describe("If true, fail a prepend/append when the string content already appears in the target span (default: false). Makes those operations idempotent on retry."),
+        // The instruction fields (targetType, target, operation, scope,
+        // content, value, destination, ifMatch, and the two flags) come
+        // straight from markdown-patch-2's published schema, so the tool input,
+        // the engine's validation, and the OpenAPI `PatchInstruction` component
+        // are all one definition and cannot drift.
+        ...InstructionInputObjectSchema.shape,
       },
       { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       async ({

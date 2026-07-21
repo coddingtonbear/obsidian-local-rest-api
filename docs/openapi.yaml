@@ -84,55 +84,64 @@ components:
         - "backlinks"
       type: "object"
     PatchInstruction:
-      description: |
-        A single edit expressed as one operation applied to a scope of a
-        target node. The payload rides in
-        exactly one of `content`, `value`, or `destination`, chosen by what
-        it is. Not every operation×scope×targetType combination is valid;
-        invalid ones are rejected with a 400.
+      additionalProperties: false
+      description: "A single edit expressed as one operation applied to a scope of a target node. The payload rides in exactly one of `content`, `value`, or `destination`, chosen by what it is. Not every operation×scope×targetType combination is valid; invalid ones are rejected."
       properties:
         content:
-          description: |
-            String payload: a heading/block body or label, or a new
-            frontmatter key name for a `marker` rename. Heading levels are
-            relative to the edited span (a leading `#` becomes a direct
-            child). Provide exactly one of `content`, `value`, or
-            `destination`.
+          description: "String payload: a heading/block body or label, or a new frontmatter key name for a `marker` rename. Heading levels are relative to the edited span (a leading `#` becomes a direct child). Provide exactly one of `content`, `value`, or `destination`."
           type: "string"
         createTargetIfMissing:
           default: false
           description: "Create the target (heading path, block id, or frontmatter key) if it does not already exist."
           type: "boolean"
         destination:
+          additionalProperties: false
           description: "For a heading move (operation `replace`, scope `parent`): where the section is re-parented. Provide exactly one of `content`, `value`, or `destination`."
           properties:
             parent:
-              "$ref": "#/components/schemas/HeadingAddress"
+              anyOf:
+                - items:
+                    type: "string"
+                  type: "array"
+              description: "The section's new parent heading address, or null/[] for the document root."
+              nullable: true
             place:
-              description: "Position among the new parent's children."
-              oneOf:
+              anyOf:
                 - enum:
                     - "first"
                     - "last"
                   type: "string"
-                - properties:
+                - additionalProperties: false
+                  properties:
                     before:
-                      "$ref": "#/components/schemas/HeadingAddress"
+                      anyOf:
+                        - items:
+                            type: "string"
+                          type: "array"
+                      description: "A heading's containment path: the ancestor heading texts from the top level down (e.g. [\"Overview\",\"Details\"]), or null/[] for the document root."
+                      nullable: true
                   required:
                     - "before"
                   type: "object"
-                - properties:
+                - additionalProperties: false
+                  properties:
                     after:
-                      "$ref": "#/components/schemas/HeadingAddress"
+                      anyOf:
+                        - items:
+                            type: "string"
+                          type: "array"
+                      description: "A heading's containment path: the ancestor heading texts from the top level down (e.g. [\"Overview\",\"Details\"]), or null/[] for the document root."
+                      nullable: true
                   required:
                     - "after"
                   type: "object"
+              description: "Position among the new parent's children: \"first\", \"last\", or { before } / { after } a sibling heading address."
           required:
             - "parent"
             - "place"
           type: "object"
         ifMatch:
-          description: "Optimistic-concurrency token (the `version` from a prior document map). If set and the document has changed since, the patch fails with 412 without modifying the file."
+          description: "Optimistic-concurrency token (the `version` from a prior document map). If set and the document has changed since, the patch fails with a precondition error without modifying the file."
           type: "string"
         operation:
           description: "What happens to the scoped span: replace it, insert before (`prepend`) or after (`append`), or `delete` it."
@@ -148,17 +157,7 @@ components:
           type: "boolean"
         scope:
           default: "content"
-          description: |
-            Which part of the target the operation acts on (default
-            `content`).
-            - `content`: the node body — for a heading, its whole subtree
-              below the heading line.
-            - `marker`: the label only — a heading line, a block `^id`, or a
-              frontmatter key (`replace` renames it).
-            - `markerAndContent`: the whole node/subtree (`prepend`/`append`
-              insert a sibling).
-            - `parent`: a heading's place in the tree — only with operation
-              `replace`, carrying a `destination` (a move).
+          description: "Which part of the target the operation acts on (default `content`). `content`: the node body — for a heading, its whole subtree below the heading line. `marker`: the label only — a heading line, a block `^id`, or a frontmatter key (`replace` renames it). `markerAndContent`: the whole node/subtree (`prepend`/`append` insert a sibling). `parent`: a heading's place in the tree — only with operation `replace`, carrying a `destination` (a move)."
           enum:
             - "content"
             - "marker"
@@ -166,17 +165,13 @@ components:
             - "parent"
           type: "string"
         target:
-          description: |
-            The node to edit. For a heading: an array of heading texts from
-            the top level down to the target (e.g. `["Overview","Details"]`),
-            or `null`/`[]` for the document root. For a block: the bare block
-            id, without the leading `^`. For a frontmatter field: the key.
-          oneOf:
+          anyOf:
             - items:
                 type: "string"
               type: "array"
             - type: "string"
-            - type: "null"
+          description: "The node to edit. For a heading: an array of heading texts from the top level down to the target (e.g. [\"Overview\",\"Details\"]), or null/[] for the document root. For a block: the bare block id, without the leading `^`. For a frontmatter field: the key."
+          nullable: true
         targetType:
           description: "The kind of node to edit."
           enum:
@@ -185,12 +180,7 @@ components:
             - "frontmatter"
           type: "string"
         value:
-          description: |
-            Structured JSON payload for a frontmatter value — any JSON
-            (string, number, boolean, array, object, null). For
-            `prepend`/`append` this merges (list concat, dict merge, string
-            concat). Provide exactly one of `content`, `value`, or
-            `destination`.
+          description: "Structured JSON payload for a frontmatter value — any JSON (string, number, boolean, array, object, null). For `prepend`/`append` this merges (list concat, dict merge, string concat). Provide exactly one of `content`, `value`, or `destination`."
       required:
         - "targetType"
         - "target"
@@ -661,16 +651,13 @@ paths:
                   targetType: "frontmatter"
                   value:
                     - "project/active"
-              appendTableRow:
-                summary: "Append a row to a table addressed by a block reference"
+              appendToBlock:
+                summary: "Append text to a block addressed by its reference id"
                 value:
+                  content: "More detail for this block."
                   operation: "append"
                   target: "2c7cfa"
                   targetType: "block"
-                  value:
-                    -
-                      - "Chicago, IL"
-                      - "16"
               appendUnderHeading:
                 summary: "Append text below a heading"
                 value:
@@ -1720,16 +1707,13 @@ paths:
                   targetType: "frontmatter"
                   value:
                     - "project/active"
-              appendTableRow:
-                summary: "Append a row to a table addressed by a block reference"
+              appendToBlock:
+                summary: "Append text to a block addressed by its reference id"
                 value:
+                  content: "More detail for this block."
                   operation: "append"
                   target: "2c7cfa"
                   targetType: "block"
-                  value:
-                    -
-                      - "Chicago, IL"
-                      - "16"
               appendUnderHeading:
                 summary: "Append text below a heading"
                 value:
@@ -2564,16 +2548,13 @@ paths:
                   targetType: "frontmatter"
                   value:
                     - "project/active"
-              appendTableRow:
-                summary: "Append a row to a table addressed by a block reference"
+              appendToBlock:
+                summary: "Append text to a block addressed by its reference id"
                 value:
+                  content: "More detail for this block."
                   operation: "append"
                   target: "2c7cfa"
                   targetType: "block"
-                  value:
-                    -
-                      - "Chicago, IL"
-                      - "16"
               appendUnderHeading:
                 summary: "Append text below a heading"
                 value:
@@ -3654,16 +3635,13 @@ paths:
                   targetType: "frontmatter"
                   value:
                     - "project/active"
-              appendTableRow:
-                summary: "Append a row to a table addressed by a block reference"
+              appendToBlock:
+                summary: "Append text to a block addressed by its reference id"
                 value:
+                  content: "More detail for this block."
                   operation: "append"
                   target: "2c7cfa"
                   targetType: "block"
-                  value:
-                    -
-                      - "Chicago, IL"
-                      - "16"
               appendUnderHeading:
                 summary: "Append text below a heading"
                 value:

@@ -267,6 +267,39 @@ describe("PATCH 2.0 — errors and routing", () => {
     expect((await res.json()).errorCode).toBe(40054);
   });
 
+  test("a heading write missing its content carrier returns 400 (40081)", async () => {
+    const res = await patchV2({
+      targetType: "heading",
+      target: ["Delta"],
+      operation: "replace",
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).errorCode).toBe(40081);
+  });
+
+  test("a frontmatter value write carrying content instead of value is rejected (40081)", async () => {
+    const res = await patchV2({
+      targetType: "frontmatter",
+      target: "title",
+      operation: "replace",
+      content: "not-a-value",
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).errorCode).toBe(40081);
+  });
+
+  test("an operation×scope outside the algebra returns 400 (40081)", async () => {
+    const res = await patchV2({
+      targetType: "block",
+      target: "someblock",
+      operation: "replace",
+      scope: "parent",
+      destination: { parent: null, place: "last" },
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).errorCode).toBe(40081);
+  });
+
   test("a PATCH to a directory returns 405", async () => {
     const res = await patchV2(
       { targetType: "heading", target: ["Delta"], operation: "append", content: "x" },
