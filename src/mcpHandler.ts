@@ -245,7 +245,7 @@ export class McpHandler {
           .union([z.array(z.string()), z.string()])
           .optional()
           .describe(
-            dedent`Section to extract. For a heading: an array of heading texts naming the path from the top level down to the target (e.g. ["Heading 1","Subheading"]); a bare string is accepted as a single top-level heading. For a block: the bare block id without '^'. For a frontmatter field: the key name. Use vault_get_document_map to discover valid heading paths and block ids.`,
+            dedent`Section to extract. For a heading: an array of heading texts naming the path from the top level down to the target (e.g. ["Heading 1","Subheading"]) — a bare string is rejected, even for a single top-level heading. For a block: the bare block id without '^'. For a frontmatter field: the key name. Use vault_get_document_map to discover valid heading paths and block ids.`,
           ),
       },
       READ_ONLY_ANNOTATIONS,
@@ -266,10 +266,10 @@ export class McpHandler {
         if (targetType && target != null) {
           let address: ReadTarget;
           if (targetType === "heading") {
-            address = {
-              targetType: "heading",
-              target: Array.isArray(target) ? target : [target],
-            };
+            if (!Array.isArray(target)) {
+              throw new Error("A heading target must be an array of heading texts, not a bare string");
+            }
+            address = { targetType: "heading", target };
           } else {
             if (Array.isArray(target)) {
               throw new Error(`A ${targetType} target must be a string, not an array`);
