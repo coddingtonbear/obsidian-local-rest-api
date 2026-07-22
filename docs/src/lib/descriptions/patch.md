@@ -148,6 +148,8 @@ To add a new city/population pair to the table referenced by `2c7cfa`, pass the 
 
 `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply. Each row must have exactly as many cells as the table has columns; a mismatched row, or targeting a block that isn't a table, is rejected.
 
+Cells are content, not table source, so you don't format them: a `|` in a cell is escaped for you and stays in the cell it belongs to. A cell containing a line break is rejected, since a table row is a single line — if you need a visual break inside a cell, send `<br>` yourself.
+
 ## Setting a frontmatter field
 
 Frontmatter values are JSON, so they ride in `value` (not `content`). To set `alpha` to `2`:

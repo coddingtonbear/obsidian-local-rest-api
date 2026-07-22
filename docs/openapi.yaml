@@ -185,7 +185,7 @@ components:
             - "frontmatter"
           type: "string"
         value:
-          description: "Structured JSON payload: a frontmatter value (any JSON — string, number, boolean, array, object, null; for `prepend`/`append` this merges: list concat, dict merge, string concat), or table rows on a `block` target's `content` cell (a 2-D array of strings, one row per entry — `replace` swaps the body rows, `prepend`/`append` insert before/after the existing ones; each row's length must match the table's column count). Provide exactly one of `content`, `value`, or `destination`."
+          description: "Structured JSON payload: a frontmatter value (any JSON — string, number, boolean, array, object, null; for `prepend`/`append` this merges: list concat, dict merge, string concat), or table rows on a `block` target's `content` cell (a 2-D array of strings, one row per entry — `replace` swaps the body rows, `prepend`/`append` insert before/after the existing ones; each row's length must match the table's column count). Table cells are content, not table source: a `|` is escaped for you, and a cell containing a line break is rejected, since a row is a single line. Provide exactly one of `content`, `value`, or `destination`."
       required:
         - "targetType"
         - "target"
@@ -562,6 +562,8 @@ paths:
         ```
         
         `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply. Each row must have exactly as many cells as the table has columns; a mismatched row, or targeting a block that isn't a table, is rejected.
+        
+        Cells are content, not table source, so you don't format them: a `|` in a cell is escaped for you and stays in the cell it belongs to. A cell containing a line break is rejected, since a table row is a single line — if you need a visual break inside a cell, send `<br>` yourself.
         
         ## Setting a frontmatter field
         
@@ -1827,6 +1829,8 @@ paths:
         
         `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply. Each row must have exactly as many cells as the table has columns; a mismatched row, or targeting a block that isn't a table, is rejected.
         
+        Cells are content, not table source, so you don't format them: a `|` in a cell is escaped for you and stays in the cell it belongs to. A cell containing a line break is rejected, since a table row is a single line — if you need a visual break inside a cell, send `<br>` yourself.
+        
         ## Setting a frontmatter field
         
         Frontmatter values are JSON, so they ride in `value` (not `content`). To set `alpha` to `2`:
@@ -2870,6 +2874,8 @@ paths:
         ```
         
         `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply. Each row must have exactly as many cells as the table has columns; a mismatched row, or targeting a block that isn't a table, is rejected.
+        
+        Cells are content, not table source, so you don't format them: a `|` in a cell is escaped for you and stays in the cell it belongs to. A cell containing a line break is rejected, since a table row is a single line — if you need a visual break inside a cell, send `<br>` yourself.
         
         ## Setting a frontmatter field
         
@@ -4202,6 +4208,8 @@ paths:
         ```
         
         `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply. Each row must have exactly as many cells as the table has columns; a mismatched row, or targeting a block that isn't a table, is rejected.
+        
+        Cells are content, not table source, so you don't format them: a `|` in a cell is escaped for you and stays in the cell it belongs to. A cell containing a line break is rejected, since a table row is a single line — if you need a visual break inside a cell, send `<br>` yourself.
         
         ## Setting a frontmatter field
         

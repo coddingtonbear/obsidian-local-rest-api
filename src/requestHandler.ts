@@ -22,6 +22,7 @@ import {
 import {
   ContentPreexistsError,
   InvalidCellError,
+  InvalidCellContentError,
   InvalidInstructionError,
   PreconditionFailedError,
   TargetNotFoundError,
@@ -1165,7 +1166,8 @@ export default class RequestHandler {
         this.returnCannedResponse(res, { statusCode: 409, message: e.message });
       } else if (
         e instanceof InvalidCellError ||
-        e instanceof InvalidInstructionError
+        e instanceof InvalidInstructionError ||
+        e instanceof InvalidCellContentError
       ) {
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.InvalidPatchInstruction,

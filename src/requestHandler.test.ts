@@ -2505,6 +2505,28 @@ describe("requestHandler", () => {
         expect(result.text).toContain("| City    | Population |");
       });
 
+      test("a pipe in a table cell is escaped rather than splitting the column", async () => {
+        const result = await request(server)
+          .put("/vault/somefile.md/block/table1")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .send([["Seattle | Tacoma", "16"]])
+          .expect(200);
+
+        expect(result.text).toContain("| Seattle \\| Tacoma | 16 |");
+      });
+
+      test("a line break in a table cell is rejected with a 400", async () => {
+        const res = await request(server)
+          .put("/vault/somefile.md/block/table1")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .send([["two\nlines", "16"]]);
+
+        expect(res.status).toBe(400);
+        expect(app.vault.adapter._write).toBeUndefined();
+      });
+
       test("a row with the wrong number of cells on a block target is rejected", async () => {
         const res = await request(server)
           .put("/vault/somefile.md/block/table1")
