@@ -27,6 +27,7 @@ import {
   TargetNotFoundError,
   FrontmatterParseError as FrontmatterParseErrorV2,
   FrontmatterKeyCollisionError,
+  ReservedDuplicateMarkerError,
   readTarget,
 } from "markdown-patch-2";
 import type {
@@ -405,6 +406,13 @@ export default class RequestHandler {
           });
           return;
         }
+        if (e instanceof ReservedDuplicateMarkerError) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.PatchFailed,
+            message: e.message,
+          });
+          return;
+        }
         throw e;
       }
       if (version === 1) {
@@ -490,6 +498,13 @@ export default class RequestHandler {
           if (e instanceof FrontmatterParseErrorV2) {
             this.returnCannedResponse(res, {
               errorCode: ErrorCode.InvalidFrontmatter,
+              message: e.message,
+            });
+            return;
+          }
+          if (e instanceof ReservedDuplicateMarkerError) {
+            this.returnCannedResponse(res, {
+              errorCode: ErrorCode.PatchFailed,
               message: e.message,
             });
             return;
