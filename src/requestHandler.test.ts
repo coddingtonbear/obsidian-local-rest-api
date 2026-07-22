@@ -394,6 +394,21 @@ describe("requestHandler", () => {
         .expect(400);
     });
 
+    test("an unknown target type in the URL path is not blamed on a header", async () => {
+      // The target type came from the URL, so a message about the 'Target-Type'
+      // header sends the reader hunting for a header they never sent.
+      setFileContent(markdownWithHeadings);
+      app.vault.adapter._statForPath = "somefile.md";
+
+      const result = await request(server)
+        .get("/vault/somefile.md/nonsense/Heading1")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown");
+
+      expect(result.status).toBe(400);
+      expect(JSON.parse(result.text).message).not.toContain("header");
+    });
+
     test("invalid Target-Type returns 400", async () => {
       setFileContent(markdownWithHeadings);
 
@@ -1336,7 +1351,11 @@ describe("requestHandler", () => {
       expect(res.headers["deprecation"]).toBeUndefined();
     });
 
-    test("an invalid targetType returns 400", async () => {
+    // A JSON instruction body has no headers in it, so a bad field is reported
+    // as a malformed instruction (40081) naming the field — not as one of the
+    // 4005x "…header you provided was invalid" errors, which would send the
+    // caller looking for a header they never sent.
+    test("an invalid targetType returns 400 naming the field, not a header", async () => {
       const res = await patchV2({
         targetType: "nonsense",
         target: ["A"],
@@ -1344,10 +1363,12 @@ describe("requestHandler", () => {
         content: "x",
       });
       expect(res.status).toBe(400);
-      expect(res.body.errorCode).toBe(40054);
+      expect(res.body.errorCode).toBe(40081);
+      expect(res.body.message).toContain("targetType");
+      expect(res.body.message).not.toContain("header");
     });
 
-    test("an invalid operation returns 400", async () => {
+    test("an invalid operation returns 400 naming the field, not a header", async () => {
       const res = await patchV2({
         targetType: "heading",
         target: ["A"],
@@ -1355,10 +1376,12 @@ describe("requestHandler", () => {
         content: "x",
       });
       expect(res.status).toBe(400);
-      expect(res.body.errorCode).toBe(40057);
+      expect(res.body.errorCode).toBe(40081);
+      expect(res.body.message).toContain("operation");
+      expect(res.body.message).not.toContain("header");
     });
 
-    test("an invalid scope returns 400", async () => {
+    test("an invalid scope returns 400 naming the field, not a header", async () => {
       const res = await patchV2({
         targetType: "heading",
         target: ["A"],
@@ -1367,7 +1390,19 @@ describe("requestHandler", () => {
         content: "x",
       });
       expect(res.status).toBe(400);
-      expect(res.body.errorCode).toBe(40059);
+      expect(res.body.errorCode).toBe(40081);
+      expect(res.body.message).toContain("scope");
+      expect(res.body.message).not.toContain("header");
+    });
+
+    test("a malformed instruction is rejected before the vault is touched", async () => {
+      await patchV2({
+        targetType: "nonsense",
+        target: ["A"],
+        operation: "replace",
+        content: "x",
+      });
+      expect(app.vault.adapter._write).toBeUndefined();
     });
 
     // The engine's schema validates the whole instruction, not just the enum
@@ -1768,6 +1803,24 @@ describe("requestHandler", () => {
           .send("x");
         expect(res.status).toBe(400);
         expect(res.body.errorCode).toBe(40059);
+      });
+
+      test("an invalid Target-Scope lists the 2.0 scopes once, without contradicting itself", async () => {
+        // The canned message is prepended to any custom one, so a call site
+        // that restates the valid values produced two lists in one response —
+        // the 1.x set ("content, marker, markerAndContent") followed by the 2.0
+        // set that also allows "parent", leaving the reader to guess.
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "replace")
+          .set("Target-Scope", "nonsense")
+          .set("Content-Type", "text/markdown")
+          .send("x");
+
+        const message = res.body.message as string;
+        expect(message).toContain("parent");
+        expect(message.match(/Valid values are/g) ?? []).toHaveLength(1);
       });
 
       test("the 1.x-only Target-Delimiter header is rejected (40084)", async () => {
