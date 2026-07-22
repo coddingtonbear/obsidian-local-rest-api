@@ -255,6 +255,95 @@ describe("vault_get_document_map tool", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Duplicate sibling heading addressing (uses its own path so it doesn't
+// disturb the shared fixture's heading structure)
+// ---------------------------------------------------------------------------
+
+describe("duplicate sibling heading addressing", () => {
+  const DUP_PATH = `${TEST_DIR}/mcp-duplicate-headings.md`;
+  const DUP_DOCUMENT = [
+    "# Notes",
+    "",
+    "first",
+    "",
+    "# Notes",
+    "",
+    "second",
+    "",
+    "# Notes",
+    "",
+    "third",
+    "",
+  ].join("\n");
+
+  beforeEach(async () => {
+    await resetFixture(DUP_DOCUMENT, DUP_PATH);
+  });
+
+  afterAll(async () => {
+    await deleteFixture(DUP_PATH).catch((_e: unknown): void => {});
+  });
+
+  test("the map lists a distinct key per occurrence, each reachable via vault_read", async () => {
+    const mapResult = await client.callTool({
+      name: "vault_get_document_map",
+      arguments: { path: DUP_PATH },
+    });
+    const body = jsonOf<{ headings: Record<string, unknown> }>(mapResult);
+    const keys = Object.keys(body.headings);
+    expect(keys).toHaveLength(3);
+    // The first occurrence keeps its plain text; the exact form of the
+    // marker suffix on the others is an implementation detail — what matters
+    // is that they round-trip through the real MCP JSON transport intact and
+    // each resolves to its own section.
+    expect(keys[0]).toBe("Notes");
+    expect(keys[1]).not.toBe("Notes");
+    expect(keys[2]).not.toBe("Notes");
+    expect(keys[2]).not.toBe(keys[1]);
+
+    const expectedBodies = ["first", "second", "third"];
+    for (let i = 0; i < keys.length; i++) {
+      const readResult = await client.callTool({
+        name: "vault_read",
+        arguments: { path: DUP_PATH, targetType: "heading", target: [keys[i]] },
+      });
+      expect(textOf(readResult).trim()).toBe(expectedBodies[i]);
+    }
+  });
+
+  test("vault_patch on the third occurrence's key edits only that section", async () => {
+    const mapResult = await client.callTool({
+      name: "vault_get_document_map",
+      arguments: { path: DUP_PATH },
+    });
+    const body = jsonOf<{ headings: Record<string, unknown> }>(mapResult);
+    const thirdKey = Object.keys(body.headings)[2];
+
+    const patchResult = await client.callTool({
+      name: "vault_patch",
+      arguments: {
+        path: DUP_PATH,
+        targetType: "heading",
+        target: [thirdKey],
+        operation: "replace",
+        content: "replaced third",
+      },
+    });
+    expect(patchResult.isError).toBeFalsy();
+
+    const readBody = jsonOf<{ content: string }>(
+      await client.callTool({ name: "vault_read", arguments: { path: DUP_PATH } })
+    );
+    expect(readBody.content).toContain("first");
+    expect(readBody.content).toContain("second");
+    expect(readBody.content).toContain("replaced third");
+    // The original (unreplaced) third section's body is gone — checked as a
+    // standalone line so it doesn't false-match inside "replaced third".
+    expect(readBody.content).not.toContain("\nthird\n");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // vault_write + vault_delete (use TEMP_PATH to avoid disturbing shared fixture)
 // ---------------------------------------------------------------------------
 
