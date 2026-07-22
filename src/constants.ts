@@ -32,11 +32,16 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.InvalidFilterQuery]:
     "The query you provided could not be processed.",
   [ErrorCode.MissingTargetTypeHeader]: "No 'Target-Type' header was provided.",
+  // A target type or scope can arrive by header *or* by URL path element, so
+  // these read neutrally; the call site appends where the bad value came from
+  // and which values are valid there (the two patch formats accept different
+  // scopes). getResponseMessage prepends this text to any custom message, so a
+  // call site that restates what is already here produces a doubled response.
   [ErrorCode.InvalidTargetTypeHeader]:
-    "The 'Target-Type' header you provided was invalid.",
+    "The target type you specified was invalid. Valid target types are 'heading', 'block', and 'frontmatter'.",
   [ErrorCode.MissingTargetHeader]: "No 'Target' header was provided.",
   [ErrorCode.InvalidTargetScopeHeader]:
-    "The 'Target-Scope' header you provided was invalid. Valid values are 'content', 'marker', and 'markerAndContent'.",
+    "The target scope you specified was invalid.",
   [ErrorCode.MissingOperation]: "No 'Operation' header was provided.",
   [ErrorCode.InvalidOperation]:
     "The 'Operation' header you provided was invalid.",

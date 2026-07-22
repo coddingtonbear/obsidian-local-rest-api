@@ -319,7 +319,7 @@ describe("PATCH 2.0 — frontmatter parse and key-collision errors", () => {
 // ---------------------------------------------------------------------------
 
 describe("PATCH 2.0 — errors and routing", () => {
-  test("an invalid targetType returns 400 (40054)", async () => {
+  test("an invalid targetType returns 400 (40081) naming the field", async () => {
     const res = await patchV2({
       targetType: "paragraph",
       target: ["Delta"],
@@ -327,7 +327,12 @@ describe("PATCH 2.0 — errors and routing", () => {
       content: "x",
     });
     expect(res.status).toBe(400);
-    expect((await res.json()).errorCode).toBe(40054);
+    const body = await res.json();
+    expect(body.errorCode).toBe(40081);
+    // A JSON instruction body has no headers in it, so the error names the
+    // offending field rather than a 'Target-Type' header the caller never sent.
+    expect(body.message).toContain("targetType");
+    expect(body.message).not.toContain("header");
   });
 
   test("a heading write missing its content carrier returns 400 (40081)", async () => {

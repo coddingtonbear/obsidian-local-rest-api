@@ -28,6 +28,7 @@ import {
   FrontmatterParseError as FrontmatterParseErrorV2,
   FrontmatterKeyCollisionError,
   ReservedDuplicateMarkerError,
+  InstructionInputSchema,
   readTarget,
 } from "markdown-patch-2";
 import type {
@@ -435,6 +436,9 @@ export default class RequestHandler {
       if (!["heading", "block", "frontmatter"].includes(targetType)) {
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.InvalidTargetTypeHeader,
+          message: isHeaderTargeting
+            ? "It was supplied in the 'Target-Type' header."
+            : `It was supplied as the URL path element '${targetType}', immediately after the note.`,
         });
         return;
       }
@@ -901,7 +905,10 @@ export default class RequestHandler {
       return;
     }
     if (targetScope && !isPatchTargetScope(targetScope)) {
-      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetScopeHeader });
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidTargetScopeHeader,
+        message: "Valid values are 'content', 'marker', and 'markerAndContent'.",
+      });
       return;
     }
     if (!isContentType(contentType)) {
@@ -963,18 +970,26 @@ export default class RequestHandler {
     candidate: Record<string, unknown>,
     res: express.Response,
   ): Promise<void> {
-    // Validate the discriminants up front so malformed input gets a clean 400
-    // rather than surfacing as an opaque engine failure.
-    if (!isV2TargetType(candidate.targetType)) {
-      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetTypeHeader });
-      return;
-    }
-    if (!isV2Operation(candidate.operation)) {
-      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidOperation });
-      return;
-    }
-    if (candidate.scope !== undefined && !isV2Scope(candidate.scope)) {
-      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetScopeHeader });
+    // Validate the whole instruction up front, against the same schema the
+    // engine validates with, so malformed input gets a clean 400 before the
+    // vault is touched. Reporting it as InvalidPatchInstruction with the
+    // schema's own field-path messages keeps the error pointed at the field the
+    // caller actually wrote: the 4005x codes name request *headers*, which a
+    // JSON instruction body does not have. Fields that reached here from
+    // headers (raw-content mode) were already validated by the caller, which
+    // owns the header-flavored wording for them.
+    const parsed = InstructionInputSchema.safeParse(candidate);
+    if (!parsed.success) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidPatchInstruction,
+        message: parsed.error.issues
+          .map((issue) =>
+            issue.path.length
+              ? `${issue.path.join(".")}: ${issue.message}`
+              : issue.message,
+          )
+          .join("; "),
+      });
       return;
     }
 
@@ -1023,7 +1038,7 @@ export default class RequestHandler {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidTargetScopeHeader,
         message:
-          "The 'Target-Scope' header you provided was invalid. Valid values are 'content', 'marker', 'markerAndContent', and 'parent'.",
+          "Valid values are 'content', 'marker', 'markerAndContent', and 'parent'.",
       });
       return;
     }
@@ -1233,7 +1248,11 @@ export default class RequestHandler {
         return;
       }
       if (targetScope && !isPatchTargetScope(targetScope)) {
-        this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetScopeHeader });
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidTargetScopeHeader,
+          message:
+            "Valid values are 'content', 'marker', and 'markerAndContent'.",
+        });
         return;
       }
       if (!target) {
