@@ -1503,6 +1503,11 @@ describe("requestHandler", () => {
       "Sub content",
       "# Heading2",
       "Content under heading2",
+      "# Heading3",
+      "| City    | Population |",
+      "| ------- | ---------- |",
+      "| Seattle | 8          |",
+      "^table1",
       "",
     ].join("\n");
 
@@ -1689,6 +1694,40 @@ describe("requestHandler", () => {
         expect(res.status).toBe(400);
         expect(JSON.parse(res.text).errorCode).toBe(40083);
       });
+
+      test("a JSON array body on a block target replaces the table's rows", async () => {
+        const result = await request(server)
+          .put("/vault/somefile.md/block/table1")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .send([["Chicago", "16"]])
+          .expect(200);
+
+        expect(result.text).toContain("| Chicago | 16 |");
+        expect(result.text).not.toContain("| Seattle | 8          |");
+        expect(result.text).toContain("| City    | Population |");
+      });
+
+      test("a row with the wrong number of cells on a block target is rejected", async () => {
+        const res = await request(server)
+          .put("/vault/somefile.md/block/table1")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .send([["only-one-cell"]]);
+
+        expect(res.status).toBe(400);
+      });
+
+      test("a non-array JSON body on a block target is rejected, not silently stringified", async () => {
+        const res = await request(server)
+          .put("/vault/somefile.md/block/table1")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .send({ not: "an array" });
+
+        expect(res.status).toBe(400);
+        expect(app.vault.adapter._write).toBeUndefined();
+      });
     });
 
     describe("POST", () => {
@@ -1737,6 +1776,18 @@ describe("requestHandler", () => {
 
         expect(res.status).toBe(400);
         expect(JSON.parse(res.text).errorCode).toBe(40083);
+      });
+
+      test("a JSON array body on a block target appends a table row", async () => {
+        const result = await request(server)
+          .post("/vault/somefile.md/block/table1")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .send([["Chicago", "16"]])
+          .expect(200);
+
+        expect(result.text).toContain("| Seattle | 8          |");
+        expect(result.text).toContain("| Chicago | 16 |");
       });
     });
 
