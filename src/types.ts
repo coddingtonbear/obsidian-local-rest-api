@@ -21,6 +21,7 @@ export enum ErrorCode {
   InvalidTargetHeader = 40058,
   InvalidPatchVersionHeader = 40082,
   HeaderTargetingRequiresVersion1 = 40083,
+  PatchHeaderTargetingRequiresExplicitVersion = 40084,
   PeriodIsNotEnabled = 40060,
   InvalidFilterQuery = 40070,
   PatchFailed = 40080,

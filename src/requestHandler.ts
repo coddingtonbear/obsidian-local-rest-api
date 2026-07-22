@@ -630,6 +630,82 @@ export default class RequestHandler {
     return { targetType: rawTargetType, target };
   }
 
+  /** Parse the Target-Type/Target headers for a raw-content-mode PATCH.
+   *
+   *  Unlike the deprecated 1.x `_getHeaderTarget` (delimiter-joined strings),
+   *  the encoding here is type-dependent, mirroring the 2.0 instruction's
+   *  target shapes: a heading Target is percent-encoded JSON (an array of
+   *  heading texts, or `null` for the document root), while block and
+   *  frontmatter Targets are plain percent-encoded strings. Returns null when
+   *  an error response has already been sent. */
+  _getPatchHeaderTarget(
+    req: express.Request,
+    res: express.Response,
+  ): { targetType: string; target: string[] | string | null } | null {
+    const rawTargetType = req.get("Target-Type");
+    const rawTarget = req.get("Target");
+
+    if (!rawTargetType) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingTargetTypeHeader,
+      });
+      return null;
+    }
+    if (!isV2TargetType(rawTargetType)) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidTargetTypeHeader,
+      });
+      return null;
+    }
+    if (!rawTarget) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingTargetHeader,
+      });
+      return null;
+    }
+
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(rawTarget);
+    } catch {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidTargetHeader,
+        message: "The 'Target' header could not be percent-decoded.",
+      });
+      return null;
+    }
+
+    if (rawTargetType === "heading") {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(decoded);
+      } catch {
+        parsed = undefined;
+      }
+      const isHeadingAddress =
+        parsed === null ||
+        (Array.isArray(parsed) &&
+          parsed.every((segment) => typeof segment === "string"));
+      if (parsed === undefined || !isHeadingAddress) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidTargetHeader,
+          message:
+            "A heading 'Target' header must be percent-encoded JSON: an array of heading texts (e.g. %5B%22A%22%2C%22B%22%5D) or null for the document root.",
+        });
+        return null;
+      }
+      return { targetType: rawTargetType, target: parsed as string[] | null };
+    }
+
+    if (!decoded) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingTargetHeader,
+      });
+      return null;
+    }
+    return { targetType: rawTargetType, target: decoded };
+  }
+
   async _vaultPut(
     filepath: string,
     req: express.Request,
@@ -696,6 +772,7 @@ export default class RequestHandler {
     path: string,
     req: express.Request,
     res: express.Response,
+    urlTarget?: { targetType: string; target?: string; targetSegments?: string[] },
   ): Promise<void> {
     if (!path || path.endsWith("/")) {
       this.returnCannedResponse(res, { errorCode: ErrorCode.RequestMethodValidOnlyForFiles });
@@ -711,17 +788,82 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidPatchVersionHeader });
       return;
     }
+
+    // Three targeting signals exist: URL path elements, Target-Type/Target
+    // headers, and the explicit instruction-body content type. They are
+    // mutually exclusive — a request supplying more than one is ambiguous
+    // about which specification governs, so it is rejected rather than have
+    // one silently win.
+    const headerTargeting = !!(req.get("Target-Type") || req.get("Target"));
+    const baseContentType = (req.get("Content-Type") ?? "")
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+    const isInstructionBody =
+      baseContentType === (ContentTypes.olrapiPatchInstruction as string);
+    if (
+      (urlTarget && headerTargeting) ||
+      (isInstructionBody && (urlTarget || headerTargeting))
+    ) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.ConflictingTargetSpecification,
+      });
+      return;
+    }
+
     if (version === 2) {
+      if (urlTarget) {
+        return this._vaultPatchRawContent(
+          path,
+          {
+            targetType: urlTarget.targetType,
+            target:
+              urlTarget.targetType === "heading"
+                ? urlTarget.targetSegments ?? [urlTarget.target ?? ""]
+                : urlTarget.target ?? "",
+          },
+          req,
+          res,
+        );
+      }
+      if (headerTargeting) {
+        // Header-based targeting is ambiguous between the 1.x and 2.0 header
+        // formats, so a request must *explicitly* pick a side: absent-version
+        // requests (which default to 2.0 everywhere else) fail loudly here
+        // rather than have an un-upgraded 1.x client's headers silently
+        // reinterpreted under 2.0 semantics.
+        if (req.get(MARKDOWN_PATCH_VERSION_HEADER) !== "2") {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.PatchHeaderTargetingRequiresExplicitVersion,
+          });
+          return;
+        }
+        const parsed = this._getPatchHeaderTarget(req, res);
+        if (!parsed) return;
+        return this._vaultPatchRawContent(path, parsed, req, res);
+      }
       const body: unknown = req.body;
       if (typeof body !== "object" || body === null || Array.isArray(body)) {
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.InvalidPatchInstruction,
           message:
-            "A PATCH expects a JSON instruction object as the request body (send Content-Type: application/json). To use the deprecated 1.x header-driven format, set the 'Markdown-Patch-Version: 1' header.",
+            "A PATCH expects a JSON instruction object as the request body (send Content-Type: application/json or application/vnd.olrapi.patch-instruction+json). For raw-content mode, target via URL path elements or Target-Type/Target headers with 'Markdown-Patch-Version: 2'. To use the deprecated 1.x header-driven format, set the 'Markdown-Patch-Version: 1' header.",
         });
         return;
       }
       return this._vaultPatchMdp2(path, body as Record<string, unknown>, res);
+    }
+
+    // version === 1 with a URL-element target: URL targeting is purely a 2.0
+    // feature — before it existed, this path was simply an unresolvable file
+    // and 404'd, so an explicit error is clearer than silently keeping that.
+    if (urlTarget) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidPatchVersionHeader,
+        message:
+          "URL path-element targeting is a markdown-patch 2.0 feature; drop the 'Markdown-Patch-Version: 1' header, or use the deprecated 1.x Target-Type/Target headers instead.",
+      });
+      return;
     }
 
     // Past this point the request is served by the deprecated 1.x header-driven
@@ -789,6 +931,23 @@ export default class RequestHandler {
   async vaultPatch(req: express.Request, res: express.Response): Promise<void> {
     const rawPath = this.extractVaultPath(req, res);
     if (rawPath === null) return;
+    const resolved = await this._resolvePathAndTarget(rawPath);
+    if (resolved === null) {
+      if (
+        rawPath
+          .split("/")
+          .some((s) => ["heading", "block", "frontmatter"].includes(s))
+      ) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+        return;
+      }
+    } else if (resolved.targetType) {
+      return this._vaultPatch(resolved.filePath, req, res, {
+        targetType: resolved.targetType,
+        target: resolved.target,
+        targetSegments: resolved.targetSegments,
+      });
+    }
     return this._vaultPatch(rawPath, req, res);
   }
 
@@ -820,6 +979,132 @@ export default class RequestHandler {
     }
 
     return this._respondMdp2(path, candidate as unknown as InstructionInput, res);
+  }
+
+  /** Assemble a 2.0 instruction for a raw-content-mode PATCH: the target comes
+   *  from URL path elements or the Target-Type/Target headers (already parsed
+   *  by the caller), the remaining instruction fields from headers, and the
+   *  payload carrier from the raw request body — `text/*` is `content`,
+   *  `application/json` is `value`, and an empty body carries nothing (a
+   *  delete, or a move whose `destination` rides in the Destination header).
+   *  This exists so templating-oriented clients can splice unescaped markdown
+   *  into the body instead of JSON-escaping it into an instruction document.
+   *  The assembled candidate funnels through `_vaultPatchMdp2`, so validation
+   *  and error mapping are identical to the JSON-instruction mode. */
+  async _vaultPatchRawContent(
+    path: string,
+    target: { targetType: string; target: string[] | string | null },
+    req: express.Request,
+    res: express.Response,
+  ): Promise<void> {
+    // These headers only mean something to the deprecated 1.x engine
+    // (delimiter-joined targets, 1.x whitespace trimming). Silently ignoring
+    // them for an un-upgraded 1.x client would change what its request does,
+    // so they fail loudly toward the version choice instead.
+    if (req.get("Target-Delimiter") || req.get("Trim-Target-Whitespace")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.PatchHeaderTargetingRequiresExplicitVersion,
+      });
+      return;
+    }
+
+    const operation = req.get("Operation");
+    if (!operation) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.MissingOperation });
+      return;
+    }
+    if (!isV2Operation(operation)) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidOperation });
+      return;
+    }
+
+    const scope = req.get("Target-Scope");
+    if (scope !== undefined && !isV2Scope(scope)) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidTargetScopeHeader,
+        message:
+          "The 'Target-Scope' header you provided was invalid. Valid values are 'content', 'marker', 'markerAndContent', and 'parent'.",
+      });
+      return;
+    }
+
+    let destination: unknown;
+    const rawDestination = req.get("Destination");
+    if (rawDestination !== undefined) {
+      try {
+        destination = JSON.parse(decodeURIComponent(rawDestination)) as unknown;
+      } catch {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidDestinationHeader,
+          message:
+            "The 'Destination' header must be percent-encoded JSON, e.g. %7B%22parent%22%3A%5B%22Appendix%22%5D%2C%22place%22%3A%22last%22%7D.",
+        });
+        return;
+      }
+    }
+
+    // Standard If-Match carries a quoted ETag (RFC 9110); the engine's token
+    // is bare — accept either by stripping one pair of surrounding quotes.
+    const rawIfMatch = req.get("If-Match");
+    const ifMatch =
+      rawIfMatch !== undefined &&
+      rawIfMatch.length >= 2 &&
+      rawIfMatch.startsWith('"') &&
+      rawIfMatch.endsWith('"')
+        ? rawIfMatch.slice(1, -1)
+        : rawIfMatch;
+
+    const candidate: Record<string, unknown> = {
+      targetType: target.targetType,
+      target: target.target,
+      operation,
+    };
+    if (scope !== undefined) candidate.scope = scope;
+    if (destination !== undefined) candidate.destination = destination;
+    if (ifMatch !== undefined) candidate.ifMatch = ifMatch;
+    if (req.get("Create-Target-If-Missing") === "true") {
+      candidate.createTargetIfMissing = true;
+    }
+    if (req.get("Reject-If-Content-Preexists") === "true") {
+      candidate.rejectIfContentPreexists = true;
+    }
+
+    // A bodiless request still reaches the parsers, which leave `{}` (or an
+    // empty string/Buffer) behind — so emptiness is judged from the request
+    // framing headers first, never from the parsed value alone. An empty body
+    // deliberately maps to *no* carrier: a replace with an accidentally-empty
+    // template must fail loudly (missing carrier) rather than clear a section.
+    const contentLength = req.get("Content-Length");
+    const hasBodyBytes =
+      (contentLength !== undefined && contentLength !== "0") ||
+      req.get("Transfer-Encoding") !== undefined;
+    const body: unknown = req.body;
+    const bodyIsEmpty =
+      !hasBodyBytes ||
+      body === undefined ||
+      (typeof body === "string" && body.length === 0) ||
+      (Buffer.isBuffer(body) && body.length === 0);
+
+    if (!bodyIsEmpty) {
+      const baseContentType = (req.get("Content-Type") ?? "")
+        .split(";")[0]
+        .trim()
+        .toLowerCase();
+      if (baseContentType.startsWith("text/") && typeof body === "string") {
+        candidate.content = body;
+      } else if (baseContentType === (ContentTypes.json as string)) {
+        candidate.value = body;
+      } else {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidContentType,
+          message:
+            "A raw-content-mode PATCH accepts a text/* body (the `content` carrier), an application/json body (the `value` carrier), or no body at all (a delete, or a move via the Destination header).",
+        });
+        return;
+      }
+    }
+
+    return this._vaultPatchMdp2(path, candidate, res);
   }
 
   /** Apply a single markdown-patch 2.0 instruction and write the standard 2.0
@@ -1872,6 +2157,13 @@ export default class RequestHandler {
     this.api.use(
       express.json({
         type: ContentTypes.jsonLogic,
+        strict: false,
+        limit: MaximumRequestSize,
+      }),
+    );
+    this.api.use(
+      express.json({
+        type: ContentTypes.olrapiPatchInstruction,
         strict: false,
         limit: MaximumRequestSize,
       }),
