@@ -599,6 +599,39 @@ describe("requestHandler", () => {
       expect(res.status).toBe(400);
       expect(JSON.parse(res.text).errorCode).toBe(40005);
     });
+
+    test("a duplicate sibling heading gets its own disambiguated key in the 2.0 map", async () => {
+      app.vault.adapter._read = [
+        "# Notes",
+        "first",
+        "# Notes",
+        "second",
+        "",
+      ].join("\n");
+      const res = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", MAP_CT)
+        .expect(200);
+      const keys = Object.keys(res.body.headings);
+      expect(keys).toHaveLength(2);
+      expect(keys[0]).toBe("Notes");
+      // The second occurrence's key carries a non-printable marker suffix the
+      // caller must copy verbatim, not reconstruct.
+      expect(keys[1]).not.toBe("Notes");
+      expect(keys[1].startsWith("Notes")).toBe(true);
+      expect(keys[1].length).toBeGreaterThan("Notes".length);
+    });
+
+    test("a heading colliding with the reserved marker sequence returns 400 (40080), not a 500", async () => {
+      app.vault.adapter._read = `# Heading\u{FC750}\u{F6440}\n\nbody\n`;
+      const res = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", MAP_CT);
+      expect(res.status).toBe(400);
+      expect(JSON.parse(res.text).errorCode).toBe(40080);
+    });
   });
 
   describe("vaultPut", () => {
@@ -1622,6 +1655,25 @@ describe("requestHandler", () => {
         expect(result.text).toEqual("Sub content\n");
       });
 
+      test("a duplicate sibling heading's disambiguated key reaches the correct (second) section", async () => {
+        setFileContent(
+          ["# Notes", "first", "# Notes", "second", ""].join("\n"),
+        );
+        const secondNotesKey = "Notes\u{FC750}\u{F6440}";
+
+        const first = await request(server)
+          .get("/vault/somefile.md/heading/Notes")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(200);
+        expect(first.text).toEqual("first\n");
+
+        const second = await request(server)
+          .get(`/vault/somefile.md/heading/${encodeURIComponent(secondNotesKey)}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(200);
+        expect(second.text).toEqual("second\n");
+      });
+
       test("frontmatter via URL segments returns JSON value", async () => {
         const result = await request(server)
           .get("/vault/somefile.md/frontmatter/title")
@@ -1680,6 +1732,24 @@ describe("requestHandler", () => {
     });
 
     describe("PUT", () => {
+      test("a duplicate sibling heading's disambiguated key writes only the correct (second) section", async () => {
+        setFileContent(
+          ["# Notes", "first", "# Notes", "second", ""].join("\n"),
+        );
+        const secondNotesKey = "Notes\u{FC750}\u{F6440}";
+
+        const result = await request(server)
+          .put(`/vault/somefile.md/heading/${encodeURIComponent(secondNotesKey)}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("replaced\n")
+          .expect(200);
+
+        expect(result.text).toContain("first");
+        expect(result.text).toContain("replaced");
+        expect(result.text).not.toContain("second");
+      });
+
       test("replaces section content via URL target", async () => {
         const result = await request(server)
           .put("/vault/somefile.md/heading/Heading2")

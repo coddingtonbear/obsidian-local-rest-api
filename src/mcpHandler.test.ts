@@ -303,6 +303,20 @@ describe("McpHandler", () => {
       expect(parseText(result)).toBe("section content");
     });
 
+    test("passes a duplicate-heading marker suffix through a target segment unchanged", async () => {
+      const cb = getToolCallback("vault_read");
+      const disambiguated = "Alpha\u{FC750}\u{F6440}";
+      await cb({
+        path: "test.md",
+        targetType: "heading",
+        target: [disambiguated],
+      });
+      expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
+        expect.anything(),
+        { targetType: "heading", target: [disambiguated] },
+      );
+    });
+
     test("rejects a bare string heading target", async () => {
       const cb = getToolCallback("vault_read");
       await expect(
@@ -367,6 +381,20 @@ describe("McpHandler", () => {
       const cb = getToolCallback("vault_get_document_map");
       await expect(cb({ path: "missing.md" })).rejects.toThrow("File not found");
     });
+
+    test("returns a duplicate heading's marker-suffixed key unmodified", async () => {
+      const disambiguated = "Alpha\u{FC750}\u{F6440}";
+      ops.getDocumentMapV2Object.mockResolvedValueOnce({
+        version: "abc123",
+        headings: { Alpha: {}, [disambiguated]: {} },
+        blocks: [],
+        frontmatterFields: [],
+      });
+      const cb = getToolCallback("vault_get_document_map");
+      const result = await cb({ path: "test.md" });
+      const body = parseText(result);
+      expect(Object.keys(body.headings)).toEqual(["Alpha", disambiguated]);
+    });
   });
 
   // ---- vault_write --------------------------------------------------------
@@ -401,6 +429,24 @@ describe("McpHandler", () => {
     expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
       targetType: "heading",
       target: ["Overview", "Details"],
+      operation: "append",
+      content: "new text",
+    });
+  });
+
+  test("vault_patch passes a duplicate-heading marker suffix through a target segment unchanged", async () => {
+    const cb = getToolCallback("vault_patch");
+    const disambiguated = "Overview\u{FC750}\u{F6440}";
+    await cb({
+      path: "out.md",
+      targetType: "heading",
+      target: [disambiguated],
+      operation: "append",
+      content: "new text",
+    });
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "heading",
+      target: [disambiguated],
       operation: "append",
       content: "new text",
     });
