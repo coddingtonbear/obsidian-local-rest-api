@@ -25,6 +25,8 @@ import {
   InvalidInstructionError,
   PreconditionFailedError,
   TargetNotFoundError,
+  FrontmatterParseError as FrontmatterParseErrorV2,
+  FrontmatterKeyCollisionError,
   readTarget,
 } from "markdown-patch-2";
 import type {
@@ -389,16 +391,26 @@ export default class RequestHandler {
         return;
       }
       res.setHeader("Content-Type", ContentTypes.olrapiDocumentMap);
+      let mapJson: string;
+      try {
+        mapJson =
+          version === 1
+            ? JSON.stringify(await this.getDocumentMapObject(file), null, 2)
+            : JSON.stringify(await this.getDocumentMapV2Object(file), null, 2);
+      } catch (e) {
+        if (e instanceof FrontmatterParseError || e instanceof FrontmatterParseErrorV2) {
+          this.returnCannedResponse(res, {
+            errorCode: ErrorCode.InvalidFrontmatter,
+            message: e.message,
+          });
+          return;
+        }
+        throw e;
+      }
       if (version === 1) {
         res.setHeader("Deprecation", `true; sunset-version="${MARKDOWN_PATCH_V1_SUNSET}"`);
-        res.send(
-          JSON.stringify(await this.getDocumentMapObject(file), null, 2),
-        );
-      } else {
-        res.send(
-          JSON.stringify(await this.getDocumentMapV2Object(file), null, 2),
-        );
       }
+      res.send(mapJson);
       return;
     }
 
@@ -473,6 +485,13 @@ export default class RequestHandler {
         } catch (e) {
           if (e instanceof TargetNotFoundError) {
             this.returnCannedResponse(res, { statusCode: 404 });
+            return;
+          }
+          if (e instanceof FrontmatterParseErrorV2) {
+            this.returnCannedResponse(res, {
+              errorCode: ErrorCode.InvalidFrontmatter,
+              message: e.message,
+            });
             return;
           }
           throw e;
@@ -824,7 +843,10 @@ export default class RequestHandler {
         this.returnCannedResponse(res, { statusCode: 412, message: e.message });
       } else if (e instanceof TargetNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404, message: e.message });
-      } else if (e instanceof ContentPreexistsError) {
+      } else if (
+        e instanceof ContentPreexistsError ||
+        e instanceof FrontmatterKeyCollisionError
+      ) {
         this.returnCannedResponse(res, { statusCode: 409, message: e.message });
       } else if (
         e instanceof InvalidCellError ||
@@ -832,6 +854,11 @@ export default class RequestHandler {
       ) {
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.InvalidPatchInstruction,
+          message: e.message,
+        });
+      } else if (e instanceof FrontmatterParseErrorV2) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidFrontmatter,
           message: e.message,
         });
       } else {
