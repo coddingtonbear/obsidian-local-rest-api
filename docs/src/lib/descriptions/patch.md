@@ -146,7 +146,7 @@ To add a new city/population pair to the table referenced by `2c7cfa`, pass the 
 { "targetType": "block", "target": "2c7cfa", "operation": "append", "value": [["Chicago, IL", "16"]] }
 ```
 
-`prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply.
+`prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply. Each row must have exactly as many cells as the table has columns; a mismatched row, or targeting a block that isn't a table, is rejected.
 
 ## Setting a frontmatter field
 

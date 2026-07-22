@@ -185,7 +185,7 @@ components:
             - "frontmatter"
           type: "string"
         value:
-          description: "Structured JSON payload for a frontmatter value — any JSON (string, number, boolean, array, object, null). For `prepend`/`append` this merges (list concat, dict merge, string concat). Provide exactly one of `content`, `value`, or `destination`."
+          description: "Structured JSON payload: a frontmatter value (any JSON — string, number, boolean, array, object, null; for `prepend`/`append` this merges: list concat, dict merge, string concat), or table rows on a `block` target's `content` cell (a 2-D array of strings, one row per entry — `replace` swaps the body rows, `prepend`/`append` insert before/after the existing ones; each row's length must match the table's column count). Provide exactly one of `content`, `value`, or `destination`."
       required:
         - "targetType"
         - "target"
@@ -546,7 +546,7 @@ paths:
         { "targetType": "block", "target": "2c7cfa", "operation": "append", "value": [["Chicago, IL", "16"]] }
         ```
         
-        `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply.
+        `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply. Each row must have exactly as many cells as the table has columns; a mismatched row, or targeting a block that isn't a table, is rejected.
         
         ## Setting a frontmatter field
         
@@ -1589,7 +1589,7 @@ paths:
         { "targetType": "block", "target": "2c7cfa", "operation": "append", "value": [["Chicago, IL", "16"]] }
         ```
         
-        `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply.
+        `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply. Each row must have exactly as many cells as the table has columns; a mismatched row, or targeting a block that isn't a table, is rejected.
         
         ## Setting a frontmatter field
         
@@ -2412,7 +2412,7 @@ paths:
         { "targetType": "block", "target": "2c7cfa", "operation": "append", "value": [["Chicago, IL", "16"]] }
         ```
         
-        `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply.
+        `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply. Each row must have exactly as many cells as the table has columns; a mismatched row, or targeting a block that isn't a table, is rejected.
         
         ## Setting a frontmatter field
         
@@ -3523,7 +3523,7 @@ paths:
         { "targetType": "block", "target": "2c7cfa", "operation": "append", "value": [["Chicago, IL", "16"]] }
         ```
         
-        `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply.
+        `prepend` puts the new row first (right below the heading row); `replace` swaps all body rows for the ones you supply. Each row must have exactly as many cells as the table has columns; a mismatched row, or targeting a block that isn't a table, is rejected.
         
         ## Setting a frontmatter field
         

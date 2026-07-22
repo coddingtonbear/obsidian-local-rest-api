@@ -51,7 +51,7 @@
       "description": "String payload: a heading/block body or label, or a new frontmatter key name for a `marker` rename. Heading levels are relative to the edited span (a leading `#` becomes a direct child). Provide exactly one of `content`, `value`, or `destination`."
     },
     "value": {
-      "description": "Structured JSON payload for a frontmatter value — any JSON (string, number, boolean, array, object, null). For `prepend`/`append` this merges (list concat, dict merge, string concat). Provide exactly one of `content`, `value`, or `destination`."
+      "description": "Structured JSON payload: a frontmatter value (any JSON — string, number, boolean, array, object, null; for `prepend`/`append` this merges: list concat, dict merge, string concat), or table rows on a `block` target's `content` cell (a 2-D array of strings, one row per entry — `replace` swaps the body rows, `prepend`/`append` insert before/after the existing ones; each row's length must match the table's column count). Provide exactly one of `content`, `value`, or `destination`."
     },
     "destination": {
       "type": "object",

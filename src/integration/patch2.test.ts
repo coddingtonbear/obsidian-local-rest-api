@@ -141,6 +141,20 @@ describe("PATCH 2.0 — block content", () => {
     expect(text).toContain(TERM_BETA);
     expect(text).toContain("v2-block-append");
   });
+
+  test("a JSON `value` array appends a table row, keeping the header and existing rows", async () => {
+    const res = await patchV2({
+      targetType: "block",
+      target: "table-block",
+      operation: "append",
+      value: [["Row 3 A", "Row 3 B"]],
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("| Column A | Column B |");
+    expect(text).toContain("Row 1 A");
+    expect(text).toContain("| Row 3 A | Row 3 B |");
+  });
 });
 
 // ---------------------------------------------------------------------------

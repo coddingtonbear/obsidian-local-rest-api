@@ -976,18 +976,33 @@ export default class RequestHandler {
             createTargetIfMissing,
             rejectIfContentPreexists,
           }
-        : {
-            targetType,
-            target:
-              targetType === "heading"
-                ? extraOpts.targetSegments ?? [target]
-                : target,
-            operation,
-            scope: "content",
-            content: typeof req.body === "string" ? req.body : String(req.body ?? ""),
-            createTargetIfMissing,
-            rejectIfContentPreexists,
-          }
+        : targetType === "block" && typeof req.body !== "string"
+          ? {
+              // A JSON body on a block target carries table rows, not literal
+              // text — route it to the engine's `value` carrier rather than
+              // String()-coercing it into "a,b"/"[object Object]" garbage. The
+              // engine rejects a malformed shape (non-array, wrong column
+              // count, non-table target) with its own typed errors.
+              targetType: "block",
+              target,
+              operation,
+              scope: "content",
+              value: req.body as unknown,
+              createTargetIfMissing,
+              rejectIfContentPreexists,
+            }
+          : {
+              targetType,
+              target:
+                targetType === "heading"
+                  ? extraOpts.targetSegments ?? [target]
+                  : target,
+              operation,
+              scope: "content",
+              content: typeof req.body === "string" ? req.body : String(req.body ?? ""),
+              createTargetIfMissing,
+              rejectIfContentPreexists,
+            }
     ) as InstructionInput;
 
     return this._respondMdp2(filePath, instruction, res);

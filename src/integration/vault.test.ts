@@ -16,6 +16,7 @@ import {
   HEADING_ALPHA,
   HEADING_SUB,
   BLOCK_BETA,
+  BLOCK_TABLE,
   FM_TITLE,
   FM_PRIORITY,
   FM_TITLE_VALUE,
@@ -434,6 +435,52 @@ describe("PUT /vault/{file}/heading/{name} — section replacement", () => {
       body: "data\n",
     });
     expect(res.status).toBe(422);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PUT/POST /vault/{file}/block/{id} with a JSON body — table-row writes
+// (2.0 engine). A JSON array body on a block target is routed to the
+// engine's structured `value` carrier rather than the literal `content`
+// string carrier a text/markdown body uses.
+// ---------------------------------------------------------------------------
+
+describe("PUT /vault/{file}/block/{id} — table row replace via JSON body", () => {
+  test("returns 200 with the table's body rows replaced, header preserved", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}/block/${BLOCK_TABLE}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify([["New A", "New B"]]),
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("| New A | New B |");
+    expect(text).not.toContain("Row 1 A");
+    expect(text).toContain("| Column A | Column B |");
+  });
+});
+
+describe("POST /vault/{file}/block/{id} — table row append via JSON body", () => {
+  test("returns 200 with a new row appended after the existing ones", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}/block/${BLOCK_TABLE}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify([["Row 3 A", "Row 3 B"]]),
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("Row 1 A");
+    expect(text).toContain("Row 2 A");
+    expect(text).toContain("| Row 3 A | Row 3 B |");
+  });
+
+  test("a row with the wrong number of cells is rejected", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}/block/${BLOCK_TABLE}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify([["only-one-cell"]]),
+    });
+    expect(res.status).toBe(400);
   });
 });
 

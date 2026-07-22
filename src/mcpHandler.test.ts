@@ -441,6 +441,23 @@ describe("McpHandler", () => {
     });
   });
 
+  test("vault_patch passes a block table-row value as native JSON (not a string)", async () => {
+    const cb = getToolCallback("vault_patch");
+    await cb({
+      path: "out.md",
+      targetType: "block",
+      target: "2c7cfa",
+      operation: "append",
+      value: [["Chicago, IL", "16"]],
+    });
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "block",
+      target: "2c7cfa",
+      operation: "append",
+      value: [["Chicago, IL", "16"]],
+    });
+  });
+
   test("vault_patch forwards scope, ifMatch, and creation flags", async () => {
     const cb = getToolCallback("vault_patch");
     await cb({
