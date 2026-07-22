@@ -1292,6 +1292,18 @@ export default class RequestHandler {
     // sites; both are valid 2.0 content-scope operations. A single cast bridges
     // the 1.x operation union to the 2.0 discriminated instruction union, which
     // TypeScript cannot narrow from a union-typed variable.
+    // The payload carrier follows what the body *is*, never a coercion of it: a
+    // string body is literal text (`content`), and a parsed JSON body is
+    // structured data (`value`). Whether that carrier is legal for the target is
+    // the engine's call — it accepts `value` as table rows on a block and as the
+    // value of a frontmatter key, and rejects it on a heading, whose content
+    // cell takes markdown text only. String()-coercing instead would splice
+    // "[object Object]" or "x,y" into the document and report success.
+    //
+    // Frontmatter is the one target whose payload is *always* a value: a
+    // `text/markdown` body there is the plain string to store, not markdown to
+    // splice, so it uses `value` regardless of the body's runtime type.
+    const isStructuredBody = typeof req.body !== "string";
     const instruction = (
       targetType === "frontmatter"
         ? {
@@ -1299,19 +1311,17 @@ export default class RequestHandler {
             target,
             operation,
             scope: "content",
-            value: req.body,
+            value: req.body as unknown,
             createTargetIfMissing,
             rejectIfContentPreexists,
           }
-        : targetType === "block" && typeof req.body !== "string"
+        : isStructuredBody
           ? {
-              // A JSON body on a block target carries table rows, not literal
-              // text — route it to the engine's `value` carrier rather than
-              // String()-coercing it into "a,b"/"[object Object]" garbage. The
-              // engine rejects a malformed shape (non-array, wrong column
-              // count, non-table target) with its own typed errors.
-              targetType: "block",
-              target,
+              targetType,
+              target:
+                targetType === "heading"
+                  ? extraOpts.targetSegments ?? [target]
+                  : target,
               operation,
               scope: "content",
               value: req.body as unknown,
@@ -1326,7 +1336,7 @@ export default class RequestHandler {
                   : target,
               operation,
               scope: "content",
-              content: typeof req.body === "string" ? req.body : String(req.body ?? ""),
+              content: req.body as string,
               createTargetIfMissing,
               rejectIfContentPreexists,
             }

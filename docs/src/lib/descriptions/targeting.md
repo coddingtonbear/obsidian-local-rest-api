@@ -13,6 +13,11 @@ If a document has a duplicate sibling heading (the same text repeated under the 
 
 `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
 
+On `PUT` and `POST`, the `Content-Type` of your request body selects how the payload is interpreted, and not every target accepts both:
+
+- A `text/markdown` body is literal markdown. Valid for `heading` and `block` targets. On a `frontmatter` target it is stored as the field's plain string value.
+- An `application/json` body is structured data. On a `block` target that addresses a table, it is a 2-D array of row cells (`[["Chicago", "16"]]`). On a `frontmatter` target it is the field's typed value (a list, dictionary, number, or string). A `heading` target has no structured form — its body is markdown text — so a JSON body there is rejected with `400 InvalidPatchInstruction` rather than being stringified into your note.
+
 ## Deprecated: header-based targeting
 
 Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. On GET/PUT/POST, supplying those targeting headers without that version is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. (On PATCH, `Target-Type`/`Target` headers also have a *non-deprecated* meaning under an explicit `Markdown-Patch-Version: 2` — raw-content mode, with a different `Target` encoding; see the PATCH documentation.) Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
