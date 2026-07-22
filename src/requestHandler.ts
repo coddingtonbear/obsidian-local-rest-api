@@ -764,7 +764,7 @@ export default class RequestHandler {
    *  whole instruction is that JSON body (an `InstructionInput`), and the URL
    *  supplies only the file. On success the patched document is returned as the
    *  body, with any advisory warnings JSON- then percent-encoded into the
-   *  `MD-Patch-Warnings` response header. */
+   *  `Markdown-Patch-Warnings` response header. */
   async _vaultPatchMdp2(
     path: string,
     candidate: Record<string, unknown>,
@@ -790,7 +790,7 @@ export default class RequestHandler {
 
   /** Apply a single markdown-patch 2.0 instruction and write the standard 2.0
    *  response: the patched document as the body, any advisory warnings
-   *  (percent-encoded JSON) in the `MD-Patch-Warnings` header, and the engine's
+   *  (percent-encoded JSON) in the `Markdown-Patch-Warnings` header, and the engine's
    *  typed failures mapped to HTTP status codes. Shared by the JSON-body PATCH
    *  endpoint and the path-element targeted GET/PUT/POST writes. */
   async _respondMdp2(
@@ -811,7 +811,7 @@ export default class RequestHandler {
         // rather than reject, so a legitimate warning never turns a successful
         // patch into a reported failure.
         res.setHeader(
-          "MD-Patch-Warnings",
+          "Markdown-Patch-Warnings",
           encodeURIComponent(JSON.stringify(result.warnings)),
         );
       }

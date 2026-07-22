@@ -161,7 +161,7 @@ curl -k -X PATCH \
   https://127.0.0.1:27124/vault/path/to/note.md
 ```
 
-Heading levels inside a `content` string are relative to the target (a leading `#` becomes a direct child). Advisory warnings (e.g. a heading rebased past level 6) come back as percent-encoded JSON in the `MD-Patch-Warnings` response header — decode with `decodeURIComponent` before parsing. Pass `ifMatch` (the `version` from a document map) for optimistic concurrency.
+Heading levels inside a `content` string are relative to the target (a leading `#` becomes a direct child). Advisory warnings (e.g. a heading rebased past level 6) come back as percent-encoded JSON in the `Markdown-Patch-Warnings` response header — decode with `decodeURIComponent` before parsing. Pass `ifMatch` (the `version` from a document map) for optimistic concurrency.
 
 > **Note:** Whitespace is spliced verbatim — your content goes in exactly as written at the edge of the target's span, and the API adds none of its own. A leading `\n` in your content is what produces a blank line before it, for `append` as much as for `prepend`. Without one your text ends up flush against whatever it lands next to, even where the document already looked well-spaced. See the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for worked examples.
 

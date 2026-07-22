@@ -418,7 +418,7 @@ paths:
         
         Not every combination is meaningful; invalid ones are rejected with a `400`.
         
-        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. Nesting inside your content is preserved as you wrote it — replacing a `##` section with `# New\n\n## Child` yields `## New` and `### Child`. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header — percent-encoded JSON, since a warning message embeds document text verbatim and header values must be ASCII; run it through `decodeURIComponent` before parsing.
+        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. Nesting inside your content is preserved as you wrote it — replacing a `##` section with `# New\n\n## Child` yields `## New` and `### Child`. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `Markdown-Patch-Warnings` header — percent-encoded JSON, since a warning message embeds document text verbatim and header values must be ASCII; run it through `decodeURIComponent` before parsing.
         
         > **Note:** because the heading line is part of the `markerAndContent` span, a `replace` whose content has *no* heading removes it — the section is dissolved into a plain paragraph. Include a leading `#` (at any depth; it is rebased for you) to keep it a heading.
         
@@ -698,7 +698,7 @@ paths:
         required: true
       responses:
         "200":
-          description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `MD-Patch-Warnings` response header."
+          description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
               description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
@@ -823,7 +823,7 @@ paths:
             text/markdown:
               schema:
                 type: "string"
-          description: "Success; content appended to the targeted section (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `MD-Patch-Warnings` response header."
+          description: "Success; content appended to the targeted section (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
               description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
@@ -933,7 +933,7 @@ paths:
             text/markdown:
               schema:
                 type: "string"
-          description: "Success; targeted section replaced (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `MD-Patch-Warnings` response header."
+          description: "Success; targeted section replaced (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
               description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
@@ -1461,7 +1461,7 @@ paths:
         
         Not every combination is meaningful; invalid ones are rejected with a `400`.
         
-        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. Nesting inside your content is preserved as you wrote it — replacing a `##` section with `# New\n\n## Child` yields `## New` and `### Child`. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header — percent-encoded JSON, since a warning message embeds document text verbatim and header values must be ASCII; run it through `decodeURIComponent` before parsing.
+        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. Nesting inside your content is preserved as you wrote it — replacing a `##` section with `# New\n\n## Child` yields `## New` and `### Child`. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `Markdown-Patch-Warnings` header — percent-encoded JSON, since a warning message embeds document text verbatim and header values must be ASCII; run it through `decodeURIComponent` before parsing.
         
         > **Note:** because the heading line is part of the `markerAndContent` span, a `replace` whose content has *no* heading removes it — the section is dissolved into a plain paragraph. Include a leading `#` (at any depth; it is rebased for you) to keep it a heading.
         
@@ -1754,7 +1754,7 @@ paths:
         required: true
       responses:
         "200":
-          description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `MD-Patch-Warnings` response header."
+          description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
               description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
@@ -1892,7 +1892,7 @@ paths:
             text/markdown:
               schema:
                 type: "string"
-          description: "Success; content appended to the targeted section (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `MD-Patch-Warnings` response header."
+          description: "Success; content appended to the targeted section (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
               description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
@@ -2015,7 +2015,7 @@ paths:
             text/markdown:
               schema:
                 type: "string"
-          description: "Success; targeted section replaced (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `MD-Patch-Warnings` response header."
+          description: "Success; targeted section replaced (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
               description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
@@ -2284,7 +2284,7 @@ paths:
         
         Not every combination is meaningful; invalid ones are rejected with a `400`.
         
-        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. Nesting inside your content is preserved as you wrote it — replacing a `##` section with `# New\n\n## Child` yields `## New` and `### Child`. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header — percent-encoded JSON, since a warning message embeds document text verbatim and header values must be ASCII; run it through `decodeURIComponent` before parsing.
+        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. Nesting inside your content is preserved as you wrote it — replacing a `##` section with `# New\n\n## Child` yields `## New` and `### Child`. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `Markdown-Patch-Warnings` header — percent-encoded JSON, since a warning message embeds document text verbatim and header values must be ASCII; run it through `decodeURIComponent` before parsing.
         
         > **Note:** because the heading line is part of the `markerAndContent` span, a `replace` whose content has *no* heading removes it — the section is dissolved into a plain paragraph. Include a leading `#` (at any depth; it is rebased for you) to keep it a heading.
         
@@ -2595,7 +2595,7 @@ paths:
         required: true
       responses:
         "200":
-          description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `MD-Patch-Warnings` response header."
+          description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
               description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
@@ -2751,7 +2751,7 @@ paths:
             text/markdown:
               schema:
                 type: "string"
-          description: "Success; content appended to the targeted section (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `MD-Patch-Warnings` response header."
+          description: "Success; content appended to the targeted section (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
               description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
@@ -2892,7 +2892,7 @@ paths:
             text/markdown:
               schema:
                 type: "string"
-          description: "Success; targeted section replaced (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `MD-Patch-Warnings` response header."
+          description: "Success; targeted section replaced (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
               description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
@@ -3395,7 +3395,7 @@ paths:
         
         Not every combination is meaningful; invalid ones are rejected with a `400`.
         
-        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. Nesting inside your content is preserved as you wrote it — replacing a `##` section with `# New\n\n## Child` yields `## New` and `### Child`. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header — percent-encoded JSON, since a warning message embeds document text verbatim and header values must be ASCII; run it through `decodeURIComponent` before parsing.
+        **Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. Nesting inside your content is preserved as you wrote it — replacing a `##` section with `# New\n\n## Child` yields `## New` and `### Child`. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `Markdown-Patch-Warnings` header — percent-encoded JSON, since a warning message embeds document text verbatim and header values must be ASCII; run it through `decodeURIComponent` before parsing.
         
         > **Note:** because the heading line is part of the `markerAndContent` span, a `replace` whose content has *no* heading removes it — the section is dissolved into a plain paragraph. Include a leading `#` (at any depth; it is rebased for you) to keep it a heading.
         
@@ -3682,9 +3682,9 @@ paths:
         required: true
       responses:
         "200":
-          description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `MD-Patch-Warnings` response header."
+          description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
-            MD-Patch-Warnings:
+            Markdown-Patch-Warnings:
               description: "Present only when the patch produced warnings: a percent-encoded JSON array of `{ code, message }` objects (percent-encoded because a warning message embeds document text verbatim, which may contain non-ASCII characters that are not valid in a raw header value). Decode with `decodeURIComponent` before parsing as JSON."
               schema:
                 type: "string"
@@ -3813,9 +3813,9 @@ paths:
             text/markdown:
               schema:
                 type: "string"
-          description: "Success; content appended to the targeted section (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `MD-Patch-Warnings` response header."
+          description: "Success; content appended to the targeted section (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
-            MD-Patch-Warnings:
+            Markdown-Patch-Warnings:
               description: "Present only when the write produced warnings: a percent-encoded JSON array of `{ code, message }` objects. Decode with `decodeURIComponent` before parsing as JSON."
               schema:
                 type: "string"
@@ -3925,9 +3925,9 @@ paths:
             text/markdown:
               schema:
                 type: "string"
-          description: "Success; targeted section replaced (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `MD-Patch-Warnings` response header."
+          description: "Success; targeted section replaced (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
-            MD-Patch-Warnings:
+            Markdown-Patch-Warnings:
               description: "Present only when the write produced warnings: a percent-encoded JSON array of `{ code, message }` objects. Decode with `decodeURIComponent` before parsing as JSON."
               schema:
                 type: "string"

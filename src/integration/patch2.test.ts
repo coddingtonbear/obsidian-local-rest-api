@@ -196,7 +196,7 @@ describe("PATCH 2.0 — delete", () => {
 // ---------------------------------------------------------------------------
 
 describe("PATCH 2.0 — warnings and preconditions", () => {
-  test("a heading rebased past level 6 returns an MD-Patch-Warnings header", async () => {
+  test("a heading rebased past level 6 returns a Markdown-Patch-Warnings header", async () => {
     const res = await patchV2({
       targetType: "heading",
       target: ["Delta"],
@@ -205,9 +205,13 @@ describe("PATCH 2.0 — warnings and preconditions", () => {
       content: "###### deep", // 6 + Delta's level (1) = 7, overflows h6
     });
     expect(res.status).toBe(200);
-    const warnings = res.headers.get("MD-Patch-Warnings");
+    const warnings = res.headers.get("Markdown-Patch-Warnings");
     expect(warnings).toBeTruthy();
-    expect(JSON.parse(warnings ?? "[]")[0].code).toBe("heading-depth-overflow");
+    // Percent-encoded: a warning message embeds document text verbatim, which
+    // may contain non-ASCII characters that are not valid in a raw header value.
+    expect(JSON.parse(decodeURIComponent(warnings ?? "%5B%5D"))[0].code).toBe(
+      "heading-depth-overflow",
+    );
   });
 
   test("an ifMatch mismatch returns 412 and does not modify the file", async () => {

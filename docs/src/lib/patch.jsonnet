@@ -70,9 +70,9 @@ local T = import 'targeting.params.jsonnet';
   },
   responses: {
     '200': {
-      description: 'Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `MD-Patch-Warnings` response header.',
+      description: 'Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header.',
       headers: {
-        'MD-Patch-Warnings': {
+        'Markdown-Patch-Warnings': {
           description: 'Present only when the patch produced warnings: a percent-encoded JSON array of `{ code, message }` objects (percent-encoded because a warning message embeds document text verbatim, which may contain non-ASCII characters that are not valid in a raw header value). Decode with `decodeURIComponent` before parsing as JSON.',
           schema: {
             type: 'string',

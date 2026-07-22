@@ -28,9 +28,9 @@ local T = import 'targeting.params.jsonnet';
   },
   responses: {
     '200': {
-      description: 'Success; targeted section replaced (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `MD-Patch-Warnings` response header.',
+      description: 'Success; targeted section replaced (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header.',
       headers: {
-        'MD-Patch-Warnings': {
+        'Markdown-Patch-Warnings': {
           description: 'Present only when the write produced warnings: a percent-encoded JSON array of `{ code, message }` objects. Decode with `decodeURIComponent` before parsing as JSON.',
           schema: {
             type: 'string',

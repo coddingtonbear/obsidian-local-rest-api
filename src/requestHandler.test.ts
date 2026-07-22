@@ -1111,7 +1111,7 @@ describe("requestHandler", () => {
       expect(res.text).toBe("---\ntitle: Bye\n---\nbody\n");
     });
 
-    test("engine warnings are surfaced in the MD-Patch-Warnings header", async () => {
+    test("engine warnings are surfaced in the Markdown-Patch-Warnings header", async () => {
       app.vault._read = DOC;
       const res = await patchV2({
         targetType: "heading",
@@ -1122,7 +1122,7 @@ describe("requestHandler", () => {
       });
       expect(res.status).toBe(200);
       expect(res.text).toContain("####### deep");
-      const warnings = JSON.parse(decodeURIComponent(res.headers["md-patch-warnings"]));
+      const warnings = JSON.parse(decodeURIComponent(res.headers["markdown-patch-warnings"]));
       expect(warnings).toHaveLength(1);
       expect(warnings[0].code).toBe("heading-depth-overflow");
     });
@@ -1139,7 +1139,7 @@ describe("requestHandler", () => {
       expect(res.headers["deprecation"]).toBeUndefined();
     });
 
-    test("no MD-Patch-Warnings header when there are no warnings", async () => {
+    test("no Markdown-Patch-Warnings header when there are no warnings", async () => {
       app.vault._read = DOC;
       const res = await patchV2({
         targetType: "heading",
@@ -1148,7 +1148,7 @@ describe("requestHandler", () => {
         scope: "content",
         content: "x",
       });
-      expect(res.headers["md-patch-warnings"]).toBeUndefined();
+      expect(res.headers["markdown-patch-warnings"]).toBeUndefined();
     });
 
     test("a warning containing non-ASCII heading text is percent-encoded, not dropped or crashed on", async () => {
@@ -1161,7 +1161,7 @@ describe("requestHandler", () => {
         content: "##### Déjà vu 🎉", // level 5 + baseline 2 = 7, overflows h6
       });
       expect(res.status).toBe(200);
-      const warnings = JSON.parse(decodeURIComponent(res.headers["md-patch-warnings"]));
+      const warnings = JSON.parse(decodeURIComponent(res.headers["markdown-patch-warnings"]));
       expect(warnings).toHaveLength(1);
       expect(warnings[0].message).toContain("Déjà vu 🎉");
     });
