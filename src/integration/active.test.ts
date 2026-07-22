@@ -86,6 +86,21 @@ describe("PATCH /active/", () => {
     expect(res.status).toBe(200);
   });
 
+  maybeTest("a URL suffix targets a section in raw-content mode", async () => {
+    const res = await authedFetch("/active/heading/Active%20File", {
+      method: "PATCH",
+      headers: {
+        Operation: "append",
+        "Create-Target-If-Missing": "true",
+        "Content-Type": "text/markdown",
+      },
+      body: "Raw-content suffix append.\n",
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-location")).toBe(activeFilePath);
+    expect(await res.text()).toContain("Raw-content suffix append.");
+  });
+
   test("returns 401 without auth", async () => {
     const res = await unauthFetch("/active/", { method: "PATCH" });
     expect(res.status).toBe(401);

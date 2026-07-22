@@ -397,7 +397,7 @@ describe("PATCH 2.0 — errors and routing", () => {
     expect(res.headers.get("Deprecation")).toBe('true; sunset-version="6.0"');
   });
 
-  test("a 1.x-style request without the opt-in header hits the 2.0 engine (400)", async () => {
+  test("a 1.x-style request without the opt-in header fails loudly (400)", async () => {
     const res = await authedFetch(`/vault/${TEST_PATH}`, {
       method: "PATCH",
       headers: {
@@ -408,9 +408,10 @@ describe("PATCH 2.0 — errors and routing", () => {
       },
       body: "legacy-without-optin\n",
     });
-    // No version header -> 2.0 default -> a text body is not an instruction.
+    // Target headers without a version are ambiguous between the 1.x format
+    // and raw-content mode: the request must explicitly pick 1 or 2.
     expect(res.status).toBe(400);
-    expect((await res.json()).errorCode).toBe(40081);
+    expect((await res.json()).errorCode).toBe(40084);
   });
 
   test("an invalid Markdown-Patch-Version returns 400 (40082)", async () => {

@@ -65,6 +65,22 @@ describe("POST /periodic/daily", () => {
   });
 });
 
+describe("PATCH /periodic/daily — raw-content suffix targeting", () => {
+  maybeTest("a URL suffix targets a section in raw-content mode", async () => {
+    const res = await authedFetch("/periodic/daily/heading/Daily%20Note", {
+      method: "PATCH",
+      headers: {
+        Operation: "append",
+        "Create-Target-If-Missing": "true",
+        "Content-Type": "text/markdown",
+      },
+      body: "Raw-content suffix append.\n",
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Raw-content suffix append.");
+  });
+});
+
 describe("DELETE /periodic/daily", () => {
   maybeTest("returns 204 or 404 when deleting today's daily note", async () => {
     const res = await authedFetch("/periodic/daily/", { method: "DELETE" });
