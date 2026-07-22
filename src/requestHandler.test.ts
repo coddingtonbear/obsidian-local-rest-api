@@ -1151,6 +1151,21 @@ describe("requestHandler", () => {
       expect(res.headers["md-patch-warnings"]).toBeUndefined();
     });
 
+    test("a warning containing non-ASCII heading text is percent-encoded, not dropped or crashed on", async () => {
+      app.vault._read = DOC;
+      const res = await patchV2({
+        targetType: "heading",
+        target: ["A", "B"],
+        operation: "replace",
+        scope: "content",
+        content: "##### Déjà vu 🎉", // level 5 + baseline 2 = 7, overflows h6
+      });
+      expect(res.status).toBe(200);
+      const warnings = JSON.parse(decodeURIComponent(res.headers["md-patch-warnings"]));
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0].message).toContain("Déjà vu 🎉");
+    });
+
     test("an ifMatch mismatch returns 412", async () => {
       app.vault._read = DOC;
       const res = await patchV2({
