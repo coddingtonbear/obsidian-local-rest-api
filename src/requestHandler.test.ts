@@ -1122,7 +1122,7 @@ describe("requestHandler", () => {
       });
       expect(res.status).toBe(200);
       expect(res.text).toContain("####### deep");
-      const warnings = JSON.parse(res.headers["md-patch-warnings"]);
+      const warnings = JSON.parse(decodeURIComponent(res.headers["md-patch-warnings"]));
       expect(warnings).toHaveLength(1);
       expect(warnings[0].code).toBe("heading-depth-overflow");
     });

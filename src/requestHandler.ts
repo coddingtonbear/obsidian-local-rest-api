@@ -763,8 +763,8 @@ export default class RequestHandler {
    *  when a request omits the Target-Type header and carries an object body: the
    *  whole instruction is that JSON body (an `InstructionInput`), and the URL
    *  supplies only the file. On success the patched document is returned as the
-   *  body, with any advisory warnings JSON-encoded in the `MD-Patch-Warnings`
-   *  response header. */
+   *  body, with any advisory warnings JSON- then percent-encoded into the
+   *  `MD-Patch-Warnings` response header. */
   async _vaultPatchMdp2(
     path: string,
     candidate: Record<string, unknown>,
@@ -789,10 +789,10 @@ export default class RequestHandler {
   }
 
   /** Apply a single markdown-patch 2.0 instruction and write the standard 2.0
-   *  response: the patched document as the body, any advisory warnings in the
-   *  `MD-Patch-Warnings` header, and the engine's typed failures mapped to HTTP
-   *  status codes. Shared by the JSON-body PATCH endpoint and the path-element
-   *  targeted GET/PUT/POST writes. */
+   *  response: the patched document as the body, any advisory warnings
+   *  (percent-encoded JSON) in the `MD-Patch-Warnings` header, and the engine's
+   *  typed failures mapped to HTTP status codes. Shared by the JSON-body PATCH
+   *  endpoint and the path-element targeted GET/PUT/POST writes. */
   async _respondMdp2(
     filePath: string,
     instruction: InstructionInput,
@@ -804,7 +804,16 @@ export default class RequestHandler {
         instruction,
       );
       if (result.warnings.length > 0) {
-        res.setHeader("MD-Patch-Warnings", JSON.stringify(result.warnings));
+        // Percent-encoded, like Target/Destination on the request side: a
+        // warning message embeds document text verbatim (e.g. a heading
+        // containing an emoji or accented letter), and HTTP header values must
+        // be Latin1 — Node throws on anything outside it. json+percent-encode
+        // rather than reject, so a legitimate warning never turns a successful
+        // patch into a reported failure.
+        res.setHeader(
+          "MD-Patch-Warnings",
+          encodeURIComponent(JSON.stringify(result.warnings)),
+        );
       }
       res.setHeader("Content-Type", ContentTypes.markdown + "; charset=utf-8");
       res.status(200).send(result.document);

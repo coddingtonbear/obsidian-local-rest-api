@@ -18,7 +18,7 @@ Edit a document with a single structured instruction — an **operation** applie
 
 Not every combination is meaningful; invalid ones are rejected with a `400`.
 
-**Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. Nesting inside your content is preserved as you wrote it — replacing a `##` section with `# New\n\n## Child` yields `## New` and `### Child`. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header.
+**Relative heading levels.** Heading `#`-counts inside a `content` string are *relative* to the edited span, so you never count `#`s: under `content` scope a leading `#` becomes a direct child of the target; under `markerAndContent` (or a sibling insert) it lands at the target's own level. Nesting inside your content is preserved as you wrote it — replacing a `##` section with `# New\n\n## Child` yields `## New` and `### Child`. A level rebased past `######` (h6) is still written, but the response carries a `heading-depth-overflow` entry in the `MD-Patch-Warnings` header — percent-encoded JSON, since a warning message embeds document text verbatim and header values must be ASCII; run it through `decodeURIComponent` before parsing.
 
 > **Note:** because the heading line is part of the `markerAndContent` span, a `replace` whose content has *no* heading removes it — the section is dissolved into a plain paragraph. Include a leading `#` (at any depth; it is rebased for you) to keep it a heading.
 
