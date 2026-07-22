@@ -3575,4 +3575,83 @@ describe("requestHandler", () => {
       expect(res.headers["content-location"]).toEqual(activeFilePath);
     });
   });
+
+  describe("active/periodic PATCH — URL-target raw-content mode", () => {
+    // A URL suffix on an active-file or periodic-note PATCH was previously
+    // ignored (the whole file was patched); it now routes into raw-content
+    // mode against the resolved sub-target, matching PUT/POST.
+    const noteContent = "# Log\nEntry\n\n# Other\nOther content\n";
+
+    function setNote(path: string): void {
+      const noteFile = Object.assign(new TFile(), { path });
+      jest.spyOn(app.workspace, "getActiveFile").mockReturnValue(noteFile);
+      jest.spyOn(handler.operations, "periodicGetNote").mockReturnValue([noteFile, null]);
+      jest.spyOn(handler.operations, "periodicGetOrCreateNote").mockResolvedValue([noteFile, null]);
+      app.vault.adapter._statForPath = path;
+      app.vault._read = noteContent;
+      app.vault.adapter._read = noteContent;
+      app.vault.adapter._readBinary = Buffer.from(noteContent);
+    }
+
+    test("an active-file PATCH suffix targets the section and sets Content-Location", async () => {
+      setNote("notes/active.md");
+      const res = await request(server)
+        .patch("/active/heading/Log")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Operation", "append")
+        .set("Content-Type", "text/markdown")
+        .send("- appended\n");
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("Entry\n- appended");
+      expect(res.headers["content-location"]).toEqual("notes/active.md");
+    });
+
+    test("an active-file PATCH suffix plus Target-Type header returns 422", async () => {
+      setNote("notes/active.md");
+      const res = await request(server)
+        .patch("/active/heading/Log")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Target-Type", "heading")
+        .set("Operation", "append")
+        .set("Content-Type", "text/markdown")
+        .send("x");
+      expect(res.status).toBe(422);
+    });
+
+    test("an active-file PATCH without a suffix still takes an instruction body", async () => {
+      setNote("notes/active.md");
+      const res = await request(server)
+        .patch("/active/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/json")
+        .send({ targetType: "heading", target: ["Log"], operation: "append", content: "- appended\n" });
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("Entry\n- appended");
+    });
+
+    test("a periodic-note PATCH suffix targets the section and sets Content-Location", async () => {
+      setNote("daily/2024-01-15.md");
+      const res = await request(server)
+        .patch("/periodic/daily/heading/Log")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Operation", "append")
+        .set("Content-Type", "text/markdown")
+        .send("- appended\n");
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("Entry\n- appended");
+      expect(res.headers["content-location"]).toEqual("daily/2024-01-15.md");
+    });
+
+    test("a periodic-note PATCH suffix plus Target-Type header returns 422", async () => {
+      setNote("daily/2024-01-15.md");
+      const res = await request(server)
+        .patch("/periodic/daily/heading/Log")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Target-Type", "heading")
+        .set("Operation", "append")
+        .set("Content-Type", "text/markdown")
+        .send("x");
+      expect(res.status).toBe(422);
+    });
+  });
 });
