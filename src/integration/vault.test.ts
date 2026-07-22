@@ -148,6 +148,41 @@ describe("GET /vault/{file} with Accept: application/vnd.olrapi.document-map+jso
 });
 
 // ---------------------------------------------------------------------------
+// Malformed frontmatter YAML
+// ---------------------------------------------------------------------------
+
+describe("GET /vault/{file} with malformed frontmatter YAML", () => {
+  const MALFORMED_FRONTMATTER_DOCUMENT = `---
+purpose: Check patch behavior with targetType: block
+---
+
+# Heading1
+
+Content.
+`;
+
+  beforeEach(async () => {
+    await resetFixture(MALFORMED_FRONTMATTER_DOCUMENT, TEST_PATH);
+  });
+
+  test("the document map returns 400 (40005), not a 500", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}`, {
+      headers: { Accept: "application/vnd.olrapi.document-map+json" },
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.errorCode).toBe(40005);
+  });
+
+  test("a path-targeted read returns 400 (40005), not a 500", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}/heading/Heading1`);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.errorCode).toBe(40005);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Target-Type: heading (header-based)
 // ---------------------------------------------------------------------------
 

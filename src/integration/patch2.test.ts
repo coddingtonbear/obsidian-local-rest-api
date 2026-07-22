@@ -11,6 +11,8 @@ import {
   TERM_BETA,
   TERM_DELTA,
   TERM_SUB,
+  FM_TITLE,
+  FM_TAGS,
 } from "./fixtures";
 
 // Integration coverage for the markdown-patch 2.0 PATCH format: the whole
@@ -266,6 +268,49 @@ describe("PATCH 2.0 — warnings and preconditions", () => {
       content: "x",
     });
     expect(res.status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Frontmatter parse and key-collision errors
+// ---------------------------------------------------------------------------
+
+describe("PATCH 2.0 — frontmatter parse and key-collision errors", () => {
+  test("malformed frontmatter YAML returns 400 (40005), not PatchFailed", async () => {
+    await resetFixture(
+      "---\npurpose: Check patch behavior with targetType: block\n---\n\n# Heading1\n\nContent.\n",
+      TEST_PATH,
+    );
+    const res = await patchV2({
+      targetType: "heading",
+      target: ["Heading1"],
+      operation: "append",
+      content: "x",
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).errorCode).toBe(40005);
+  });
+
+  test("renaming a frontmatter key onto an existing key returns 409", async () => {
+    const res = await patchV2({
+      targetType: "frontmatter",
+      target: FM_TITLE,
+      operation: "replace",
+      scope: "marker",
+      content: FM_TAGS,
+    });
+    expect(res.status).toBe(409);
+  });
+
+  test("inserting a frontmatter entry whose key already exists returns 409", async () => {
+    const res = await patchV2({
+      targetType: "frontmatter",
+      target: FM_TITLE,
+      operation: "append",
+      scope: "markerAndContent",
+      value: { [FM_TAGS]: ["new-tag"] },
+    });
+    expect(res.status).toBe(409);
   });
 });
 
