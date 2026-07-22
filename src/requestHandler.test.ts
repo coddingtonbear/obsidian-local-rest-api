@@ -569,6 +569,36 @@ describe("requestHandler", () => {
       // error body is not auto-parsed by supertest; read it from res.text.
       expect(JSON.parse(res.text).errorCode).toBe(40082);
     });
+
+    const malformedFrontmatterDoc = [
+      "---",
+      "purpose: Check patch behavior with targetType: block",
+      "---",
+      "# Heading1",
+      "Content",
+      "",
+    ].join("\n");
+
+    test("malformed frontmatter YAML returns 400 (40005), not a 500, for the 2.0 map", async () => {
+      app.vault.adapter._read = malformedFrontmatterDoc;
+      const res = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", MAP_CT);
+      expect(res.status).toBe(400);
+      expect(JSON.parse(res.text).errorCode).toBe(40005);
+    });
+
+    test("malformed frontmatter YAML returns 400 (40005), not a 500, for the deprecated 1.x map", async () => {
+      app.vault.adapter._read = malformedFrontmatterDoc;
+      const res = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", MAP_CT)
+        .set("Markdown-Patch-Version", "1");
+      expect(res.status).toBe(400);
+      expect(JSON.parse(res.text).errorCode).toBe(40005);
+    });
   });
 
   describe("vaultPut", () => {
@@ -1204,6 +1234,49 @@ describe("requestHandler", () => {
       expect(res.status).toBe(404);
     });
 
+    test("malformed frontmatter YAML returns 400 (40005), not PatchFailed", async () => {
+      app.vault._read = [
+        "---",
+        "purpose: Check patch behavior with targetType: block",
+        "---",
+        "# A",
+        "a-body",
+        "",
+      ].join("\n");
+      const res = await patchV2({
+        targetType: "heading",
+        target: ["A"],
+        operation: "append",
+        content: "x",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40005);
+    });
+
+    test("renaming a frontmatter key onto an existing key returns 409", async () => {
+      app.vault._read = "---\ntitle: Hello\ntags:\n  - a\n---\nbody\n";
+      const res = await patchV2({
+        targetType: "frontmatter",
+        target: "title",
+        operation: "replace",
+        scope: "marker",
+        content: "tags",
+      });
+      expect(res.status).toBe(409);
+    });
+
+    test("inserting a frontmatter entry whose key already exists returns 409", async () => {
+      app.vault._read = "---\ntitle: Hello\ntags:\n  - a\n---\nbody\n";
+      const res = await patchV2({
+        targetType: "frontmatter",
+        target: "title",
+        operation: "append",
+        scope: "markerAndContent",
+        value: { tags: ["b"] },
+      });
+      expect(res.status).toBe(409);
+    });
+
     test("an explicit Markdown-Patch-Version: 2 also routes to the 2.0 engine", async () => {
       app.vault._read = DOC;
       const res = await request(server)
@@ -1581,6 +1654,28 @@ describe("requestHandler", () => {
           .get("/vault/somefile.md/heading/Heading1")
           .set("Authorization", `Bearer ${API_KEY}`)
           .expect(404);
+      });
+
+      test("malformed frontmatter YAML returns 400 (40005), not a 500", async () => {
+        setFileContent(
+          [
+            "---",
+            "purpose: Check patch behavior with targetType: block",
+            "---",
+            "# Heading1",
+            "Content under heading1",
+            "",
+          ].join("\n"),
+        );
+
+        const res = await request(server)
+          .get("/vault/somefile.md/heading/Heading1")
+          .set("Authorization", `Bearer ${API_KEY}`);
+
+        expect(res.status).toBe(400);
+        // The GET path pre-sets a text/markdown Content-Type, so the canned
+        // JSON error body is not auto-parsed by supertest; read it from res.text.
+        expect(JSON.parse(res.text).errorCode).toBe(40005);
       });
     });
 
