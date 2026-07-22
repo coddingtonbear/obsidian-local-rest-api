@@ -165,13 +165,29 @@ Heading levels inside a `content` string are relative to the target (a leading `
 
 > **Note:** Whitespace is spliced verbatim — your content goes in exactly as written at the edge of the target's span, and the API adds none of its own. A leading `\n` in your content is what produces a blank line before it, for `append` as much as for `prepend`. Without one your text ends up flush against whatever it lands next to, even where the document already looked well-spaced. See the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for worked examples.
 
+### Raw-content mode
+
+If your client *templates* markdown into the request body (Shortcuts, Tasker, curl from a template), JSON-escaping that content into an instruction is fragile. Raw-content mode moves the instruction's fields out of the body — target in the URL (or in `Target-Type`/`Target` headers with an explicit `Markdown-Patch-Version: 2`), operation and options in headers — and the body is the raw payload, spliced verbatim:
+
+```sh
+# Append a templated line under a heading — no JSON escaping anywhere
+curl -k -X PATCH \
+  -H "Authorization: Bearer <your-api-key>" \
+  -H "Operation: append" \
+  -H "Content-Type: text/markdown" \
+  --data "- $TEMPLATED_CONTENT" \
+  https://127.0.0.1:27124/vault/notes/daily.md/heading/Log
+```
+
+A `text/*` body is the `content` carrier, an `application/json` body the `value` carrier, and no body at all carries nothing (a `delete`, or a move via a `Destination` header). `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `If-Match` headers round out the instruction. See the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for the header encodings and the full details.
+
 > **Already using the older header-driven PATCH format?** It spread the instruction across request headers instead of a JSON body, and is **deprecated and will be removed in 6.0**. It still works — send `Markdown-Patch-Version: 1` to opt back into it (the same header also selects the legacy `::`-joined document map on GET), and responses served by it carry a `Deprecation: true; sunset-version="6.0"` header. To upgrade, drop that header and move each header into the JSON body; the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) have the field-by-field mapping table.
 
 See the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for the full instruction schema and options.
 
 ## Targeting specific sections
 
-You can read or write a specific part of a note — a heading, block reference, or frontmatter field — without fetching or replacing the whole file. This works on GET, PUT, and POST requests. (`PATCH` has its own JSON instruction body — see [Patching notes](#patching-notes) above — and its header-based targeting is the deprecated 1.x form.)
+You can read or write a specific part of a note — a heading, block reference, or frontmatter field — without fetching or replacing the whole file. This works on GET, PUT, POST, and PATCH requests (for PATCH this is [raw-content mode](#raw-content-mode) — add an `Operation` header).
 
 **Append `/<target-type>/<target>` after the filename.** Each nested heading level is its own path segment, so a heading whose text contains `::` needs no escaping:
 

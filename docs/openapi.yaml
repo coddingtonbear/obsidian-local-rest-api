@@ -298,11 +298,11 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
+        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         ## Deprecated: header-based targeting
         
-        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. Without that header a request that supplies those targeting headers is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
+        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. On GET/PUT/POST, supplying those targeting headers without that version is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. (On PATCH, `Target-Type`/`Target` headers also have a *non-deprecated* meaning under an explicit `Markdown-Patch-Version: 2` — raw-content mode, with a different `Target` encoding; see the PATCH documentation.) Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
         
         # Retrieving Document Metadata
         
@@ -323,9 +323,17 @@ paths:
             behavior: the header-driven PATCH format, header-based targeting
             (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
             the `::`-joined document map. Responses served by 1.x carry a
-            `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-            without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-            value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+            returns `400 InvalidPatchVersionHeader`.
+            
+            One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+            targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+            the 1.x format and raw-content mode, a PATCH carrying them without this header is
+            rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+            deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+            targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+            (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+            version header.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -400,7 +408,7 @@ paths:
       description: |
         Modifies the currently-open note with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.
         
-        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body.
+        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). By default the whole instruction travels as a JSON request body; [raw-content mode](#raw-content-mode-templating-friendly) instead carries the instruction's fields in URL path elements/headers with the raw payload as the body.
         
         > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
         
@@ -606,11 +614,57 @@ paths:
         
         Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent) or a block reference ID repeats, only the first occurrence keeps its plain-text/id key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
         
+        # Raw-content mode (templating-friendly)
+        
+        Putting the whole instruction in a JSON body has one sharp edge: the `content` string must be JSON-escaped, which tools that *template* markdown into an HTTP body (Shortcuts, Tasker, curl with `--data` from a template) often cannot do reliably. Raw-content mode removes that requirement: the instruction's fields travel **outside** the body, and the body is the raw payload, spliced verbatim.
+        
+        The target can ride in either of two places (never both — that's a `422`):
+        
+        - **URL path elements**, exactly as GET/PUT/POST use them: `PATCH /vault/note.md/heading/A/B`. No version header needed.
+        - **`Target-Type` / `Target` headers**, together with an explicit `Markdown-Patch-Version: 2`. The `Target` encoding is type-dependent, mirroring the instruction's `target` field: a heading Target is **JSON, percent-encoded** — `["A","B"]` sent as `%5B%22A%22%2C%22B%22%5D`, or `null` for the document root — while block and frontmatter Targets are the plain id/key (percent-encoded if non-ASCII). Because `Target` headers on a PATCH are ambiguous with the deprecated 1.x format, omitting the version header fails loudly with `400 PatchHeaderTargetingRequiresExplicitVersion` rather than guessing.
+        
+        The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
+        
+        The body is the payload carrier, chosen by its content type:
+        
+        | Body | Instruction field |
+        | --- | --- |
+        | `text/markdown` (any `text/*`) | `content` |
+        | `application/json` | `value` |
+        | *(no body)* | none — a `delete`, or a move via `Destination` |
+        
+        An empty body deliberately maps to *no* carrier: a `replace` with an accidentally-empty template fails as a missing carrier instead of clearing the section. To clear content on purpose, use an instruction body with `"content": ""`.
+        
+        ```sh
+        # Append a templated line under a heading — no JSON escaping anywhere
+        curl -k -X PATCH \
+          -H "Authorization: Bearer $API_KEY" \
+          -H "Operation: append" \
+          -H "Content-Type: text/markdown" \
+          --data "- $TEMPLATED_CONTENT" \
+          "https://127.0.0.1:27124/vault/notes/daily.md/heading/Log"
+        
+        # The same edit with header targeting (note the explicit version and JSON Target)
+        curl -k -X PATCH \
+          -H "Authorization: Bearer $API_KEY" \
+          -H "Markdown-Patch-Version: 2" \
+          -H "Target-Type: heading" \
+          -H "Target: %5B%22Log%22%5D" \
+          -H "Operation: append" \
+          -H "Content-Type: text/markdown" \
+          --data "- $TEMPLATED_CONTENT" \
+          "https://127.0.0.1:27124/vault/notes/daily.md"
+        ```
+        
+        Everything downstream is identical to instruction mode: the same validation, the same warnings header, the same error mapping. A raw-mode request may also send `application/vnd.olrapi.patch-instruction+json` — but only as a *whole-instruction body* with no targeting elsewhere; combining it with URL or header targeting is a `422 ConflictingTargetSpecification`.
+        
+        > **Note:** on `/active/` and `/periodic/` endpoints, a URL suffix (e.g. `/active/heading/Log`) previously had no effect on PATCH — it was ignored and the whole file was patched. It now targets the addressed section, matching PUT/POST.
+        
         # Deprecated: the 1.x header-driven format
         
         The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 6.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="6.0"` header.
         
-        The JSON-instruction format described above is the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without it (or with `Markdown-Patch-Version: 2`), the instruction format described above handles the request, and a non-object body is rejected with `400 InvalidPatchInstruction`. To upgrade, drop the header and move each 1.x header into the JSON body:
+        The JSON-instruction format described above is the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without any version header, a non-object body with no targeting is rejected with `400 InvalidPatchInstruction`, and `Target-Type`/`Target` headers are rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — those same header names are also raw-content mode's (with different `Target` encoding), so the request must explicitly pick `1` or `2`. To upgrade, drop the version header and either move each 1.x header into the JSON body as below, or switch to [raw-content mode](#raw-content-mode-templating-friendly) and keep your body as-is:
         
         | 1.x header | Instruction field |
         | --- | --- |
@@ -633,9 +687,17 @@ paths:
             behavior: the header-driven PATCH format, header-based targeting
             (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
             the `::`-joined document map. Responses served by 1.x carry a
-            `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-            without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-            value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+            returns `400 InvalidPatchVersionHeader`.
+            
+            One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+            targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+            the 1.x format and raw-content mode, a PATCH carrying them without this header is
+            rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+            deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+            targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+            (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+            version header.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -644,6 +706,106 @@ paths:
             enum:
               - "1"
               - "2"
+            type: "string"
+        - description: |
+            Raw-content mode: the type of node the instruction targets (`heading`,
+            `block`, or `frontmatter`). Must be used together with the `Target`
+            header and an explicit `Markdown-Patch-Version: 2`; alternatively, put
+            the target in the URL path (`.../heading/A/B`) and omit both headers.
+            Supplying both is rejected with `422 ConflictingTargetSpecification`.
+          in: "header"
+          name: "Target-Type"
+          required: false
+          schema:
+            enum:
+              - "heading"
+              - "block"
+              - "frontmatter"
+            type: "string"
+        - description: |
+            Raw-content mode: the node the instruction targets. The encoding is
+            type-dependent, mirroring the instruction's `target` field. For a
+            `heading`, the value is JSON — an array of heading texts from the top
+            level down, or `null` for the document root — then percent-encoded:
+            `["A","B"]` is sent as `%5B%22A%22%2C%22B%22%5D`. For a `block` or
+            `frontmatter` target, the value is the plain id/key, percent-encoded if
+            it contains non-ASCII characters. A heading value that does not decode
+            to JSON (e.g. a bare 1.x-style `A::B` path) is rejected with
+            `400 InvalidTargetHeader`.
+          in: "header"
+          name: "Target"
+          required: false
+          schema:
+            type: "string"
+        - description: |
+            Raw-content mode: the instruction's operation. Required whenever the
+            target rides in the URL path or the `Target-Type`/`Target` headers.
+          in: "header"
+          name: "Operation"
+          required: false
+          schema:
+            enum:
+              - "replace"
+              - "prepend"
+              - "append"
+              - "delete"
+            type: "string"
+        - description: |
+            Raw-content mode: the instruction's `scope` — `content` (default),
+            `marker`, `markerAndContent`, or `parent` (a move; carries its
+            destination in the `Destination` header). See the instruction-body
+            documentation for what each scope addresses.
+          in: "header"
+          name: "Target-Scope"
+          required: false
+          schema:
+            default: "content"
+            enum:
+              - "content"
+              - "marker"
+              - "markerAndContent"
+              - "parent"
+            type: "string"
+        - description: |
+            Raw-content mode: where a moved heading lands (`Target-Scope: parent`).
+            The instruction's `destination` object as JSON, then percent-encoded:
+            `{"parent":["Appendix"],"place":"last"}` is sent as
+            `%7B%22parent%22%3A%5B%22Appendix%22%5D%2C%22place%22%3A%22last%22%7D`.
+            A move carries no body.
+          in: "header"
+          name: "Destination"
+          required: false
+          schema:
+            type: "string"
+        - description: |
+            Raw-content mode: the instruction's `ifMatch` optimistic-concurrency
+            token — the `version` from a document map, bare or wrapped in one pair
+            of double quotes (RFC 9110 ETag style). A mismatch fails with `412` and
+            leaves the file untouched.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            type: "string"
+        - description: "If the specified Target does not exist, create it?"
+          in: "header"
+          name: "Create-Target-If-Missing"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "If patch data already exists in Target, reject the patch?"
+          in: "header"
+          name: "Reject-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
             type: "string"
       requestBody:
         content:
@@ -696,8 +858,24 @@ paths:
                   value: 2
             schema:
               "$ref": "#/components/schemas/PatchInstruction"
-        description: "A single patch instruction."
-        required: true
+          "application/vnd.olrapi.patch-instruction+json":
+            schema:
+              "$ref": "#/components/schemas/PatchInstruction"
+          text/markdown:
+            schema:
+              example: |
+                - A raw markdown line, spliced verbatim: no JSON escaping needed.
+              type: "string"
+        description: |
+          Instruction mode: a single patch instruction as JSON (`application/json`, or
+          `application/vnd.olrapi.patch-instruction+json` to declare it explicitly).
+          Raw-content mode: the raw payload — a `text/markdown` body is the instruction's
+          `content` carrier, an `application/json` body its `value` carrier, and no body at
+          all carries nothing (a delete, or a move via the `Destination` header). An empty
+          raw-mode body never clears content: a `replace` without a payload is rejected as a
+          missing carrier, so an accidentally-empty template cannot wipe a section (use an
+          instruction body with `"content": ""` to clear deliberately).
+        required: false
       responses:
         "200":
           description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
@@ -712,7 +890,7 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, or the request had a non-object body. See response message for details."
+          description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, an instruction-mode request had a non-object body, or a raw-content-mode header could not be decoded (a heading `Target` that is not percent-encoded JSON, a malformed `Destination`, an unsupported body content type). Header-based targeting without an explicit `Markdown-Patch-Version` returns `PatchHeaderTargetingRequiresExplicitVersion` here. See response message for details."
         "404":
           content:
             application/json:
@@ -738,6 +916,12 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "Precondition Failed: the `ifMatch` token did not match the current document version; the file was not modified."
+        "422":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Conflicting target specifications: more than one of URL path elements, `Target-Type`/`Target` headers, and an `application/vnd.olrapi.patch-instruction+json` instruction body was supplied."
       summary: |
         Partially update content in the currently open note.
       tags:
@@ -759,11 +943,11 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
+        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         ## Deprecated: header-based targeting
         
-        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. Without that header a request that supplies those targeting headers is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
+        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. On GET/PUT/POST, supplying those targeting headers without that version is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. (On PATCH, `Target-Type`/`Target` headers also have a *non-deprecated* meaning under an explicit `Markdown-Patch-Version: 2` — raw-content mode, with a different `Target` encoding; see the PATCH documentation.) Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
@@ -778,9 +962,17 @@ paths:
             behavior: the header-driven PATCH format, header-based targeting
             (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
             the `::`-joined document map. Responses served by 1.x carry a
-            `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-            without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-            value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+            returns `400 InvalidPatchVersionHeader`.
+            
+            One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+            targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+            the 1.x format and raw-content mode, a PATCH carrying them without this header is
+            rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+            deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+            targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+            (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+            version header.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -880,11 +1072,11 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
+        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         ## Deprecated: header-based targeting
         
-        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. Without that header a request that supplies those targeting headers is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
+        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. On GET/PUT/POST, supplying those targeting headers without that version is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. (On PATCH, `Target-Type`/`Target` headers also have a *non-deprecated* meaning under an explicit `Markdown-Patch-Version: 2` — raw-content mode, with a different `Target` encoding; see the PATCH documentation.) Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
@@ -897,9 +1089,17 @@ paths:
             behavior: the header-driven PATCH format, header-based targeting
             (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
             the `::`-joined document map. Responses served by 1.x carry a
-            `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-            without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-            value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+            returns `400 InvalidPatchVersionHeader`.
+            
+            One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+            targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+            the 1.x format and raw-content mode, a PATCH carrying them without this header is
+            rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+            deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+            targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+            (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+            version header.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -1334,11 +1534,11 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
+        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         ## Deprecated: header-based targeting
         
-        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. Without that header a request that supplies those targeting headers is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
+        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. On GET/PUT/POST, supplying those targeting headers without that version is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. (On PATCH, `Target-Type`/`Target` headers also have a *non-deprecated* meaning under an explicit `Markdown-Patch-Version: 2` — raw-content mode, with a different `Target` encoding; see the PATCH documentation.) Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
         
         # Retrieving Document Metadata
         
@@ -1372,9 +1572,17 @@ paths:
             behavior: the header-driven PATCH format, header-based targeting
             (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
             the `::`-joined document map. Responses served by 1.x carry a
-            `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-            without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-            value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+            returns `400 InvalidPatchVersionHeader`.
+            
+            One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+            targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+            the 1.x format and raw-content mode, a PATCH carrying them without this header is
+            rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+            deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+            targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+            (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+            version header.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -1449,7 +1657,7 @@ paths:
       description: |
         Modifies the current periodic note for the specified period with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.
         
-        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body.
+        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). By default the whole instruction travels as a JSON request body; [raw-content mode](#raw-content-mode-templating-friendly) instead carries the instruction's fields in URL path elements/headers with the raw payload as the body.
         
         > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
         
@@ -1655,11 +1863,57 @@ paths:
         
         Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent) or a block reference ID repeats, only the first occurrence keeps its plain-text/id key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
         
+        # Raw-content mode (templating-friendly)
+        
+        Putting the whole instruction in a JSON body has one sharp edge: the `content` string must be JSON-escaped, which tools that *template* markdown into an HTTP body (Shortcuts, Tasker, curl with `--data` from a template) often cannot do reliably. Raw-content mode removes that requirement: the instruction's fields travel **outside** the body, and the body is the raw payload, spliced verbatim.
+        
+        The target can ride in either of two places (never both — that's a `422`):
+        
+        - **URL path elements**, exactly as GET/PUT/POST use them: `PATCH /vault/note.md/heading/A/B`. No version header needed.
+        - **`Target-Type` / `Target` headers**, together with an explicit `Markdown-Patch-Version: 2`. The `Target` encoding is type-dependent, mirroring the instruction's `target` field: a heading Target is **JSON, percent-encoded** — `["A","B"]` sent as `%5B%22A%22%2C%22B%22%5D`, or `null` for the document root — while block and frontmatter Targets are the plain id/key (percent-encoded if non-ASCII). Because `Target` headers on a PATCH are ambiguous with the deprecated 1.x format, omitting the version header fails loudly with `400 PatchHeaderTargetingRequiresExplicitVersion` rather than guessing.
+        
+        The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
+        
+        The body is the payload carrier, chosen by its content type:
+        
+        | Body | Instruction field |
+        | --- | --- |
+        | `text/markdown` (any `text/*`) | `content` |
+        | `application/json` | `value` |
+        | *(no body)* | none — a `delete`, or a move via `Destination` |
+        
+        An empty body deliberately maps to *no* carrier: a `replace` with an accidentally-empty template fails as a missing carrier instead of clearing the section. To clear content on purpose, use an instruction body with `"content": ""`.
+        
+        ```sh
+        # Append a templated line under a heading — no JSON escaping anywhere
+        curl -k -X PATCH \
+          -H "Authorization: Bearer $API_KEY" \
+          -H "Operation: append" \
+          -H "Content-Type: text/markdown" \
+          --data "- $TEMPLATED_CONTENT" \
+          "https://127.0.0.1:27124/vault/notes/daily.md/heading/Log"
+        
+        # The same edit with header targeting (note the explicit version and JSON Target)
+        curl -k -X PATCH \
+          -H "Authorization: Bearer $API_KEY" \
+          -H "Markdown-Patch-Version: 2" \
+          -H "Target-Type: heading" \
+          -H "Target: %5B%22Log%22%5D" \
+          -H "Operation: append" \
+          -H "Content-Type: text/markdown" \
+          --data "- $TEMPLATED_CONTENT" \
+          "https://127.0.0.1:27124/vault/notes/daily.md"
+        ```
+        
+        Everything downstream is identical to instruction mode: the same validation, the same warnings header, the same error mapping. A raw-mode request may also send `application/vnd.olrapi.patch-instruction+json` — but only as a *whole-instruction body* with no targeting elsewhere; combining it with URL or header targeting is a `422 ConflictingTargetSpecification`.
+        
+        > **Note:** on `/active/` and `/periodic/` endpoints, a URL suffix (e.g. `/active/heading/Log`) previously had no effect on PATCH — it was ignored and the whole file was patched. It now targets the addressed section, matching PUT/POST.
+        
         # Deprecated: the 1.x header-driven format
         
         The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 6.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="6.0"` header.
         
-        The JSON-instruction format described above is the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without it (or with `Markdown-Patch-Version: 2`), the instruction format described above handles the request, and a non-object body is rejected with `400 InvalidPatchInstruction`. To upgrade, drop the header and move each 1.x header into the JSON body:
+        The JSON-instruction format described above is the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without any version header, a non-object body with no targeting is rejected with `400 InvalidPatchInstruction`, and `Target-Type`/`Target` headers are rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — those same header names are also raw-content mode's (with different `Target` encoding), so the request must explicitly pick `1` or `2`. To upgrade, drop the version header and either move each 1.x header into the JSON body as below, or switch to [raw-content mode](#raw-content-mode-templating-friendly) and keep your body as-is:
         
         | 1.x header | Instruction field |
         | --- | --- |
@@ -1695,9 +1949,17 @@ paths:
             behavior: the header-driven PATCH format, header-based targeting
             (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
             the `::`-joined document map. Responses served by 1.x carry a
-            `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-            without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-            value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+            returns `400 InvalidPatchVersionHeader`.
+            
+            One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+            targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+            the 1.x format and raw-content mode, a PATCH carrying them without this header is
+            rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+            deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+            targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+            (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+            version header.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -1706,6 +1968,106 @@ paths:
             enum:
               - "1"
               - "2"
+            type: "string"
+        - description: |
+            Raw-content mode: the type of node the instruction targets (`heading`,
+            `block`, or `frontmatter`). Must be used together with the `Target`
+            header and an explicit `Markdown-Patch-Version: 2`; alternatively, put
+            the target in the URL path (`.../heading/A/B`) and omit both headers.
+            Supplying both is rejected with `422 ConflictingTargetSpecification`.
+          in: "header"
+          name: "Target-Type"
+          required: false
+          schema:
+            enum:
+              - "heading"
+              - "block"
+              - "frontmatter"
+            type: "string"
+        - description: |
+            Raw-content mode: the node the instruction targets. The encoding is
+            type-dependent, mirroring the instruction's `target` field. For a
+            `heading`, the value is JSON — an array of heading texts from the top
+            level down, or `null` for the document root — then percent-encoded:
+            `["A","B"]` is sent as `%5B%22A%22%2C%22B%22%5D`. For a `block` or
+            `frontmatter` target, the value is the plain id/key, percent-encoded if
+            it contains non-ASCII characters. A heading value that does not decode
+            to JSON (e.g. a bare 1.x-style `A::B` path) is rejected with
+            `400 InvalidTargetHeader`.
+          in: "header"
+          name: "Target"
+          required: false
+          schema:
+            type: "string"
+        - description: |
+            Raw-content mode: the instruction's operation. Required whenever the
+            target rides in the URL path or the `Target-Type`/`Target` headers.
+          in: "header"
+          name: "Operation"
+          required: false
+          schema:
+            enum:
+              - "replace"
+              - "prepend"
+              - "append"
+              - "delete"
+            type: "string"
+        - description: |
+            Raw-content mode: the instruction's `scope` — `content` (default),
+            `marker`, `markerAndContent`, or `parent` (a move; carries its
+            destination in the `Destination` header). See the instruction-body
+            documentation for what each scope addresses.
+          in: "header"
+          name: "Target-Scope"
+          required: false
+          schema:
+            default: "content"
+            enum:
+              - "content"
+              - "marker"
+              - "markerAndContent"
+              - "parent"
+            type: "string"
+        - description: |
+            Raw-content mode: where a moved heading lands (`Target-Scope: parent`).
+            The instruction's `destination` object as JSON, then percent-encoded:
+            `{"parent":["Appendix"],"place":"last"}` is sent as
+            `%7B%22parent%22%3A%5B%22Appendix%22%5D%2C%22place%22%3A%22last%22%7D`.
+            A move carries no body.
+          in: "header"
+          name: "Destination"
+          required: false
+          schema:
+            type: "string"
+        - description: |
+            Raw-content mode: the instruction's `ifMatch` optimistic-concurrency
+            token — the `version` from a document map, bare or wrapped in one pair
+            of double quotes (RFC 9110 ETag style). A mismatch fails with `412` and
+            leaves the file untouched.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            type: "string"
+        - description: "If the specified Target does not exist, create it?"
+          in: "header"
+          name: "Create-Target-If-Missing"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "If patch data already exists in Target, reject the patch?"
+          in: "header"
+          name: "Reject-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
             type: "string"
       requestBody:
         content:
@@ -1758,8 +2120,24 @@ paths:
                   value: 2
             schema:
               "$ref": "#/components/schemas/PatchInstruction"
-        description: "A single patch instruction."
-        required: true
+          "application/vnd.olrapi.patch-instruction+json":
+            schema:
+              "$ref": "#/components/schemas/PatchInstruction"
+          text/markdown:
+            schema:
+              example: |
+                - A raw markdown line, spliced verbatim: no JSON escaping needed.
+              type: "string"
+        description: |
+          Instruction mode: a single patch instruction as JSON (`application/json`, or
+          `application/vnd.olrapi.patch-instruction+json` to declare it explicitly).
+          Raw-content mode: the raw payload — a `text/markdown` body is the instruction's
+          `content` carrier, an `application/json` body its `value` carrier, and no body at
+          all carries nothing (a delete, or a move via the `Destination` header). An empty
+          raw-mode body never clears content: a `replace` without a payload is rejected as a
+          missing carrier, so an accidentally-empty template cannot wipe a section (use an
+          instruction body with `"content": ""` to clear deliberately).
+        required: false
       responses:
         "200":
           description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
@@ -1774,7 +2152,7 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, or the request had a non-object body. See response message for details."
+          description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, an instruction-mode request had a non-object body, or a raw-content-mode header could not be decoded (a heading `Target` that is not percent-encoded JSON, a malformed `Destination`, an unsupported body content type). Header-based targeting without an explicit `Markdown-Patch-Version` returns `PatchHeaderTargetingRequiresExplicitVersion` here. See response message for details."
         "404":
           content:
             application/json:
@@ -1800,6 +2178,12 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "Precondition Failed: the `ifMatch` token did not match the current document version; the file was not modified."
+        "422":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Conflicting target specifications: more than one of URL path elements, `Target-Type`/`Target` headers, and an `application/vnd.olrapi.patch-instruction+json` instruction body was supplied."
       summary: |
         Partially update content in the current periodic note for the specified period.
       tags:
@@ -1821,11 +2205,11 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
+        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         ## Deprecated: header-based targeting
         
-        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. Without that header a request that supplies those targeting headers is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
+        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. On GET/PUT/POST, supplying those targeting headers without that version is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. (On PATCH, `Target-Type`/`Target` headers also have a *non-deprecated* meaning under an explicit `Markdown-Patch-Version: 2` — raw-content mode, with a different `Target` encoding; see the PATCH documentation.) Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
@@ -1853,9 +2237,17 @@ paths:
             behavior: the header-driven PATCH format, header-based targeting
             (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
             the `::`-joined document map. Responses served by 1.x carry a
-            `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-            without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-            value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+            returns `400 InvalidPatchVersionHeader`.
+            
+            One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+            targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+            the 1.x format and raw-content mode, a PATCH carrying them without this header is
+            rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+            deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+            targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+            (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+            version header.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -1955,11 +2347,11 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
+        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         ## Deprecated: header-based targeting
         
-        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. Without that header a request that supplies those targeting headers is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
+        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. On GET/PUT/POST, supplying those targeting headers without that version is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. (On PATCH, `Target-Type`/`Target` headers also have a *non-deprecated* meaning under an explicit `Markdown-Patch-Version: 2` — raw-content mode, with a different `Target` encoding; see the PATCH documentation.) Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
@@ -1985,9 +2377,17 @@ paths:
             behavior: the header-driven PATCH format, header-based targeting
             (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
             the `::`-joined document map. Responses served by 1.x carry a
-            `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-            without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-            value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+            returns `400 InvalidPatchVersionHeader`.
+            
+            One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+            targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+            the 1.x format and raw-content mode, a PATCH carrying them without this header is
+            rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+            deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+            targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+            (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+            version header.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -2145,11 +2545,11 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
+        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         ## Deprecated: header-based targeting
         
-        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. Without that header a request that supplies those targeting headers is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
+        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. On GET/PUT/POST, supplying those targeting headers without that version is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. (On PATCH, `Target-Type`/`Target` headers also have a *non-deprecated* meaning under an explicit `Markdown-Patch-Version: 2` — raw-content mode, with a different `Target` encoding; see the PATCH documentation.) Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
         
         # Retrieving Document Metadata
         
@@ -2201,9 +2601,17 @@ paths:
             behavior: the header-driven PATCH format, header-based targeting
             (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
             the `::`-joined document map. Responses served by 1.x carry a
-            `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-            without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-            value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+            returns `400 InvalidPatchVersionHeader`.
+            
+            One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+            targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+            the 1.x format and raw-content mode, a PATCH carrying them without this header is
+            rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+            deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+            targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+            (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+            version header.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -2278,7 +2686,7 @@ paths:
       description: |
         Modifies a periodic note for the specified period and date with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.
         
-        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body.
+        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). By default the whole instruction travels as a JSON request body; [raw-content mode](#raw-content-mode-templating-friendly) instead carries the instruction's fields in URL path elements/headers with the raw payload as the body.
         
         > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
         
@@ -2484,11 +2892,57 @@ paths:
         
         Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent) or a block reference ID repeats, only the first occurrence keeps its plain-text/id key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
         
+        # Raw-content mode (templating-friendly)
+        
+        Putting the whole instruction in a JSON body has one sharp edge: the `content` string must be JSON-escaped, which tools that *template* markdown into an HTTP body (Shortcuts, Tasker, curl with `--data` from a template) often cannot do reliably. Raw-content mode removes that requirement: the instruction's fields travel **outside** the body, and the body is the raw payload, spliced verbatim.
+        
+        The target can ride in either of two places (never both — that's a `422`):
+        
+        - **URL path elements**, exactly as GET/PUT/POST use them: `PATCH /vault/note.md/heading/A/B`. No version header needed.
+        - **`Target-Type` / `Target` headers**, together with an explicit `Markdown-Patch-Version: 2`. The `Target` encoding is type-dependent, mirroring the instruction's `target` field: a heading Target is **JSON, percent-encoded** — `["A","B"]` sent as `%5B%22A%22%2C%22B%22%5D`, or `null` for the document root — while block and frontmatter Targets are the plain id/key (percent-encoded if non-ASCII). Because `Target` headers on a PATCH are ambiguous with the deprecated 1.x format, omitting the version header fails loudly with `400 PatchHeaderTargetingRequiresExplicitVersion` rather than guessing.
+        
+        The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
+        
+        The body is the payload carrier, chosen by its content type:
+        
+        | Body | Instruction field |
+        | --- | --- |
+        | `text/markdown` (any `text/*`) | `content` |
+        | `application/json` | `value` |
+        | *(no body)* | none — a `delete`, or a move via `Destination` |
+        
+        An empty body deliberately maps to *no* carrier: a `replace` with an accidentally-empty template fails as a missing carrier instead of clearing the section. To clear content on purpose, use an instruction body with `"content": ""`.
+        
+        ```sh
+        # Append a templated line under a heading — no JSON escaping anywhere
+        curl -k -X PATCH \
+          -H "Authorization: Bearer $API_KEY" \
+          -H "Operation: append" \
+          -H "Content-Type: text/markdown" \
+          --data "- $TEMPLATED_CONTENT" \
+          "https://127.0.0.1:27124/vault/notes/daily.md/heading/Log"
+        
+        # The same edit with header targeting (note the explicit version and JSON Target)
+        curl -k -X PATCH \
+          -H "Authorization: Bearer $API_KEY" \
+          -H "Markdown-Patch-Version: 2" \
+          -H "Target-Type: heading" \
+          -H "Target: %5B%22Log%22%5D" \
+          -H "Operation: append" \
+          -H "Content-Type: text/markdown" \
+          --data "- $TEMPLATED_CONTENT" \
+          "https://127.0.0.1:27124/vault/notes/daily.md"
+        ```
+        
+        Everything downstream is identical to instruction mode: the same validation, the same warnings header, the same error mapping. A raw-mode request may also send `application/vnd.olrapi.patch-instruction+json` — but only as a *whole-instruction body* with no targeting elsewhere; combining it with URL or header targeting is a `422 ConflictingTargetSpecification`.
+        
+        > **Note:** on `/active/` and `/periodic/` endpoints, a URL suffix (e.g. `/active/heading/Log`) previously had no effect on PATCH — it was ignored and the whole file was patched. It now targets the addressed section, matching PUT/POST.
+        
         # Deprecated: the 1.x header-driven format
         
         The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 6.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="6.0"` header.
         
-        The JSON-instruction format described above is the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without it (or with `Markdown-Patch-Version: 2`), the instruction format described above handles the request, and a non-object body is rejected with `400 InvalidPatchInstruction`. To upgrade, drop the header and move each 1.x header into the JSON body:
+        The JSON-instruction format described above is the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without any version header, a non-object body with no targeting is rejected with `400 InvalidPatchInstruction`, and `Target-Type`/`Target` headers are rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — those same header names are also raw-content mode's (with different `Target` encoding), so the request must explicitly pick `1` or `2`. To upgrade, drop the version header and either move each 1.x header into the JSON body as below, or switch to [raw-content mode](#raw-content-mode-templating-friendly) and keep your body as-is:
         
         | 1.x header | Instruction field |
         | --- | --- |
@@ -2542,9 +2996,17 @@ paths:
             behavior: the header-driven PATCH format, header-based targeting
             (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
             the `::`-joined document map. Responses served by 1.x carry a
-            `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-            without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-            value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+            returns `400 InvalidPatchVersionHeader`.
+            
+            One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+            targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+            the 1.x format and raw-content mode, a PATCH carrying them without this header is
+            rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+            deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+            targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+            (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+            version header.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -2553,6 +3015,106 @@ paths:
             enum:
               - "1"
               - "2"
+            type: "string"
+        - description: |
+            Raw-content mode: the type of node the instruction targets (`heading`,
+            `block`, or `frontmatter`). Must be used together with the `Target`
+            header and an explicit `Markdown-Patch-Version: 2`; alternatively, put
+            the target in the URL path (`.../heading/A/B`) and omit both headers.
+            Supplying both is rejected with `422 ConflictingTargetSpecification`.
+          in: "header"
+          name: "Target-Type"
+          required: false
+          schema:
+            enum:
+              - "heading"
+              - "block"
+              - "frontmatter"
+            type: "string"
+        - description: |
+            Raw-content mode: the node the instruction targets. The encoding is
+            type-dependent, mirroring the instruction's `target` field. For a
+            `heading`, the value is JSON — an array of heading texts from the top
+            level down, or `null` for the document root — then percent-encoded:
+            `["A","B"]` is sent as `%5B%22A%22%2C%22B%22%5D`. For a `block` or
+            `frontmatter` target, the value is the plain id/key, percent-encoded if
+            it contains non-ASCII characters. A heading value that does not decode
+            to JSON (e.g. a bare 1.x-style `A::B` path) is rejected with
+            `400 InvalidTargetHeader`.
+          in: "header"
+          name: "Target"
+          required: false
+          schema:
+            type: "string"
+        - description: |
+            Raw-content mode: the instruction's operation. Required whenever the
+            target rides in the URL path or the `Target-Type`/`Target` headers.
+          in: "header"
+          name: "Operation"
+          required: false
+          schema:
+            enum:
+              - "replace"
+              - "prepend"
+              - "append"
+              - "delete"
+            type: "string"
+        - description: |
+            Raw-content mode: the instruction's `scope` — `content` (default),
+            `marker`, `markerAndContent`, or `parent` (a move; carries its
+            destination in the `Destination` header). See the instruction-body
+            documentation for what each scope addresses.
+          in: "header"
+          name: "Target-Scope"
+          required: false
+          schema:
+            default: "content"
+            enum:
+              - "content"
+              - "marker"
+              - "markerAndContent"
+              - "parent"
+            type: "string"
+        - description: |
+            Raw-content mode: where a moved heading lands (`Target-Scope: parent`).
+            The instruction's `destination` object as JSON, then percent-encoded:
+            `{"parent":["Appendix"],"place":"last"}` is sent as
+            `%7B%22parent%22%3A%5B%22Appendix%22%5D%2C%22place%22%3A%22last%22%7D`.
+            A move carries no body.
+          in: "header"
+          name: "Destination"
+          required: false
+          schema:
+            type: "string"
+        - description: |
+            Raw-content mode: the instruction's `ifMatch` optimistic-concurrency
+            token — the `version` from a document map, bare or wrapped in one pair
+            of double quotes (RFC 9110 ETag style). A mismatch fails with `412` and
+            leaves the file untouched.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            type: "string"
+        - description: "If the specified Target does not exist, create it?"
+          in: "header"
+          name: "Create-Target-If-Missing"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "If patch data already exists in Target, reject the patch?"
+          in: "header"
+          name: "Reject-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
             type: "string"
       requestBody:
         content:
@@ -2605,8 +3167,24 @@ paths:
                   value: 2
             schema:
               "$ref": "#/components/schemas/PatchInstruction"
-        description: "A single patch instruction."
-        required: true
+          "application/vnd.olrapi.patch-instruction+json":
+            schema:
+              "$ref": "#/components/schemas/PatchInstruction"
+          text/markdown:
+            schema:
+              example: |
+                - A raw markdown line, spliced verbatim: no JSON escaping needed.
+              type: "string"
+        description: |
+          Instruction mode: a single patch instruction as JSON (`application/json`, or
+          `application/vnd.olrapi.patch-instruction+json` to declare it explicitly).
+          Raw-content mode: the raw payload — a `text/markdown` body is the instruction's
+          `content` carrier, an `application/json` body its `value` carrier, and no body at
+          all carries nothing (a delete, or a move via the `Destination` header). An empty
+          raw-mode body never clears content: a `replace` without a payload is rejected as a
+          missing carrier, so an accidentally-empty template cannot wipe a section (use an
+          instruction body with `"content": ""` to clear deliberately).
+        required: false
       responses:
         "200":
           description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
@@ -2621,7 +3199,7 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, or the request had a non-object body. See response message for details."
+          description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, an instruction-mode request had a non-object body, or a raw-content-mode header could not be decoded (a heading `Target` that is not percent-encoded JSON, a malformed `Destination`, an unsupported body content type). Header-based targeting without an explicit `Markdown-Patch-Version` returns `PatchHeaderTargetingRequiresExplicitVersion` here. See response message for details."
         "404":
           content:
             application/json:
@@ -2647,6 +3225,12 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "Precondition Failed: the `ifMatch` token did not match the current document version; the file was not modified."
+        "422":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Conflicting target specifications: more than one of URL path elements, `Target-Type`/`Target` headers, and an `application/vnd.olrapi.patch-instruction+json` instruction body was supplied."
       summary: |
         Partially update content in the periodic note for the specified period and date.
       tags:
@@ -2668,11 +3252,11 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
+        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         ## Deprecated: header-based targeting
         
-        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. Without that header a request that supplies those targeting headers is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
+        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. On GET/PUT/POST, supplying those targeting headers without that version is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. (On PATCH, `Target-Type`/`Target` headers also have a *non-deprecated* meaning under an explicit `Markdown-Patch-Version: 2` — raw-content mode, with a different `Target` encoding; see the PATCH documentation.) Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
@@ -2718,9 +3302,17 @@ paths:
             behavior: the header-driven PATCH format, header-based targeting
             (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
             the `::`-joined document map. Responses served by 1.x carry a
-            `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-            without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-            value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+            returns `400 InvalidPatchVersionHeader`.
+            
+            One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+            targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+            the 1.x format and raw-content mode, a PATCH carrying them without this header is
+            rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+            deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+            targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+            (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+            version header.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -2820,11 +3412,11 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
+        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         ## Deprecated: header-based targeting
         
-        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. Without that header a request that supplies those targeting headers is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
+        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. On GET/PUT/POST, supplying those targeting headers without that version is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. (On PATCH, `Target-Type`/`Target` headers also have a *non-deprecated* meaning under an explicit `Markdown-Patch-Version: 2` — raw-content mode, with a different `Target` encoding; see the PATCH documentation.) Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
@@ -2868,9 +3460,17 @@ paths:
             behavior: the header-driven PATCH format, header-based targeting
             (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
             the `::`-joined document map. Responses served by 1.x carry a
-            `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-            without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-            value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+            returns `400 InvalidPatchVersionHeader`.
+            
+            One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+            targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+            the 1.x format and raw-content mode, a PATCH carrying them without this header is
+            rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+            deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+            targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+            (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+            version header.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -3292,11 +3892,11 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
+        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         ## Deprecated: header-based targeting
         
-        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. Without that header a request that supplies those targeting headers is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
+        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. On GET/PUT/POST, supplying those targeting headers without that version is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. (On PATCH, `Target-Type`/`Target` headers also have a *non-deprecated* meaning under an explicit `Markdown-Patch-Version: 2` — raw-content mode, with a different `Target` encoding; see the PATCH documentation.) Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
         
         # Retrieving Document Metadata
         
@@ -3324,9 +3924,17 @@ paths:
             behavior: the header-driven PATCH format, header-based targeting
             (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
             the `::`-joined document map. Responses served by 1.x carry a
-            `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-            without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-            value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+            returns `400 InvalidPatchVersionHeader`.
+            
+            One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+            targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+            the 1.x format and raw-content mode, a PATCH carrying them without this header is
+            rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+            deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+            targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+            (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+            version header.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -3395,7 +4003,7 @@ paths:
       description: |
         Modifies an existing note with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.
         
-        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body.
+        Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). By default the whole instruction travels as a JSON request body; [raw-content mode](#raw-content-mode-templating-friendly) instead carries the instruction's fields in URL path elements/headers with the raw payload as the body.
         
         > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
         
@@ -3601,11 +4209,57 @@ paths:
         
         Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent) or a block reference ID repeats, only the first occurrence keeps its plain-text/id key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
         
+        # Raw-content mode (templating-friendly)
+        
+        Putting the whole instruction in a JSON body has one sharp edge: the `content` string must be JSON-escaped, which tools that *template* markdown into an HTTP body (Shortcuts, Tasker, curl with `--data` from a template) often cannot do reliably. Raw-content mode removes that requirement: the instruction's fields travel **outside** the body, and the body is the raw payload, spliced verbatim.
+        
+        The target can ride in either of two places (never both — that's a `422`):
+        
+        - **URL path elements**, exactly as GET/PUT/POST use them: `PATCH /vault/note.md/heading/A/B`. No version header needed.
+        - **`Target-Type` / `Target` headers**, together with an explicit `Markdown-Patch-Version: 2`. The `Target` encoding is type-dependent, mirroring the instruction's `target` field: a heading Target is **JSON, percent-encoded** — `["A","B"]` sent as `%5B%22A%22%2C%22B%22%5D`, or `null` for the document root — while block and frontmatter Targets are the plain id/key (percent-encoded if non-ASCII). Because `Target` headers on a PATCH are ambiguous with the deprecated 1.x format, omitting the version header fails loudly with `400 PatchHeaderTargetingRequiresExplicitVersion` rather than guessing.
+        
+        The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
+        
+        The body is the payload carrier, chosen by its content type:
+        
+        | Body | Instruction field |
+        | --- | --- |
+        | `text/markdown` (any `text/*`) | `content` |
+        | `application/json` | `value` |
+        | *(no body)* | none — a `delete`, or a move via `Destination` |
+        
+        An empty body deliberately maps to *no* carrier: a `replace` with an accidentally-empty template fails as a missing carrier instead of clearing the section. To clear content on purpose, use an instruction body with `"content": ""`.
+        
+        ```sh
+        # Append a templated line under a heading — no JSON escaping anywhere
+        curl -k -X PATCH \
+          -H "Authorization: Bearer $API_KEY" \
+          -H "Operation: append" \
+          -H "Content-Type: text/markdown" \
+          --data "- $TEMPLATED_CONTENT" \
+          "https://127.0.0.1:27124/vault/notes/daily.md/heading/Log"
+        
+        # The same edit with header targeting (note the explicit version and JSON Target)
+        curl -k -X PATCH \
+          -H "Authorization: Bearer $API_KEY" \
+          -H "Markdown-Patch-Version: 2" \
+          -H "Target-Type: heading" \
+          -H "Target: %5B%22Log%22%5D" \
+          -H "Operation: append" \
+          -H "Content-Type: text/markdown" \
+          --data "- $TEMPLATED_CONTENT" \
+          "https://127.0.0.1:27124/vault/notes/daily.md"
+        ```
+        
+        Everything downstream is identical to instruction mode: the same validation, the same warnings header, the same error mapping. A raw-mode request may also send `application/vnd.olrapi.patch-instruction+json` — but only as a *whole-instruction body* with no targeting elsewhere; combining it with URL or header targeting is a `422 ConflictingTargetSpecification`.
+        
+        > **Note:** on `/active/` and `/periodic/` endpoints, a URL suffix (e.g. `/active/heading/Log`) previously had no effect on PATCH — it was ignored and the whole file was patched. It now targets the addressed section, matching PUT/POST.
+        
         # Deprecated: the 1.x header-driven format
         
         The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 6.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="6.0"` header.
         
-        The JSON-instruction format described above is the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without it (or with `Markdown-Patch-Version: 2`), the instruction format described above handles the request, and a non-object body is rejected with `400 InvalidPatchInstruction`. To upgrade, drop the header and move each 1.x header into the JSON body:
+        The JSON-instruction format described above is the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without any version header, a non-object body with no targeting is rejected with `400 InvalidPatchInstruction`, and `Target-Type`/`Target` headers are rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — those same header names are also raw-content mode's (with different `Target` encoding), so the request must explicitly pick `1` or `2`. To upgrade, drop the version header and either move each 1.x header into the JSON body as below, or switch to [raw-content mode](#raw-content-mode-templating-friendly) and keep your body as-is:
         
         | 1.x header | Instruction field |
         | --- | --- |
@@ -3635,9 +4289,17 @@ paths:
             behavior: the header-driven PATCH format, header-based targeting
             (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
             the `::`-joined document map. Responses served by 1.x carry a
-            `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-            without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-            value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+            returns `400 InvalidPatchVersionHeader`.
+            
+            One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+            targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+            the 1.x format and raw-content mode, a PATCH carrying them without this header is
+            rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+            deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+            targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+            (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+            version header.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -3646,6 +4308,106 @@ paths:
             enum:
               - "1"
               - "2"
+            type: "string"
+        - description: |
+            Raw-content mode: the type of node the instruction targets (`heading`,
+            `block`, or `frontmatter`). Must be used together with the `Target`
+            header and an explicit `Markdown-Patch-Version: 2`; alternatively, put
+            the target in the URL path (`.../heading/A/B`) and omit both headers.
+            Supplying both is rejected with `422 ConflictingTargetSpecification`.
+          in: "header"
+          name: "Target-Type"
+          required: false
+          schema:
+            enum:
+              - "heading"
+              - "block"
+              - "frontmatter"
+            type: "string"
+        - description: |
+            Raw-content mode: the node the instruction targets. The encoding is
+            type-dependent, mirroring the instruction's `target` field. For a
+            `heading`, the value is JSON — an array of heading texts from the top
+            level down, or `null` for the document root — then percent-encoded:
+            `["A","B"]` is sent as `%5B%22A%22%2C%22B%22%5D`. For a `block` or
+            `frontmatter` target, the value is the plain id/key, percent-encoded if
+            it contains non-ASCII characters. A heading value that does not decode
+            to JSON (e.g. a bare 1.x-style `A::B` path) is rejected with
+            `400 InvalidTargetHeader`.
+          in: "header"
+          name: "Target"
+          required: false
+          schema:
+            type: "string"
+        - description: |
+            Raw-content mode: the instruction's operation. Required whenever the
+            target rides in the URL path or the `Target-Type`/`Target` headers.
+          in: "header"
+          name: "Operation"
+          required: false
+          schema:
+            enum:
+              - "replace"
+              - "prepend"
+              - "append"
+              - "delete"
+            type: "string"
+        - description: |
+            Raw-content mode: the instruction's `scope` — `content` (default),
+            `marker`, `markerAndContent`, or `parent` (a move; carries its
+            destination in the `Destination` header). See the instruction-body
+            documentation for what each scope addresses.
+          in: "header"
+          name: "Target-Scope"
+          required: false
+          schema:
+            default: "content"
+            enum:
+              - "content"
+              - "marker"
+              - "markerAndContent"
+              - "parent"
+            type: "string"
+        - description: |
+            Raw-content mode: where a moved heading lands (`Target-Scope: parent`).
+            The instruction's `destination` object as JSON, then percent-encoded:
+            `{"parent":["Appendix"],"place":"last"}` is sent as
+            `%7B%22parent%22%3A%5B%22Appendix%22%5D%2C%22place%22%3A%22last%22%7D`.
+            A move carries no body.
+          in: "header"
+          name: "Destination"
+          required: false
+          schema:
+            type: "string"
+        - description: |
+            Raw-content mode: the instruction's `ifMatch` optimistic-concurrency
+            token — the `version` from a document map, bare or wrapped in one pair
+            of double quotes (RFC 9110 ETag style). A mismatch fails with `412` and
+            leaves the file untouched.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            type: "string"
+        - description: "If the specified Target does not exist, create it?"
+          in: "header"
+          name: "Create-Target-If-Missing"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
+        - description: "If patch data already exists in Target, reject the patch?"
+          in: "header"
+          name: "Reject-If-Content-Preexists"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
             type: "string"
       requestBody:
         content:
@@ -3698,8 +4460,24 @@ paths:
                   value: 2
             schema:
               "$ref": "#/components/schemas/PatchInstruction"
-        description: "A single patch instruction."
-        required: true
+          "application/vnd.olrapi.patch-instruction+json":
+            schema:
+              "$ref": "#/components/schemas/PatchInstruction"
+          text/markdown:
+            schema:
+              example: |
+                - A raw markdown line, spliced verbatim: no JSON escaping needed.
+              type: "string"
+        description: |
+          Instruction mode: a single patch instruction as JSON (`application/json`, or
+          `application/vnd.olrapi.patch-instruction+json` to declare it explicitly).
+          Raw-content mode: the raw payload — a `text/markdown` body is the instruction's
+          `content` carrier, an `application/json` body its `value` carrier, and no body at
+          all carries nothing (a delete, or a move via the `Destination` header). An empty
+          raw-mode body never clears content: a `replace` without a payload is rejected as a
+          missing carrier, so an accidentally-empty template cannot wipe a section (use an
+          instruction body with `"content": ""` to clear deliberately).
+        required: false
       responses:
         "200":
           description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
@@ -3713,7 +4491,7 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, or the request had a non-object body. See response message for details."
+          description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, an instruction-mode request had a non-object body, or a raw-content-mode header could not be decoded (a heading `Target` that is not percent-encoded JSON, a malformed `Destination`, an unsupported body content type). Header-based targeting without an explicit `Markdown-Patch-Version` returns `PatchHeaderTargetingRequiresExplicitVersion` here. See response message for details."
         "404":
           content:
             application/json:
@@ -3739,6 +4517,12 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "Precondition Failed: the `ifMatch` token did not match the current document version; the file was not modified."
+        "422":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Conflicting target specifications: more than one of URL path elements, `Target-Type`/`Target` headers, and an `application/vnd.olrapi.patch-instruction+json` instruction body was supplied."
       summary: |
         Partially update content in an existing note.
       tags:
@@ -3760,11 +4544,11 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
+        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         ## Deprecated: header-based targeting
         
-        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. Without that header a request that supplies those targeting headers is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
+        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. On GET/PUT/POST, supplying those targeting headers without that version is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. (On PATCH, `Target-Type`/`Target` headers also have a *non-deprecated* meaning under an explicit `Markdown-Patch-Version: 2` — raw-content mode, with a different `Target` encoding; see the PATCH documentation.) Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the content is appended within that section and the full updated file content is returned with a `200` status. Without a target, the content is appended to the end of the file and a `204` status is returned.
         
@@ -3786,9 +4570,17 @@ paths:
             behavior: the header-driven PATCH format, header-based targeting
             (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
             the `::`-joined document map. Responses served by 1.x carry a
-            `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-            without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-            value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+            returns `400 InvalidPatchVersionHeader`.
+            
+            One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+            targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+            the 1.x format and raw-content mode, a PATCH carrying them without this header is
+            rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+            deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+            targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+            (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+            version header.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false
@@ -3883,11 +4675,11 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
+        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         ## Deprecated: header-based targeting
         
-        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. Without that header a request that supplies those targeting headers is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
+        Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. On GET/PUT/POST, supplying those targeting headers without that version is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. (On PATCH, `Target-Type`/`Target` headers also have a *non-deprecated* meaning under an explicit `Markdown-Patch-Version: 2` — raw-content mode, with a different `Target` encoding; see the PATCH documentation.) Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
         
         When a target is specified the target section is replaced with the request body and the full updated file content is returned with a `200` status. If the target does not exist it will be created. Without a target, the entire file is replaced and a `204` status is returned.
       parameters:
@@ -3907,9 +4699,17 @@ paths:
             behavior: the header-driven PATCH format, header-based targeting
             (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
             the `::`-joined document map. Responses served by 1.x carry a
-            `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-            without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-            value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+            `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+            returns `400 InvalidPatchVersionHeader`.
+            
+            One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+            targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+            the 1.x format and raw-content mode, a PATCH carrying them without this header is
+            rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+            deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+            targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+            (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+            version header.
           in: "header"
           name: "Markdown-Patch-Version"
           required: false

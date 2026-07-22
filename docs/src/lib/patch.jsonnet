@@ -1,17 +1,47 @@
 local T = import 'targeting.params.jsonnet';
 
 {
-  // A PATCH's whole instruction is the JSON body; the only header it reads is
-  // Markdown-Patch-Version (2 by default; 1 opts into the deprecated
-  // header-driven format documented below). Each path adds its own path parameter
-  // via `super.parameters`.
+  // A PATCH is served in one of two modes: instruction mode (the whole
+  // instruction is the JSON body) or raw-content mode (the instruction's
+  // fields ride in URL path elements/headers and the body is the raw
+  // payload). Markdown-Patch-Version: 1 opts into the deprecated 1.x
+  // header-driven format documented below. Each path adds its own path
+  // parameter via `super.parameters`.
   parameters: [
     T.markdownPatchVersion,
+    T.patchTargetType,
+    T.patchTarget,
+    T.patchOperation,
+    T.patchTargetScope,
+    T.patchDestination,
+    T.ifMatch,
+    T.createTargetIfMissing,
+    T.rejectIfContentPreexists,
   ],
   requestBody: {
-    description: 'A single patch instruction.',
-    required: true,
+    description: |||
+      Instruction mode: a single patch instruction as JSON (`application/json`, or
+      `application/vnd.olrapi.patch-instruction+json` to declare it explicitly).
+      Raw-content mode: the raw payload — a `text/markdown` body is the instruction's
+      `content` carrier, an `application/json` body its `value` carrier, and no body at
+      all carries nothing (a delete, or a move via the `Destination` header). An empty
+      raw-mode body never clears content: a `replace` without a payload is rejected as a
+      missing carrier, so an accidentally-empty template cannot wipe a section (use an
+      instruction body with `"content": ""` to clear deliberately).
+    |||,
+    required: false,
     content: {
+      'text/markdown': {
+        schema: {
+          type: 'string',
+          example: '- A raw markdown line, spliced verbatim: no JSON escaping needed.\n',
+        },
+      },
+      'application/vnd.olrapi.patch-instruction+json': {
+        schema: {
+          '$ref': '#/components/schemas/PatchInstruction',
+        },
+      },
       'application/json': {
         schema: {
           '$ref': '#/components/schemas/PatchInstruction',
@@ -81,7 +111,7 @@ local T = import 'targeting.params.jsonnet';
       },
     },
     '400': {
-      description: 'Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, or the request had a non-object body. See response message for details.',
+      description: 'Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, an instruction-mode request had a non-object body, or a raw-content-mode header could not be decoded (a heading `Target` that is not percent-encoded JSON, a malformed `Destination`, an unsupported body content type). Header-based targeting without an explicit `Markdown-Patch-Version` returns `PatchHeaderTargetingRequiresExplicitVersion` here. See response message for details.',
       content: {
         'application/json': {
           schema: {
@@ -122,6 +152,16 @@ local T = import 'targeting.params.jsonnet';
     },
     '412': {
       description: 'Precondition Failed: the `ifMatch` token did not match the current document version; the file was not modified.',
+      content: {
+        'application/json': {
+          schema: {
+            '$ref': '#/components/schemas/Error',
+          },
+        },
+      },
+    },
+    '422': {
+      description: 'Conflicting target specifications: more than one of URL path elements, `Target-Type`/`Target` headers, and an `application/vnd.olrapi.patch-instruction+json` instruction body was supplied.',
       content: {
         'application/json': {
           schema: {

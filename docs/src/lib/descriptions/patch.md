@@ -1,4 +1,4 @@
-Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). The whole instruction travels as a JSON request body.
+Edit a document with a single structured instruction — an **operation** applied to a **scope** of a **target** node (a heading, block reference, or frontmatter field). By default the whole instruction travels as a JSON request body; [raw-content mode](#raw-content-mode-templating-friendly) instead carries the instruction's fields in URL path elements/headers with the raw payload as the body.
 
 > **Migrating from the header-driven format?** See [Deprecated: the 1.x header-driven format](#deprecated-the-1x-header-driven-format) at the end.
 
@@ -204,11 +204,57 @@ Pass `ifMatch` with the `version` token from a document map (see below). If the 
 
 Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent) or a block reference ID repeats, only the first occurrence keeps its plain-text/id key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
 
+# Raw-content mode (templating-friendly)
+
+Putting the whole instruction in a JSON body has one sharp edge: the `content` string must be JSON-escaped, which tools that *template* markdown into an HTTP body (Shortcuts, Tasker, curl with `--data` from a template) often cannot do reliably. Raw-content mode removes that requirement: the instruction's fields travel **outside** the body, and the body is the raw payload, spliced verbatim.
+
+The target can ride in either of two places (never both — that's a `422`):
+
+- **URL path elements**, exactly as GET/PUT/POST use them: `PATCH /vault/note.md/heading/A/B`. No version header needed.
+- **`Target-Type` / `Target` headers**, together with an explicit `Markdown-Patch-Version: 2`. The `Target` encoding is type-dependent, mirroring the instruction's `target` field: a heading Target is **JSON, percent-encoded** — `["A","B"]` sent as `%5B%22A%22%2C%22B%22%5D`, or `null` for the document root — while block and frontmatter Targets are the plain id/key (percent-encoded if non-ASCII). Because `Target` headers on a PATCH are ambiguous with the deprecated 1.x format, omitting the version header fails loudly with `400 PatchHeaderTargetingRequiresExplicitVersion` rather than guessing.
+
+The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
+
+The body is the payload carrier, chosen by its content type:
+
+| Body | Instruction field |
+| --- | --- |
+| `text/markdown` (any `text/*`) | `content` |
+| `application/json` | `value` |
+| *(no body)* | none — a `delete`, or a move via `Destination` |
+
+An empty body deliberately maps to *no* carrier: a `replace` with an accidentally-empty template fails as a missing carrier instead of clearing the section. To clear content on purpose, use an instruction body with `"content": ""`.
+
+```sh
+# Append a templated line under a heading — no JSON escaping anywhere
+curl -k -X PATCH \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Operation: append" \
+  -H "Content-Type: text/markdown" \
+  --data "- $TEMPLATED_CONTENT" \
+  "https://127.0.0.1:27124/vault/notes/daily.md/heading/Log"
+
+# The same edit with header targeting (note the explicit version and JSON Target)
+curl -k -X PATCH \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Markdown-Patch-Version: 2" \
+  -H "Target-Type: heading" \
+  -H "Target: %5B%22Log%22%5D" \
+  -H "Operation: append" \
+  -H "Content-Type: text/markdown" \
+  --data "- $TEMPLATED_CONTENT" \
+  "https://127.0.0.1:27124/vault/notes/daily.md"
+```
+
+Everything downstream is identical to instruction mode: the same validation, the same warnings header, the same error mapping. A raw-mode request may also send `application/vnd.olrapi.patch-instruction+json` — but only as a *whole-instruction body* with no targeting elsewhere; combining it with URL or header targeting is a `422 ConflictingTargetSpecification`.
+
+> **Note:** on `/active/` and `/periodic/` endpoints, a URL suffix (e.g. `/active/heading/Log`) previously had no effect on PATCH — it was ignored and the whole file was patched. It now targets the addressed section, matching PUT/POST.
+
 # Deprecated: the 1.x header-driven format
 
 The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 6.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="6.0"` header.
 
-The JSON-instruction format described above is the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without it (or with `Markdown-Patch-Version: 2`), the instruction format described above handles the request, and a non-object body is rejected with `400 InvalidPatchInstruction`. To upgrade, drop the header and move each 1.x header into the JSON body:
+The JSON-instruction format described above is the default. To use the deprecated format, send `Markdown-Patch-Version: 1`; the header also selects the 1.x document map (`::`-joined heading paths, no `version`) on GET. Without any version header, a non-object body with no targeting is rejected with `400 InvalidPatchInstruction`, and `Target-Type`/`Target` headers are rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — those same header names are also raw-content mode's (with different `Target` encoding), so the request must explicitly pick `1` or `2`. To upgrade, drop the version header and either move each 1.x header into the JSON body as below, or switch to [raw-content mode](#raw-content-mode-templating-friendly) and keep your body as-is:
 
 | 1.x header | Instruction field |
 | --- | --- |

@@ -13,9 +13,17 @@
       behavior: the header-driven PATCH format, header-based targeting
       (`Target-Type`/`Target`/`Target-Delimiter`/`Target-Scope`) on GET/PUT/POST, and
       the `::`-joined document map. Responses served by 1.x carry a
-      `Deprecation: true; sunset-version="6.0"` header; supplying those targeting headers
-      without this set to `1` is rejected with `400 HeaderTargetingRequiresVersion1`. Any
-      value other than `1` or `2` returns `400 InvalidPatchVersionHeader`.
+      `Deprecation: true; sunset-version="6.0"` header. Any value other than `1` or `2`
+      returns `400 InvalidPatchVersionHeader`.
+
+      One place an *explicit* `2` matters: PATCH's raw-content mode with header-based
+      targeting. Because `Target-Type`/`Target` headers on a PATCH are ambiguous between
+      the 1.x format and raw-content mode, a PATCH carrying them without this header is
+      rejected with `400 PatchHeaderTargetingRequiresExplicitVersion` — send `1` for the
+      deprecated engine or `2` for raw-content mode. On GET/PUT/POST, supplying those
+      targeting headers without `1` is rejected with `400 HeaderTargetingRequiresVersion1`
+      (use URL path elements instead), and PATCH URL-element targeting likewise needs no
+      version header.
     |||,
     required: false,
     schema: {
@@ -112,6 +120,118 @@
         'false',
       ],
       default: 'false',
+    },
+  },
+  // --- PATCH raw-content-mode headers -------------------------------------
+  // These parameterize PATCH's raw-content mode (markdown-patch 2.0): the
+  // instruction's fields ride in headers/URL elements and the raw payload is
+  // the request body. Header-based targeting additionally requires an
+  // explicit `Markdown-Patch-Version: 2`.
+  patchTargetType: {
+    name: 'Target-Type',
+    'in': 'header',
+    description: |||
+      Raw-content mode: the type of node the instruction targets (`heading`,
+      `block`, or `frontmatter`). Must be used together with the `Target`
+      header and an explicit `Markdown-Patch-Version: 2`; alternatively, put
+      the target in the URL path (`.../heading/A/B`) and omit both headers.
+      Supplying both is rejected with `422 ConflictingTargetSpecification`.
+    |||,
+    required: false,
+    schema: {
+      type: 'string',
+      enum: [
+        'heading',
+        'block',
+        'frontmatter',
+      ],
+    },
+  },
+  patchTarget: {
+    name: 'Target',
+    'in': 'header',
+    description: |||
+      Raw-content mode: the node the instruction targets. The encoding is
+      type-dependent, mirroring the instruction's `target` field. For a
+      `heading`, the value is JSON — an array of heading texts from the top
+      level down, or `null` for the document root — then percent-encoded:
+      `["A","B"]` is sent as `%5B%22A%22%2C%22B%22%5D`. For a `block` or
+      `frontmatter` target, the value is the plain id/key, percent-encoded if
+      it contains non-ASCII characters. A heading value that does not decode
+      to JSON (e.g. a bare 1.x-style `A::B` path) is rejected with
+      `400 InvalidTargetHeader`.
+    |||,
+    required: false,
+    schema: {
+      type: 'string',
+    },
+  },
+  patchOperation: {
+    name: 'Operation',
+    'in': 'header',
+    description: |||
+      Raw-content mode: the instruction's operation. Required whenever the
+      target rides in the URL path or the `Target-Type`/`Target` headers.
+    |||,
+    required: false,
+    schema: {
+      type: 'string',
+      enum: [
+        'replace',
+        'prepend',
+        'append',
+        'delete',
+      ],
+    },
+  },
+  patchTargetScope: {
+    name: 'Target-Scope',
+    'in': 'header',
+    description: |||
+      Raw-content mode: the instruction's `scope` — `content` (default),
+      `marker`, `markerAndContent`, or `parent` (a move; carries its
+      destination in the `Destination` header). See the instruction-body
+      documentation for what each scope addresses.
+    |||,
+    required: false,
+    schema: {
+      type: 'string',
+      enum: [
+        'content',
+        'marker',
+        'markerAndContent',
+        'parent',
+      ],
+      default: 'content',
+    },
+  },
+  patchDestination: {
+    name: 'Destination',
+    'in': 'header',
+    description: |||
+      Raw-content mode: where a moved heading lands (`Target-Scope: parent`).
+      The instruction's `destination` object as JSON, then percent-encoded:
+      `{"parent":["Appendix"],"place":"last"}` is sent as
+      `%7B%22parent%22%3A%5B%22Appendix%22%5D%2C%22place%22%3A%22last%22%7D`.
+      A move carries no body.
+    |||,
+    required: false,
+    schema: {
+      type: 'string',
+    },
+  },
+  ifMatch: {
+    name: 'If-Match',
+    'in': 'header',
+    description: |||
+      Raw-content mode: the instruction's `ifMatch` optimistic-concurrency
+      token — the `version` from a document map, bare or wrapped in one pair
+      of double quotes (RFC 9110 ETag style). A mismatch fails with `412` and
+      leaves the file untouched.
+    |||,
+    required: false,
+    schema: {
+      type: 'string',
     },
   },
   targetScope: {
