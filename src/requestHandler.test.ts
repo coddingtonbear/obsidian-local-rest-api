@@ -1648,6 +1648,47 @@ describe("requestHandler", () => {
 
         expect(result.headers["deprecation"]).toBe('true; sunset-version="6.0"');
       });
+
+      test("path-targeted write with a stray Target-Scope header is rejected (40083), not silently widened to content scope", async () => {
+        // A 1.x client renaming a heading sends Target-Scope: marker. Without
+        // Markdown-Patch-Version: 1, that header must not be silently dropped —
+        // dropping it would make this write replace the whole section body
+        // instead of just the heading line.
+        const res = await request(server)
+          .put("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Target-Scope", "marker")
+          .send("Renamed Heading2");
+
+        expect(res.status).toBe(400);
+        expect(JSON.parse(res.text).errorCode).toBe(40083);
+        expect(app.vault.adapter._write).toBeUndefined();
+      });
+
+      test("path-targeted write with a stray Trim-Target-Whitespace header is rejected (40083)", async () => {
+        const res = await request(server)
+          .put("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Trim-Target-Whitespace", "true")
+          .send("content");
+
+        expect(res.status).toBe(400);
+        expect(JSON.parse(res.text).errorCode).toBe(40083);
+      });
+
+      test("path-targeted write with a stray Target-Delimiter header is rejected (40083)", async () => {
+        const res = await request(server)
+          .put("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Target-Delimiter", "::")
+          .send("content");
+
+        expect(res.status).toBe(400);
+        expect(JSON.parse(res.text).errorCode).toBe(40083);
+      });
     });
 
     describe("POST", () => {
@@ -1680,6 +1721,18 @@ describe("requestHandler", () => {
           .set("Content-Type", "text/markdown")
           .set("Target-Type", "heading")
           .set("Target", "Heading2")
+          .send("content");
+
+        expect(res.status).toBe(400);
+        expect(JSON.parse(res.text).errorCode).toBe(40083);
+      });
+
+      test("path-targeted append with a stray Target-Scope header is rejected (40083)", async () => {
+        const res = await request(server)
+          .post("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("Target-Scope", "marker")
           .send("content");
 
         expect(res.status).toBe(400);
