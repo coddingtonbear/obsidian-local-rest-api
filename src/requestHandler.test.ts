@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import http from "http";
 import request from "supertest";
 
@@ -1423,6 +1424,534 @@ describe("requestHandler", () => {
         .send({ some: "json" });
       expect(res.status).toBe(400);
       expect(res.body.errorCode).toBe(40056);
+    });
+  });
+
+  describe("vaultPatch — raw-content mode", () => {
+    // Raw-content mode: the instruction's fields travel outside the body (URL
+    // path segments and/or headers) and the body is the raw payload, so
+    // templating tools never have to JSON-escape content. The assembled
+    // instruction funnels through the same 2.0 engine as the JSON-body mode.
+    const markdown = [
+      "---",
+      "title: Test Doc",
+      "---",
+      "# Heading1",
+      "Content under heading1",
+      "## SubHeading",
+      "Sub content",
+      "# Heading2",
+      "Content under heading2",
+      "# Heading3",
+      "| City    | Population |",
+      "| ------- | ---------- |",
+      "| Seattle | 8          |",
+      "^table1",
+      "",
+    ].join("\n");
+
+    function setFileContent(content: string): void {
+      app.vault._read = content;
+      app.vault.adapter._read = content;
+      const buf = new ArrayBuffer(content.length);
+      const view = new Uint8Array(buf);
+      for (let i = 0; i < content.length; i++) {
+        view[i] = content.charCodeAt(i);
+      }
+      app.vault.adapter._readBinary = buf;
+    }
+
+    beforeEach(() => {
+      // Only return a valid stat for the bare file path so the walk-backward
+      // resolver identifies "somefile.md" as the file and the remaining URL
+      // segments as the target.
+      app.vault.adapter._statForPath = "somefile.md";
+      setFileContent(markdown);
+    });
+
+    describe("URL-segment targeting", () => {
+      test("append under a heading with a raw text body (no version header needed)", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "append")
+          .set("Content-Type", "text/markdown")
+          .send("- appended\n");
+        expect(res.status).toBe(200);
+        expect(res.text).toContain("Content under heading2\n- appended");
+      });
+
+      test("replace a nested heading's content via URL segments", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading1/SubHeading")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "replace")
+          .set("Content-Type", "text/markdown")
+          .send("Replaced sub content\n");
+        expect(res.status).toBe(200);
+        expect(res.text).toContain("Replaced sub content");
+        expect(res.text).not.toContain("Sub content");
+      });
+
+      test("delete with an empty body clears the section content", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "delete");
+        expect(res.status).toBe(200);
+        expect(res.text).toContain("# Heading2");
+        expect(res.text).not.toContain("Content under heading2");
+      });
+
+      test("a JSON body on a block target carries table rows", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/block/table1")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "append")
+          .set("Content-Type", "application/json")
+          .send([["Portland", "3"]]);
+        expect(res.status).toBe(200);
+        expect(res.text).toContain("Portland");
+      });
+
+      test("a JSON body on a frontmatter target carries the value", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/frontmatter/title")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "replace")
+          .set("Content-Type", "application/json")
+          .send('"New Title"');
+        expect(res.status).toBe(200);
+        expect(res.text).toContain("title: New Title");
+      });
+
+      test("Markdown-Patch-Version: 1 with a URL target returns 400 (40082)", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Markdown-Patch-Version", "1")
+          .set("Operation", "append")
+          .set("Content-Type", "text/markdown")
+          .send("x");
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40082);
+      });
+    });
+
+    describe("header targeting", () => {
+      test("a heading Target is percent-encoded JSON, honored under an explicit version 2", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Markdown-Patch-Version", "2")
+          .set("Target-Type", "heading")
+          .set("Target", encodeURIComponent(JSON.stringify(["Heading1", "SubHeading"])))
+          .set("Operation", "append")
+          .set("Content-Type", "text/markdown")
+          .send("- appended\n");
+        expect(res.status).toBe(200);
+        expect(res.text).toContain("Sub content\n- appended");
+      });
+
+      test("a null heading Target addresses the document root", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Markdown-Patch-Version", "2")
+          .set("Target-Type", "heading")
+          .set("Target", "null")
+          .set("Operation", "append")
+          .set("Content-Type", "text/markdown")
+          .send("appended at end\n");
+        expect(res.status).toBe(200);
+        expect(res.text).toContain("appended at end");
+      });
+
+      test("header targeting without an explicit version header returns 400 (40084)", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Target-Type", "heading")
+          .set("Target", encodeURIComponent(JSON.stringify(["Heading2"])))
+          .set("Operation", "append")
+          .set("Content-Type", "text/markdown")
+          .send("x");
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40084);
+      });
+
+      test("a block Target is a plain percent-encoded string", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Markdown-Patch-Version", "2")
+          .set("Target-Type", "block")
+          .set("Target", "table1")
+          .set("Operation", "append")
+          .set("Content-Type", "application/json")
+          .send([["Portland", "3"]]);
+        expect(res.status).toBe(200);
+        expect(res.text).toContain("Portland");
+      });
+
+      test("a frontmatter Target is a plain percent-encoded string", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Markdown-Patch-Version", "2")
+          .set("Target-Type", "frontmatter")
+          .set("Target", "title")
+          .set("Operation", "replace")
+          .set("Content-Type", "application/json")
+          .send('"New Title"');
+        expect(res.status).toBe(200);
+        expect(res.text).toContain("title: New Title");
+      });
+
+      test("a heading Target that is not valid JSON returns 400 (40058)", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Markdown-Patch-Version", "2")
+          .set("Target-Type", "heading")
+          .set("Target", "Heading2") // 1.x style: raw text, not JSON
+          .set("Operation", "append")
+          .set("Content-Type", "text/markdown")
+          .send("x");
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40058);
+      });
+
+      test("a heading Target that is JSON but not an array of strings returns 400 (40058)", async () => {
+        for (const bad of ["42", '{"a":1}', '["a",1]']) {
+          const res = await request(server)
+            .patch("/vault/somefile.md")
+            .set("Authorization", `Bearer ${API_KEY}`)
+            .set("Markdown-Patch-Version", "2")
+            .set("Target-Type", "heading")
+            .set("Target", encodeURIComponent(bad))
+            .set("Operation", "append")
+            .set("Content-Type", "text/markdown")
+            .send("x");
+          expect(res.status).toBe(400);
+          expect(res.body.errorCode).toBe(40058);
+        }
+      });
+
+      test("an undecodable percent sequence in Target returns 400 (40058)", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Markdown-Patch-Version", "2")
+          .set("Target-Type", "block")
+          .set("Target", "%E0%A4%A")
+          .set("Operation", "append")
+          .set("Content-Type", "text/markdown")
+          .send("x");
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40058);
+      });
+
+      test("a Target header without Target-Type returns 400 (40053)", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Markdown-Patch-Version", "2")
+          .set("Target", "table1")
+          .set("Operation", "append")
+          .set("Content-Type", "text/markdown")
+          .send("x");
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40053);
+      });
+
+      test("a Target-Type header without Target returns 400 (40055)", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Markdown-Patch-Version", "2")
+          .set("Target-Type", "block")
+          .set("Operation", "append")
+          .set("Content-Type", "text/markdown")
+          .send("x");
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40055);
+      });
+    });
+
+    describe("conflicting specifications", () => {
+      test("URL target + Target-Type header returns 422", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Target-Type", "heading")
+          .set("Operation", "append")
+          .set("Content-Type", "text/markdown")
+          .send("x");
+        expect(res.status).toBe(422);
+      });
+
+      test("instruction content type + URL target returns 422", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/vnd.olrapi.patch-instruction+json")
+          .send(JSON.stringify({ targetType: "heading", target: ["Heading2"], operation: "append", content: "x" }));
+        expect(res.status).toBe(422);
+      });
+
+      test("instruction content type + Target-Type header returns 422", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Markdown-Patch-Version", "2")
+          .set("Target-Type", "heading")
+          .set("Target", encodeURIComponent(JSON.stringify(["Heading2"])))
+          .set("Content-Type", "application/vnd.olrapi.patch-instruction+json")
+          .send(JSON.stringify({ targetType: "heading", target: ["Heading2"], operation: "append", content: "x" }));
+        expect(res.status).toBe(422);
+      });
+
+      test("the instruction content type alone is an explicit instruction-mode declaration", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/vnd.olrapi.patch-instruction+json")
+          .send(JSON.stringify({ targetType: "heading", target: ["Heading2"], operation: "append", content: "- appended\n" }));
+        expect(res.status).toBe(200);
+        expect(res.text).toContain("Content under heading2\n- appended");
+      });
+    });
+
+    describe("operation, scope, and 1.x-only headers", () => {
+      test("a missing Operation header returns 400 (40056)", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("x");
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40056);
+      });
+
+      test("an invalid Operation header returns 400 (40057)", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "nonsense")
+          .set("Content-Type", "text/markdown")
+          .send("x");
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40057);
+      });
+
+      test("Target-Scope: marker renames a heading from a raw text body", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "replace")
+          .set("Target-Scope", "marker")
+          .set("Content-Type", "text/markdown")
+          .send("RenamedHeading");
+        expect(res.status).toBe(200);
+        expect(res.text).toContain("# RenamedHeading");
+        expect(res.text).toContain("Content under heading2");
+      });
+
+      test("an invalid Target-Scope returns 400 (40059)", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "replace")
+          .set("Target-Scope", "nonsense")
+          .set("Content-Type", "text/markdown")
+          .send("x");
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40059);
+      });
+
+      test("the 1.x-only Target-Delimiter header is rejected (40084)", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "append")
+          .set("Target-Delimiter", "::")
+          .set("Content-Type", "text/markdown")
+          .send("x");
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40084);
+      });
+
+      test("the 1.x-only Trim-Target-Whitespace header is rejected (40084)", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "append")
+          .set("Trim-Target-Whitespace", "true")
+          .set("Content-Type", "text/markdown")
+          .send("x");
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40084);
+      });
+    });
+
+    describe("Destination, If-Match, and flags", () => {
+      test("a Destination header (percent-encoded JSON) moves a heading", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading1/SubHeading")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "replace")
+          .set("Target-Scope", "parent")
+          .set(
+            "Destination",
+            encodeURIComponent(JSON.stringify({ parent: ["Heading2"], place: "last" })),
+          );
+        expect(res.status).toBe(200);
+        expect(res.text).toMatch(/# Heading2[\s\S]*SubHeading/);
+      });
+
+      test("a malformed Destination header returns 400 (40022)", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading1/SubHeading")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "replace")
+          .set("Target-Scope", "parent")
+          .set("Destination", "not-json");
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40022);
+      });
+
+      test("a Destination header plus a non-empty body is rejected by the carrier algebra (40081)", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading1/SubHeading")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "replace")
+          .set("Target-Scope", "parent")
+          .set(
+            "Destination",
+            encodeURIComponent(JSON.stringify({ parent: ["Heading2"], place: "last" })),
+          )
+          .set("Content-Type", "text/markdown")
+          .send("stray body");
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40081);
+      });
+
+      test("an If-Match mismatch returns 412", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "append")
+          .set("If-Match", "deadbe")
+          .set("Content-Type", "text/markdown")
+          .send("x");
+        expect(res.status).toBe(412);
+      });
+
+      test("a matching If-Match succeeds, with or without ETag-style quotes", async () => {
+        const version = createHash("sha256")
+          .update(markdown, "utf8")
+          .digest("hex")
+          .slice(0, 6);
+        for (const headerValue of [version, `"${version}"`]) {
+          setFileContent(markdown);
+          const res = await request(server)
+            .patch("/vault/somefile.md/heading/Heading2")
+            .set("Authorization", `Bearer ${API_KEY}`)
+            .set("Operation", "append")
+            .set("If-Match", headerValue)
+            .set("Content-Type", "text/markdown")
+            .send("- appended\n");
+          expect(res.status).toBe(200);
+        }
+      });
+
+      test("Create-Target-If-Missing: true creates a missing heading", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Brand%20New")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "append")
+          .set("Create-Target-If-Missing", "true")
+          .set("Content-Type", "text/markdown")
+          .send("created content\n");
+        expect(res.status).toBe(200);
+        expect(res.text).toContain("# Brand New");
+        expect(res.text).toContain("created content");
+      });
+
+      test("Reject-If-Content-Preexists: true returns 409 for duplicate content", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "append")
+          .set("Reject-If-Content-Preexists", "true")
+          .set("Content-Type", "text/markdown")
+          .send("Content under heading2\n");
+        expect(res.status).toBe(409);
+      });
+    });
+
+    describe("body carriers", () => {
+      test("an unsupported body content type returns 400 (40012)", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "append")
+          .set("Content-Type", "application/octet-stream")
+          .send(Buffer.from("binary"));
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40012);
+      });
+
+      test("an empty body on a replace is a missing carrier (40081), never a silent clear", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "replace")
+          .set("Content-Type", "text/markdown")
+          .send("");
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40081);
+      });
+
+      test("a delete with a non-empty body is rejected by the carrier algebra (40081)", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "delete")
+          .set("Content-Type", "text/markdown")
+          .send("stray body");
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40081);
+      });
+    });
+
+    describe("response conventions", () => {
+      test("raw-content mode carries no Deprecation header", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "append")
+          .set("Content-Type", "text/markdown")
+          .send("x\n");
+        expect(res.status).toBe(200);
+        expect(res.headers["deprecation"]).toBeUndefined();
+      });
+
+      test("engine warnings surface in the Markdown-Patch-Warnings header", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading1/SubHeading")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "replace")
+          .set("Content-Type", "text/markdown")
+          .send("###### deep\n"); // level 6 + baseline 2 overflows h6
+        expect(res.status).toBe(200);
+        const warnings = JSON.parse(
+          decodeURIComponent(res.headers["markdown-patch-warnings"]),
+        );
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0].code).toBe("heading-depth-overflow");
+      });
     });
   });
 
