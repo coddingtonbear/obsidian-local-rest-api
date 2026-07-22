@@ -175,7 +175,7 @@ components:
                 type: "string"
               type: "array"
             - type: "string"
-          description: "The node to edit. For a heading: an array of heading texts from the top level down to the target (e.g. [\"Overview\",\"Details\"]), or null/[] for the document root. If a heading is a duplicate of an earlier sibling under the same parent, its address carries an extra non-printable marker suffix appended by the server — copy that address verbatim from wherever the document's heading structure was discovered, never retype or reconstruct it. For a block: the bare block id, without the leading `^` (letters, numbers, hyphens, and underscores only). For a frontmatter field: the key."
+          description: "The node to edit. For a heading: an array of heading texts from the top level down to the target (e.g. [\"Overview\",\"Details\"]), or null/[] for the document root. If a heading is a duplicate of an earlier sibling under the same parent, its address carries an extra non-printable marker suffix appended by the server — copy that address verbatim from wherever the document's heading structure was discovered, never retype or reconstruct it. For a block: the bare block id, without the leading `^` (letters, numbers, hyphens, and underscores only) — a duplicate block id's later occurrence carries the same kind of marker suffix, copied verbatim the same way. For a frontmatter field: the key."
           nullable: true
         targetType:
           description: "The kind of node to edit."
@@ -296,7 +296,7 @@ paths:
         
         Percent-encode any segment that contains non-ASCII characters or a literal `/` (e.g. `H%C3%A9llo` for `Héllo`).
         
-        If a document has a duplicate sibling heading (the same text repeated under the same parent), only the first occurrence is addressable by its plain text. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
+        If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
         `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
         
@@ -604,7 +604,7 @@ paths:
         
         ## Identifying patch targets in a file
         
-        Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent), only the first occurrence keeps its plain-text key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
+        Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent) or a block reference ID repeats, only the first occurrence keeps its plain-text/id key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
         
         # Deprecated: the 1.x header-driven format
         
@@ -757,7 +757,7 @@ paths:
         
         Percent-encode any segment that contains non-ASCII characters or a literal `/` (e.g. `H%C3%A9llo` for `Héllo`).
         
-        If a document has a duplicate sibling heading (the same text repeated under the same parent), only the first occurrence is addressable by its plain text. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
+        If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
         `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
         
@@ -878,7 +878,7 @@ paths:
         
         Percent-encode any segment that contains non-ASCII characters or a literal `/` (e.g. `H%C3%A9llo` for `Héllo`).
         
-        If a document has a duplicate sibling heading (the same text repeated under the same parent), only the first occurrence is addressable by its plain text. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
+        If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
         `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
         
@@ -1332,7 +1332,7 @@ paths:
         
         Percent-encode any segment that contains non-ASCII characters or a literal `/` (e.g. `H%C3%A9llo` for `Héllo`).
         
-        If a document has a duplicate sibling heading (the same text repeated under the same parent), only the first occurrence is addressable by its plain text. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
+        If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
         `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
         
@@ -1653,7 +1653,7 @@ paths:
         
         ## Identifying patch targets in a file
         
-        Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent), only the first occurrence keeps its plain-text key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
+        Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent) or a block reference ID repeats, only the first occurrence keeps its plain-text/id key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
         
         # Deprecated: the 1.x header-driven format
         
@@ -1819,7 +1819,7 @@ paths:
         
         Percent-encode any segment that contains non-ASCII characters or a literal `/` (e.g. `H%C3%A9llo` for `Héllo`).
         
-        If a document has a duplicate sibling heading (the same text repeated under the same parent), only the first occurrence is addressable by its plain text. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
+        If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
         `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
         
@@ -1953,7 +1953,7 @@ paths:
         
         Percent-encode any segment that contains non-ASCII characters or a literal `/` (e.g. `H%C3%A9llo` for `Héllo`).
         
-        If a document has a duplicate sibling heading (the same text repeated under the same parent), only the first occurrence is addressable by its plain text. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
+        If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
         `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
         
@@ -2143,7 +2143,7 @@ paths:
         
         Percent-encode any segment that contains non-ASCII characters or a literal `/` (e.g. `H%C3%A9llo` for `Héllo`).
         
-        If a document has a duplicate sibling heading (the same text repeated under the same parent), only the first occurrence is addressable by its plain text. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
+        If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
         `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
         
@@ -2482,7 +2482,7 @@ paths:
         
         ## Identifying patch targets in a file
         
-        Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent), only the first occurrence keeps its plain-text key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
+        Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent) or a block reference ID repeats, only the first occurrence keeps its plain-text/id key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
         
         # Deprecated: the 1.x header-driven format
         
@@ -2666,7 +2666,7 @@ paths:
         
         Percent-encode any segment that contains non-ASCII characters or a literal `/` (e.g. `H%C3%A9llo` for `Héllo`).
         
-        If a document has a duplicate sibling heading (the same text repeated under the same parent), only the first occurrence is addressable by its plain text. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
+        If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
         `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
         
@@ -2818,7 +2818,7 @@ paths:
         
         Percent-encode any segment that contains non-ASCII characters or a literal `/` (e.g. `H%C3%A9llo` for `Héllo`).
         
-        If a document has a duplicate sibling heading (the same text repeated under the same parent), only the first occurrence is addressable by its plain text. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
+        If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
         `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
         
@@ -3290,7 +3290,7 @@ paths:
         
         Percent-encode any segment that contains non-ASCII characters or a literal `/` (e.g. `H%C3%A9llo` for `Héllo`).
         
-        If a document has a duplicate sibling heading (the same text repeated under the same parent), only the first occurrence is addressable by its plain text. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
+        If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
         `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
         
@@ -3599,7 +3599,7 @@ paths:
         
         ## Identifying patch targets in a file
         
-        Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent), only the first occurrence keeps its plain-text key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
+        Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent) or a block reference ID repeats, only the first occurrence keeps its plain-text/id key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
         
         # Deprecated: the 1.x header-driven format
         
@@ -3758,7 +3758,7 @@ paths:
         
         Percent-encode any segment that contains non-ASCII characters or a literal `/` (e.g. `H%C3%A9llo` for `Héllo`).
         
-        If a document has a duplicate sibling heading (the same text repeated under the same parent), only the first occurrence is addressable by its plain text. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
+        If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
         `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
         
@@ -3881,7 +3881,7 @@ paths:
         
         Percent-encode any segment that contains non-ASCII characters or a literal `/` (e.g. `H%C3%A9llo` for `Héllo`).
         
-        If a document has a duplicate sibling heading (the same text repeated under the same parent), only the first occurrence is addressable by its plain text. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
+        If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
         `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
         

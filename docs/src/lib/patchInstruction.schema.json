@@ -22,7 +22,7 @@
           "type": "string"
         }
       ],
-      "description": "The node to edit. For a heading: an array of heading texts from the top level down to the target (e.g. [\"Overview\",\"Details\"]), or null/[] for the document root. If a heading is a duplicate of an earlier sibling under the same parent, its address carries an extra non-printable marker suffix appended by the server — copy that address verbatim from wherever the document's heading structure was discovered, never retype or reconstruct it. For a block: the bare block id, without the leading `^` (letters, numbers, hyphens, and underscores only). For a frontmatter field: the key.",
+      "description": "The node to edit. For a heading: an array of heading texts from the top level down to the target (e.g. [\"Overview\",\"Details\"]), or null/[] for the document root. If a heading is a duplicate of an earlier sibling under the same parent, its address carries an extra non-printable marker suffix appended by the server — copy that address verbatim from wherever the document's heading structure was discovered, never retype or reconstruct it. For a block: the bare block id, without the leading `^` (letters, numbers, hyphens, and underscores only) — a duplicate block id's later occurrence carries the same kind of marker suffix, copied verbatim the same way. For a frontmatter field: the key.",
       "nullable": true
     },
     "operation": {

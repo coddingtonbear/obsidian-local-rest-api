@@ -202,7 +202,7 @@ Pass `ifMatch` with the `version` token from a document map (see below). If the 
 
 ## Identifying patch targets in a file
 
-Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent), only the first occurrence keeps its plain-text key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
+Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent) or a block reference ID repeats, only the first occurrence keeps its plain-text/id key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
 
 # Deprecated: the 1.x header-driven format
 

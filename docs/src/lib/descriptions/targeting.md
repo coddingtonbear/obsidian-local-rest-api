@@ -9,7 +9,7 @@ You can operate on a specific section of a note instead of the whole file by emb
 
 Percent-encode any segment that contains non-ASCII characters or a literal `/` (e.g. `H%C3%A9llo` for `Héllo`).
 
-If a document has a duplicate sibling heading (the same text repeated under the same parent), only the first occurrence is addressable by its plain text. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
+If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
 
 `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. To rename, move, or delete a heading, or to edit with a specific scope, use `PATCH` — its JSON instruction format is the full-featured way to edit a sub-part of a document. See its documentation.
 
