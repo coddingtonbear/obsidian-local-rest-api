@@ -2472,6 +2472,45 @@ describe("requestHandler", () => {
         expect(res.status).toBe(400);
         expect(app.vault.adapter._write).toBeUndefined();
       });
+
+      test("a JSON object body on a heading target is rejected, not stringified into the document", async () => {
+        // A heading's `content` cell takes literal markdown text only. Coercing
+        // a parsed JSON body with String() would write "[object Object]" into
+        // the note and report success — silent corruption.
+        const res = await request(server)
+          .put("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .send({ some: "object" });
+
+        expect(res.status).toBe(400);
+        expect(app.vault.adapter._write).toBeUndefined();
+      });
+
+      test("a JSON array body on a heading target is rejected, not comma-joined into the document", async () => {
+        // String([["x","y"]]) is "x,y" — plausible-looking garbage, which is
+        // worse than "[object Object]" because it can go unnoticed.
+        const res = await request(server)
+          .put("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .send([["x", "y"]]);
+
+        expect(res.status).toBe(400);
+        expect(app.vault.adapter._write).toBeUndefined();
+      });
+
+      test("a JSON body on a frontmatter target still writes the value", async () => {
+        const result = await request(server)
+          .put("/vault/somefile.md/frontmatter/title")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .send(JSON.stringify(["a", "b"]))
+          .expect(200);
+
+        expect(result.text).toContain("- a");
+        expect(result.text).toContain("- b");
+      });
     });
 
     describe("POST", () => {
@@ -2532,6 +2571,17 @@ describe("requestHandler", () => {
 
         expect(result.text).toContain("| Seattle | 8          |");
         expect(result.text).toContain("| Chicago | 16 |");
+      });
+
+      test("a JSON body on a heading target is rejected, not stringified into the document", async () => {
+        const res = await request(server)
+          .post("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .send([["x", "y"]]);
+
+        expect(res.status).toBe(400);
+        expect(app.vault.adapter._write).toBeUndefined();
       });
     });
 
