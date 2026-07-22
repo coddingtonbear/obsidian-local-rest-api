@@ -344,6 +344,88 @@ describe("duplicate sibling heading addressing", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Duplicate block-id addressing (uses its own path so it doesn't disturb the
+// shared fixture's block ids)
+// ---------------------------------------------------------------------------
+
+describe("duplicate block-id addressing", () => {
+  const DUP_BLOCK_PATH = `${TEST_DIR}/mcp-duplicate-blocks.md`;
+  const DUP_BLOCK_DOCUMENT = [
+    "first ^dup",
+    "",
+    "second ^dup",
+    "",
+    "third ^dup",
+    "",
+  ].join("\n");
+
+  beforeEach(async () => {
+    await resetFixture(DUP_BLOCK_DOCUMENT, DUP_BLOCK_PATH);
+  });
+
+  afterAll(async () => {
+    await deleteFixture(DUP_BLOCK_PATH).catch((_e: unknown): void => {});
+  });
+
+  test("the map lists a distinct entry per occurrence, each reachable via vault_read", async () => {
+    const mapResult = await client.callTool({
+      name: "vault_get_document_map",
+      arguments: { path: DUP_BLOCK_PATH },
+    });
+    const body = jsonOf<{ blocks: string[] }>(mapResult);
+    expect(body.blocks).toHaveLength(3);
+    // The first occurrence keeps its plain id; the exact form of the marker
+    // suffix on the others is an implementation detail — what matters is
+    // that they round-trip through the real MCP JSON transport intact and
+    // each resolves to its own block.
+    expect(body.blocks[0]).toBe("dup");
+    expect(body.blocks[1]).not.toBe("dup");
+    expect(body.blocks[2]).not.toBe("dup");
+    expect(body.blocks[2]).not.toBe(body.blocks[1]);
+
+    const expectedContent = ["first", "second", "third"];
+    for (let i = 0; i < body.blocks.length; i++) {
+      const readResult = await client.callTool({
+        name: "vault_read",
+        arguments: { path: DUP_BLOCK_PATH, targetType: "block", target: body.blocks[i] },
+      });
+      expect(textOf(readResult).trim()).toBe(expectedContent[i]);
+    }
+  });
+
+  test("vault_patch on the third occurrence's id edits only that block", async () => {
+    const mapResult = await client.callTool({
+      name: "vault_get_document_map",
+      arguments: { path: DUP_BLOCK_PATH },
+    });
+    const body = jsonOf<{ blocks: string[] }>(mapResult);
+    const thirdId = body.blocks[2];
+
+    const patchResult = await client.callTool({
+      name: "vault_patch",
+      arguments: {
+        path: DUP_BLOCK_PATH,
+        targetType: "block",
+        target: thirdId,
+        operation: "replace",
+        content: "replaced third",
+      },
+    });
+    expect(patchResult.isError).toBeFalsy();
+
+    const readBody = jsonOf<{ content: string }>(
+      await client.callTool({ name: "vault_read", arguments: { path: DUP_BLOCK_PATH } })
+    );
+    expect(readBody.content).toContain("first");
+    expect(readBody.content).toContain("second");
+    expect(readBody.content).toContain("replaced third");
+    // The original (unreplaced) third block's content is gone — checked as a
+    // standalone line so it doesn't false-match inside "replaced third ^dup".
+    expect(readBody.content).not.toContain("\nthird ^dup");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // vault_write + vault_delete (use TEMP_PATH to avoid disturbing shared fixture)
 // ---------------------------------------------------------------------------
 
