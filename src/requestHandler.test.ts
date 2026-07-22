@@ -2071,6 +2071,110 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("URL path decoding — literal slashes in a target", () => {
+    // A `/` inside a heading name is a real thing (e.g. "TODO/DONE"). It reaches
+    // the API percent-encoded as %2F; the path must split on the *raw* slashes
+    // and decode each segment, so the encoded slash stays literal inside the one
+    // heading segment instead of being read as a path boundary.
+    const markdown = [
+      "# A/B",
+      "slash-heading-body",
+      "# Plain",
+      "plain-body",
+      "",
+    ].join("\n");
+
+    function setFileContent(content: string): void {
+      app.vault._read = content;
+      app.vault.adapter._read = content;
+      const buf = new ArrayBuffer(content.length);
+      const view = new Uint8Array(buf);
+      for (let i = 0; i < content.length; i++) view[i] = content.charCodeAt(i);
+      app.vault.adapter._readBinary = buf;
+    }
+
+    beforeEach(() => {
+      app.vault.adapter._statForPath = "somefile.md";
+      setFileContent(markdown);
+    });
+
+    test("GET reads a heading whose text contains a slash", async () => {
+      const res = await request(server)
+        .get("/vault/somefile.md/heading/A%2FB")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown");
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("slash-heading-body");
+      expect(res.text).not.toContain("plain-body");
+    });
+
+    test("PUT replaces a heading whose text contains a slash", async () => {
+      const res = await request(server)
+        .put("/vault/somefile.md/heading/A%2FB")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("replaced\n");
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("replaced");
+      expect(res.text).not.toContain("slash-heading-body");
+      // The sibling section is untouched, proving only "A/B" was addressed.
+      expect(res.text).toContain("plain-body");
+    });
+
+    test("PATCH raw-content appends to a heading whose text contains a slash", async () => {
+      const res = await request(server)
+        .patch("/vault/somefile.md/heading/A%2FB")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Operation", "append")
+        .set("Content-Type", "text/markdown")
+        .send("- added\n");
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("slash-heading-body\n- added");
+    });
+
+    test("a slash-bearing heading segment is not mistaken for a nested heading path", async () => {
+      // Were the %2F read as a boundary, this would look for heading "B" under
+      // "A" — which does not exist — and 404. It must resolve "A/B" instead.
+      const res = await request(server)
+        .get("/vault/somefile.md/heading/A%2FB")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown");
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe("URL path decoding — an encoded slash is not a file separator", () => {
+    // Percent-encoding a `/` inside the *file* portion used to resolve the same
+    // as a real separator, because the whole path was decoded before splitting.
+    // A file or folder name can't contain a slash, so a segment that decodes to
+    // one can only be a target address — never a file path. `folder%2Fnote.md`
+    // (the file portion as one encoded segment) therefore no longer resolves.
+    beforeEach(() => {
+      const doc = "# H\nbody\n";
+      app.vault._read = doc;
+      app.vault.adapter._read = doc;
+      app.vault.adapter._readBinary = Buffer.from(doc);
+      // The real file lives at folder/note.md, reachable as /vault/folder/note.md.
+      app.vault.adapter._statForPath = "folder/note.md";
+    });
+
+    test("the natural /-separated path still resolves", async () => {
+      const res = await request(server)
+        .get("/vault/folder/note.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown");
+      expect(res.status).toBe(200);
+    });
+
+    test("the whole file path as one %2F-encoded segment no longer resolves", async () => {
+      const res = await request(server)
+        .get("/vault/folder%2Fnote.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/markdown");
+      expect(res.status).toBe(404);
+    });
+  });
+
   describe("tagsGet", () => {
     test("aggregates tags from markdown files", async () => {
       const file1 = new TFile();
@@ -3777,6 +3881,37 @@ describe("requestHandler", () => {
         .set("Content-Type", "text/markdown")
         .send("x");
       expect(res.status).toBe(422);
+    });
+
+    test("an active-file PATCH suffix targets a heading whose text contains a slash", async () => {
+      // The suffix reaches these handlers through the wildcard capture, which
+      // Express decodes — collapsing %2F to a boundary. The raw suffix must be
+      // recovered from the request path so a slash-bearing heading still targets.
+      setNote("notes/active.md");
+      app.vault._read = "# A/B\nEntry\n\n# Other\nx\n";
+      app.vault.adapter._read = app.vault._read;
+      const res = await request(server)
+        .patch("/active/heading/A%2FB")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Operation", "append")
+        .set("Content-Type", "text/markdown")
+        .send("- added\n");
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("Entry\n- added");
+    });
+
+    test("a periodic-note PATCH suffix targets a heading whose text contains a slash", async () => {
+      setNote("daily/2024-01-15.md");
+      app.vault._read = "# A/B\nEntry\n\n# Other\nx\n";
+      app.vault.adapter._read = app.vault._read;
+      const res = await request(server)
+        .patch("/periodic/daily/heading/A%2FB")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Operation", "append")
+        .set("Content-Type", "text/markdown")
+        .send("- added\n");
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("Entry\n- added");
     });
   });
 });
