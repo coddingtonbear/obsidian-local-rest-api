@@ -1728,6 +1728,18 @@ export default class RequestHandler {
       });
       return;
     }
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+      if (resolved?.targetType) {
+        res.set("Content-Location", encodeURI(file.path));
+        return this._vaultPatch(resolved.filePath, req, res, {
+          targetType: resolved.targetType,
+          target: resolved.target,
+          targetSegments: resolved.targetSegments,
+        });
+      }
+    }
     return this.redirectToVaultPath(
       file,
       req,
@@ -1885,6 +1897,18 @@ export default class RequestHandler {
     if (!file) {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
+    }
+    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
+    if (suffix) {
+      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+      if (resolved?.targetType) {
+        res.set("Content-Location", encodeURI(file.path));
+        return this._vaultPatch(resolved.filePath, req, res, {
+          targetType: resolved.targetType,
+          target: resolved.target,
+          targetSegments: resolved.targetSegments,
+        });
+      }
     }
     return this.redirectToVaultPath(
       file,
