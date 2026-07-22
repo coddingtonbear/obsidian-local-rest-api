@@ -934,6 +934,23 @@ export default class RequestHandler {
       return;
     }
 
+    // Reaching here means version === 2 and source === "path" (header-sourced
+    // requests under version 2 were already rejected above). Target-Scope,
+    // Target-Delimiter, and Trim-Target-Whitespace only mean something for the
+    // deprecated header-driven target — path-element targeting already carries
+    // an unambiguous address and always writes content scope. Silently ignoring
+    // these headers rather than rejecting them would be a data-loss hazard for
+    // an un-upgraded 1.x client: e.g. a `Target-Scope: marker` heading rename
+    // would instead replace the section's entire body.
+    if (
+      req.get("Target-Scope") ||
+      req.get("Target-Delimiter") ||
+      req.get("Trim-Target-Whitespace")
+    ) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.HeaderTargetingRequiresVersion1 });
+      return;
+    }
+
     // version === 2 with path-element targeting → the 2.0 engine.
     if (!isV2TargetType(targetType)) {
       this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetTypeHeader });
