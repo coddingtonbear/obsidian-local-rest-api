@@ -632,6 +632,19 @@ describe("requestHandler", () => {
       expect(res.status).toBe(400);
       expect(JSON.parse(res.text).errorCode).toBe(40080);
     });
+
+    test("a duplicate block id gets its own disambiguated entry in the 2.0 map", async () => {
+      app.vault.adapter._read = ["first ^dup", "", "second ^dup", ""].join("\n");
+      const res = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", MAP_CT)
+        .expect(200);
+      expect(res.body.blocks).toHaveLength(2);
+      expect(res.body.blocks[0]).toBe("dup");
+      expect(res.body.blocks[1]).not.toBe("dup");
+      expect(res.body.blocks[1].startsWith("dup")).toBe(true);
+    });
   });
 
   describe("vaultPut", () => {
@@ -1674,6 +1687,25 @@ describe("requestHandler", () => {
         expect(second.text).toEqual("second\n");
       });
 
+      test("a duplicate block id's disambiguated key reaches the correct (second) block", async () => {
+        setFileContent(
+          ["first ^dup", "", "second ^dup", ""].join("\n"),
+        );
+        const secondDupKey = "dup\u{FC750}\u{F6440}";
+
+        const first = await request(server)
+          .get("/vault/somefile.md/block/dup")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(200);
+        expect(first.text).toEqual("first");
+
+        const second = await request(server)
+          .get(`/vault/somefile.md/block/${encodeURIComponent(secondDupKey)}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(200);
+        expect(second.text).toEqual("second");
+      });
+
       test("frontmatter via URL segments returns JSON value", async () => {
         const result = await request(server)
           .get("/vault/somefile.md/frontmatter/title")
@@ -1743,6 +1775,24 @@ describe("requestHandler", () => {
           .set("Authorization", `Bearer ${API_KEY}`)
           .set("Content-Type", "text/markdown")
           .send("replaced\n")
+          .expect(200);
+
+        expect(result.text).toContain("first");
+        expect(result.text).toContain("replaced");
+        expect(result.text).not.toContain("second");
+      });
+
+      test("a duplicate block id's disambiguated key writes only the correct (second) block", async () => {
+        setFileContent(
+          ["first ^dup", "", "second ^dup", ""].join("\n"),
+        );
+        const secondDupKey = "dup\u{FC750}\u{F6440}";
+
+        const result = await request(server)
+          .put(`/vault/somefile.md/block/${encodeURIComponent(secondDupKey)}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("replaced")
           .expect(200);
 
         expect(result.text).toContain("first");

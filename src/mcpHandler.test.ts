@@ -333,6 +333,16 @@ describe("McpHandler", () => {
       );
     });
 
+    test("passes a duplicate-block marker suffix through a block target unchanged", async () => {
+      const cb = getToolCallback("vault_read");
+      const disambiguated = "beta-block\u{FC750}\u{F6440}";
+      await cb({ path: "test.md", targetType: "block", target: disambiguated });
+      expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
+        expect.anything(),
+        { targetType: "block", target: disambiguated },
+      );
+    });
+
     test("returns a frontmatter value from readFileSectionMdp2", async () => {
       ops.readFileSectionMdp2.mockResolvedValueOnce({ kind: "frontmatter", value: 3 });
       const cb = getToolCallback("vault_read");
@@ -395,6 +405,20 @@ describe("McpHandler", () => {
       const body = parseText(result);
       expect(Object.keys(body.headings)).toEqual(["Alpha", disambiguated]);
     });
+
+    test("returns a duplicate block's marker-suffixed entry unmodified", async () => {
+      const disambiguated = "dup\u{FC750}\u{F6440}";
+      ops.getDocumentMapV2Object.mockResolvedValueOnce({
+        version: "abc123",
+        headings: {},
+        blocks: ["dup", disambiguated],
+        frontmatterFields: [],
+      });
+      const cb = getToolCallback("vault_get_document_map");
+      const result = await cb({ path: "test.md" });
+      const body = parseText(result);
+      expect(body.blocks).toEqual(["dup", disambiguated]);
+    });
   });
 
   // ---- vault_write --------------------------------------------------------
@@ -448,6 +472,24 @@ describe("McpHandler", () => {
       targetType: "heading",
       target: [disambiguated],
       operation: "append",
+      content: "new text",
+    });
+  });
+
+  test("vault_patch passes a duplicate-block marker suffix through a block target unchanged", async () => {
+    const cb = getToolCallback("vault_patch");
+    const disambiguated = "dup\u{FC750}\u{F6440}";
+    await cb({
+      path: "out.md",
+      targetType: "block",
+      target: disambiguated,
+      operation: "replace",
+      content: "new text",
+    });
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "block",
+      target: disambiguated,
+      operation: "replace",
       content: "new text",
     });
   });
