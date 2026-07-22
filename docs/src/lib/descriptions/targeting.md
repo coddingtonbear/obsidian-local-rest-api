@@ -7,7 +7,7 @@ You can operate on a specific section of a note instead of the whole file by emb
 - `.../block/abc123` targets the block with reference ID `abc123`.
 - `.../frontmatter/fieldName` targets the `fieldName` frontmatter field.
 
-Percent-encode any segment that contains non-ASCII characters or a literal `/` (e.g. `H%C3%A9llo` for `Héllo`).
+Percent-encode any segment that contains non-ASCII characters or a literal `/` (e.g. `H%C3%A9llo` for `Héllo`, or `TODO%2FDONE` for a heading named `TODO/DONE`). Each URL path segment is decoded on its own, so an encoded `%2F` stays a literal slash *inside* that one segment rather than acting as a separator — that is what lets a heading name contain a slash. The same rule applies to the note path itself: because a file or folder name can never contain a slash, the note must be addressed with real `/` separators between its path components (`/vault/folder/note.md`), not with the separators encoded (`/vault/folder%2Fnote.md`), which no longer resolves.
 
 If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
 

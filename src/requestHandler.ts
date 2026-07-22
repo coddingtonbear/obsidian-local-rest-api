@@ -285,67 +285,136 @@ export default class RequestHandler {
     });
   }
 
-  private extractVaultPath(req: express.Request, res: express.Response): string | null {
-    let decoded: string;
+  /** The vault path from the request, split into decoded segments.
+   *
+   *  `req.path` is the raw, still-encoded path, so it is split on its *real*
+   *  slashes and each segment is decoded individually. A `%2F` therefore stays a
+   *  literal `/` inside the one segment it belongs to (e.g. a heading named
+   *  "A/B") instead of re-forming a path boundary the way a decode-then-split
+   *  would. Returns null (and sends a 400) on malformed encoding or a path that
+   *  escapes the vault root. */
+  private extractVaultPath(
+    req: express.Request,
+    res: express.Response,
+  ): string[] | null {
+    const rawRemainder = req.path.slice(req.path.indexOf("/", 1) + 1);
+    let segments: string[];
     try {
-      decoded = decodeURIComponent(req.path.slice(req.path.indexOf("/", 1) + 1));
+      segments = rawRemainder.split("/").map((s) => decodeURIComponent(s));
     } catch {
       this.returnCannedResponse(res, { errorCode: ErrorCode.PathTraversalNotAllowed });
       return null;
     }
+    // Traversal guard: resolve the decoded path against the synthetic vault root
+    // and reject anything that escapes it. Applied to the joined form so an
+    // encoded `..%2F..%2F…` — which arrives as a single segment — is still
+    // caught after decoding.
     const syntheticRoot = "/vault";
-    const resolved = posix.resolve(syntheticRoot, decoded);
+    const resolved = posix.resolve(syntheticRoot, segments.join("/"));
     if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
       this.returnCannedResponse(res, { errorCode: ErrorCode.PathTraversalNotAllowed });
       return null;
     }
-    return decoded;
+    return segments;
+  }
+
+  /** Join decoded segments into a whole-file path, or null when a segment holds
+   *  a literal `/` (a decoded `%2F`). A file or folder name can never contain a
+   *  slash, so such a segment can only belong to a target address — this is what
+   *  stops `folder%2Fnote.md` (one segment "folder/note.md") from resolving as a
+   *  file. A trailing empty segment (a trailing slash) is preserved so the
+   *  whole-file handlers still reject a directory path. */
+  private wholeFilePath(segments: string[]): string | null {
+    if (segments.some((segment) => segment.includes("/"))) return null;
+    return segments.join("/");
+  }
+
+  /** The wildcard suffix of an `/active/*` or `/periodic/…/*` route, split into
+   *  decoded segments. Express decodes the `req.params[0]` wildcard capture
+   *  before the handler runs — collapsing a `%2F` to a boundary — so the raw
+   *  suffix is recovered from `req.path` (still encoded) and each segment decoded
+   *  individually, mirroring {@link extractVaultPath}. The static prefix length
+   *  comes from the matched route pattern. Returns null (and sends a 400) on
+   *  malformed encoding. */
+  private rawSuffixSegments(
+    req: express.Request,
+    res: express.Response,
+  ): string[] | null {
+    const route = req.route as { path?: string } | undefined;
+    const routePath = route?.path ?? "";
+    // The pattern ends in the `*` wildcard; every earlier segment is static
+    // prefix. Dropping that many leading segments of the raw path leaves the
+    // still-encoded suffix.
+    const prefixLength = routePath.split("/").length - 1;
+    const rawSegments = req.path
+      .split("/")
+      .slice(prefixLength)
+      .filter((segment) => segment.length > 0);
+    try {
+      return rawSegments.map((segment) => decodeURIComponent(segment));
+    } catch {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.PathTraversalNotAllowed });
+      return null;
+    }
   }
 
   async _vaultGet(
-    path: string,
+    segments: string[],
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    // Step 1: Normalize trailing slash
-    const normalizedPath = path.endsWith("/") ? path.slice(0, -1) : path;
+    // A whole-file or directory match only applies when the path can name one:
+    // a segment holding a literal "/" (a decoded %2F) never can, so such a path
+    // is a target address only (see wholeFilePath). Step 1: normalize trailing
+    // slash off the whole-file path.
+    const wholeFilePath = this.wholeFilePath(segments);
+    const normalizedPath =
+      wholeFilePath === null
+        ? null
+        : wholeFilePath.endsWith("/")
+          ? wholeFilePath.slice(0, -1)
+          : wholeFilePath;
 
     // Step 2: Exact file match (fast path)
-    let filePath = normalizedPath;
+    let filePath = normalizedPath ?? "";
     let urlTargetType: string | undefined;
     let urlTarget: string | undefined;
     let urlTargetSegments: string[] | undefined;
 
     let exactStat = null;
-    try {
-      exactStat = normalizedPath
-        ? await this.app.vault.adapter.stat(normalizedPath)
-        : null;
-    } catch {
-      // ENOTDIR: a path segment is a file, not a directory — treat as no match.
+    if (normalizedPath !== null) {
+      try {
+        exactStat = normalizedPath
+          ? await this.app.vault.adapter.stat(normalizedPath)
+          : null;
+      } catch {
+        // ENOTDIR: a path segment is a file, not a directory — treat as no match.
+      }
     }
 
     if (!exactStat || exactStat.type !== "file") {
-      // Step 3: Directory listing check
-      const prefix = normalizedPath ? normalizedPath + "/" : "";
-      const hasChildren = this.app.vault
-        .getFiles()
-        .some((f) => f.path.startsWith(prefix));
+      // Step 3: Directory listing check (only when the path can be a directory).
+      if (normalizedPath !== null) {
+        const prefix = normalizedPath ? normalizedPath + "/" : "";
+        const hasChildren = this.app.vault
+          .getFiles()
+          .some((f) => f.path.startsWith(prefix));
 
-      if (!normalizedPath || hasChildren) {
-        const files = await this.operations.listVaultDirectory(normalizedPath);
+        if (!normalizedPath || hasChildren) {
+          const files = await this.operations.listVaultDirectory(normalizedPath);
 
-        if (files.length === 0 && normalizedPath) {
-          this.returnCannedResponse(res, { statusCode: 404 });
+          if (files.length === 0 && normalizedPath) {
+            this.returnCannedResponse(res, { statusCode: 404 });
+            return;
+          }
+
+          res.json({ files: files });
           return;
         }
-
-        res.json({ files: files });
-        return;
       }
 
       // Steps 4-5: Walk backward to find file + target (404 if nothing found)
-      const resolved = await this._resolvePathAndTarget(normalizedPath);
+      const resolved = await this._resolvePathAndTarget(segments);
       if (!resolved?.targetType) {
         this.returnCannedResponse(res, { statusCode: 404 });
         return;
@@ -571,21 +640,21 @@ export default class RequestHandler {
   }
 
   async vaultGet(req: express.Request, res: express.Response): Promise<void> {
-    const path = this.extractVaultPath(req, res);
-    if (path === null) return;
-    return this._vaultGet(path, req, res);
+    const segments = this.extractVaultPath(req, res);
+    if (segments === null) return;
+    return this._vaultGet(segments, req, res);
   }
 
   /** Resolves a raw path (possibly containing a URL-embedded target) into a
    *  file path and optional target type + target string.  Returns null when no
    *  vault file can be found at any prefix of the path. */
-  async _resolvePathAndTarget(rawPath: string): Promise<{
+  async _resolvePathAndTarget(segments: string[]): Promise<{
     filePath: string;
     targetType?: string;
     target?: string;
     targetSegments?: string[];
   } | null> {
-    return this.operations.resolvePathAndTarget(rawPath);
+    return this.operations.resolvePathAndTarget(segments);
   }
 
   /** Reads Target-Type / Target headers, validates them, and returns the
@@ -728,14 +797,12 @@ export default class RequestHandler {
   }
 
   async vaultPut(req: express.Request, res: express.Response): Promise<void> {
-    const rawPath = this.extractVaultPath(req, res);
-    if (rawPath === null) return;
-    const resolved = await this._resolvePathAndTarget(rawPath);
+    const segments = this.extractVaultPath(req, res);
+    if (segments === null) return;
+    const resolved = await this._resolvePathAndTarget(segments);
     if (resolved === null) {
       if (
-        rawPath
-          .split("/")
-          .some((s) => ["heading", "block", "frontmatter"].includes(s))
+        segments.some((s) => ["heading", "block", "frontmatter"].includes(s))
       ) {
         this.returnCannedResponse(res, { statusCode: 404 });
         return;
@@ -757,11 +824,18 @@ export default class RequestHandler {
         { createTargetIfMissing: true, source: "path", targetSegments: resolved.targetSegments },
       );
     }
+    // No URL target resolved: the request addresses a whole file. A segment
+    // holding a literal "/" cannot name one (see wholeFilePath), so it 404s.
+    const filePath = this.wholeFilePath(segments);
+    if (filePath === null) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
     const headerTarget = this._getHeaderTarget(req, res);
     if (headerTarget !== undefined) {
       if (!headerTarget) return; // error already sent
       return this._vaultPatchTargeted(
-        rawPath,
+        filePath,
         headerTarget.targetType,
         headerTarget.target,
         "replace",
@@ -770,7 +844,7 @@ export default class RequestHandler {
         { createTargetIfMissing: true, source: "header" },
       );
     }
-    return this._vaultPut(rawPath, req, res);
+    return this._vaultPut(filePath, req, res);
   }
 
   async _vaultPatch(
@@ -937,14 +1011,12 @@ export default class RequestHandler {
   }
 
   async vaultPatch(req: express.Request, res: express.Response): Promise<void> {
-    const rawPath = this.extractVaultPath(req, res);
-    if (rawPath === null) return;
-    const resolved = await this._resolvePathAndTarget(rawPath);
+    const segments = this.extractVaultPath(req, res);
+    if (segments === null) return;
+    const resolved = await this._resolvePathAndTarget(segments);
     if (resolved === null) {
       if (
-        rawPath
-          .split("/")
-          .some((s) => ["heading", "block", "frontmatter"].includes(s))
+        segments.some((s) => ["heading", "block", "frontmatter"].includes(s))
       ) {
         this.returnCannedResponse(res, { statusCode: 404 });
         return;
@@ -956,7 +1028,12 @@ export default class RequestHandler {
         targetSegments: resolved.targetSegments,
       });
     }
-    return this._vaultPatch(rawPath, req, res);
+    const filePath = this.wholeFilePath(segments);
+    if (filePath === null) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
+    return this._vaultPatch(filePath, req, res);
   }
 
   /** The markdown-patch 2.0 PATCH path. ("Mdp2" = markdown-patch 2.0, not the
@@ -1389,14 +1466,12 @@ export default class RequestHandler {
   }
 
   async vaultPost(req: express.Request, res: express.Response): Promise<void> {
-    const rawPath = this.extractVaultPath(req, res);
-    if (rawPath === null) return;
-    const resolved = await this._resolvePathAndTarget(rawPath);
+    const segments = this.extractVaultPath(req, res);
+    if (segments === null) return;
+    const resolved = await this._resolvePathAndTarget(segments);
     if (resolved === null) {
       if (
-        rawPath
-          .split("/")
-          .some((s) => ["heading", "block", "frontmatter"].includes(s))
+        segments.some((s) => ["heading", "block", "frontmatter"].includes(s))
       ) {
         this.returnCannedResponse(res, { statusCode: 404 });
         return;
@@ -1418,11 +1493,16 @@ export default class RequestHandler {
         { source: "path", targetSegments: resolved.targetSegments },
       );
     }
+    const filePath = this.wholeFilePath(segments);
+    if (filePath === null) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
     const headerTarget = this._getHeaderTarget(req, res);
     if (headerTarget !== undefined) {
       if (!headerTarget) return; // error already sent
       return this._vaultPatchTargeted(
-        rawPath,
+        filePath,
         headerTarget.targetType,
         headerTarget.target,
         "append",
@@ -1431,7 +1511,7 @@ export default class RequestHandler {
         { source: "header" },
       );
     }
-    return this._vaultPost(rawPath, req, res);
+    return this._vaultPost(filePath, req, res);
   }
 
   async _vaultDelete(
@@ -1463,9 +1543,9 @@ export default class RequestHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const rawPath = this.extractVaultPath(req, res);
-    if (rawPath === null) return;
-    const resolved = await this._resolvePathAndTarget(rawPath);
+    const segments = this.extractVaultPath(req, res);
+    if (segments === null) return;
+    const resolved = await this._resolvePathAndTarget(segments);
     if (resolved?.targetType) {
       this.returnCannedResponse(res, {
         statusCode: 405,
@@ -1474,7 +1554,12 @@ export default class RequestHandler {
       });
       return;
     }
-    return this._vaultDelete(rawPath, req, res);
+    const filePath = this.wholeFilePath(segments);
+    if (filePath === null) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
+    return this._vaultDelete(filePath, req, res);
   }
 
   async _vaultMove(
@@ -1557,9 +1642,15 @@ export default class RequestHandler {
   }
 
   async vaultMove(req: express.Request, res: express.Response): Promise<void> {
-    const path = this.extractVaultPath(req, res);
-    if (path === null) return;
-    return this._vaultMove(path, req, res);
+    const segments = this.extractVaultPath(req, res);
+    if (segments === null) return;
+    // Move addresses a whole file; a %2F-bearing segment can't name one.
+    const filePath = this.wholeFilePath(segments);
+    if (filePath === null) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
+    return this._vaultMove(filePath, req, res);
   }
 
   getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
@@ -1630,10 +1721,14 @@ export default class RequestHandler {
       return;
     }
 
-    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
-    const path = file.path + (suffix ? "/" + suffix : "");
+    const suffixSegments = this.rawSuffixSegments(req, res);
+    if (suffixSegments === null) return;
     res.set("Content-Location", encodeURI(file.path));
-    return this._vaultGet(path, req, res);
+    return this._vaultGet(
+      [...file.path.split("/"), ...suffixSegments],
+      req,
+      res,
+    );
   }
 
   async periodicPut(
@@ -1651,9 +1746,13 @@ export default class RequestHandler {
       });
       return;
     }
-    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
-    if (suffix) {
-      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+    const suffixSegments = this.rawSuffixSegments(req, res);
+    if (suffixSegments === null) return;
+    if (suffixSegments.length > 0) {
+      const resolved = await this._resolvePathAndTarget([
+        ...file.path.split("/"),
+        ...suffixSegments,
+      ]);
       if (resolved?.targetType) {
         if (req.get("Target-Type") || req.get("Target")) {
           this.returnCannedResponse(res, {
@@ -1705,9 +1804,13 @@ export default class RequestHandler {
       });
       return;
     }
-    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
-    if (suffix) {
-      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+    const suffixSegments = this.rawSuffixSegments(req, res);
+    if (suffixSegments === null) return;
+    if (suffixSegments.length > 0) {
+      const resolved = await this._resolvePathAndTarget([
+        ...file.path.split("/"),
+        ...suffixSegments,
+      ]);
       if (resolved?.targetType) {
         if (req.get("Target-Type") || req.get("Target")) {
           this.returnCannedResponse(res, {
@@ -1759,9 +1862,13 @@ export default class RequestHandler {
       });
       return;
     }
-    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
-    if (suffix) {
-      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+    const suffixSegments = this.rawSuffixSegments(req, res);
+    if (suffixSegments === null) return;
+    if (suffixSegments.length > 0) {
+      const resolved = await this._resolvePathAndTarget([
+        ...file.path.split("/"),
+        ...suffixSegments,
+      ]);
       if (resolved?.targetType) {
         res.set("Content-Location", encodeURI(file.path));
         return this._vaultPatch(resolved.filePath, req, res, {
@@ -1791,8 +1898,9 @@ export default class RequestHandler {
       });
       return;
     }
-    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
-    if (suffix) {
+    const suffixSegments = this.rawSuffixSegments(req, res);
+    if (suffixSegments === null) return;
+    if (suffixSegments.length > 0) {
       this.returnCannedResponse(res, {
         statusCode: 405,
         message:
@@ -1818,10 +1926,14 @@ export default class RequestHandler {
       return;
     }
 
-    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
-    const path = file.path + (suffix ? "/" + suffix : "");
+    const suffixSegments = this.rawSuffixSegments(req, res);
+    if (suffixSegments === null) return;
     res.set("Content-Location", encodeURI(file.path));
-    return this._vaultGet(path, req, res);
+    return this._vaultGet(
+      [...file.path.split("/"), ...suffixSegments],
+      req,
+      res,
+    );
   }
 
   async activeFilePut(
@@ -1833,9 +1945,13 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
-    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
-    if (suffix) {
-      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+    const suffixSegments = this.rawSuffixSegments(req, res);
+    if (suffixSegments === null) return;
+    if (suffixSegments.length > 0) {
+      const resolved = await this._resolvePathAndTarget([
+        ...file.path.split("/"),
+        ...suffixSegments,
+      ]);
       if (resolved?.targetType) {
         if (req.get("Target-Type") || req.get("Target")) {
           this.returnCannedResponse(res, {
@@ -1881,9 +1997,13 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
-    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
-    if (suffix) {
-      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+    const suffixSegments = this.rawSuffixSegments(req, res);
+    if (suffixSegments === null) return;
+    if (suffixSegments.length > 0) {
+      const resolved = await this._resolvePathAndTarget([
+        ...file.path.split("/"),
+        ...suffixSegments,
+      ]);
       if (resolved?.targetType) {
         if (req.get("Target-Type") || req.get("Target")) {
           this.returnCannedResponse(res, {
@@ -1929,9 +2049,13 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
-    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
-    if (suffix) {
-      const resolved = await this._resolvePathAndTarget(file.path + "/" + suffix);
+    const suffixSegments = this.rawSuffixSegments(req, res);
+    if (suffixSegments === null) return;
+    if (suffixSegments.length > 0) {
+      const resolved = await this._resolvePathAndTarget([
+        ...file.path.split("/"),
+        ...suffixSegments,
+      ]);
       if (resolved?.targetType) {
         res.set("Content-Location", encodeURI(file.path));
         return this._vaultPatch(resolved.filePath, req, res, {
@@ -1958,8 +2082,9 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { statusCode: 404 });
       return;
     }
-    const suffix = req.params[0] ? decodeURIComponent(req.params[0]) : "";
-    if (suffix) {
+    const suffixSegments = this.rawSuffixSegments(req, res);
+    if (suffixSegments === null) return;
+    if (suffixSegments.length > 0) {
       this.returnCannedResponse(res, {
         statusCode: 405,
         message:
