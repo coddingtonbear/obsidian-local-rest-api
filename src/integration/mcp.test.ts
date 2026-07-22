@@ -157,7 +157,7 @@ describe("vault_read tool", () => {
   test("returns heading section content when targetType=heading", async () => {
     const result = await client.callTool({
       name: "vault_read",
-      arguments: { path: TEST_PATH, targetType: "heading", target: HEADING_ALPHA },
+      arguments: { path: TEST_PATH, targetType: "heading", target: [HEADING_ALPHA] },
     });
     const text = textOf(result);
     expect(text).toContain(TERM_ALPHA);
@@ -207,9 +207,18 @@ describe("vault_read tool", () => {
   test("returns isError when heading target is not found", async () => {
     const result = await client.callTool({
       name: "vault_read",
-      arguments: { path: TEST_PATH, targetType: "heading", target: "NoSuchHeading" },
+      arguments: { path: TEST_PATH, targetType: "heading", target: ["NoSuchHeading"] },
     });
     expect(result.isError).toBe(true);
+  });
+
+  test("returns isError when heading target is a bare string", async () => {
+    const result = await client.callTool({
+      name: "vault_read",
+      arguments: { path: TEST_PATH, targetType: "heading", target: HEADING_ALPHA },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("array");
   });
 });
 
