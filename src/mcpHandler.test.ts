@@ -303,13 +303,11 @@ describe("McpHandler", () => {
       expect(parseText(result)).toBe("section content");
     });
 
-    test("wraps a bare string heading target in a single-element array", async () => {
+    test("rejects a bare string heading target", async () => {
       const cb = getToolCallback("vault_read");
-      await cb({ path: "test.md", targetType: "heading", target: "Alpha" });
-      expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
-        expect.anything(),
-        { targetType: "heading", target: ["Alpha"] },
-      );
+      await expect(
+        cb({ path: "test.md", targetType: "heading", target: "Alpha" }),
+      ).rejects.toThrow("must be an array");
     });
 
     test("passes a block target through as a string", async () => {
