@@ -2,16 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(npm run:*)",
-      "Bash(git commit -m ':*)",
       "Bash(grep -E \"\\\\.\\(ts|js|json\\)$\")",
       "WebFetch(domain:github.com)",
       "Bash(gh issue:*)",
       "WebFetch(domain:docs.cursor.com)",
       "WebFetch(domain:support.claude.com)",
-      "Bash(git commit -m ' *)",
+      "Bash(git *)",
       "mcp__obsidian__vault_list",
       "mcp__obsidian__vault_write",
-      "Bash(NODE_OPTIONS=--experimental-vm-modules npx jest *)",
+      "Bash(* npx jest *)",
       "Bash(git commit -m ' *)",
       "mcp__obsidian__vault_list",
       "mcp__obsidian__vault_write",
