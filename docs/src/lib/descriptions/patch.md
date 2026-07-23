@@ -225,7 +225,7 @@ The target can ride in either of two places (never both — that's a `422`):
 - **URL path elements**, exactly as GET/PUT/POST use them: `PATCH /vault/note.md/heading/A/B`. No version header needed.
 - **`Target-Type` / `Target` headers**, together with an explicit `Markdown-Patch-Version: 2`. The `Target` encoding is type-dependent, mirroring the instruction's `target` field: a heading Target is **JSON, percent-encoded** — `["A","B"]` sent as `%5B%22A%22%2C%22B%22%5D`, or `null` for the document root — while block and frontmatter Targets are the plain id/key (percent-encoded if non-ASCII). Because `Target` headers on a PATCH are ambiguous with the deprecated 1.x format, omitting the version header fails loudly with `400 PatchHeaderTargetingRequiresExplicitVersion` rather than guessing.
 
-The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
+The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Within` (the instruction's `within` index as a plain integer, e.g. `-1` — splice into one of the section's body blocks instead of adding a new one), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
 
 The body is the payload carrier, chosen by its content type:
 
@@ -244,6 +244,17 @@ curl -k -X PATCH \
   -H "Operation: append" \
   -H "Content-Type: text/markdown" \
   --data "- $TEMPLATED_CONTENT" \
+  "https://127.0.0.1:27124/vault/notes/daily.md/heading/Log"
+
+# Extend the section's last list *in place* (not a new block below it):
+# Within picks the block, and the leading newline in the body makes the
+# spliced text a new item of that list
+curl -k -X PATCH \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Operation: append" \
+  -H "Within: -1" \
+  -H "Content-Type: text/markdown" \
+  --data $'\n- '"$TEMPLATED_CONTENT" \
   "https://127.0.0.1:27124/vault/notes/daily.md/heading/Log"
 
 # The same edit with header targeting (note the explicit version and JSON Target)

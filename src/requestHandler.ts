@@ -1199,6 +1199,20 @@ export default class RequestHandler {
       }
     }
 
+    // A strict integer only (`-?digits`): parseInt would accept trailing
+    // garbage like `1x`, silently landing the edit on the wrong block.
+    let within: number | undefined;
+    const rawWithin = req.get("Within");
+    if (rawWithin !== undefined) {
+      if (!/^-?\d+$/.test(rawWithin.trim())) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidWithinHeader,
+        });
+        return;
+      }
+      within = Number(rawWithin.trim());
+    }
+
     // Standard If-Match carries a quoted ETag (RFC 9110); the engine's token
     // is bare — accept either by stripping one pair of surrounding quotes.
     const rawIfMatch = req.get("If-Match");
@@ -1215,6 +1229,7 @@ export default class RequestHandler {
       target: target.target,
       operation,
     };
+    if (within !== undefined) candidate.within = within;
     if (scope !== undefined) candidate.scope = scope;
     if (destination !== undefined) candidate.destination = destination;
     if (ifMatch !== undefined) candidate.ifMatch = ifMatch;

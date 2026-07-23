@@ -205,6 +205,25 @@
       default: 'content',
     },
   },
+  patchWithin: {
+    name: 'Within',
+    'in': 'header',
+    description: |||
+      Raw-content mode: the instruction's `within` — a single integer (e.g.
+      `-1`) refining a heading target to one of the section's direct-body
+      top-level blocks (0-based document order, negative counting from the
+      end; isolated `^id` lines are not counted). With the default `content`
+      scope the body is spliced literally into that block — an `append`
+      *continues* it — and a bodiless `delete` removes it; with
+      `Target-Scope: markerAndContent`, `prepend`/`append` insert the body as
+      a new block beside it. Heading targets only; cannot be combined with
+      `Create-Target-If-Missing`.
+    |||,
+    required: false,
+    schema: {
+      type: 'string',
+    },
+  },
   patchDestination: {
     name: 'Destination',
     'in': 'header',

@@ -12,6 +12,7 @@ export enum ErrorCode {
   MissingDestinationHeader = 40020,
   PathTraversalNotAllowed = 40021,
   InvalidDestinationHeader = 40022,
+  InvalidWithinHeader = 40023,
   MissingTargetTypeHeader = 40053,
   InvalidTargetTypeHeader = 40054,
   MissingTargetHeader = 40055,

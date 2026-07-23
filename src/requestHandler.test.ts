@@ -2289,6 +2289,73 @@ describe("requestHandler", () => {
       });
     });
 
+    describe("Within header", () => {
+      test("Within splices the body literally into the addressed block", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "append")
+          .set("Within", "0")
+          .set("Content-Type", "text/markdown")
+          .send(" continued");
+        expect(res.status).toBe(200);
+        // Same line: no library-supplied separator on a within splice.
+        expect(res.text).toContain("Content under heading2 continued");
+      });
+
+      test("a negative Within counts from the end of the section body", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "delete")
+          .set("Within", "-1");
+        expect(res.status).toBe(200);
+        expect(res.text).toContain("# Heading2");
+        expect(res.text).not.toContain("Content under heading2");
+      });
+
+      test("Within with Target-Scope: markerAndContent inserts a sibling block", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "append")
+          .set("Target-Scope", "markerAndContent")
+          .set("Within", "0")
+          .set("Content-Type", "text/markdown")
+          .send("a new sibling block");
+        expect(res.status).toBe(200);
+        expect(res.text).toContain(
+          "Content under heading2\n\na new sibling block",
+        );
+      });
+
+      test.each(["abc", "1.5", "1x", "%5B0%5D"])(
+        "a malformed Within header (%s) returns 400 (40023)",
+        async (value: string) => {
+          const res = await request(server)
+            .patch("/vault/somefile.md/heading/Heading2")
+            .set("Authorization", `Bearer ${API_KEY}`)
+            .set("Operation", "append")
+            .set("Within", value)
+            .set("Content-Type", "text/markdown")
+            .send("x");
+          expect(res.status).toBe(400);
+          expect(res.body.errorCode).toBe(40023);
+        },
+      );
+
+      test("an out-of-range Within returns 404", async () => {
+        const res = await request(server)
+          .patch("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "append")
+          .set("Within", "5")
+          .set("Content-Type", "text/markdown")
+          .send("x");
+        expect(res.status).toBe(404);
+      });
+    });
+
     describe("body carriers", () => {
       test("an unsupported body content type returns 400 (40012)", async () => {
         const res = await request(server)

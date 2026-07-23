@@ -65,6 +65,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "Destination header is required for MOVE and COPY operations.",
   [ErrorCode.InvalidDestinationHeader]:
     "The 'Destination' header you provided could not be parsed.",
+  [ErrorCode.InvalidWithinHeader]:
+    "The 'Within' header must be a single integer, e.g. 0 or -1.",
   [ErrorCode.PathTraversalNotAllowed]:
     "Path traversal is not allowed. Paths must be relative and within the vault.",
   [ErrorCode.DestinationAlreadyExists]:

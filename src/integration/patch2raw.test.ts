@@ -127,6 +127,66 @@ describe("PATCH raw-content mode — URL-segment targeting", () => {
     expect(text).toContain(TERM_DELTA);
   });
 
+  test("a Within header splices the raw body literally into the addressed block", async () => {
+    const res = await authedFetch(
+      `/vault/${TEST_PATH}/heading/${HEADING_ALPHA}`,
+      {
+        method: "PATCH",
+        headers: {
+          Operation: "append",
+          Within: "-1",
+          "Content-Type": "text/markdown",
+        },
+        body: " raw-within-continued",
+      },
+    );
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // Continued on the same line: the caller owns the joint.
+    expect(text).toContain("xylophone-alpha-unique. raw-within-continued");
+  });
+
+  test("Within with Target-Scope: markerAndContent inserts a sibling block", async () => {
+    const res = await authedFetch(
+      `/vault/${TEST_PATH}/heading/${HEADING_ALPHA}`,
+      {
+        method: "PATCH",
+        headers: {
+          Operation: "append",
+          "Target-Scope": "markerAndContent",
+          Within: "0",
+          "Content-Type": "text/markdown",
+        },
+        body: "raw-within-sibling",
+      },
+    );
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const first = text.indexOf("#inline-tag");
+    const inserted = text.indexOf("raw-within-sibling");
+    const second = text.indexOf("xylophone-alpha-unique");
+    expect(inserted).toBeGreaterThan(first);
+    expect(second).toBeGreaterThan(inserted);
+  });
+
+  test("a malformed Within header is a 400 (40023)", async () => {
+    const res = await authedFetch(
+      `/vault/${TEST_PATH}/heading/${HEADING_ALPHA}`,
+      {
+        method: "PATCH",
+        headers: {
+          Operation: "append",
+          Within: "first",
+          "Content-Type": "text/markdown",
+        },
+        body: "x",
+      },
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { errorCode: number };
+    expect(body.errorCode).toBe(40023);
+  });
+
   test("a Destination header moves a heading with an empty body", async () => {
     const res = await authedFetch(
       `/vault/${TEST_PATH}/heading/${HEADING_ALPHA}/${HEADING_SUB}`,

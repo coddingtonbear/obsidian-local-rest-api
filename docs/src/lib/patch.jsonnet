@@ -11,6 +11,7 @@ local T = import 'targeting.params.jsonnet';
     T.markdownPatchVersion,
     T.patchTargetType,
     T.patchTarget,
+    T.patchWithin,
     T.patchOperation,
     T.patchTargetScope,
     T.patchDestination,
