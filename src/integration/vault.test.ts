@@ -439,6 +439,75 @@ describe("GET /vault/{file}/heading/{name} — URL-embedded target", () => {
     const body = await res.json();
     expect(body.errorCode).toBe(42200);
   });
+
+  test("Target-Scope: marker returns the heading's raw label text", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}/heading/Alpha/Subsection`, {
+      headers: { "Target-Scope": "marker" },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("Subsection");
+  });
+
+  test("Target-Scope: markerAndContent returns the subtree at the parent's baseline", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}/heading/Alpha/Subsection`, {
+      headers: { "Target-Scope": "markerAndContent" },
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // Subsection is h2 in the fixture; at its parent's (h1) baseline its own
+    // line reads as "# Subsection" — the shape a markerAndContent replace takes.
+    expect(text.startsWith("# Subsection")).toBe(true);
+    expect(text).toContain(TERM_SUB);
+  });
+
+  test("Target-Scope: markerAndContent on a block includes its ^id", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}/block/${BLOCK_BETA}`, {
+      headers: { "Target-Scope": "markerAndContent" },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain(`^${BLOCK_BETA}`);
+  });
+
+  test("Target-Scope: markerAndContent on a frontmatter field returns the entry object", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}/frontmatter/title`, {
+      headers: { "Target-Scope": "markerAndContent" },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ title: FM_TITLE_VALUE });
+  });
+
+  test("Target-Scope: parent on a read is rejected with 40059", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}/heading/Alpha`, {
+      headers: { "Target-Scope": "parent" },
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.errorCode).toBe(40059);
+  });
+
+  test("a markerAndContent read round-trips through a markerAndContent PATCH replace", async () => {
+    const read = await authedFetch(`/vault/${TEST_PATH}/heading/Alpha/Subsection`, {
+      headers: { "Target-Scope": "markerAndContent" },
+    });
+    expect(read.status).toBe(200);
+    const subtree = await read.text();
+
+    const before = await (await authedFetch(`/vault/${TEST_PATH}`)).text();
+    const patched = await authedFetch(`/vault/${TEST_PATH}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        targetType: "heading",
+        target: [HEADING_ALPHA, HEADING_SUB],
+        operation: "replace",
+        scope: "markerAndContent",
+        content: subtree,
+      }),
+    });
+    expect(patched.status).toBe(200);
+    const after = await (await authedFetch(`/vault/${TEST_PATH}`)).text();
+    expect(after).toBe(before);
+  });
 });
 
 // ---------------------------------------------------------------------------
