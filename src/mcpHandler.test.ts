@@ -511,6 +511,28 @@ describe("McpHandler", () => {
     expect(instruction).not.toHaveProperty("value");
     expect(instruction).not.toHaveProperty("destination");
     expect(instruction).not.toHaveProperty("ifMatch");
+    expect(instruction).not.toHaveProperty("within");
+  });
+
+  test("vault_patch passes within through to the instruction, including 0 and negatives", async () => {
+    const cb = getToolCallback("vault_patch");
+    for (const within of [0, -1]) {
+      await cb({
+        path: "out.md",
+        targetType: "heading",
+        target: ["Log"],
+        within,
+        operation: "append",
+        content: "\n- item",
+      });
+      expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+        targetType: "heading",
+        target: ["Log"],
+        within,
+        operation: "append",
+        content: "\n- item",
+      });
+    }
   });
 
   test("vault_patch passes a frontmatter value as native JSON (not a string)", async () => {

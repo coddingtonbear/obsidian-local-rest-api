@@ -322,6 +322,8 @@ export class McpHandler {
         - The payload rides in exactly one field, chosen by what it is: 'content' (a markdown/text string), 'value' (arbitrary JSON — a frontmatter value, or a 2-D array of row cells to write table rows on a block target's 'content' cell), or 'destination' (where a moved heading lands).
 
         Heading levels inside a 'content' string are relative to the target (a leading '#' becomes a direct child), so you never count '#'s. To discover valid heading paths and block IDs first, call vault_get_document_map.
+
+        To continue an existing block instead of starting a new one, add 'within' (heading targets only): an index picking one of the section's top-level body blocks (0-based, negative from the end; isolated '^id' lines are not counted). 'content'-scope edits then splice literally into that block — append with '\\n- item' extends a list — and 'markerAndContent' prepend/append insert a new block beside it. Read the file first to count blocks, and pair with 'ifMatch'.
       `,
       {
         path: z.string().describe("File path relative to vault root"),
@@ -337,6 +339,7 @@ export class McpHandler {
         path,
         targetType,
         target,
+        within,
         operation,
         scope,
         content,
@@ -349,6 +352,7 @@ export class McpHandler {
         path: string;
         targetType: "heading" | "block" | "frontmatter";
         target: string[] | string | null;
+        within?: number;
         operation: "replace" | "prepend" | "append" | "delete";
         scope?: "content" | "marker" | "markerAndContent" | "parent";
         content?: string;
@@ -365,6 +369,7 @@ export class McpHandler {
           targetType,
           target,
           operation,
+          ...(within !== undefined ? { within } : {}),
           ...(scope !== undefined ? { scope } : {}),
           ...(content !== undefined ? { content } : {}),
           ...(value !== undefined ? { value } : {}),

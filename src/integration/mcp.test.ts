@@ -579,6 +579,42 @@ describe("vault_patch tool", () => {
     });
     expect(result.isError).toBe(true);
   });
+
+  test("within continues an existing block literally", async () => {
+    const result = await client.callTool({
+      name: "vault_patch",
+      arguments: {
+        path: TEST_PATH,
+        targetType: "heading",
+        target: ["Alpha"],
+        within: 0,
+        operation: "append",
+        content: " mcp-within-continued",
+      },
+    });
+    expect(result.isError).toBeFalsy();
+    const body = jsonOf<any>(
+      await client.callTool({ name: "vault_read", arguments: { path: TEST_PATH } })
+    );
+    // Continued on the same line: no library-supplied separator.
+    expect(body.content).toContain("#inline-tag mcp-within-continued");
+  });
+
+  test("an out-of-range within surfaces the engine's message", async () => {
+    const result = await client.callTool({
+      name: "vault_patch",
+      arguments: {
+        path: TEST_PATH,
+        targetType: "heading",
+        target: ["Alpha"],
+        within: 9,
+        operation: "append",
+        content: "x",
+      },
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toContain("out of range");
+  });
 });
 
 // ---------------------------------------------------------------------------
