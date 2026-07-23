@@ -423,6 +423,44 @@ describe("McpHandler", () => {
     );
   });
 
+  test("vault_patch rejects targetType frontmatter combined with a non-content targetScope", async () => {
+    const cb = getToolCallback("vault_patch");
+    await expect(
+      cb({
+        path: "out.md",
+        targetType: "frontmatter",
+        target: "title",
+        operation: "replace",
+        content: '"New Title"',
+        contentType: "application/json",
+        targetScope: "marker",
+      }),
+    ).rejects.toThrow(/targetScope/);
+    expect(ops.patchFileSection).not.toHaveBeenCalled();
+  });
+
+  test("vault_patch allows targetType frontmatter with targetScope content", async () => {
+    const cb = getToolCallback("vault_patch");
+    await cb({
+      path: "out.md",
+      targetType: "frontmatter",
+      target: "title",
+      operation: "replace",
+      content: '"New Title"',
+      contentType: "application/json",
+      targetScope: "content",
+    });
+    expect(ops.patchFileSection).toHaveBeenCalledWith(
+      "out.md",
+      "frontmatter",
+      "title",
+      "replace",
+      "New Title",
+      "application/json",
+      expect.objectContaining({ targetScope: "content" }),
+    );
+  });
+
   test("vault_patch surfaces PatchFailed message as error", async () => {
     const cb = getToolCallback("vault_patch");
     const err = new PatchFailed(PatchFailureReason.InvalidTarget, { targetType: "heading", target: ["NoSuch"], operation: "append", content: "x" } as any, null);

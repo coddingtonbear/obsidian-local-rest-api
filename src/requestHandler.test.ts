@@ -1074,6 +1074,60 @@ describe("requestHandler", () => {
       expect(res.body.errorCode).toBe(40005);
     });
 
+    test("Target-Type: frontmatter with Target-Scope: marker returns 400 with errorCode 40059", async () => {
+      const res = await request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Target-Type", "frontmatter")
+        .set("Target", "title")
+        .set("Target-Scope", "marker")
+        .set("Operation", "replace")
+        .send("new value");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40059);
+    });
+
+    test("Target-Type: frontmatter with Target-Scope: markerAndContent returns 400 with errorCode 40059", async () => {
+      const res = await request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Target-Type", "frontmatter")
+        .set("Target", "title")
+        .set("Target-Scope", "markerAndContent")
+        .set("Operation", "replace")
+        .send("new value");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40059);
+    });
+
+    test("Target-Type: frontmatter with Target-Scope: content is accepted", async () => {
+      jest.spyOn(handler.operations, "patchFileSection").mockResolvedValueOnce("patched");
+      const res = await request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "application/json")
+        .set("Target-Type", "frontmatter")
+        .set("Target", "title")
+        .set("Target-Scope", "content")
+        .set("Operation", "replace")
+        .send('"new value"');
+      expect(res.status).toBe(200);
+    });
+
+    test("Target-Type: heading with Target-Scope: marker is accepted", async () => {
+      jest.spyOn(handler.operations, "patchFileSection").mockResolvedValueOnce("patched");
+      const res = await request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1")
+        .set("Target-Scope", "marker")
+        .set("Operation", "replace")
+        .send("## New Heading");
+      expect(res.status).toBe(200);
+    });
+
   });
 
   describe("path traversal prevention", () => {
@@ -1378,6 +1432,17 @@ describe("requestHandler", () => {
           .set("Target-Type", "heading")
           .send("content")
           .expect(422);
+      });
+
+      test("frontmatter URL target with Target-Scope: marker returns 400 with errorCode 40059", async () => {
+        const res = await request(server)
+          .put("/vault/somefile.md/frontmatter/title")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .set("Target-Scope", "marker")
+          .send('"New Title"');
+        expect(res.status).toBe(400);
+        expect(res.body.errorCode).toBe(40059);
       });
     });
 
