@@ -871,6 +871,91 @@ export default class RequestHandler {
     return this._vaultMove(path, req, res);
   }
 
+  async _vaultCopy(
+    path: string,
+    req: express.Request,
+    res: express.Response,
+  ): Promise<void> {
+    if (!path || path.endsWith("/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
+      });
+      return;
+    }
+
+    const rawDestination = req.header("Destination");
+    const allowOverwrite = req.header("Allow-Overwrite") === "true";
+
+    if (rawDestination === undefined) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingDestinationHeader,
+      });
+      return;
+    }
+
+    const sourceFilename = path.includes("/")
+      ? path.slice(path.lastIndexOf("/") + 1)
+      : path;
+
+    let normalized: string;
+    try {
+      normalized = decodeURIComponent(rawDestination.trim())
+        .replace(/\\/g, "/")
+        .replace(/\/+/g, "/");
+    } catch {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidDestinationHeader,
+      });
+      return;
+    }
+
+    if (normalized.startsWith("/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.PathTraversalNotAllowed,
+      });
+      return;
+    }
+
+    const syntheticRoot = "/vault";
+    const resolved = posix.resolve(syntheticRoot, normalized);
+    if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.PathTraversalNotAllowed,
+      });
+      return;
+    }
+
+    const newPath = !normalized || normalized.endsWith("/")
+      ? normalized + sourceFilename
+      : normalized;
+
+    try {
+      const actualPath = await this.operations.copyVaultFile(path, newPath, allowOverwrite);
+      res.set("Content-Location", encodeURI(actualPath));
+      this.returnCannedResponse(res, { statusCode: 204 });
+    } catch (error) {
+      if (error instanceof FileNotFoundError) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+      } else if (error instanceof DestinationAlreadyExistsError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.DestinationAlreadyExists,
+        });
+      } else {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.FileOperationFailed,
+          message: `Failed to copy file: ${msg}`,
+        });
+      }
+    }
+  }
+
+  async vaultCopy(req: express.Request, res: express.Response): Promise<void> {
+    const path = this.extractVaultPath(req, res);
+    if (path === null) return;
+    return this._vaultCopy(path, req, res);
+  }
+
   getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
     return this.operations.getPeriodicNoteInterface();
   }
@@ -1448,10 +1533,10 @@ export default class RequestHandler {
       next();
     });
     this.api.use(responseTime());
-    this.api.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE"] }));
+    this.api.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE", "COPY"] }));
 
     const mcpRouter = express.Router();
-    mcpRouter.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE"] }));
+    mcpRouter.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE", "COPY"] }));
     mcpRouter.use((req, res, next) => {
       if (!this.requestIsAuthenticated(req)) {
         this.returnCannedResponse(res, {
@@ -1520,6 +1605,8 @@ export default class RequestHandler {
       .all((req, res, next) => {
         if (req.method === "MOVE") {
           return this.handle((rq, rs) => this.vaultMove(rq, rs))(req, res, next);
+        } else if (req.method === "COPY") {
+          return this.handle((rq, rs) => this.vaultCopy(rq, rs))(req, res, next);
         } else {
           next();
         }

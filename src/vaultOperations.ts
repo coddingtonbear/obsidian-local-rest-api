@@ -372,6 +372,48 @@ export class VaultOperations {
     return sourceFile.path;
   }
 
+  async copyVaultFile(
+    sourcePath: string,
+    destinationPath: string,
+    allowOverwrite = false,
+  ): Promise<string> {
+    if (!destinationPath) {
+      throw new Error("Destination path must not be empty.");
+    }
+
+    const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(sourceFile instanceof TFile)) {
+      throw new FileNotFoundError(`File not found: ${sourcePath}`);
+    }
+
+    if (sourcePath === destinationPath) {
+      throw new DestinationAlreadyExistsError(
+        `Destination already exists: ${destinationPath}`,
+      );
+    }
+
+    const destExists = await this.app.vault.adapter.exists(destinationPath);
+    if (destExists) {
+      if (!allowOverwrite) {
+        throw new DestinationAlreadyExistsError(
+          `Destination already exists: ${destinationPath}`,
+        );
+      }
+      await this.app.vault.adapter.remove(destinationPath);
+    }
+
+    const parentDir = destinationPath.substring(
+      0,
+      destinationPath.lastIndexOf("/"),
+    );
+    if (parentDir && !(await this.app.vault.adapter.exists(parentDir))) {
+      await this.app.vault.createFolder(parentDir);
+    }
+
+    const copiedFile = await this.app.vault.copy(sourceFile, destinationPath);
+    return copiedFile.path;
+  }
+
   // Throws PatchFailed on patch error; caller is responsible for mapping to
   // the appropriate HTTP error code or MCP error.
   async patchFileSection(

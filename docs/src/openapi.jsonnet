@@ -1,3 +1,4 @@
+local Copy = import 'lib/copy.jsonnet';
 local Delete = import 'lib/delete.jsonnet';
 local Get = import 'lib/get.jsonnet';
 local Move = import 'lib/move.jsonnet';
@@ -242,6 +243,9 @@ std.manifestYamlDoc(
         additionalOperations: {
           move: Move {
             parameters: Move.parameters + [ParamPath],
+          },
+          copy: Copy {
+            parameters: Copy.parameters + [ParamPath],
           },
         },
         delete: Delete {

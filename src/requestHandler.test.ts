@@ -869,6 +869,142 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("vaultCopy", () => {
+    test("directory path rejected", async () => {
+      await request(server)
+        .copy("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "somewhere/file.md")
+        .expect(405);
+    });
+
+    test("successful copy", async () => {
+      const sourcePath = "folder/file.md";
+      const newPath = "another-folder/subfolder/file.md";
+      jest.spyOn(handler.operations, "copyVaultFile").mockResolvedValue(newPath);
+
+      const response = await request(server)
+        .copy(`/vault/${sourcePath}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", newPath)
+        .expect(204);
+
+      expect(response.headers["content-location"]).toEqual(newPath);
+      expect(handler.operations.copyVaultFile).toHaveBeenCalledWith(
+        sourcePath,
+        newPath,
+        false,
+      );
+    });
+
+    test("non-existent source file returns 404", async () => {
+      jest
+        .spyOn(handler.operations, "copyVaultFile")
+        .mockRejectedValue(new FileNotFoundError("not found"));
+
+      await request(server)
+        .copy("/vault/non-existent.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "new-location/file.md")
+        .expect(404);
+    });
+
+    test("destination already exists returns 409", async () => {
+      jest
+        .spyOn(handler.operations, "copyVaultFile")
+        .mockRejectedValue(new DestinationAlreadyExistsError("exists"));
+
+      const response = await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "another-folder/existing-file.md")
+        .expect(409);
+
+      expect(response.body.message).toContain("Destination file already exists");
+    });
+
+    test("missing Destination header returns 400", async () => {
+      const response = await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(400);
+
+      expect(response.body.message).toContain("Destination header is required");
+    });
+
+    test("destination with trailing slash uses source filename", async () => {
+      jest.spyOn(handler.operations, "copyVaultFile").mockResolvedValue("new-folder/file.md");
+
+      const response = await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "new-folder/")
+        .expect(204);
+
+      expect(response.headers["content-location"]).toEqual("new-folder/file.md");
+      expect(handler.operations.copyVaultFile).toHaveBeenCalledWith(
+        "folder/file.md",
+        "new-folder/file.md",
+        false,
+      );
+    });
+
+    test("Allow-Overwrite: true passes flag to copyVaultFile", async () => {
+      jest.spyOn(handler.operations, "copyVaultFile").mockResolvedValue("another-folder/existing-file.md");
+
+      await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "another-folder/existing-file.md")
+        .set("Allow-Overwrite", "true")
+        .expect(204);
+
+      expect(handler.operations.copyVaultFile).toHaveBeenCalledWith(
+        "folder/file.md",
+        "another-folder/existing-file.md",
+        true,
+      );
+    });
+
+    test("path traversal attempt returns 400", async () => {
+      const response = await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "../../../etc/passwd")
+        .expect(400);
+
+      expect(response.body.errorCode).toEqual(40021);
+      expect(response.body.message).toContain("Path traversal is not allowed");
+    });
+
+    test("absolute destination path returns 400", async () => {
+      const response = await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "/etc/passwd")
+        .expect(400);
+
+      expect(response.body.errorCode).toEqual(40021);
+    });
+
+    test("malformed percent-encoding in Destination returns 400", async () => {
+      const response = await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "%E0%")
+        .expect(400);
+
+      expect(response.body.errorCode).toEqual(40022);
+    });
+
+    test("unauthorized", async () => {
+      await request(server)
+        .copy("/vault/file.md")
+        .set("Destination", "other/file.md")
+        .expect(401);
+    });
+  });
+
   describe("vaultPatch", () => {
     test("directory", async () => {
       await request(server)
@@ -974,6 +1110,15 @@ describe("requestHandler", () => {
     test("MOVE rejects ..%2F traversal in source path with 400 and errorCode 40021", async () => {
       const res = await request(server)
         .move(traversal)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "safe/destination.md");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
+    test("COPY rejects ..%2F traversal in source path with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .copy(traversal)
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Destination", "safe/destination.md");
       expect(res.status).toBe(400);

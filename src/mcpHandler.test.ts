@@ -101,6 +101,7 @@ function makeMockOps() {
     executeCommand: jest.fn(),
     openVaultFile: jest.fn(),
     moveVaultFile: jest.fn().mockResolvedValue(""),
+    copyVaultFile: jest.fn().mockResolvedValue(""),
     periodicGetNote: jest.fn().mockReturnValue([mockFile, null]),
     periodicGetOrCreateNote: jest.fn().mockResolvedValue([mockFile, null]),
   };
@@ -175,8 +176,8 @@ describe("McpHandler", () => {
 
   // ---- tool registration --------------------------------------------------
 
-  test("registers all 16 tools", () => {
-    expect(mockTool).toHaveBeenCalledTimes(16);
+  test("registers all 17 tools", () => {
+    expect(mockTool).toHaveBeenCalledTimes(17);
     const names = mockTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -187,6 +188,7 @@ describe("McpHandler", () => {
         "vault_patch",
         "vault_delete",
         "vault_move",
+        "vault_copy",
         "vault_get_document_map",
         "active_file_get_path",
         "periodic_note_get_path",
@@ -223,8 +225,8 @@ describe("McpHandler", () => {
       }
     });
 
-    test("vault_patch, vault_delete, vault_move, and command_execute are annotated as destructive", () => {
-      for (const name of ["vault_patch", "vault_delete", "vault_move", "command_execute"]) {
+    test("vault_patch, vault_delete, vault_move, vault_copy, and command_execute are annotated as destructive", () => {
+      for (const name of ["vault_patch", "vault_delete", "vault_move", "vault_copy", "command_execute"]) {
         const annotations = getToolAnnotations(name);
         expect(annotations.readOnlyHint).toBe(false);
         expect(annotations.destructiveHint).toBe(true);
@@ -639,6 +641,75 @@ describe("McpHandler", () => {
     test("propagates FileNotFoundError from moveVaultFile", async () => {
       ops.moveVaultFile.mockRejectedValue(new Error("File not found: missing.md"));
       const cb = getToolCallback("vault_move");
+      await expect(cb({ path: "missing.md", destination: "dest.md" })).rejects.toThrow(
+        "File not found",
+      );
+    });
+  });
+
+  // ---- vault_copy -----------------------------------------------------------
+
+  describe("vault_copy", () => {
+    test("copies file and returns source and new paths", async () => {
+      ops.copyVaultFile.mockResolvedValue("archive/file.md");
+      const cb = getToolCallback("vault_copy");
+      const result = await cb({ path: "folder/file.md", destination: "archive/file.md" });
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("folder/file.md", "archive/file.md", false);
+      const parsed = parseText(result);
+      expect(parsed.message).toBe("OK");
+      expect(parsed.sourcePath).toBe("folder/file.md");
+      expect(parsed.newPath).toBe("archive/file.md");
+    });
+
+    test("trailing-slash destination uses source filename", async () => {
+      ops.copyVaultFile.mockResolvedValue("archive/todo.md");
+      const cb = getToolCallback("vault_copy");
+      const result = await cb({ path: "notes/todo.md", destination: "archive/" });
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("notes/todo.md", "archive/todo.md", false);
+      expect(parseText(result).newPath).toBe("archive/todo.md");
+    });
+
+    test("passes allowOverwrite flag", async () => {
+      const cb = getToolCallback("vault_copy");
+      await cb({ path: "a.md", destination: "b.md", allowOverwrite: true });
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("a.md", "b.md", true);
+    });
+
+    test("empty destination copies to vault root preserving source filename", async () => {
+      ops.copyVaultFile.mockResolvedValue("todo.md");
+      const cb = getToolCallback("vault_copy");
+      const result = await cb({ path: "notes/todo.md", destination: "" });
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false);
+      expect(parseText(result).newPath).toBe("todo.md");
+    });
+
+    test("rejects path traversal in destination", async () => {
+      const cb = getToolCallback("vault_copy");
+      await expect(cb({ path: "a.md", destination: "../../../etc/passwd" })).rejects.toThrow(
+        "must not escape the vault root",
+      );
+      expect(ops.copyVaultFile).not.toHaveBeenCalled();
+    });
+
+    test("rejects absolute destination", async () => {
+      const cb = getToolCallback("vault_copy");
+      await expect(cb({ path: "a.md", destination: "/etc/passwd" })).rejects.toThrow(
+        "must not escape the vault root",
+      );
+      expect(ops.copyVaultFile).not.toHaveBeenCalled();
+    });
+
+    test("allows destination with '..' as a substring (not a segment)", async () => {
+      ops.copyVaultFile.mockResolvedValue("archive/notes..md");
+      const cb = getToolCallback("vault_copy");
+      const result = await cb({ path: "a.md", destination: "archive/notes..md" });
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("a.md", "archive/notes..md", false);
+      expect(parseText(result).newPath).toBe("archive/notes..md");
+    });
+
+    test("propagates FileNotFoundError from copyVaultFile", async () => {
+      ops.copyVaultFile.mockRejectedValue(new Error("File not found: missing.md"));
+      const cb = getToolCallback("vault_copy");
       await expect(cb({ path: "missing.md", destination: "dest.md" })).rejects.toThrow(
         "File not found",
       );
