@@ -590,6 +590,10 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetScopeHeader });
       return;
     }
+    if (targetType === "frontmatter" && targetScope && targetScope !== "content") {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetScopeHeader });
+      return;
+    }
     if (!isContentType(contentType)) {
       this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidContentType });
       return;
@@ -649,6 +653,10 @@ export default class RequestHandler {
       return;
     }
     if (targetScope && !isPatchTargetScope(targetScope)) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetScopeHeader });
+      return;
+    }
+    if (targetType === "frontmatter" && targetScope && targetScope !== "content") {
       this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetScopeHeader });
       return;
     }

@@ -356,7 +356,7 @@ export class McpHandler {
           .enum(["content", "marker", "markerAndContent"])
           .optional()
           .describe(
-            dedent`Controls which part of the target the operation acts on. 'content' (default): the section content only. 'marker': just the heading line or block-ID token. 'markerAndContent': both together. Only applies to heading and block targets. IMPORTANT — a marker spans more than its visible label: for a heading, the leading '#' characters through the end of the line, including the newline; for a block reference, '^' (plus any preceding whitespace if inline) through the id, including the newline. Replacing 'marker' or 'markerAndContent' replaces that whole span, so match it: the same number of leading '#' as the original (count = targetDelimiter-separated segments in target, e.g. 'Heading 1::Subheading' → '##') or the heading is demoted to plain text; and a trailing newline, or the next line gets glued onto yours.`,
+            dedent`Controls which part of the target the operation acts on. 'content' (default): the section content only. 'marker': just the heading line or block-ID token. 'markerAndContent': both together. Only applies to heading and block targets — combining a non-'content' value with targetType 'frontmatter' returns an error, since a frontmatter field has no marker/content distinction. IMPORTANT — a marker spans more than its visible label: for a heading, the leading '#' characters through the end of the line, including the newline; for a block reference, '^' (plus any preceding whitespace if inline) through the id, including the newline. Replacing 'marker' or 'markerAndContent' replaces that whole span, so match it: the same number of leading '#' as the original (count = targetDelimiter-separated segments in target, e.g. 'Heading 1::Subheading' → '##') or the heading is demoted to plain text; and a trailing newline, or the next line gets glued onto yours.`,
           ),
       },
       { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -385,6 +385,11 @@ export class McpHandler {
         targetDelimiter?: string;
         targetScope?: "content" | "marker" | "markerAndContent";
       }) => {
+        if (targetType === "frontmatter" && targetScope && targetScope !== "content") {
+          throw new Error(
+            "targetScope must be 'content' (or omitted) when targetType is 'frontmatter' -- a frontmatter field has no marker/content distinction.",
+          );
+        }
         try {
           // MCP transport delivers all parameters as strings; parse JSON content
           // here so downstream code receives a native value, not a serialized string.

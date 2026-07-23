@@ -93,7 +93,9 @@
     'in': 'header',
     description: |||
       Controls which part of the target the operation acts on. Only applicable to
-      `heading` and `block` targets; ignored for `frontmatter`.
+      `heading` and `block` targets. Combining a `Target-Scope` other than `content`
+      with `Target-Type: frontmatter` returns a 400 error, since a frontmatter field
+      has no marker/content distinction.
 
       - `content` (default): the operation applies to the content region only — the area
         below the heading line or at the block, leaving the heading/block-ID token unchanged.
