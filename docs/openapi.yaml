@@ -119,7 +119,18 @@ paths:
         - "System"
   /active/:
     delete:
-      parameters: []
+      parameters:
+        - description: |
+            If "true", the file is permanently deleted instead of being moved to trash. Defaults to "false", which moves the file to trash following the user's Obsidian "Deleted files" preference (either the ".trash" folder or the system trash).
+          in: "query"
+          name: "permanent"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
       responses:
         "204":
           description: "Success"
@@ -1060,7 +1071,7 @@ paths:
         | `vault_write` | Create or overwrite a vault file |
         | `vault_append` | Append content to the end of a vault file |
         | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
-        | `vault_delete` | Delete a vault file |
+        | `vault_delete` | Delete a vault file (moves to trash by default) |
         | `vault_move` | Move (rename) a vault file to a new path |
         | `vault_get_document_map` | List the headings, block references, and frontmatter fields in a file |
         | `active_file_get_path` | Return the vault path of the file currently open in Obsidian |
@@ -1245,6 +1256,17 @@ paths:
   "/periodic/{period}/":
     delete:
       parameters:
+        - description: |
+            If "true", the file is permanently deleted instead of being moved to trash. Defaults to "false", which moves the file to trash following the user's Obsidian "Deleted files" preference (either the ".trash" folder or the system trash).
+          in: "query"
+          name: "permanent"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
         - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
           name: "period"
@@ -2141,6 +2163,17 @@ paths:
       description: |
         Deletes the periodic note for the specified period.
       parameters:
+        - description: |
+            If "true", the file is permanently deleted instead of being moved to trash. Defaults to "false", which moves the file to trash following the user's Obsidian "Deleted files" preference (either the ".trash" folder or the system trash).
+          in: "query"
+          name: "permanent"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
         - description: "The year of the date for which you would like to grab a periodic note."
           in: "path"
           name: "year"
@@ -3421,6 +3454,17 @@ paths:
           - "Vault Files"
     delete:
       parameters:
+        - description: |
+            If "true", the file is permanently deleted instead of being moved to trash. Defaults to "false", which moves the file to trash following the user's Obsidian "Deleted files" preference (either the ".trash" folder or the system trash).
+          in: "query"
+          name: "permanent"
+          required: false
+          schema:
+            default: "false"
+            enum:
+              - "true"
+              - "false"
+            type: "string"
         - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
           name: "filename"

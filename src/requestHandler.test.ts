@@ -600,20 +600,33 @@ describe("requestHandler", () => {
         .expect(405);
     });
 
-    test("non-existing file", async () => {
+    test("non-existing file with ?permanent=true", async () => {
       const arbitraryFilePath = "somefile.md";
       const arbitraryBytes = "bytes";
 
       app.vault.adapter._exists = false;
 
       await request(server)
-        .delete(`/vault/${arbitraryFilePath}`)
+        .delete(`/vault/${arbitraryFilePath}?permanent=true`)
         .set("Content-Type", "text/markdown")
         .set("Authorization", `Bearer ${API_KEY}`)
         .send(arbitraryBytes)
         .expect(404);
 
       expect(app.vault.adapter._remove).toBeUndefined();
+    });
+
+    test("non-existing file with default trash behavior", async () => {
+      const arbitraryFilePath = "somefile.md";
+
+      app.vault._getAbstractFileByPath = null;
+
+      await request(server)
+        .delete(`/vault/${arbitraryFilePath}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(404);
+
+      expect(app.fileManager._trashFile).toBeUndefined();
     });
 
     test("unauthorized", async () => {
@@ -627,18 +640,43 @@ describe("requestHandler", () => {
         .expect(401);
     });
 
-    test("existing file", async () => {
+    test("existing file moves to trash by default", async () => {
+      const arbitraryFilePath = "somefile.md";
+
+      await request(server)
+        .delete(`/vault/${arbitraryFilePath}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(204);
+
+      expect(app.fileManager._trashFile).toEqual(app.vault._getAbstractFileByPath);
+      expect(app.vault.adapter._remove).toBeUndefined();
+    });
+
+    test("existing file with ?permanent=true hard-deletes", async () => {
       const arbitraryFilePath = "somefile.md";
       const arbitraryBytes = "bytes";
 
       await request(server)
-        .delete(`/vault/${arbitraryFilePath}`)
+        .delete(`/vault/${arbitraryFilePath}?permanent=true`)
         .set("Content-Type", "text/markdown")
         .set("Authorization", `Bearer ${API_KEY}`)
         .send(arbitraryBytes)
         .expect(204);
 
       expect(app.vault.adapter._remove).toEqual([arbitraryFilePath]);
+      expect(app.fileManager._trashFile).toBeUndefined();
+    });
+
+    test("?permanent=false is equivalent to omitting the parameter", async () => {
+      const arbitraryFilePath = "somefile.md";
+
+      await request(server)
+        .delete(`/vault/${arbitraryFilePath}?permanent=false`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(204);
+
+      expect(app.fileManager._trashFile).toEqual(app.vault._getAbstractFileByPath);
+      expect(app.vault.adapter._remove).toBeUndefined();
     });
   });
 

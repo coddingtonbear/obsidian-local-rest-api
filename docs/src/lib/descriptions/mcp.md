@@ -13,7 +13,7 @@ Include the `MCP-Protocol-Version` header on all requests after initialization, 
 | `vault_write` | Create or overwrite a vault file |
 | `vault_append` | Append content to the end of a vault file |
 | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
-| `vault_delete` | Delete a vault file |
+| `vault_delete` | Delete a vault file (moves to trash by default) |
 | `vault_move` | Move (rename) a vault file to a new path |
 | `vault_get_document_map` | List the headings, block references, and frontmatter fields in a file |
 | `active_file_get_path` | Return the vault path of the file currently open in Obsidian |
