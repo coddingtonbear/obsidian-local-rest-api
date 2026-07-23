@@ -214,6 +214,35 @@ describe("requestHandler", () => {
         .set("Authorization", `Bearer ${API_KEY}`)
         .expect(404);
     });
+
+    test("Accept: text/html returns rendered HTML", async () => {
+      const arbitraryFilename = "somefile.md";
+      const renderedHtml = "<h1>Rendered</h1>";
+      jest.spyOn(handler.operations, "renderFileToHtml").mockResolvedValue(renderedHtml);
+
+      const result = await request(server)
+        .get(`/vault/${arbitraryFilename}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/html")
+        .expect(200);
+
+      expect(result.header["content-type"]).toEqual("text/html; charset=utf-8");
+      expect(result.text).toEqual(renderedHtml);
+      expect(handler.operations.renderFileToHtml).toHaveBeenCalledWith(
+        app.vault._getAbstractFileByPath,
+      );
+    });
+
+    test("Accept: text/html on non-existent file returns 404", async () => {
+      const arbitraryFilename = "somefile.md";
+      app.vault._getAbstractFileByPath = null;
+
+      await request(server)
+        .get(`/vault/${arbitraryFilename}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/html")
+        .expect(404);
+    });
   });
 
   describe("vaultGet section retrieval", () => {

@@ -108,6 +108,31 @@ describe("GET /vault/{file} with Accept: application/vnd.olrapi.note+json", () =
 });
 
 // ---------------------------------------------------------------------------
+// Accept: text/html
+// ---------------------------------------------------------------------------
+
+describe("GET /vault/{file} with Accept: text/html", () => {
+  test("returns rendered HTML with content-type text/html", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}`, {
+      headers: { Accept: "text/html" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/text\/html/);
+    const html = await res.text();
+    expect(html).toContain(HEADING_ALPHA);
+    expect(html).toContain(TERM_ALPHA);
+    expect(html).toMatch(/<h1[ >]/);
+  });
+
+  test("returns 404 for non-existent file", async () => {
+    const res = await authedFetch(`/vault/${TEST_DIR}/no-such-file.md`, {
+      headers: { Accept: "text/html" },
+    });
+    expect(res.status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Accept: application/vnd.olrapi.document-map+json
 // ---------------------------------------------------------------------------
 

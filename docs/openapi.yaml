@@ -215,6 +215,10 @@ paths:
         ## Document Map
         
         If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
+        
+        ## Rendered HTML
+        
+        If you specify the header `Accept: text/html`, will return the note rendered to HTML using Obsidian's own Markdown renderer — the same rendering used in Obsidian's preview mode, including embeds, callouts, and other Obsidian-flavored Markdown extensions. `Target-Type`/`Target` are ignored; the whole note is always rendered.
       parameters:
         - description: |
             Type of sub-document section to target. When specified, the operation
@@ -285,6 +289,14 @@ paths:
             "application/vnd.olrapi.note+json":
               schema:
                 "$ref": "#/components/schemas/NoteJson"
+            text/html:
+              description: |
+                Returned when `Accept: text/html` is specified. The note rendered to HTML via Obsidian's Markdown renderer (embeds, callouts, etc. included). `Target-Type`/`Target` are ignored; the whole note is rendered.
+              schema:
+                example: |
+                  <h1>This is my document</h1>
+                  <p>something else here</p>
+                type: "string"
             text/markdown:
               schema:
                 example: |
@@ -1365,6 +1377,10 @@ paths:
         ## Document Map
         
         If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
+        
+        ## Rendered HTML
+        
+        If you specify the header `Accept: text/html`, will return the note rendered to HTML using Obsidian's own Markdown renderer — the same rendering used in Obsidian's preview mode, including embeds, callouts, and other Obsidian-flavored Markdown extensions. `Target-Type`/`Target` are ignored; the whole note is always rendered.
       parameters:
         - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
@@ -1448,6 +1464,14 @@ paths:
             "application/vnd.olrapi.note+json":
               schema:
                 "$ref": "#/components/schemas/NoteJson"
+            text/html:
+              description: |
+                Returned when `Accept: text/html` is specified. The note rendered to HTML via Obsidian's Markdown renderer (embeds, callouts, etc. included). `Target-Type`/`Target` are ignored; the whole note is rendered.
+              schema:
+                example: |
+                  <h1>This is my document</h1>
+                  <p>something else here</p>
+                type: "string"
             text/markdown:
               schema:
                 example: |
@@ -2290,6 +2314,10 @@ paths:
         ## Document Map
         
         If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
+        
+        ## Rendered HTML
+        
+        If you specify the header `Accept: text/html`, will return the note rendered to HTML using Obsidian's own Markdown renderer — the same rendering used in Obsidian's preview mode, including embeds, callouts, and other Obsidian-flavored Markdown extensions. `Target-Type`/`Target` are ignored; the whole note is always rendered.
       parameters:
         - description: "The year of the date for which you would like to grab a periodic note."
           in: "path"
@@ -2391,6 +2419,14 @@ paths:
             "application/vnd.olrapi.note+json":
               schema:
                 "$ref": "#/components/schemas/NoteJson"
+            text/html:
+              description: |
+                Returned when `Accept: text/html` is specified. The note rendered to HTML via Obsidian's Markdown renderer (embeds, callouts, etc. included). `Target-Type`/`Target` are ignored; the whole note is rendered.
+              schema:
+                example: |
+                  <h1>This is my document</h1>
+                  <p>something else here</p>
+                type: "string"
             text/markdown:
               schema:
                 example: |
@@ -3619,6 +3655,10 @@ paths:
         ## Document Map
         
         If you specify the header `Accept: application/vnd.olrapi.document-map+json`, will return a JSON object outlining what PATCH targets exist. See "responses" below for details.
+        
+        ## Rendered HTML
+        
+        If you specify the header `Accept: text/html`, will return the note rendered to HTML using Obsidian's own Markdown renderer — the same rendering used in Obsidian's preview mode, including embeds, callouts, and other Obsidian-flavored Markdown extensions. `Target-Type`/`Target` are ignored; the whole note is always rendered.
       parameters:
         - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
@@ -3696,6 +3736,14 @@ paths:
             "application/vnd.olrapi.note+json":
               schema:
                 "$ref": "#/components/schemas/NoteJson"
+            text/html:
+              description: |
+                Returned when `Accept: text/html` is specified. The note rendered to HTML via Obsidian's Markdown renderer (embeds, callouts, etc. included). `Target-Type`/`Target` are ignored; the whole note is rendered.
+              schema:
+                example: |
+                  <h1>This is my document</h1>
+                  <p>something else here</p>
+                type: "string"
             text/markdown:
               schema:
                 example: |

@@ -160,6 +160,10 @@ export default class RequestHandler {
     return this.operations.getFileMetadataObject(file);
   }
 
+  async renderFileToHtml(file: TFile): Promise<string> {
+    return this.operations.renderFileToHtml(file);
+  }
+
   getResponseMessage({
     statusCode = 400,
     message,
@@ -341,6 +345,15 @@ export default class RequestHandler {
       res.send(
         JSON.stringify(await this.getDocumentMapObject(file), null, 2),
       );
+      return;
+    } else if ((req.headers.accept as ContentTypes) === ContentTypes.html) {
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (!(file instanceof TFile)) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+        return;
+      }
+      res.setHeader("Content-Type", ContentTypes.html + "; charset=utf-8");
+      res.send(await this.renderFileToHtml(file));
       return;
     }
 

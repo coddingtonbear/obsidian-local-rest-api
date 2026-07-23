@@ -16,6 +16,13 @@ local T = import 'targeting.params.jsonnet';
             example: '# This is my document\n\nsomething else here\n',
           },
         },
+        'text/html': {
+          description: 'Returned when `Accept: text/html` is specified. The note rendered to HTML via Obsidian\'s Markdown renderer (embeds, callouts, etc. included). `Target-Type`/`Target` are ignored; the whole note is rendered.\n',
+          schema: {
+            type: 'string',
+            example: '<h1>This is my document</h1>\n<p>something else here</p>\n',
+          },
+        },
         'application/vnd.olrapi.note+json': {
           schema: {
             '$ref': '#/components/schemas/NoteJson',
