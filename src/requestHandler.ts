@@ -206,6 +206,12 @@ export default class RequestHandler {
     return this.operations.getFileMetadataObject(file);
   }
 
+  async renderFileToHtml(file: TFile, content?: string): Promise<string> {
+    return content !== undefined
+      ? this.operations.renderFileToHtml(file, content)
+      : this.operations.renderFileToHtml(file);
+  }
+
   getResponseMessage({
     statusCode = 400,
     message,
@@ -501,6 +507,14 @@ export default class RequestHandler {
     }
 
     const isHeaderTargeting = urlTargetType === undefined;
+
+    // Resolved v1 header-targeting (or untargeted) result, shared by the HTML
+    // render below and the default markdown/JSON response at the end.
+    let resolvedTarget:
+      | { targetType: "frontmatter"; value: unknown }
+      | { targetType: "heading" | "block"; content: string }
+      | undefined;
+
     const targetType = urlTargetType ?? req.get("Target-Type");
     if (targetType) {
       if (!["heading", "block", "frontmatter"].includes(targetType)) {
@@ -585,6 +599,24 @@ export default class RequestHandler {
           }
           throw e;
         }
+
+        if ((req.headers.accept as ContentTypes) === ContentTypes.html) {
+          if (result.kind === "frontmatter") {
+            this.returnCannedResponse(res, {
+              errorCode: ErrorCode.InvalidTargetTypeHeader,
+            });
+            return;
+          }
+          const file = this.app.vault.getAbstractFileByPath(filePath);
+          if (!(file instanceof TFile)) {
+            this.returnCannedResponse(res, { statusCode: 404 });
+            return;
+          }
+          res.setHeader("Content-Type", ContentTypes.html + "; charset=utf-8");
+          res.send(await this.renderFileToHtml(file, result.content));
+          return;
+        }
+
         if (result.kind === "frontmatter") {
           res.setHeader("Content-Type", ContentTypes.json);
           res.json(result.value);
@@ -605,34 +637,61 @@ export default class RequestHandler {
           this.returnCannedResponse(res, { statusCode: 404 });
           return;
         }
-        res.setHeader("Content-Type", ContentTypes.json);
-        res.json(value);
-        return;
+        resolvedTarget = { targetType: "frontmatter", value };
+      } else {
+        const mapKey =
+          targetType === "heading"
+            ? rawTarget
+              .split(targetDelimiter)
+              .join("\u001f")
+            : rawTarget;
+
+        const entry =
+          targetType === "heading"
+            ? documentMap.heading[mapKey]
+            : documentMap.block[mapKey];
+
+        if (!entry) {
+          this.returnCannedResponse(res, { statusCode: 404 });
+          return;
+        }
+
+        resolvedTarget = {
+          targetType: targetType === "heading" ? "heading" : "block",
+          content: fileContent.substring(entry.content.start, entry.content.end),
+        };
       }
+    }
 
-      const mapKey =
-        targetType === "heading"
-          ? rawTarget
-            .split(targetDelimiter)
-            .join("\u001f")
-          : rawTarget;
-
-      const entry =
-        targetType === "heading"
-          ? documentMap.heading[mapKey]
-          : documentMap.block[mapKey];
-
-      if (!entry) {
+    if ((req.headers.accept as ContentTypes) === ContentTypes.html) {
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (!(file instanceof TFile)) {
         this.returnCannedResponse(res, { statusCode: 404 });
         return;
       }
-
-      const sectionContent = fileContent.substring(
-        entry.content.start,
-        entry.content.end,
+      if (resolvedTarget?.targetType === "frontmatter") {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidTargetTypeHeader,
+        });
+        return;
+      }
+      res.setHeader("Content-Type", ContentTypes.html + "; charset=utf-8");
+      res.send(
+        resolvedTarget
+          ? await this.renderFileToHtml(file, resolvedTarget.content)
+          : await this.renderFileToHtml(file),
       );
+      return;
+    }
+
+    if (resolvedTarget) {
+      if (resolvedTarget.targetType === "frontmatter") {
+        res.setHeader("Content-Type", ContentTypes.json);
+        res.json(resolvedTarget.value);
+        return;
+      }
       res.setHeader("Content-Type", ContentTypes.markdown + "; charset=utf-8");
-      res.send(sectionContent);
+      res.send(resolvedTarget.content);
       return;
     }
 
@@ -984,6 +1043,10 @@ export default class RequestHandler {
         errorCode: ErrorCode.InvalidTargetScopeHeader,
         message: "Valid values are 'content', 'marker', and 'markerAndContent'.",
       });
+      return;
+    }
+    if (targetType === "frontmatter" && targetScope && targetScope !== "content") {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidTargetScopeHeader });
       return;
     }
     if (!isContentType(contentType)) {
@@ -1516,7 +1579,7 @@ export default class RequestHandler {
 
   async _vaultDelete(
     path: string,
-    _req: express.Request,
+    req: express.Request,
     res: express.Response,
   ): Promise<void> {
     if (!path || path.endsWith("/")) {
@@ -1525,8 +1588,9 @@ export default class RequestHandler {
       });
       return;
     }
+    const permanent = req.query.permanent === "true";
     try {
-      await this.operations.deleteVaultFile(path);
+      await this.operations.deleteVaultFile(path, permanent);
     } catch (e) {
       if (e instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
@@ -1651,6 +1715,97 @@ export default class RequestHandler {
       return;
     }
     return this._vaultMove(filePath, req, res);
+  }
+
+  async _vaultCopy(
+    path: string,
+    req: express.Request,
+    res: express.Response,
+  ): Promise<void> {
+    if (!path || path.endsWith("/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.RequestMethodValidOnlyForFiles,
+      });
+      return;
+    }
+
+    const rawDestination = req.header("Destination");
+    const allowOverwrite = req.header("Allow-Overwrite") === "true";
+
+    if (rawDestination === undefined) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.MissingDestinationHeader,
+      });
+      return;
+    }
+
+    const sourceFilename = path.includes("/")
+      ? path.slice(path.lastIndexOf("/") + 1)
+      : path;
+
+    let normalized: string;
+    try {
+      normalized = decodeURIComponent(rawDestination.trim())
+        .replace(/\\/g, "/")
+        .replace(/\/+/g, "/");
+    } catch {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.InvalidDestinationHeader,
+      });
+      return;
+    }
+
+    if (normalized.startsWith("/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.PathTraversalNotAllowed,
+      });
+      return;
+    }
+
+    const syntheticRoot = "/vault";
+    const resolved = posix.resolve(syntheticRoot, normalized);
+    if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.PathTraversalNotAllowed,
+      });
+      return;
+    }
+
+    const newPath = !normalized || normalized.endsWith("/")
+      ? normalized + sourceFilename
+      : normalized;
+
+    try {
+      const actualPath = await this.operations.copyVaultFile(path, newPath, allowOverwrite);
+      res.set("Content-Location", encodeURI(actualPath));
+      this.returnCannedResponse(res, { statusCode: 204 });
+    } catch (error) {
+      if (error instanceof FileNotFoundError) {
+        this.returnCannedResponse(res, { statusCode: 404 });
+      } else if (error instanceof DestinationAlreadyExistsError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.DestinationAlreadyExists,
+        });
+      } else {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.FileOperationFailed,
+          message: `Failed to copy file: ${msg}`,
+        });
+      }
+    }
+  }
+
+  async vaultCopy(req: express.Request, res: express.Response): Promise<void> {
+    const segments = this.extractVaultPath(req, res);
+    if (segments === null) return;
+    // Copy addresses a whole file; a %2F-bearing segment can't name one.
+    const filePath = this.wholeFilePath(segments);
+    if (filePath === null) {
+      this.returnCannedResponse(res, { statusCode: 404 });
+      return;
+    }
+    return this._vaultCopy(filePath, req, res);
   }
 
   getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
@@ -2292,10 +2447,10 @@ export default class RequestHandler {
       next();
     });
     this.api.use(responseTime());
-    this.api.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE"] }));
+    this.api.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE", "COPY"] }));
 
     const mcpRouter = express.Router();
-    mcpRouter.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE"] }));
+    mcpRouter.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE", "COPY"] }));
     mcpRouter.use((req, res, next) => {
       if (!this.requestIsAuthenticated(req)) {
         this.returnCannedResponse(res, {
@@ -2371,6 +2526,8 @@ export default class RequestHandler {
       .all((req, res, next) => {
         if (req.method === "MOVE") {
           return this.handle((rq, rs) => this.vaultMove(rq, rs))(req, res, next);
+        } else if (req.method === "COPY") {
+          return this.handle((rq, rs) => this.vaultCopy(rq, rs))(req, res, next);
         } else {
           next();
         }

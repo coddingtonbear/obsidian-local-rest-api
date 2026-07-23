@@ -1,3 +1,4 @@
+local Copy = import 'lib/copy.jsonnet';
 local Delete = import 'lib/delete.jsonnet';
 local Get = import 'lib/get.jsonnet';
 local Move = import 'lib/move.jsonnet';
@@ -86,6 +87,7 @@ std.manifestYamlDoc(
             'content',
             'links',
             'backlinks',
+            'unresolvedLinks',
           ],
           properties: {
             tags: {
@@ -132,6 +134,13 @@ std.manifestYamlDoc(
             backlinks: {
               type: 'array',
               description: 'Vault-relative paths of files that link to this file.',
+              items: {
+                type: 'string',
+              },
+            },
+            unresolvedLinks: {
+              type: 'array',
+              description: 'Link text found in this file that does not resolve to an existing vault file.',
               items: {
                 type: 'string',
               },
@@ -278,6 +287,9 @@ std.manifestYamlDoc(
         additionalOperations: {
           move: Move {
             parameters: Move.parameters + [ParamPath],
+          },
+          copy: Copy {
+            parameters: Copy.parameters + [ParamPath],
           },
         },
         delete: Delete {

@@ -215,6 +215,58 @@ describe("requestHandler", () => {
         .set("Authorization", `Bearer ${API_KEY}`)
         .expect(404);
     });
+
+    test("Accept: text/html returns rendered HTML", async () => {
+      const arbitraryFilename = "somefile.md";
+      const renderedHtml = "<h1>Rendered</h1>";
+      jest.spyOn(handler.operations, "renderFileToHtml").mockResolvedValue(renderedHtml);
+
+      const result = await request(server)
+        .get(`/vault/${arbitraryFilename}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/html")
+        .expect(200);
+
+      expect(result.header["content-type"]).toEqual("text/html; charset=utf-8");
+      expect(result.text).toEqual(renderedHtml);
+      expect(handler.operations.renderFileToHtml).toHaveBeenCalledWith(
+        app.vault._getAbstractFileByPath,
+      );
+    });
+
+    test("Accept: text/html on non-existent file returns 404", async () => {
+      const arbitraryFilename = "somefile.md";
+      app.vault._getAbstractFileByPath = null;
+
+      await request(server)
+        .get(`/vault/${arbitraryFilename}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/html")
+        .expect(404);
+    });
+
+    test("Accept: application/vnd.olrapi.note+json includes links, backlinks, and unresolvedLinks", async () => {
+      const targetPath = app.vault._getAbstractFileByPath.path;
+
+      app.metadataCache.resolvedLinks = {
+        [targetPath]: { "resolved-target.md": 1 },
+        "other.md": { [targetPath]: 1 },
+      };
+      app.metadataCache.unresolvedLinks = {
+        [targetPath]: { "not-yet-created.md": 1 },
+      };
+
+      const result = await request(server)
+        .get(`/vault/${targetPath}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "application/vnd.olrapi.note+json")
+        .expect(200);
+
+      expect(result.body.links).toEqual(["resolved-target.md"]);
+      expect(result.body.backlinks).toEqual(["other.md"]);
+      expect(result.body.unresolvedLinks).toEqual(["not-yet-created.md"]);
+
+    });
   });
 
   describe("vaultGet section retrieval", () => {
@@ -475,6 +527,67 @@ describe("requestHandler", () => {
       expect(result.text).toContain("Content under heading1");
       expect(result.text).toContain("Sub content");
       expect(result.text).not.toContain("Content under heading2");
+    });
+
+    test("Accept: text/html with heading target renders only that section", async () => {
+      setFileContent(markdownWithHeadings);
+      app.vault.adapter._statForPath = "somefile.md";
+      const renderedHtml = "<p>Sub content</p>";
+      jest.spyOn(handler.operations, "renderFileToHtml").mockResolvedValue(renderedHtml);
+
+      const result = await request(server)
+        .get("/vault/somefile.md/heading/Heading1/SubHeading")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/html")
+        .expect(200);
+
+      expect(result.header["content-type"]).toEqual("text/html; charset=utf-8");
+      expect(result.text).toEqual(renderedHtml);
+      expect(handler.operations.renderFileToHtml).toHaveBeenCalledWith(
+        app.vault._getAbstractFileByPath,
+        "Sub content\n",
+      );
+    });
+
+    test("Accept: text/html with block target renders only that block", async () => {
+      setFileContent(markdownWithBlock);
+      app.vault.adapter._statForPath = "somefile.md";
+      const renderedHtml = "<p>Some content Block content</p>";
+      jest.spyOn(handler.operations, "renderFileToHtml").mockResolvedValue(renderedHtml);
+
+      const result = await request(server)
+        .get("/vault/somefile.md/block/myblock")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/html")
+        .expect(200);
+
+      expect(result.text).toEqual(renderedHtml);
+      expect(handler.operations.renderFileToHtml).toHaveBeenCalledWith(
+        app.vault._getAbstractFileByPath,
+        "Some content\nBlock content",
+      );
+    });
+
+    test("Accept: text/html with frontmatter target returns 400", async () => {
+      setFileContent(markdownWithHeadings);
+      app.vault.adapter._statForPath = "somefile.md";
+
+      await request(server)
+        .get("/vault/somefile.md/frontmatter/title")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/html")
+        .expect(400);
+    });
+
+    test("Accept: text/html with non-existent heading target returns 404", async () => {
+      setFileContent(markdownWithHeadings);
+      app.vault.adapter._statForPath = "somefile.md";
+
+      await request(server)
+        .get("/vault/somefile.md/heading/NoSuchHeading")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/html")
+        .expect(404);
     });
 
     test("a default (2.0) path-targeted read carries no Deprecation header", async () => {
@@ -829,20 +942,33 @@ describe("requestHandler", () => {
         .expect(405);
     });
 
-    test("non-existing file", async () => {
+    test("non-existing file with ?permanent=true", async () => {
       const arbitraryFilePath = "somefile.md";
       const arbitraryBytes = "bytes";
 
       app.vault.adapter._exists = false;
 
       await request(server)
-        .delete(`/vault/${arbitraryFilePath}`)
+        .delete(`/vault/${arbitraryFilePath}?permanent=true`)
         .set("Content-Type", "text/markdown")
         .set("Authorization", `Bearer ${API_KEY}`)
         .send(arbitraryBytes)
         .expect(404);
 
       expect(app.vault.adapter._remove).toBeUndefined();
+    });
+
+    test("non-existing file with default trash behavior", async () => {
+      const arbitraryFilePath = "somefile.md";
+
+      app.vault._getAbstractFileByPath = null;
+
+      await request(server)
+        .delete(`/vault/${arbitraryFilePath}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(404);
+
+      expect(app.fileManager._trashFile).toBeUndefined();
     });
 
     test("unauthorized", async () => {
@@ -856,18 +982,43 @@ describe("requestHandler", () => {
         .expect(401);
     });
 
-    test("existing file", async () => {
+    test("existing file moves to trash by default", async () => {
+      const arbitraryFilePath = "somefile.md";
+
+      await request(server)
+        .delete(`/vault/${arbitraryFilePath}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(204);
+
+      expect(app.fileManager._trashFile).toEqual(app.vault._getAbstractFileByPath);
+      expect(app.vault.adapter._remove).toBeUndefined();
+    });
+
+    test("existing file with ?permanent=true hard-deletes", async () => {
       const arbitraryFilePath = "somefile.md";
       const arbitraryBytes = "bytes";
 
       await request(server)
-        .delete(`/vault/${arbitraryFilePath}`)
+        .delete(`/vault/${arbitraryFilePath}?permanent=true`)
         .set("Content-Type", "text/markdown")
         .set("Authorization", `Bearer ${API_KEY}`)
         .send(arbitraryBytes)
         .expect(204);
 
       expect(app.vault.adapter._remove).toEqual([arbitraryFilePath]);
+      expect(app.fileManager._trashFile).toBeUndefined();
+    });
+
+    test("?permanent=false is equivalent to omitting the parameter", async () => {
+      const arbitraryFilePath = "somefile.md";
+
+      await request(server)
+        .delete(`/vault/${arbitraryFilePath}?permanent=false`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(204);
+
+      expect(app.fileManager._trashFile).toEqual(app.vault._getAbstractFileByPath);
+      expect(app.vault.adapter._remove).toBeUndefined();
     });
   });
 
@@ -1060,6 +1211,142 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("vaultCopy", () => {
+    test("directory path rejected", async () => {
+      await request(server)
+        .copy("/vault/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "somewhere/file.md")
+        .expect(405);
+    });
+
+    test("successful copy", async () => {
+      const sourcePath = "folder/file.md";
+      const newPath = "another-folder/subfolder/file.md";
+      jest.spyOn(handler.operations, "copyVaultFile").mockResolvedValue(newPath);
+
+      const response = await request(server)
+        .copy(`/vault/${sourcePath}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", newPath)
+        .expect(204);
+
+      expect(response.headers["content-location"]).toEqual(newPath);
+      expect(handler.operations.copyVaultFile).toHaveBeenCalledWith(
+        sourcePath,
+        newPath,
+        false,
+      );
+    });
+
+    test("non-existent source file returns 404", async () => {
+      jest
+        .spyOn(handler.operations, "copyVaultFile")
+        .mockRejectedValue(new FileNotFoundError("not found"));
+
+      await request(server)
+        .copy("/vault/non-existent.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "new-location/file.md")
+        .expect(404);
+    });
+
+    test("destination already exists returns 409", async () => {
+      jest
+        .spyOn(handler.operations, "copyVaultFile")
+        .mockRejectedValue(new DestinationAlreadyExistsError("exists"));
+
+      const response = await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "another-folder/existing-file.md")
+        .expect(409);
+
+      expect(response.body.message).toContain("Destination file already exists");
+    });
+
+    test("missing Destination header returns 400", async () => {
+      const response = await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(400);
+
+      expect(response.body.message).toContain("Destination header is required");
+    });
+
+    test("destination with trailing slash uses source filename", async () => {
+      jest.spyOn(handler.operations, "copyVaultFile").mockResolvedValue("new-folder/file.md");
+
+      const response = await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "new-folder/")
+        .expect(204);
+
+      expect(response.headers["content-location"]).toEqual("new-folder/file.md");
+      expect(handler.operations.copyVaultFile).toHaveBeenCalledWith(
+        "folder/file.md",
+        "new-folder/file.md",
+        false,
+      );
+    });
+
+    test("Allow-Overwrite: true passes flag to copyVaultFile", async () => {
+      jest.spyOn(handler.operations, "copyVaultFile").mockResolvedValue("another-folder/existing-file.md");
+
+      await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "another-folder/existing-file.md")
+        .set("Allow-Overwrite", "true")
+        .expect(204);
+
+      expect(handler.operations.copyVaultFile).toHaveBeenCalledWith(
+        "folder/file.md",
+        "another-folder/existing-file.md",
+        true,
+      );
+    });
+
+    test("path traversal attempt returns 400", async () => {
+      const response = await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "../../../etc/passwd")
+        .expect(400);
+
+      expect(response.body.errorCode).toEqual(40021);
+      expect(response.body.message).toContain("Path traversal is not allowed");
+    });
+
+    test("absolute destination path returns 400", async () => {
+      const response = await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "/etc/passwd")
+        .expect(400);
+
+      expect(response.body.errorCode).toEqual(40021);
+    });
+
+    test("malformed percent-encoding in Destination returns 400", async () => {
+      const response = await request(server)
+        .copy("/vault/folder/file.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "%E0%")
+        .expect(400);
+
+      expect(response.body.errorCode).toEqual(40022);
+    });
+
+    test("unauthorized", async () => {
+      await request(server)
+        .copy("/vault/file.md")
+        .set("Destination", "other/file.md")
+        .expect(401);
+    });
+  });
+
   describe("vaultPatch", () => {
     test("directory", async () => {
       await request(server)
@@ -1108,6 +1395,64 @@ describe("requestHandler", () => {
         .send("new content");
       expect(res.status).toBe(400);
       expect(res.body.errorCode).toBe(40005);
+    });
+
+    test("Target-Type: frontmatter with Target-Scope: marker returns 400 with errorCode 40059", async () => {
+      const res = await request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Markdown-Patch-Version", "1")
+        .set("Target-Type", "frontmatter")
+        .set("Target", "title")
+        .set("Target-Scope", "marker")
+        .set("Operation", "replace")
+        .send("new value");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40059);
+    });
+
+    test("Target-Type: frontmatter with Target-Scope: markerAndContent returns 400 with errorCode 40059", async () => {
+      const res = await request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Markdown-Patch-Version", "1")
+        .set("Target-Type", "frontmatter")
+        .set("Target", "title")
+        .set("Target-Scope", "markerAndContent")
+        .set("Operation", "replace")
+        .send("new value");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40059);
+    });
+
+    test("Target-Type: frontmatter with Target-Scope: content is accepted", async () => {
+      jest.spyOn(handler.operations, "patchFileSection").mockResolvedValueOnce("patched");
+      const res = await request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Markdown-Patch-Version", "1")
+        .set("Content-Type", "application/json")
+        .set("Target-Type", "frontmatter")
+        .set("Target", "title")
+        .set("Target-Scope", "content")
+        .set("Operation", "replace")
+        .send('"new value"');
+      expect(res.status).toBe(200);
+    });
+
+    test("Target-Type: heading with Target-Scope: marker is accepted", async () => {
+      jest.spyOn(handler.operations, "patchFileSection").mockResolvedValueOnce("patched");
+      const res = await request(server)
+        .patch("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Markdown-Patch-Version", "1")
+        .set("Content-Type", "text/markdown")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1")
+        .set("Target-Scope", "marker")
+        .set("Operation", "replace")
+        .send("## New Heading");
+      expect(res.status).toBe(200);
     });
 
     test("a 1.x PATCH response carries the Deprecation header", async () => {
@@ -2064,6 +2409,15 @@ describe("requestHandler", () => {
     test("MOVE rejects ..%2F traversal in source path with 400 and errorCode 40021", async () => {
       const res = await request(server)
         .move(traversal)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "safe/destination.md");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
+    test("COPY rejects ..%2F traversal in source path with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .copy(traversal)
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Destination", "safe/destination.md");
       expect(res.status).toBe(400);

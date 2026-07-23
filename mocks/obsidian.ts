@@ -98,6 +98,33 @@ export class Vault {
   }
 }
 
+class FileManager {
+  _trashFile: TFile | undefined;
+
+  async trashFile(file: TFile): Promise<void> {
+    this._trashFile = file;
+  }
+}
+
+export class Component {
+  load(): void {}
+  unload(): void {}
+}
+
+export class MarkdownRenderer {
+  static _rendered = "<p>rendered</p>";
+
+  static async render(
+    app: App,
+    markdown: string,
+    el: HTMLElement,
+    sourcePath: string,
+    component: Component,
+  ): Promise<void> {
+    el.innerHTML = MarkdownRenderer._rendered;
+  }
+}
+
 export class Loc {
   line = -1;
 }
@@ -123,6 +150,7 @@ export class MetadataCache {
   _getFileCache: CachedMetadata | null = new CachedMetadata();
   _listeners: Map<string, ((...data: unknown[]) => unknown)[]> = new Map();
   resolvedLinks: Record<string, Record<string, number>> = {};
+  unresolvedLinks: Record<string, Record<string, number>> = {};
 
   getFileCache(file: TFile): CachedMetadata | null {
     return this._getFileCache;
@@ -174,6 +202,7 @@ export class App {
   vault = new Vault();
   workspace = new Workspace();
   metadataCache = new MetadataCache();
+  fileManager = new FileManager();
   commands = {
     commands: {} as Record<string, Command>,
 

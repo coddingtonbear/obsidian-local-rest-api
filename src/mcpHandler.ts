@@ -231,7 +231,7 @@ export class McpHandler {
     this.tool(
       "vault_read",
       dedent`
-        Read a vault file's content and metadata. Returns a JSON object with: content (full markdown text), path, tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), stat ({ctime, mtime, size}), links (array of vault-relative paths this file links to), and backlinks (array of vault-relative paths of files that link here). Throws if the file does not exist.
+        Read a vault file's content and metadata. Returns a JSON object with: content (full markdown text), path, tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), stat ({ctime, mtime, size}), links (array of vault-relative paths this file links to), backlinks (array of vault-relative paths of files that link here), and unresolvedLinks (array of link text in this file that does not resolve to an existing vault file). Throws if the file does not exist.
 
         When targetType and target are both provided, returns only the matched section as a plain string (markdown) or JSON value (frontmatter) instead of the full object. To save context, call vault_get_document_map first to identify headings, block IDs, or frontmatter keys, and prefer targeted reads over full reads for anything but short files.
       `,
@@ -390,11 +390,19 @@ export class McpHandler {
 
     this.tool(
       "vault_delete",
-      "Delete a file from the vault. Throws if the file does not exist.",
-      { path: z.string().describe("File path relative to vault root") },
+      dedent`Delete a file from the vault. Throws if the file does not exist. By default, moves the file to trash (following the user's Obsidian "Deleted files" preference — either the ".trash" folder or the system trash) rather than deleting it permanently.`,
+      {
+        path: z.string().describe("File path relative to vault root"),
+        permanent: z
+          .boolean()
+          .optional()
+          .describe(
+            "If true, permanently deletes the file instead of moving it to trash (default: false).",
+          ),
+      },
       { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-      async ({ path }: { path: string }) => {
-        await this.ops.deleteVaultFile(path);
+      async ({ path, permanent }: { path: string; permanent?: boolean }) => {
+        await this.ops.deleteVaultFile(path, permanent ?? false);
         return this.text({ message: "OK" });
       },
     );
@@ -455,6 +463,65 @@ export class McpHandler {
 
         const actualPath = await this.ops.moveVaultFile(path, resolvedDestination, allowOverwrite ?? false);
         return this.text({ message: "OK", oldPath: path, newPath: actualPath });
+      },
+    );
+
+    this.tool(
+      "vault_copy",
+      dedent`Copy a vault file to a new path. Creates any missing parent directories at the destination automatically. Throws if the source file does not exist.`,
+      {
+        path: z.string().describe("Source file path relative to vault root"),
+        destination: z
+          .string()
+          .describe(
+            dedent`Destination path relative to vault root; must not escape the vault root. May end with '/' to preserve the source filename in the target directory (e.g. destination 'archive/' copies 'notes/todo.md' to 'archive/todo.md').`,
+          ),
+        allowOverwrite: z
+          .boolean()
+          .optional()
+          .describe(
+            dedent`If true, copy proceeds even when a file already exists at the destination; otherwise the copy throws (default: false).`,
+          ),
+      },
+      { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+      async ({
+        path,
+        destination,
+        allowOverwrite,
+      }: {
+        path: string;
+        destination: string;
+        allowOverwrite?: boolean;
+      }) => {
+        const normalized = destination
+          .trim()
+          .replace(/\\/g, "/")
+          .replace(/\/+/g, "/");
+
+        if (normalized.startsWith("/")) {
+          throw new Error(
+            "Destination path must be relative and must not escape the vault root.",
+          );
+        }
+
+        const syntheticRoot = "/vault";
+        const resolved = posix.resolve(syntheticRoot, normalized);
+        if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
+          throw new Error(
+            "Destination path must be relative and must not escape the vault root.",
+          );
+        }
+
+        const sourceFilename = path.includes("/")
+          ? path.slice(path.lastIndexOf("/") + 1)
+          : path;
+
+        const resolvedDestination = !normalized || normalized.endsWith("/")
+          ? normalized + sourceFilename
+          : normalized;
+
+        const actualPath = await this.ops.copyVaultFile(path, resolvedDestination, allowOverwrite ?? false);
+        return this.text({ message: "OK", sourcePath: path, newPath: actualPath });
       },
     );
 
@@ -520,7 +587,8 @@ export class McpHandler {
           "frontmatter": { "status": "done", "url": "https://example.com", "priority": 2 },
           "stat": { "ctime": 1705276800000, "mtime": 1705363200000, "size": 1024 },
           "links": ["projects/foo.md"],
-          "backlinks": ["index.md"]
+          "backlinks": ["index.md"],
+          "unresolvedLinks": ["not-yet-created.md"]
         }
 
         Call vault_read on any file (without targeting) to see the exact shape for a real file in this vault, including its actual frontmatter fields.

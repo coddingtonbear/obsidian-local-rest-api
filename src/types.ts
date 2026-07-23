@@ -162,6 +162,7 @@ export interface FileMetadataObject {
   content: string;
   links: string[];
   backlinks: string[];
+  unresolvedLinks: string[];
 }
 
 export interface DocumentMapObject {

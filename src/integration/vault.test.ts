@@ -109,6 +109,55 @@ describe("GET /vault/{file} with Accept: application/vnd.olrapi.note+json", () =
   });
 });
 
+describe("GET /vault/{file} with Accept: application/vnd.olrapi.note+json — unresolvedLinks", () => {
+  const LINKS_PATH = `${TEST_DIR}/unresolved-links-fixture.md`;
+
+  beforeEach(async () => {
+    await resetFixture("Links to [[xylophone-does-not-exist]].\n", LINKS_PATH);
+  });
+
+  afterEach(async () => {
+    await deleteFixture(LINKS_PATH);
+  });
+
+  test("includes links to non-existent files in unresolvedLinks", async () => {
+    const res = await authedFetch(`/vault/${LINKS_PATH}`, {
+      headers: { Accept: "application/vnd.olrapi.note+json" },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body.unresolvedLinks)).toBe(true);
+    expect(
+      body.unresolvedLinks.some((link: string) => link.includes("xylophone-does-not-exist")),
+    ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Accept: text/html
+// ---------------------------------------------------------------------------
+
+describe("GET /vault/{file} with Accept: text/html", () => {
+  test("returns rendered HTML with content-type text/html", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}`, {
+      headers: { Accept: "text/html" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/text\/html/);
+    const html = await res.text();
+    expect(html).toContain(HEADING_ALPHA);
+    expect(html).toContain(TERM_ALPHA);
+    expect(html).toMatch(/<h1[ >]/);
+  });
+
+  test("returns 404 for non-existent file", async () => {
+    const res = await authedFetch(`/vault/${TEST_DIR}/no-such-file.md`, {
+      headers: { Accept: "text/html" },
+    });
+    expect(res.status).toBe(404);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Accept: application/vnd.olrapi.document-map+json
 // ---------------------------------------------------------------------------
@@ -638,6 +687,14 @@ describe("DELETE /vault/{file}", () => {
   test("returns 401 without auth", async () => {
     const res = await unauthFetch(`/vault/${TEST_PATH}`, { method: "DELETE" });
     expect(res.status).toBe(401);
+  });
+
+  test("?permanent=true hard-deletes the file", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}?permanent=true`, { method: "DELETE" });
+    expect(res.status).toBe(204);
+
+    const getRes = await authedFetch(`/vault/${TEST_PATH}`);
+    expect(getRes.status).toBe(404);
   });
 });
 

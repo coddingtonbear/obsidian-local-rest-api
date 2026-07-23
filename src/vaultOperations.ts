@@ -3,6 +3,8 @@ import {
   App,
   CachedMetadata,
   Command,
+  Component,
+  MarkdownRenderer,
   prepareSimpleSearch,
   TFile,
 } from "obsidian";
@@ -224,6 +226,9 @@ export class VaultOperations {
     const links = Object.keys(
       this.app.metadataCache.resolvedLinks[file.path] ?? {},
     );
+    const unresolvedLinks = Object.keys(
+      this.app.metadataCache.unresolvedLinks[file.path] ?? {},
+    );
 
     const index = backlinksIndex ?? this.buildBacklinksIndex();
     const backlinks = index[file.path] ?? [];
@@ -236,7 +241,21 @@ export class VaultOperations {
       content: includeContent ? await this.app.vault.cachedRead(file) : "",
       links,
       backlinks,
+      unresolvedLinks,
     };
+  }
+
+  async renderFileToHtml(file: TFile, content?: string): Promise<string> {
+    const markdown = content ?? (await this.app.vault.cachedRead(file));
+    const el = activeDocument.createElement("div");
+    const component = new Component();
+    component.load();
+    try {
+      await MarkdownRenderer.render(this.app, markdown, el, file.path, component);
+      return el.innerHTML;
+    } finally {
+      component.unload();
+    }
   }
 
   async resolvePathAndTarget(rawSegments: string[]): Promise<{
@@ -375,12 +394,21 @@ export class VaultOperations {
     await this.app.vault.adapter.write(filePath, fileContents);
   }
 
-  async deleteVaultFile(filePath: string): Promise<void> {
-    const pathExists = await this.app.vault.adapter.exists(filePath);
-    if (!pathExists) {
+  async deleteVaultFile(filePath: string, permanent = false): Promise<void> {
+    if (permanent) {
+      const pathExists = await this.app.vault.adapter.exists(filePath);
+      if (!pathExists) {
+        throw new FileNotFoundError(`File not found: ${filePath}`);
+      }
+      await this.app.vault.adapter.remove(filePath);
+      return;
+    }
+
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    if (!file) {
       throw new FileNotFoundError(`File not found: ${filePath}`);
     }
-    await this.app.vault.adapter.remove(filePath);
+    await this.app.fileManager.trashFile(file);
   }
 
   async moveVaultFile(
@@ -422,6 +450,48 @@ export class VaultOperations {
     // @ts-ignore - fileManager exists at runtime but not in type definitions
     await this.app.fileManager.renameFile(sourceFile, destinationPath);
     return sourceFile.path;
+  }
+
+  async copyVaultFile(
+    sourcePath: string,
+    destinationPath: string,
+    allowOverwrite = false,
+  ): Promise<string> {
+    if (!destinationPath) {
+      throw new Error("Destination path must not be empty.");
+    }
+
+    const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(sourceFile instanceof TFile)) {
+      throw new FileNotFoundError(`File not found: ${sourcePath}`);
+    }
+
+    if (sourcePath === destinationPath) {
+      throw new DestinationAlreadyExistsError(
+        `Destination already exists: ${destinationPath}`,
+      );
+    }
+
+    const destExists = await this.app.vault.adapter.exists(destinationPath);
+    if (destExists) {
+      if (!allowOverwrite) {
+        throw new DestinationAlreadyExistsError(
+          `Destination already exists: ${destinationPath}`,
+        );
+      }
+      await this.app.vault.adapter.remove(destinationPath);
+    }
+
+    const parentDir = destinationPath.substring(
+      0,
+      destinationPath.lastIndexOf("/"),
+    );
+    if (parentDir && !(await this.app.vault.adapter.exists(parentDir))) {
+      await this.app.vault.createFolder(parentDir);
+    }
+
+    const copiedFile = await this.app.vault.copy(sourceFile, destinationPath);
+    return copiedFile.path;
   }
 
   // Throws PatchFailed on patch error; caller is responsible for mapping to

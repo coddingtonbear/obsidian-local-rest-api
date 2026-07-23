@@ -5,21 +5,15 @@
       "Bash(git commit -m ':*)",
       "Bash(grep -E \"\\\\.\\(ts|js|json\\)$\")",
       "WebFetch(domain:github.com)",
-      "Bash(curl -sk https://localhost:27124/active/ -H 'Authorization: Bearer 44be0dc95a1d0ecce5f0bb42cac1a570852a758c0578b0c96aebe30dbdf5d908' -w '\\\\nHTTP %{http_code}\\\\n')",
-      "Bash(curl -sk https://localhost:27124/active/ -H 'Authorization: Bearer 44be0dc95a1d0ecce5f0bb42cac1a570852a758c0578b0c96aebe30dbdf5d908' -H 'Target-Type: frontmatter' -H 'Target: author' -w '\\\\nHTTP %{http_code}\\\\n')",
-      "Bash(curl -sk https://localhost:27124/active/frontmatter/status -H 'Authorization: Bearer 44be0dc95a1d0ecce5f0bb42cac1a570852a758c0578b0c96aebe30dbdf5d908' -w '\\\\nHTTP %{http_code}\\\\n')",
       "Bash(gh issue:*)",
-      "Bash(grep -A 20 \"^  /:$\" /home/acoddington/Documents/Projects/obsidian-local-rest-api/docs/openapi.yaml)",
-      "Bash(OBSIDIAN_API_KEY=44be0dc95a1d0ecce5f0bb42cac1a570852a758c0578b0c96aebe30dbdf5d908 npm run test:integration)",
-      "Bash(OBSIDIAN_API_KEY=44be0dc95a1d0ecce5f0bb42cac1a570852a758c0578b0c96aebe30dbdf5d908 npm run test:integration -- --verbose)",
       "WebFetch(domain:docs.cursor.com)",
       "WebFetch(domain:support.claude.com)",
       "Bash(git commit -m ' *)",
       "mcp__obsidian__vault_list",
       "mcp__obsidian__vault_write",
-      "Bash(NODE_OPTIONS=--experimental-vm-modules npx jest model.property)",
-      "Bash(NODE_OPTIONS=--experimental-vm-modules npx jest conformance.test)",
-      "Bash(NODE_OPTIONS=--experimental-vm-modules npx jest src/tests/instructions.test.ts)"
+      "mcp__obsidian__vault_append",
+      "Bash(NODE_OPTIONS=--experimental-vm-modules npx jest *)",
+      "Bash(npx jest *)"
     ]
   }
 }

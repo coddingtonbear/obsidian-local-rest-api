@@ -62,7 +62,7 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.ErrorPreparingSimpleSearch]:
     "Error encountered while calling Obsidian `prepareSimpleSearch` API.",
   [ErrorCode.MissingDestinationHeader]:
-    "Destination header is required for MOVE operations.",
+    "Destination header is required for MOVE and COPY operations.",
   [ErrorCode.InvalidDestinationHeader]:
     "The 'Destination' header you provided could not be parsed.",
   [ErrorCode.PathTraversalNotAllowed]:
@@ -76,6 +76,7 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
 export enum ContentTypes {
   json = "application/json",
   markdown = "text/markdown",
+  html = "text/html",
   olrapiNoteJson = "application/vnd.olrapi.note+json",
   olrapiDocumentMap = "application/vnd.olrapi.document-map+json",
   olrapiPatchInstruction = "application/vnd.olrapi.patch-instruction+json",
