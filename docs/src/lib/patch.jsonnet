@@ -34,7 +34,7 @@ local T = import 'targeting.params.jsonnet';
       'text/markdown': {
         schema: {
           type: 'string',
-          example: '- A raw markdown line, spliced verbatim: no JSON escaping needed.\n',
+          example: '- A raw markdown line: no JSON escaping needed.\n',
         },
       },
       'application/vnd.olrapi.patch-instruction+json': {

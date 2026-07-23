@@ -110,9 +110,11 @@ Give the new text. That's all — no `#` characters, and nothing to look up:
 
 The same instruction shape renames a block id (`targetType: "block"`, new id without `^`) or a frontmatter key (`targetType: "frontmatter"`, new key name in `content`).
 
-## Whitespace is spliced verbatim
+## Whitespace is library-owned
 
-Your `content` is inserted exactly as written at one edge of the target's span; the API adds no whitespace of its own. For a heading, that span begins immediately *after* the heading line and ends after the last line of its subtree. Given a document containing:
+Your `content` crosses the API in trimmed, canonical form: leading and trailing blank lines are stripped, and a non-empty write always ends with exactly one newline. `"X"`, `"X\n"`, `"\nX\n"`, and `"X\n\n"` all produce the same document — newlines at the edges of your content are not a channel for controlling layout, so there is nothing to get wrong.
+
+Blank-line separators are the API's job. At any joint where your content faces body text, the engine supplies the blank line that keeps it a separate block. Given a document containing:
 
 ```markdown
 # One
@@ -120,15 +122,16 @@ Your `content` is inserted exactly as written at one edge of the target's span; 
 body of one
 ```
 
-- `prepend` lands flush against the heading line → `# One\nX\n\nbody of one\n`
-- `append` lands flush against the section's last line → `# One\n\nbody of one\nX\n`
-- `replace` clears the whole span, blank line included → `# One\nX\n`
+- `append` becomes a new block after the body → `# One\n\nbody of one\n\nX\n`
+- `prepend` becomes a new block before the body → `# One\n\nX\n\nbody of one\n`
+- `replace` swaps the body → `# One\n\nX\n`
 
-In all three cases **a leading `\n` in your content is what buys you a blank line before it**. Sending `"\nX\n"` instead gives `# One\n\nX\n\nbody of one\n`, `# One\n\nbody of one\n\nX\n`, and `# One\n\nX\n` respectively.
+Where no separator is owed, none is added — a heading line is self-delimiting, and existing blank lines, gaps between sections, and document edges are preserved rather than rewritten:
 
-Note that this is a *leading* newline even for `append`: the gap you usually want is between the existing text and yours, and that edge comes first. Trailing newlines control the gap *after* your content, and are trimmed at the very end of a document — so padding the end of an `append` at the end of a file does nothing.
+- The blank line between a heading and its body is kept in place: `replace` swaps the body beneath it and `prepend` inserts below it. A document written flush (`# One\nbody of one\n`) keeps its flush style — `replace` gives `# One\nX\n` — and replacing a body with its own text is byte-identity in either style.
+- Writing into an empty section lands flush under its heading (`# E\nX\n`), with the section's existing trailing gap serving as the separator below.
 
-The case that most often surprises: prepending into a section whose heading is already followed by a blank line still yields `# One\nX`, with no gap. That blank line is part of the body, not of the boundary, so it is pushed below your text rather than kept above it.
+One consequence worth knowing: a `content`-scope `append`/`prepend` always begins a new block — it can never continue an existing paragraph or list. To edit inline within a paragraph, target it via a block reference (`^id`), where content is spliced literally and you own the joint.
 
 ## Append, prepend, or replace content of a block reference
 
@@ -208,7 +211,7 @@ Issue a GET request to `/vault/{path}` with an `Accept` header of `application/v
 
 # Raw-content mode (templating-friendly)
 
-Putting the whole instruction in a JSON body has one sharp edge: the `content` string must be JSON-escaped, which tools that *template* markdown into an HTTP body (Shortcuts, Tasker, curl with `--data` from a template) often cannot do reliably. Raw-content mode removes that requirement: the instruction's fields travel **outside** the body, and the body is the raw payload, spliced verbatim.
+Putting the whole instruction in a JSON body has one sharp edge: the `content` string must be JSON-escaped, which tools that *template* markdown into an HTTP body (Shortcuts, Tasker, curl with `--data` from a template) often cannot do reliably. Raw-content mode removes that requirement: the instruction's fields travel **outside** the body, and the body is the raw payload — no JSON escaping required.
 
 The target can ride in either of two places (never both — that's a `422`):
 

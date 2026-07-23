@@ -1519,9 +1519,9 @@ describe("requestHandler", () => {
         content: "x",
       });
       expect(res.status).toBe(200);
-      expect(res.text).toContain("b-body\nx");
+      expect(res.text).toContain("b-body\n\nx");
       // The patched document was written back to the vault.
-      expect(app.vault.adapter._write[1]).toContain("b-body\nx");
+      expect(app.vault.adapter._write[1]).toContain("b-body\n\nx");
     });
 
     test("an omitted scope defaults to content", async () => {
@@ -1858,7 +1858,7 @@ describe("requestHandler", () => {
           .set("Content-Type", "text/markdown")
           .send("- appended\n");
         expect(res.status).toBe(200);
-        expect(res.text).toContain("Content under heading2\n- appended");
+        expect(res.text).toContain("Content under heading2\n\n- appended");
       });
 
       test("replace a nested heading's content via URL segments", async () => {
@@ -1930,7 +1930,7 @@ describe("requestHandler", () => {
           .set("Content-Type", "text/markdown")
           .send("- appended\n");
         expect(res.status).toBe(200);
-        expect(res.text).toContain("Sub content\n- appended");
+        expect(res.text).toContain("Sub content\n\n- appended");
       });
 
       test("a null heading Target addresses the document root", async () => {
@@ -2099,7 +2099,7 @@ describe("requestHandler", () => {
           .set("Content-Type", "application/vnd.olrapi.patch-instruction+json")
           .send(JSON.stringify({ targetType: "heading", target: ["Heading2"], operation: "append", content: "- appended\n" }));
         expect(res.status).toBe(200);
-        expect(res.text).toContain("Content under heading2\n- appended");
+        expect(res.text).toContain("Content under heading2\n\n- appended");
       });
     });
 
@@ -2483,7 +2483,7 @@ describe("requestHandler", () => {
         .set("Content-Type", "text/markdown")
         .send("- added\n");
       expect(res.status).toBe(200);
-      expect(res.text).toContain("slash-heading-body\n- added");
+      expect(res.text).toContain("slash-heading-body\n\n- added");
     });
 
     test("a slash-bearing heading segment is not mistaken for a nested heading path", async () => {
@@ -4185,7 +4185,7 @@ describe("requestHandler", () => {
         .set("Content-Type", "text/markdown")
         .send("- appended\n");
       expect(res.status).toBe(200);
-      expect(res.text).toContain("Entry\n- appended");
+      expect(res.text).toContain("Entry\n\n- appended");
       expect(res.headers["content-location"]).toEqual("notes/active.md");
     });
 
@@ -4209,7 +4209,7 @@ describe("requestHandler", () => {
         .set("Content-Type", "application/json")
         .send({ targetType: "heading", target: ["Log"], operation: "append", content: "- appended\n" });
       expect(res.status).toBe(200);
-      expect(res.text).toContain("Entry\n- appended");
+      expect(res.text).toContain("Entry\n\n- appended");
     });
 
     test("a periodic-note PATCH suffix targets the section and sets Content-Location", async () => {
@@ -4221,7 +4221,7 @@ describe("requestHandler", () => {
         .set("Content-Type", "text/markdown")
         .send("- appended\n");
       expect(res.status).toBe(200);
-      expect(res.text).toContain("Entry\n- appended");
+      expect(res.text).toContain("Entry\n\n- appended");
       expect(res.headers["content-location"]).toEqual("daily/2024-01-15.md");
     });
 
@@ -4251,7 +4251,7 @@ describe("requestHandler", () => {
         .set("Content-Type", "text/markdown")
         .send("- added\n");
       expect(res.status).toBe(200);
-      expect(res.text).toContain("Entry\n- added");
+      expect(res.text).toContain("Entry\n\n- added");
     });
 
     test("a periodic-note PATCH suffix targets a heading whose text contains a slash", async () => {
@@ -4265,7 +4265,7 @@ describe("requestHandler", () => {
         .set("Content-Type", "text/markdown")
         .send("- added\n");
       expect(res.status).toBe(200);
-      expect(res.text).toContain("Entry\n- added");
+      expect(res.text).toContain("Entry\n\n- added");
     });
   });
 });

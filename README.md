@@ -163,11 +163,11 @@ curl -k -X PATCH \
 
 Heading levels inside a `content` string are relative to the target (a leading `#` becomes a direct child). Advisory warnings (e.g. a heading rebased past level 6) come back as percent-encoded JSON in the `Markdown-Patch-Warnings` response header — decode with `decodeURIComponent` before parsing. Pass `ifMatch` (the `version` from a document map) for optimistic concurrency.
 
-> **Note:** Whitespace is spliced verbatim — your content goes in exactly as written at the edge of the target's span, and the API adds none of its own. A leading `\n` in your content is what produces a blank line before it, for `append` as much as for `prepend`. Without one your text ends up flush against whatever it lands next to, even where the document already looked well-spaced. See the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for worked examples.
+> **Note:** Whitespace is library-owned — your content is reduced to trimmed, canonical form (leading and trailing blank lines are meaningless), and the API itself supplies the blank line wherever inserted content faces body text, so an `append` or `prepend` always lands as its own block and never merges into an existing paragraph. Heading lines, existing blank lines, and each document's spacing style are preserved as-is. See the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for worked examples.
 
 ### Raw-content mode
 
-If your client *templates* markdown into the request body (Shortcuts, Tasker, curl from a template), JSON-escaping that content into an instruction is fragile. Raw-content mode moves the instruction's fields out of the body — target in the URL (or in `Target-Type`/`Target` headers with an explicit `Markdown-Patch-Version: 2`), operation and options in headers — and the body is the raw payload, spliced verbatim:
+If your client *templates* markdown into the request body (Shortcuts, Tasker, curl from a template), JSON-escaping that content into an instruction is fragile. Raw-content mode moves the instruction's fields out of the body — target in the URL (or in `Target-Type`/`Target` headers with an explicit `Markdown-Patch-Version: 2`), operation and options in headers — and the body is the raw payload, no JSON escaping required:
 
 ```sh
 # Append a templated line under a heading — no JSON escaping anywhere

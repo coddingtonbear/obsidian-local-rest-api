@@ -99,7 +99,7 @@ components:
       description: "A single edit expressed as one operation applied to a scope of a target node. The payload rides in exactly one of `content`, `value`, or `destination`, chosen by what it is. Not every operation×scope×targetType combination is valid; invalid ones are rejected."
       properties:
         content:
-          description: "String payload: a heading/block body or label, a new block id for a block `marker` rename (letters, numbers, hyphens, and underscores only), or a new frontmatter key name for a frontmatter `marker` rename. Heading levels are relative to the edited span (a leading `#` becomes a direct child). A heading `marker` rename may not contain a line break. Provide exactly one of `content`, `value`, or `destination`."
+          description: "String payload: a heading/block body or label, a new block id for a block `marker` rename (letters, numbers, hyphens, and underscores only), or a new frontmatter key name for a frontmatter `marker` rename. Heading levels are relative to the edited span (a leading `#` becomes a direct child). For heading writes, whitespace is library-owned: leading/trailing blank lines here are ignored, and the engine supplies the blank line that keeps inserted content a separate block — never add newlines to control spacing. (Block-target `content` is the exception: it is spliced literally for inline edits.) A heading `marker` rename may not contain a line break. Provide exactly one of `content`, `value`, or `destination`."
           type: "string"
         createTargetIfMissing:
           default: false
@@ -559,9 +559,11 @@ paths:
         
         The same instruction shape renames a block id (`targetType: "block"`, new id without `^`) or a frontmatter key (`targetType: "frontmatter"`, new key name in `content`).
         
-        ## Whitespace is spliced verbatim
+        ## Whitespace is library-owned
         
-        Your `content` is inserted exactly as written at one edge of the target's span; the API adds no whitespace of its own. For a heading, that span begins immediately *after* the heading line and ends after the last line of its subtree. Given a document containing:
+        Your `content` crosses the API in trimmed, canonical form: leading and trailing blank lines are stripped, and a non-empty write always ends with exactly one newline. `"X"`, `"X\n"`, `"\nX\n"`, and `"X\n\n"` all produce the same document — newlines at the edges of your content are not a channel for controlling layout, so there is nothing to get wrong.
+        
+        Blank-line separators are the API's job. At any joint where your content faces body text, the engine supplies the blank line that keeps it a separate block. Given a document containing:
         
         ```markdown
         # One
@@ -569,15 +571,16 @@ paths:
         body of one
         ```
         
-        - `prepend` lands flush against the heading line → `# One\nX\n\nbody of one\n`
-        - `append` lands flush against the section's last line → `# One\n\nbody of one\nX\n`
-        - `replace` clears the whole span, blank line included → `# One\nX\n`
+        - `append` becomes a new block after the body → `# One\n\nbody of one\n\nX\n`
+        - `prepend` becomes a new block before the body → `# One\n\nX\n\nbody of one\n`
+        - `replace` swaps the body → `# One\n\nX\n`
         
-        In all three cases **a leading `\n` in your content is what buys you a blank line before it**. Sending `"\nX\n"` instead gives `# One\n\nX\n\nbody of one\n`, `# One\n\nbody of one\n\nX\n`, and `# One\n\nX\n` respectively.
+        Where no separator is owed, none is added — a heading line is self-delimiting, and existing blank lines, gaps between sections, and document edges are preserved rather than rewritten:
         
-        Note that this is a *leading* newline even for `append`: the gap you usually want is between the existing text and yours, and that edge comes first. Trailing newlines control the gap *after* your content, and are trimmed at the very end of a document — so padding the end of an `append` at the end of a file does nothing.
+        - The blank line between a heading and its body is kept in place: `replace` swaps the body beneath it and `prepend` inserts below it. A document written flush (`# One\nbody of one\n`) keeps its flush style — `replace` gives `# One\nX\n` — and replacing a body with its own text is byte-identity in either style.
+        - Writing into an empty section lands flush under its heading (`# E\nX\n`), with the section's existing trailing gap serving as the separator below.
         
-        The case that most often surprises: prepending into a section whose heading is already followed by a blank line still yields `# One\nX`, with no gap. That blank line is part of the body, not of the boundary, so it is pushed below your text rather than kept above it.
+        One consequence worth knowing: a `content`-scope `append`/`prepend` always begins a new block — it can never continue an existing paragraph or list. To edit inline within a paragraph, target it via a block reference (`^id`), where content is spliced literally and you own the joint.
         
         ## Append, prepend, or replace content of a block reference
         
@@ -657,7 +660,7 @@ paths:
         
         # Raw-content mode (templating-friendly)
         
-        Putting the whole instruction in a JSON body has one sharp edge: the `content` string must be JSON-escaped, which tools that *template* markdown into an HTTP body (Shortcuts, Tasker, curl with `--data` from a template) often cannot do reliably. Raw-content mode removes that requirement: the instruction's fields travel **outside** the body, and the body is the raw payload, spliced verbatim.
+        Putting the whole instruction in a JSON body has one sharp edge: the `content` string must be JSON-escaped, which tools that *template* markdown into an HTTP body (Shortcuts, Tasker, curl with `--data` from a template) often cannot do reliably. Raw-content mode removes that requirement: the instruction's fields travel **outside** the body, and the body is the raw payload — no JSON escaping required.
         
         The target can ride in either of two places (never both — that's a `422`):
         
@@ -905,7 +908,7 @@ paths:
           text/markdown:
             schema:
               example: |
-                - A raw markdown line, spliced verbatim: no JSON escaping needed.
+                - A raw markdown line: no JSON escaping needed.
               type: "string"
         description: |
           Instruction mode: a single patch instruction as JSON (`application/json`, or
@@ -1854,9 +1857,11 @@ paths:
         
         The same instruction shape renames a block id (`targetType: "block"`, new id without `^`) or a frontmatter key (`targetType: "frontmatter"`, new key name in `content`).
         
-        ## Whitespace is spliced verbatim
+        ## Whitespace is library-owned
         
-        Your `content` is inserted exactly as written at one edge of the target's span; the API adds no whitespace of its own. For a heading, that span begins immediately *after* the heading line and ends after the last line of its subtree. Given a document containing:
+        Your `content` crosses the API in trimmed, canonical form: leading and trailing blank lines are stripped, and a non-empty write always ends with exactly one newline. `"X"`, `"X\n"`, `"\nX\n"`, and `"X\n\n"` all produce the same document — newlines at the edges of your content are not a channel for controlling layout, so there is nothing to get wrong.
+        
+        Blank-line separators are the API's job. At any joint where your content faces body text, the engine supplies the blank line that keeps it a separate block. Given a document containing:
         
         ```markdown
         # One
@@ -1864,15 +1869,16 @@ paths:
         body of one
         ```
         
-        - `prepend` lands flush against the heading line → `# One\nX\n\nbody of one\n`
-        - `append` lands flush against the section's last line → `# One\n\nbody of one\nX\n`
-        - `replace` clears the whole span, blank line included → `# One\nX\n`
+        - `append` becomes a new block after the body → `# One\n\nbody of one\n\nX\n`
+        - `prepend` becomes a new block before the body → `# One\n\nX\n\nbody of one\n`
+        - `replace` swaps the body → `# One\n\nX\n`
         
-        In all three cases **a leading `\n` in your content is what buys you a blank line before it**. Sending `"\nX\n"` instead gives `# One\n\nX\n\nbody of one\n`, `# One\n\nbody of one\n\nX\n`, and `# One\n\nX\n` respectively.
+        Where no separator is owed, none is added — a heading line is self-delimiting, and existing blank lines, gaps between sections, and document edges are preserved rather than rewritten:
         
-        Note that this is a *leading* newline even for `append`: the gap you usually want is between the existing text and yours, and that edge comes first. Trailing newlines control the gap *after* your content, and are trimmed at the very end of a document — so padding the end of an `append` at the end of a file does nothing.
+        - The blank line between a heading and its body is kept in place: `replace` swaps the body beneath it and `prepend` inserts below it. A document written flush (`# One\nbody of one\n`) keeps its flush style — `replace` gives `# One\nX\n` — and replacing a body with its own text is byte-identity in either style.
+        - Writing into an empty section lands flush under its heading (`# E\nX\n`), with the section's existing trailing gap serving as the separator below.
         
-        The case that most often surprises: prepending into a section whose heading is already followed by a blank line still yields `# One\nX`, with no gap. That blank line is part of the body, not of the boundary, so it is pushed below your text rather than kept above it.
+        One consequence worth knowing: a `content`-scope `append`/`prepend` always begins a new block — it can never continue an existing paragraph or list. To edit inline within a paragraph, target it via a block reference (`^id`), where content is spliced literally and you own the joint.
         
         ## Append, prepend, or replace content of a block reference
         
@@ -1952,7 +1958,7 @@ paths:
         
         # Raw-content mode (templating-friendly)
         
-        Putting the whole instruction in a JSON body has one sharp edge: the `content` string must be JSON-escaped, which tools that *template* markdown into an HTTP body (Shortcuts, Tasker, curl with `--data` from a template) often cannot do reliably. Raw-content mode removes that requirement: the instruction's fields travel **outside** the body, and the body is the raw payload, spliced verbatim.
+        Putting the whole instruction in a JSON body has one sharp edge: the `content` string must be JSON-escaped, which tools that *template* markdown into an HTTP body (Shortcuts, Tasker, curl with `--data` from a template) often cannot do reliably. Raw-content mode removes that requirement: the instruction's fields travel **outside** the body, and the body is the raw payload — no JSON escaping required.
         
         The target can ride in either of two places (never both — that's a `422`):
         
@@ -2213,7 +2219,7 @@ paths:
           text/markdown:
             schema:
               example: |
-                - A raw markdown line, spliced verbatim: no JSON escaping needed.
+                - A raw markdown line: no JSON escaping needed.
               type: "string"
         description: |
           Instruction mode: a single patch instruction as JSON (`application/json`, or
@@ -2928,9 +2934,11 @@ paths:
         
         The same instruction shape renames a block id (`targetType: "block"`, new id without `^`) or a frontmatter key (`targetType: "frontmatter"`, new key name in `content`).
         
-        ## Whitespace is spliced verbatim
+        ## Whitespace is library-owned
         
-        Your `content` is inserted exactly as written at one edge of the target's span; the API adds no whitespace of its own. For a heading, that span begins immediately *after* the heading line and ends after the last line of its subtree. Given a document containing:
+        Your `content` crosses the API in trimmed, canonical form: leading and trailing blank lines are stripped, and a non-empty write always ends with exactly one newline. `"X"`, `"X\n"`, `"\nX\n"`, and `"X\n\n"` all produce the same document — newlines at the edges of your content are not a channel for controlling layout, so there is nothing to get wrong.
+        
+        Blank-line separators are the API's job. At any joint where your content faces body text, the engine supplies the blank line that keeps it a separate block. Given a document containing:
         
         ```markdown
         # One
@@ -2938,15 +2946,16 @@ paths:
         body of one
         ```
         
-        - `prepend` lands flush against the heading line → `# One\nX\n\nbody of one\n`
-        - `append` lands flush against the section's last line → `# One\n\nbody of one\nX\n`
-        - `replace` clears the whole span, blank line included → `# One\nX\n`
+        - `append` becomes a new block after the body → `# One\n\nbody of one\n\nX\n`
+        - `prepend` becomes a new block before the body → `# One\n\nX\n\nbody of one\n`
+        - `replace` swaps the body → `# One\n\nX\n`
         
-        In all three cases **a leading `\n` in your content is what buys you a blank line before it**. Sending `"\nX\n"` instead gives `# One\n\nX\n\nbody of one\n`, `# One\n\nbody of one\n\nX\n`, and `# One\n\nX\n` respectively.
+        Where no separator is owed, none is added — a heading line is self-delimiting, and existing blank lines, gaps between sections, and document edges are preserved rather than rewritten:
         
-        Note that this is a *leading* newline even for `append`: the gap you usually want is between the existing text and yours, and that edge comes first. Trailing newlines control the gap *after* your content, and are trimmed at the very end of a document — so padding the end of an `append` at the end of a file does nothing.
+        - The blank line between a heading and its body is kept in place: `replace` swaps the body beneath it and `prepend` inserts below it. A document written flush (`# One\nbody of one\n`) keeps its flush style — `replace` gives `# One\nX\n` — and replacing a body with its own text is byte-identity in either style.
+        - Writing into an empty section lands flush under its heading (`# E\nX\n`), with the section's existing trailing gap serving as the separator below.
         
-        The case that most often surprises: prepending into a section whose heading is already followed by a blank line still yields `# One\nX`, with no gap. That blank line is part of the body, not of the boundary, so it is pushed below your text rather than kept above it.
+        One consequence worth knowing: a `content`-scope `append`/`prepend` always begins a new block — it can never continue an existing paragraph or list. To edit inline within a paragraph, target it via a block reference (`^id`), where content is spliced literally and you own the joint.
         
         ## Append, prepend, or replace content of a block reference
         
@@ -3026,7 +3035,7 @@ paths:
         
         # Raw-content mode (templating-friendly)
         
-        Putting the whole instruction in a JSON body has one sharp edge: the `content` string must be JSON-escaped, which tools that *template* markdown into an HTTP body (Shortcuts, Tasker, curl with `--data` from a template) often cannot do reliably. Raw-content mode removes that requirement: the instruction's fields travel **outside** the body, and the body is the raw payload, spliced verbatim.
+        Putting the whole instruction in a JSON body has one sharp edge: the `content` string must be JSON-escaped, which tools that *template* markdown into an HTTP body (Shortcuts, Tasker, curl with `--data` from a template) often cannot do reliably. Raw-content mode removes that requirement: the instruction's fields travel **outside** the body, and the body is the raw payload — no JSON escaping required.
         
         The target can ride in either of two places (never both — that's a `422`):
         
@@ -3305,7 +3314,7 @@ paths:
           text/markdown:
             schema:
               example: |
-                - A raw markdown line, spliced verbatim: no JSON escaping needed.
+                - A raw markdown line: no JSON escaping needed.
               type: "string"
         description: |
           Instruction mode: a single patch instruction as JSON (`application/json`, or
@@ -4358,9 +4367,11 @@ paths:
         
         The same instruction shape renames a block id (`targetType: "block"`, new id without `^`) or a frontmatter key (`targetType: "frontmatter"`, new key name in `content`).
         
-        ## Whitespace is spliced verbatim
+        ## Whitespace is library-owned
         
-        Your `content` is inserted exactly as written at one edge of the target's span; the API adds no whitespace of its own. For a heading, that span begins immediately *after* the heading line and ends after the last line of its subtree. Given a document containing:
+        Your `content` crosses the API in trimmed, canonical form: leading and trailing blank lines are stripped, and a non-empty write always ends with exactly one newline. `"X"`, `"X\n"`, `"\nX\n"`, and `"X\n\n"` all produce the same document — newlines at the edges of your content are not a channel for controlling layout, so there is nothing to get wrong.
+        
+        Blank-line separators are the API's job. At any joint where your content faces body text, the engine supplies the blank line that keeps it a separate block. Given a document containing:
         
         ```markdown
         # One
@@ -4368,15 +4379,16 @@ paths:
         body of one
         ```
         
-        - `prepend` lands flush against the heading line → `# One\nX\n\nbody of one\n`
-        - `append` lands flush against the section's last line → `# One\n\nbody of one\nX\n`
-        - `replace` clears the whole span, blank line included → `# One\nX\n`
+        - `append` becomes a new block after the body → `# One\n\nbody of one\n\nX\n`
+        - `prepend` becomes a new block before the body → `# One\n\nX\n\nbody of one\n`
+        - `replace` swaps the body → `# One\n\nX\n`
         
-        In all three cases **a leading `\n` in your content is what buys you a blank line before it**. Sending `"\nX\n"` instead gives `# One\n\nX\n\nbody of one\n`, `# One\n\nbody of one\n\nX\n`, and `# One\n\nX\n` respectively.
+        Where no separator is owed, none is added — a heading line is self-delimiting, and existing blank lines, gaps between sections, and document edges are preserved rather than rewritten:
         
-        Note that this is a *leading* newline even for `append`: the gap you usually want is between the existing text and yours, and that edge comes first. Trailing newlines control the gap *after* your content, and are trimmed at the very end of a document — so padding the end of an `append` at the end of a file does nothing.
+        - The blank line between a heading and its body is kept in place: `replace` swaps the body beneath it and `prepend` inserts below it. A document written flush (`# One\nbody of one\n`) keeps its flush style — `replace` gives `# One\nX\n` — and replacing a body with its own text is byte-identity in either style.
+        - Writing into an empty section lands flush under its heading (`# E\nX\n`), with the section's existing trailing gap serving as the separator below.
         
-        The case that most often surprises: prepending into a section whose heading is already followed by a blank line still yields `# One\nX`, with no gap. That blank line is part of the body, not of the boundary, so it is pushed below your text rather than kept above it.
+        One consequence worth knowing: a `content`-scope `append`/`prepend` always begins a new block — it can never continue an existing paragraph or list. To edit inline within a paragraph, target it via a block reference (`^id`), where content is spliced literally and you own the joint.
         
         ## Append, prepend, or replace content of a block reference
         
@@ -4456,7 +4468,7 @@ paths:
         
         # Raw-content mode (templating-friendly)
         
-        Putting the whole instruction in a JSON body has one sharp edge: the `content` string must be JSON-escaped, which tools that *template* markdown into an HTTP body (Shortcuts, Tasker, curl with `--data` from a template) often cannot do reliably. Raw-content mode removes that requirement: the instruction's fields travel **outside** the body, and the body is the raw payload, spliced verbatim.
+        Putting the whole instruction in a JSON body has one sharp edge: the `content` string must be JSON-escaped, which tools that *template* markdown into an HTTP body (Shortcuts, Tasker, curl with `--data` from a template) often cannot do reliably. Raw-content mode removes that requirement: the instruction's fields travel **outside** the body, and the body is the raw payload — no JSON escaping required.
         
         The target can ride in either of two places (never both — that's a `422`):
         
@@ -4711,7 +4723,7 @@ paths:
           text/markdown:
             schema:
               example: |
-                - A raw markdown line, spliced verbatim: no JSON escaping needed.
+                - A raw markdown line: no JSON escaping needed.
               type: "string"
         description: |
           Instruction mode: a single patch instruction as JSON (`application/json`, or
@@ -5269,7 +5281,7 @@ x-topics:
       
       # Behavior changes to watch for
       
-      - **Whitespace is spliced verbatim.** The 2.x engine inserts your `content` exactly as written at the edge of the target's span and adds no whitespace of its own; `Trim-Target-Whitespace` is gone. A leading `\n` in your content is what buys you a blank line before it — for `append` as much as for `prepend`. If your 1.x client relied on the server managing blank lines, re-check the output spacing.
+      - **Whitespace is library-owned.** The 2.x engine reduces your `content` to trimmed, canonical form (leading and trailing blank lines are meaningless) and itself supplies the blank line wherever inserted content faces body text, so a naive `append` or `prepend` always lands as its own block and can never merge into an existing paragraph; `Trim-Target-Whitespace` is gone because there is nothing left for it to fix. If your 1.x client added `\n` padding to manage spacing, it is now ignored — and a `content`-scope `append` can no longer continue an existing list or paragraph (use a `^id` block target for inline edits).
       - **Heading levels in `content` are relative.** A leading `#` becomes a direct child of the target regardless of the target's own depth — you never count `#`s. A level rebased past h6 still writes, but adds a `heading-depth-overflow` warning.
       - **The warnings header was renamed** from `MD-Patch-Warnings` to `Markdown-Patch-Warnings`, and its JSON value is now percent-encoded so warnings can embed non-ASCII document text. Run it through `decodeURIComponent` before parsing.
       - **URL targets on `/active/` and `/periodic/` PATCH now work.** Previously a suffix like `/active/heading/Log` was silently ignored on PATCH and the whole file was patched; it now targets the addressed section, matching PUT/POST.
