@@ -612,6 +612,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             desc: "REST and MCP connection URLs and API key.",
             render: (setting) => {
               setting.settingEl.empty();
+              setting.settingEl.addClass("full-width-setting");
               this.renderConnectionInfo(setting.settingEl);
               this.renderMcpInfo(setting.settingEl);
             },
@@ -765,6 +766,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         name: "Certificate status",
         render: (setting) => {
           setting.settingEl.empty();
+          setting.settingEl.addClass("full-width-setting");
           this.renderCertificateWarnings(setting.settingEl);
         },
       },
