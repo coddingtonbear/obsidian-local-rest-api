@@ -1,4 +1,5 @@
-// Periodic note tests require the Daily Notes (or Calendar) plugin to be enabled in Obsidian.
+// Periodic note tests require daily notes to be enabled under this plugin's own
+// "Periodic Notes" settings section (Settings → Local REST API with MCP → Periodic Notes → Daily).
 // Set OBSIDIAN_PERIODIC_NOTES=true to run these tests.
 // Optionally set OBSIDIAN_DAILY_NOTE_EXISTS=true|false to gate which sub-tests run.
 

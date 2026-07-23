@@ -28,7 +28,6 @@ import {
   PluginManifest,
   _prepareSimpleSearchMock,
 } from "../mocks/obsidian";
-import * as dailyNotesInterface from "obsidian-daily-notes-interface";
 
 describe("requestHandler", () => {
   const API_KEY = "my api key";
@@ -4099,10 +4098,10 @@ describe("requestHandler", () => {
 
   describe("periodicNotes", () => {
     // These tests call through to the real VaultOperations.getPeriodicNoteInterface()
-    // implementation rather than mocking handler.operations.periodicGetNote/
-    // periodicGetOrCreateNote. This ensures the obsidian-daily-notes-interface
-    // import is exercised and regressions like #255 (undefined default import
-    // causing a crash) are caught at unit-test time.
+    // implementation (native, settings-driven — see src/periodicNotes.ts) rather than
+    // mocking handler.operations.periodicGetNote/periodicGetOrCreateNote, to exercise
+    // the actual folder/format matching logic. Regression coverage for #255 (crash
+    // when the period isn't configured) is preserved below.
 
     test("unknown period name returns 404", async () => {
       const res = await request(server)
@@ -4112,15 +4111,19 @@ describe("requestHandler", () => {
     });
 
     test("period not enabled returns 400", async () => {
-      (dailyNotesInterface.appHasDailyNotesPluginLoaded as jest.Mock).mockReturnValueOnce(false);
+      // No settings.periodicNotes.daily configured at all — regression for #255
+      // (undefined settings previously crashed rather than reporting "not enabled").
       const res = await request(server)
         .get("/periodic/daily/")
         .set("Authorization", `Bearer ${API_KEY}`);
       expect(res.status).toBe(400);
     });
 
-    test("note does not exist returns 404, not a crash (regression for #255)", async () => {
-      // getDailyNote returns null by default in the mock — note doesn't exist yet.
+    test("note does not exist returns 404, not a crash", async () => {
+      settings.periodicNotes = {
+        daily: { enabled: true, folder: "", format: "YYYY-MM-DD", template: "" },
+      };
+      // No matching file in app.vault.getMarkdownFiles() — note doesn't exist yet.
       const res = await request(server)
         .get("/periodic/daily/")
         .set("Authorization", `Bearer ${API_KEY}`);
@@ -4128,15 +4131,50 @@ describe("requestHandler", () => {
     });
 
     test("note exists returns 200 with file content", async () => {
+      settings.periodicNotes = {
+        daily: { enabled: true, folder: "", format: "YYYY-MM-DD", template: "" },
+      };
       const noteFile = new TFile();
-      noteFile.path = "daily.md";
-      (dailyNotesInterface.getDailyNote as jest.Mock).mockReturnValueOnce(noteFile);
-      (dailyNotesInterface.getAllDailyNotes as jest.Mock).mockReturnValueOnce({});
+      noteFile.path = `${window.moment().format("YYYY-MM-DD")}.md`;
+      noteFile.basename = window.moment().format("YYYY-MM-DD");
+      app.vault._markdownFiles = [noteFile];
 
       const res = await request(server)
         .get("/periodic/daily/")
         .set("Authorization", `Bearer ${API_KEY}`);
       expect(res.status).toBe(200);
+    });
+
+    test("note in configured folder is found", async () => {
+      settings.periodicNotes = {
+        daily: { enabled: true, folder: "journal", format: "YYYY-MM-DD", template: "" },
+      };
+      const noteFile = new TFile();
+      const basename = window.moment().format("YYYY-MM-DD");
+      noteFile.path = `journal/${basename}.md`;
+      noteFile.basename = basename;
+      app.vault._markdownFiles = [noteFile];
+
+      const res = await request(server)
+        .get("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(200);
+    });
+
+    test("note outside configured folder is not found", async () => {
+      settings.periodicNotes = {
+        daily: { enabled: true, folder: "journal", format: "YYYY-MM-DD", template: "" },
+      };
+      const noteFile = new TFile();
+      const basename = window.moment().format("YYYY-MM-DD");
+      noteFile.path = `${basename}.md`; // vault root, not "journal/"
+      noteFile.basename = basename;
+      app.vault._markdownFiles = [noteFile];
+
+      const res = await request(server)
+        .get("/periodic/daily/")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(404);
     });
   });
 

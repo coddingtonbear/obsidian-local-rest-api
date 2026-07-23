@@ -127,7 +127,7 @@ export default class RequestHandler {
 
     this.apiExtensionRouter = express.Router();
     this.publicApiExtensionRouter = express.Router();
-    this.operations = new VaultOperations(this.app);
+    this.operations = new VaultOperations(this.app, this.settings);
     this.mcpHandler = new McpHandler(this.operations, this.settings);
 
     this.api.set("json spaces", 2);
