@@ -697,9 +697,10 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         items: [
           {
             name: "License",
-            render: (setting, group) => {
-              setting.settingEl.remove();
-              group.listEl.createEl("p", {
+            render: (setting) => {
+              setting.settingEl.empty();
+              setting.settingEl.addClass("full-width-setting");
+              setting.settingEl.createEl("p", {
                 text: `
                   The settings below are potentially dangerous and
                   are intended for use only by people who know what
@@ -708,7 +709,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
                   and what security impacts changing that setting will have.
                 `,
               });
-              const noWarrantee = group.listEl.createEl("p");
+              const noWarrantee = setting.settingEl.createEl("p");
               noWarrantee.createSpan({
                 text: `
                   Use of this software is licensed to you under the
