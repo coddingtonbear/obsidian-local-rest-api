@@ -267,6 +267,7 @@ The exact config syntax varies by client; see the [Quick start](#mcp-clients) ex
 | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
 | `vault_delete` | Delete a vault file |
 | `vault_move` | Move (rename) a vault file to a new path |
+| `vault_copy` | Copy a vault file to a new path |
 | `vault_get_document_map` | List the headings, block references, and frontmatter fields in a file |
 | `active_file_get_path` | Return the vault path of the file currently open in Obsidian |
 | `periodic_note_get_path` | Return the vault path of the current periodic note (`daily`, `weekly`, `monthly`, `quarterly`, `yearly`) |
