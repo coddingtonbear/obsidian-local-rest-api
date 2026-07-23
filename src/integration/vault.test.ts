@@ -107,6 +107,30 @@ describe("GET /vault/{file} with Accept: application/vnd.olrapi.note+json", () =
   });
 });
 
+describe("GET /vault/{file} with Accept: application/vnd.olrapi.note+json — unresolvedLinks", () => {
+  const LINKS_PATH = `${TEST_DIR}/unresolved-links-fixture.md`;
+
+  beforeEach(async () => {
+    await resetFixture("Links to [[xylophone-does-not-exist]].\n", LINKS_PATH);
+  });
+
+  afterEach(async () => {
+    await deleteFixture(LINKS_PATH);
+  });
+
+  test("includes links to non-existent files in unresolvedLinks", async () => {
+    const res = await authedFetch(`/vault/${LINKS_PATH}`, {
+      headers: { Accept: "application/vnd.olrapi.note+json" },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body.unresolvedLinks)).toBe(true);
+    expect(
+      body.unresolvedLinks.some((link: string) => link.includes("xylophone-does-not-exist")),
+    ).toBe(true);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Accept: text/html
 // ---------------------------------------------------------------------------

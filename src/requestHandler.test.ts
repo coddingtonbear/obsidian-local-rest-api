@@ -243,6 +243,29 @@ describe("requestHandler", () => {
         .set("Accept", "text/html")
         .expect(404);
     });
+
+    test("Accept: application/vnd.olrapi.note+json includes links, backlinks, and unresolvedLinks", async () => {
+      const targetPath = app.vault._getAbstractFileByPath.path;
+
+      app.metadataCache.resolvedLinks = {
+        [targetPath]: { "resolved-target.md": 1 },
+        "other.md": { [targetPath]: 1 },
+      };
+      app.metadataCache.unresolvedLinks = {
+        [targetPath]: { "not-yet-created.md": 1 },
+      };
+
+      const result = await request(server)
+        .get(`/vault/${targetPath}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "application/vnd.olrapi.note+json")
+        .expect(200);
+
+      expect(result.body.links).toEqual(["resolved-target.md"]);
+      expect(result.body.backlinks).toEqual(["other.md"]);
+      expect(result.body.unresolvedLinks).toEqual(["not-yet-created.md"]);
+
+    });
   });
 
   describe("vaultGet section retrieval", () => {
