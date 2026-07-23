@@ -87,6 +87,7 @@ std.manifestYamlDoc(
             'content',
             'links',
             'backlinks',
+            'unresolvedLinks',
           ],
           properties: {
             tags: {
@@ -133,6 +134,13 @@ std.manifestYamlDoc(
             backlinks: {
               type: 'array',
               description: 'Vault-relative paths of files that link to this file.',
+              items: {
+                type: 'string',
+              },
+            },
+            unresolvedLinks: {
+              type: 'array',
+              description: 'Link text found in this file that does not resolve to an existing vault file.',
               items: {
                 type: 'string',
               },

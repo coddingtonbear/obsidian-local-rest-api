@@ -230,7 +230,7 @@ export class McpHandler {
     this.tool(
       "vault_read",
       dedent`
-        Read a vault file's content and metadata. Returns a JSON object with: content (full markdown text), path, tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), stat ({ctime, mtime, size}), links (array of vault-relative paths this file links to), and backlinks (array of vault-relative paths of files that link here). Throws if the file does not exist.
+        Read a vault file's content and metadata. Returns a JSON object with: content (full markdown text), path, tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), stat ({ctime, mtime, size}), links (array of vault-relative paths this file links to), backlinks (array of vault-relative paths of files that link here), and unresolvedLinks (array of link text in this file that does not resolve to an existing vault file). Throws if the file does not exist.
 
         When targetType and target are both provided, returns only the matched section as a plain string (markdown) or JSON value (frontmatter) instead of the full object. To save context, call vault_get_document_map first to identify headings, block IDs, or frontmatter keys, and prefer targeted reads over full reads for anything but short files.
       `,
@@ -608,7 +608,8 @@ export class McpHandler {
           "frontmatter": { "status": "done", "url": "https://example.com", "priority": 2 },
           "stat": { "ctime": 1705276800000, "mtime": 1705363200000, "size": 1024 },
           "links": ["projects/foo.md"],
-          "backlinks": ["index.md"]
+          "backlinks": ["index.md"],
+          "unresolvedLinks": ["not-yet-created.md"]
         }
 
         Call vault_read on any file (without targeting) to see the exact shape for a real file in this vault, including its actual frontmatter fields.

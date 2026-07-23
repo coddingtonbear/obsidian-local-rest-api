@@ -47,6 +47,11 @@ components:
           items:
             type: "string"
           type: "array"
+        unresolvedLinks:
+          description: "Link text found in this file that does not resolve to an existing vault file."
+          items:
+            type: "string"
+          type: "array"
       required:
         - "tags"
         - "frontmatter"
@@ -55,6 +60,7 @@ components:
         - "content"
         - "links"
         - "backlinks"
+        - "unresolvedLinks"
       type: "object"
   securitySchemes:
     apiKeyAuth:
