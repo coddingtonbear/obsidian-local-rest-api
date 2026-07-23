@@ -458,6 +458,14 @@ describe("DELETE /vault/{file}", () => {
     const res = await unauthFetch(`/vault/${TEST_PATH}`, { method: "DELETE" });
     expect(res.status).toBe(401);
   });
+
+  test("?permanent=true hard-deletes the file", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}?permanent=true`, { method: "DELETE" });
+    expect(res.status).toBe(204);
+
+    const getRes = await authedFetch(`/vault/${TEST_PATH}`);
+    expect(getRes.status).toBe(404);
+  });
 });
 
 // ---------------------------------------------------------------------------

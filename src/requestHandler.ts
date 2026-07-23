@@ -744,7 +744,7 @@ export default class RequestHandler {
 
   async _vaultDelete(
     path: string,
-    _req: express.Request,
+    req: express.Request,
     res: express.Response,
   ): Promise<void> {
     if (!path || path.endsWith("/")) {
@@ -753,8 +753,9 @@ export default class RequestHandler {
       });
       return;
     }
+    const permanent = req.query.permanent === "true";
     try {
-      await this.operations.deleteVaultFile(path);
+      await this.operations.deleteVaultFile(path, permanent);
     } catch (e) {
       if (e instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });

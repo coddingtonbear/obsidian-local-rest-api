@@ -423,11 +423,19 @@ export class McpHandler {
 
     this.tool(
       "vault_delete",
-      "Delete a file from the vault. Throws if the file does not exist.",
-      { path: z.string().describe("File path relative to vault root") },
+      dedent`Delete a file from the vault. Throws if the file does not exist. By default, moves the file to trash (following the user's Obsidian "Deleted files" preference — either the ".trash" folder or the system trash) rather than deleting it permanently.`,
+      {
+        path: z.string().describe("File path relative to vault root"),
+        permanent: z
+          .boolean()
+          .optional()
+          .describe(
+            "If true, permanently deletes the file instead of moving it to trash (default: false).",
+          ),
+      },
       { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-      async ({ path }: { path: string }) => {
-        await this.ops.deleteVaultFile(path);
+      async ({ path, permanent }: { path: string; permanent?: boolean }) => {
+        await this.ops.deleteVaultFile(path, permanent ?? false);
         return this.text({ message: "OK" });
       },
     );

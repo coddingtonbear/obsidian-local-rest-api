@@ -550,11 +550,17 @@ describe("McpHandler", () => {
 
   // ---- vault_delete -------------------------------------------------------
 
-  test("vault_delete calls deleteVaultFile and returns OK", async () => {
+  test("vault_delete calls deleteVaultFile and returns OK, defaulting to trash", async () => {
     const cb = getToolCallback("vault_delete");
     const result = await cb({ path: "old.md" });
-    expect(ops.deleteVaultFile).toHaveBeenCalledWith("old.md");
+    expect(ops.deleteVaultFile).toHaveBeenCalledWith("old.md", false);
     expect(parseText(result).message).toBe("OK");
+  });
+
+  test("vault_delete passes permanent flag through", async () => {
+    const cb = getToolCallback("vault_delete");
+    await cb({ path: "old.md", permanent: true });
+    expect(ops.deleteVaultFile).toHaveBeenCalledWith("old.md", true);
   });
 
   // ---- vault_move ---------------------------------------------------------

@@ -98,6 +98,14 @@ export class Vault {
   }
 }
 
+class FileManager {
+  _trashFile: TFile | undefined;
+
+  async trashFile(file: TFile): Promise<void> {
+    this._trashFile = file;
+  }
+}
+
 export class Loc {
   line = -1;
 }
@@ -174,6 +182,7 @@ export class App {
   vault = new Vault();
   workspace = new Workspace();
   metadataCache = new MetadataCache();
+  fileManager = new FileManager();
   commands = {
     commands: {} as Record<string, Command>,
 
