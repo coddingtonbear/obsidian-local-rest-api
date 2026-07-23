@@ -258,7 +258,6 @@ export default class LocalRestApi extends Plugin {
 
 class LocalRestApiSettingTab extends PluginSettingTab {
   plugin: LocalRestApi;
-  showAdvancedSettings = false;
 
   constructor(app: App, plugin: LocalRestApi) {
     super(app, plugin);
@@ -684,78 +683,78 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Show advanced settings",
+            type: "page",
+            name: "Advanced settings",
             desc: "Advanced settings are dangerous and may make your environment less secure.",
-            control: { type: "toggle", key: "showAdvancedSettings" },
+            items: this.getAdvancedSettingDefinitions(),
           },
         ],
       },
+    ];
+  }
+
+  private getAdvancedSettingDefinitions(): SettingDefinitionItem[] {
+    return [
       {
-        type: "group",
-        heading: "Advanced settings",
-        visible: () => this.showAdvancedSettings,
-        items: [
-          {
-            name: "License",
-            render: (setting, group) => {
-              setting.settingEl.remove();
-              group.listEl.createEl("p", {
-                text: `
-                  The settings below are potentially dangerous and
-                  are intended for use only by people who know what
-                  they are doing. Do not change any of these settings if
-                  you do not understand what that setting is used for
-                  and what security impacts changing that setting will have.
-                `,
-              });
-              const noWarrantee = group.listEl.createEl("p");
-              noWarrantee.createSpan({
-                text: `
-                  Use of this software is licensed to you under the
-                  MIT license, and it is important that you understand that
-                  this license provides you with no warranty.
-                  For the complete license text please see
-                `,
-              });
-              noWarrantee.createEl("a", {
-                href: LicenseUrl,
-                text: LicenseUrl,
-              });
-              noWarrantee.createSpan({ text: "." });
-            },
-          },
-          {
-            name: "Enable encrypted (HTTPS) server",
-            desc: "This controls whether the HTTPS server is enabled.  You almost certainly want to leave this switch in its default state ('on'), but may find it useful to turn this switch off for troubleshooting.",
-            control: { type: "toggle", key: "enableSecureServer" },
-          },
-          {
-            name: "Encrypted (HTTPS) server port",
-            desc: "This configures the port on which your REST API will listen for HTTPS connections.  It is recommended that you leave this port with its default setting as tools integrating with this API may expect the default port to be in use.  Under no circumstances is it recommended that you expose this service directly to the internet.",
-            control: { type: "number", key: "port", min: 1, max: 65535 },
-          },
-          {
-            name: "Non-encrypted (HTTP) server port",
-            control: { type: "number", key: "insecurePort", min: 1, max: 65535 },
-          },
-          {
-            name: "API key",
-            control: { type: "text", key: "apiKey" },
-          },
-          {
-            name: "Authorization header",
-            control: { type: "text", key: "authorizationHeaderName" },
-          },
-          {
-            name: "Binding host",
-            control: { type: "text", key: "bindingHost" },
-          },
-          {
-            name: "Enable verbose logging",
-            desc: "When enabled, logs server startup messages and a one-line access log entry for every request to the browser console.",
-            control: { type: "toggle", key: "enableVerboseLogging" },
-          },
-        ],
+        name: "License",
+        render: (setting) => {
+          setting.settingEl.empty();
+          setting.settingEl.addClass("full-width-setting");
+          setting.settingEl.createEl("p", {
+            text: `
+              The settings below are potentially dangerous and
+              are intended for use only by people who know what
+              they are doing. Do not change any of these settings if
+              you do not understand what that setting is used for
+              and what security impacts changing that setting will have.
+            `,
+          });
+          const noWarrantee = setting.settingEl.createEl("p");
+          noWarrantee.createSpan({
+            text: `
+              Use of this software is licensed to you under the
+              MIT license, and it is important that you understand that
+              this license provides you with no warranty.
+              For the complete license text please see
+            `,
+          });
+          noWarrantee.createEl("a", {
+            href: LicenseUrl,
+            text: LicenseUrl,
+          });
+          noWarrantee.createSpan({ text: "." });
+        },
+      },
+      {
+        name: "Enable encrypted (HTTPS) server",
+        desc: "This controls whether the HTTPS server is enabled.  You almost certainly want to leave this switch in its default state ('on'), but may find it useful to turn this switch off for troubleshooting.",
+        control: { type: "toggle", key: "enableSecureServer" },
+      },
+      {
+        name: "Encrypted (HTTPS) server port",
+        desc: "This configures the port on which your REST API will listen for HTTPS connections.  It is recommended that you leave this port with its default setting as tools integrating with this API may expect the default port to be in use.  Under no circumstances is it recommended that you expose this service directly to the internet.",
+        control: { type: "number", key: "port", min: 1, max: 65535 },
+      },
+      {
+        name: "Non-encrypted (HTTP) server port",
+        control: { type: "number", key: "insecurePort", min: 1, max: 65535 },
+      },
+      {
+        name: "API key",
+        control: { type: "text", key: "apiKey" },
+      },
+      {
+        name: "Authorization header",
+        control: { type: "text", key: "authorizationHeaderName" },
+      },
+      {
+        name: "Binding host",
+        control: { type: "text", key: "bindingHost" },
+      },
+      {
+        name: "Enable verbose logging",
+        desc: "When enabled, logs server startup messages and a one-line access log entry for every request to the browser console.",
+        control: { type: "toggle", key: "enableVerboseLogging" },
       },
     ];
   }
@@ -835,8 +834,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         return this.plugin.settings.bindingHost ?? DefaultBindingHost;
       case "enableVerboseLogging":
         return this.plugin.settings.enableVerboseLogging ?? false;
-      case "showAdvancedSettings":
-        return this.showAdvancedSettings;
       default:
         return undefined;
     }
@@ -915,10 +912,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       case "enableVerboseLogging":
         this.plugin.settings.enableVerboseLogging = (value as boolean) || undefined;
         await this.plugin.saveSettings();
-        break;
-      case "showAdvancedSettings":
-        this.showAdvancedSettings = value as boolean;
-        this.refreshDomState();
         break;
     }
   }
