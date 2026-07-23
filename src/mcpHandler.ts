@@ -492,6 +492,65 @@ export class McpHandler {
     );
 
     this.tool(
+      "vault_copy",
+      dedent`Copy a vault file to a new path. Creates any missing parent directories at the destination automatically. Throws if the source file does not exist.`,
+      {
+        path: z.string().describe("Source file path relative to vault root"),
+        destination: z
+          .string()
+          .describe(
+            dedent`Destination path relative to vault root; must not escape the vault root. May end with '/' to preserve the source filename in the target directory (e.g. destination 'archive/' copies 'notes/todo.md' to 'archive/todo.md').`,
+          ),
+        allowOverwrite: z
+          .boolean()
+          .optional()
+          .describe(
+            dedent`If true, copy proceeds even when a file already exists at the destination; otherwise the copy throws (default: false).`,
+          ),
+      },
+      { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+      async ({
+        path,
+        destination,
+        allowOverwrite,
+      }: {
+        path: string;
+        destination: string;
+        allowOverwrite?: boolean;
+      }) => {
+        const normalized = destination
+          .trim()
+          .replace(/\\/g, "/")
+          .replace(/\/+/g, "/");
+
+        if (normalized.startsWith("/")) {
+          throw new Error(
+            "Destination path must be relative and must not escape the vault root.",
+          );
+        }
+
+        const syntheticRoot = "/vault";
+        const resolved = posix.resolve(syntheticRoot, normalized);
+        if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
+          throw new Error(
+            "Destination path must be relative and must not escape the vault root.",
+          );
+        }
+
+        const sourceFilename = path.includes("/")
+          ? path.slice(path.lastIndexOf("/") + 1)
+          : path;
+
+        const resolvedDestination = !normalized || normalized.endsWith("/")
+          ? normalized + sourceFilename
+          : normalized;
+
+        const actualPath = await this.ops.copyVaultFile(path, resolvedDestination, allowOverwrite ?? false);
+        return this.text({ message: "OK", sourcePath: path, newPath: actualPath });
+      },
+    );
+
+    this.tool(
       "vault_get_document_map",
       dedent`Return the structure of a vault file as a document map: the list of heading paths, block reference IDs, and frontmatter field names present in the file. Use this before vault_read or vault_patch with targeting to discover what targets are available without parsing the full markdown content yourself.`,
       { path: z.string().describe("File path relative to vault root") },
