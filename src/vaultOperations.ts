@@ -3,6 +3,8 @@ import {
   App,
   CachedMetadata,
   Command,
+  Component,
+  MarkdownRenderer,
   prepareSimpleSearch,
   TFile,
 } from "obsidian";
@@ -203,6 +205,19 @@ export class VaultOperations {
       backlinks,
       unresolvedLinks,
     };
+  }
+
+  async renderFileToHtml(file: TFile, content?: string): Promise<string> {
+    const markdown = content ?? (await this.app.vault.cachedRead(file));
+    const el = activeDocument.createElement("div");
+    const component = new Component();
+    component.load();
+    try {
+      await MarkdownRenderer.render(this.app, markdown, el, file.path, component);
+      return el.innerHTML;
+    } finally {
+      component.unload();
+    }
   }
 
   async resolvePathAndTarget(rawPath: string): Promise<{

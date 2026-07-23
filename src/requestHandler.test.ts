@@ -215,6 +215,35 @@ describe("requestHandler", () => {
         .expect(404);
     });
 
+    test("Accept: text/html returns rendered HTML", async () => {
+      const arbitraryFilename = "somefile.md";
+      const renderedHtml = "<h1>Rendered</h1>";
+      jest.spyOn(handler.operations, "renderFileToHtml").mockResolvedValue(renderedHtml);
+
+      const result = await request(server)
+        .get(`/vault/${arbitraryFilename}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/html")
+        .expect(200);
+
+      expect(result.header["content-type"]).toEqual("text/html; charset=utf-8");
+      expect(result.text).toEqual(renderedHtml);
+      expect(handler.operations.renderFileToHtml).toHaveBeenCalledWith(
+        app.vault._getAbstractFileByPath,
+      );
+    });
+
+    test("Accept: text/html on non-existent file returns 404", async () => {
+      const arbitraryFilename = "somefile.md";
+      app.vault._getAbstractFileByPath = null;
+
+      await request(server)
+        .get(`/vault/${arbitraryFilename}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/html")
+        .expect(404);
+    });
+
     test("Accept: application/vnd.olrapi.note+json includes links, backlinks, and unresolvedLinks", async () => {
       const targetPath = app.vault._getAbstractFileByPath.path;
 
@@ -235,6 +264,7 @@ describe("requestHandler", () => {
       expect(result.body.links).toEqual(["resolved-target.md"]);
       expect(result.body.backlinks).toEqual(["other.md"]);
       expect(result.body.unresolvedLinks).toEqual(["not-yet-created.md"]);
+
     });
   });
 
@@ -453,6 +483,71 @@ describe("requestHandler", () => {
       expect(result.text).toContain("Content under heading1");
       expect(result.text).toContain("Sub content");
       expect(result.text).not.toContain("Content under heading2");
+    });
+
+    test("Accept: text/html with heading target renders only that section", async () => {
+      setFileContent(markdownWithHeadings);
+      const renderedHtml = "<p>Sub content</p>";
+      jest.spyOn(handler.operations, "renderFileToHtml").mockResolvedValue(renderedHtml);
+
+      const result = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/html")
+        .set("Target-Type", "heading")
+        .set("Target", "Heading1::SubHeading")
+        .expect(200);
+
+      expect(result.header["content-type"]).toEqual("text/html; charset=utf-8");
+      expect(result.text).toEqual(renderedHtml);
+      expect(handler.operations.renderFileToHtml).toHaveBeenCalledWith(
+        app.vault._getAbstractFileByPath,
+        "Sub content\n",
+      );
+    });
+
+    test("Accept: text/html with block target renders only that block", async () => {
+      setFileContent(markdownWithBlock);
+      const renderedHtml = "<p>Some content Block content</p>";
+      jest.spyOn(handler.operations, "renderFileToHtml").mockResolvedValue(renderedHtml);
+
+      const result = await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/html")
+        .set("Target-Type", "block")
+        .set("Target", "myblock")
+        .expect(200);
+
+      expect(result.text).toEqual(renderedHtml);
+      expect(handler.operations.renderFileToHtml).toHaveBeenCalledWith(
+        app.vault._getAbstractFileByPath,
+        "Some content\nBlock content",
+      );
+    });
+
+    test("Accept: text/html with frontmatter target returns 400", async () => {
+      setFileContent(markdownWithHeadings);
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/html")
+        .set("Target-Type", "frontmatter")
+        .set("Target", "title")
+        .expect(400);
+    });
+
+    test("Accept: text/html with non-existent heading target returns 404", async () => {
+      setFileContent(markdownWithHeadings);
+
+      await request(server)
+        .get("/vault/somefile.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "text/html")
+        .set("Target-Type", "heading")
+        .set("Target", "NoSuchHeading")
+        .expect(404);
     });
   });
 

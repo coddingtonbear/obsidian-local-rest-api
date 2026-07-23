@@ -63,6 +63,7 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
 export enum ContentTypes {
   json = "application/json",
   markdown = "text/markdown",
+  html = "text/html",
   olrapiNoteJson = "application/vnd.olrapi.note+json",
   olrapiDocumentMap = "application/vnd.olrapi.document-map+json",
   jsonLogic = "application/vnd.olrapi.jsonlogic+json",

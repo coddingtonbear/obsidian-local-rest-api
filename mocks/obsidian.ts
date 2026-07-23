@@ -106,6 +106,25 @@ class FileManager {
   }
 }
 
+export class Component {
+  load(): void {}
+  unload(): void {}
+}
+
+export class MarkdownRenderer {
+  static _rendered = "<p>rendered</p>";
+
+  static async render(
+    app: App,
+    markdown: string,
+    el: HTMLElement,
+    sourcePath: string,
+    component: Component,
+  ): Promise<void> {
+    el.innerHTML = MarkdownRenderer._rendered;
+  }
+}
+
 export class Loc {
   line = -1;
 }

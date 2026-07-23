@@ -16,6 +16,13 @@ local T = import 'targeting.params.jsonnet';
             example: '# This is my document\n\nsomething else here\n',
           },
         },
+        'text/html': {
+          description: 'Returned when `Accept: text/html` is specified. The note (or, if `Target-Type`/`Target` are specified with `heading` or `block`, just that section) rendered to HTML via Obsidian\'s Markdown renderer (embeds, callouts, etc. included). `Target-Type: frontmatter` is not supported for this Accept type and returns a 400 error.\n',
+          schema: {
+            type: 'string',
+            example: '<h1>This is my document</h1>\n<p>something else here</p>\n',
+          },
+        },
         'application/vnd.olrapi.note+json': {
           schema: {
             '$ref': '#/components/schemas/NoteJson',
@@ -52,6 +59,16 @@ local T = import 'targeting.params.jsonnet';
         'application/json': {
           description: 'Returned when `Target-Type` is `frontmatter`; the JSON value of the specified frontmatter field.',
           schema: {},
+        },
+      },
+    },
+    '400': {
+      description: 'The `Target-Type`/`Target` headers were invalid, or `Target-Type: frontmatter` was combined with `Accept: text/html` (frontmatter has no HTML rendering).\n',
+      content: {
+        'application/json': {
+          schema: {
+            '$ref': '#/components/schemas/Error',
+          },
         },
       },
     },

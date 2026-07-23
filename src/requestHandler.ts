@@ -160,6 +160,12 @@ export default class RequestHandler {
     return this.operations.getFileMetadataObject(file);
   }
 
+  async renderFileToHtml(file: TFile, content?: string): Promise<string> {
+    return content !== undefined
+      ? this.operations.renderFileToHtml(file, content)
+      : this.operations.renderFileToHtml(file);
+  }
+
   getResponseMessage({
     statusCode = 400,
     message,
@@ -351,6 +357,13 @@ export default class RequestHandler {
       return;
     }
 
+    // Resolve the requested target (if any) up front so both the HTML render
+    // below and the default markdown/JSON response below can share it.
+    let resolvedTarget:
+      | { targetType: "frontmatter"; value: unknown }
+      | { targetType: "heading" | "block"; content: string }
+      | undefined;
+
     const targetType = urlTargetType ?? req.get("Target-Type");
     if (targetType) {
       if (!["heading", "block", "frontmatter"].includes(targetType)) {
@@ -388,34 +401,61 @@ export default class RequestHandler {
           this.returnCannedResponse(res, { statusCode: 404 });
           return;
         }
-        res.setHeader("Content-Type", ContentTypes.json);
-        res.json(value);
-        return;
+        resolvedTarget = { targetType: "frontmatter", value };
+      } else {
+        const mapKey =
+          targetType === "heading"
+            ? rawTarget
+              .split(targetDelimiter)
+              .join("\u001f")
+            : rawTarget;
+
+        const entry =
+          targetType === "heading"
+            ? documentMap.heading[mapKey]
+            : documentMap.block[mapKey];
+
+        if (!entry) {
+          this.returnCannedResponse(res, { statusCode: 404 });
+          return;
+        }
+
+        resolvedTarget = {
+          targetType: targetType === "heading" ? "heading" : "block",
+          content: fileContent.substring(entry.content.start, entry.content.end),
+        };
       }
+    }
 
-      const mapKey =
-        targetType === "heading"
-          ? rawTarget
-            .split(targetDelimiter)
-            .join("\u001f")
-          : rawTarget;
-
-      const entry =
-        targetType === "heading"
-          ? documentMap.heading[mapKey]
-          : documentMap.block[mapKey];
-
-      if (!entry) {
+    if ((req.headers.accept as ContentTypes) === ContentTypes.html) {
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (!(file instanceof TFile)) {
         this.returnCannedResponse(res, { statusCode: 404 });
         return;
       }
-
-      const sectionContent = fileContent.substring(
-        entry.content.start,
-        entry.content.end,
+      if (resolvedTarget?.targetType === "frontmatter") {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidTargetTypeHeader,
+        });
+        return;
+      }
+      res.setHeader("Content-Type", ContentTypes.html + "; charset=utf-8");
+      res.send(
+        resolvedTarget
+          ? await this.renderFileToHtml(file, resolvedTarget.content)
+          : await this.renderFileToHtml(file),
       );
+      return;
+    }
+
+    if (resolvedTarget) {
+      if (resolvedTarget.targetType === "frontmatter") {
+        res.setHeader("Content-Type", ContentTypes.json);
+        res.json(resolvedTarget.value);
+        return;
+      }
       res.setHeader("Content-Type", ContentTypes.markdown + "; charset=utf-8");
-      res.send(sectionContent);
+      res.send(resolvedTarget.content);
       return;
     }
 
