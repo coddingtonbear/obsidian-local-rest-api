@@ -38,6 +38,14 @@ std.manifestYamlDoc(
       description: importstr 'lib/descriptions/info.md',
       version: '1.0',
     },
+    // Standalone documentation pages, rendered as sidebar articles by our
+    // customized Stoplight Elements bundle (Bump.sh's x-topics convention).
+    'x-topics': [
+      {
+        title: 'Migrating from 1.x to 2.x',
+        content: importstr 'lib/descriptions/migration-2.0.md',
+      },
+    ],
     servers: [
       {
         url: 'https://{host}:{port}',
