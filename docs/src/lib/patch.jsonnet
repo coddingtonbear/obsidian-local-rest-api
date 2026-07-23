@@ -56,6 +56,16 @@ local T = import 'targeting.params.jsonnet';
               content: 'Hello',
             },
           },
+          continueList: {
+            summary: 'Continue an existing list in place (within: positional block edit)',
+            value: {
+              targetType: 'heading',
+              target: ['Log'],
+              within: -1,
+              operation: 'append',
+              content: '\n- new item',
+            },
+          },
           appendToBlock: {
             summary: 'Append text to a block addressed by its reference id',
             value: {

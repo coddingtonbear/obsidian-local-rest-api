@@ -11,6 +11,7 @@ Edit a document with a single structured instruction — an **operation** applie
   - `markerAndContent` — the marker *and* the body together: for a heading, its heading line plus everything beneath it. Unlike `content`, the heading line is inside the edited span, so a `replace` here rewrites the heading itself. `prepend`/`append` insert a *sibling* before/after it.
   - `parent` — a heading's place in the tree. Valid only with `replace`, and carries a `destination` (a **move**).
 - **target** — for a heading, an array of heading texts from the top level down (`["Overview","Details"]`), or `null`/`[]` for the document root; for a block, the bare id without `^`; for a frontmatter field, the key.
+- **within** (optional, heading targets only) — a positional refinement: an index picking one of the section's direct-body top-level blocks (a paragraph, list, table, code fence, …), 0-based in document order, negative counting from the end (`-1` = last; isolated `^id` lines are not counted). The instruction then edits *that block*: with `content` scope, `replace`/`prepend`/`append` splice literally into it — you own the joint, so `append` with `\n- item` *continues* a list — and `delete` removes it; with `markerAndContent` scope, `prepend`/`append` insert a new block immediately before/after it. Not combinable with `createTargetIfMissing`.
 - **payload** — carried in exactly one field, chosen by what it is:
   - `content` — a markdown/text string (heading & block bodies/labels, or a frontmatter key rename).
   - `value` — arbitrary JSON (frontmatter values).
@@ -131,7 +132,13 @@ Where no separator is owed, none is added — a heading line is self-delimiting,
 - The blank line between a heading and its body is kept in place: `replace` swaps the body beneath it and `prepend` inserts below it. A document written flush (`# One\nbody of one\n`) keeps its flush style — `replace` gives `# One\nX\n` — and replacing a body with its own text is byte-identity in either style.
 - Writing into an empty section lands flush under its heading (`# E\nX\n`), with the section's existing trailing gap serving as the separator below.
 
-One consequence worth knowing: a `content`-scope `append`/`prepend` always begins a new block — it can never continue an existing paragraph or list. To edit inline within a paragraph, target it via a block reference (`^id`), where content is spliced literally and you own the joint.
+One consequence worth knowing: a `content`-scope `append`/`prepend` always begins a new block — it can never continue an existing paragraph or list. To edit inline within an existing block, address the block itself, which puts you on the literal-splice path where content lands exactly as given and you own the joint. Two ways to do that: target the block via its reference (`^id`) if it has one, or add `within: <index>` to a heading instruction to pick one of the section's body blocks by position — no `^id` required. For example, to extend the last list of a section:
+
+```json
+{ "targetType": "heading", "target": ["Log"], "within": -1, "operation": "append", "content": "\n- new item" }
+```
+
+Because a `within` edit is literal, the leading `\n` is yours to write — without it the text continues the block's last line. Indices are positional, so read the document map or section first, and pair the edit with `ifMatch` from that read so a concurrent change fails the patch rather than landing on the wrong block.
 
 ## Append, prepend, or replace content of a block reference
 

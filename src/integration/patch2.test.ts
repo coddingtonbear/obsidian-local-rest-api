@@ -127,6 +127,118 @@ describe("PATCH 2.0 — heading content", () => {
 });
 
 // ---------------------------------------------------------------------------
+// within: positional body-block edits
+// ---------------------------------------------------------------------------
+
+describe("PATCH 2.0 — within (positional body-block edits)", () => {
+  // Alpha's direct body has two paragraphs; the Subsection beneath it is a
+  // separate section whose blocks a within index must never reach.
+
+  test("append with within continues the addressed block literally", async () => {
+    const res = await patchV2({
+      targetType: "heading",
+      target: ["Alpha"],
+      within: 0,
+      operation: "append",
+      content: " v2-within-continued",
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // Same line, no separator: the caller owns the joint.
+    expect(text).toContain("#inline-tag v2-within-continued");
+  });
+
+  test("a negative index addresses the section's last body block", async () => {
+    const res = await patchV2({
+      targetType: "heading",
+      target: ["Alpha"],
+      within: -1,
+      operation: "append",
+      content: " v2-within-last",
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("xylophone-alpha-unique. v2-within-last");
+    // The subsection's body is not part of Alpha's direct body.
+    expect(text).toContain("xylophone-sub-unique.");
+    expect(text).not.toContain("xylophone-sub-unique. v2-within-last");
+  });
+
+  test("markerAndContent inserts a new sibling block beside the addressed one", async () => {
+    const res = await patchV2({
+      targetType: "heading",
+      target: ["Alpha"],
+      within: 0,
+      operation: "append",
+      scope: "markerAndContent",
+      content: "v2-within-sibling",
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const first = text.indexOf("#inline-tag");
+    const inserted = text.indexOf("v2-within-sibling");
+    const second = text.indexOf("xylophone-alpha-unique");
+    expect(first).toBeGreaterThan(-1);
+    expect(inserted).toBeGreaterThan(first);
+    expect(second).toBeGreaterThan(inserted);
+  });
+
+  test("delete removes the addressed block only", async () => {
+    const res = await patchV2({
+      targetType: "heading",
+      target: ["Alpha"],
+      within: 0,
+      operation: "delete",
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).not.toContain("Primary content of Alpha.");
+    expect(text).toContain("xylophone-alpha-unique.");
+  });
+
+  test("an out-of-range index is a 404 naming the block count", async () => {
+    const res = await patchV2({
+      targetType: "heading",
+      target: ["Alpha"],
+      within: 9,
+      operation: "append",
+      content: "x",
+    });
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.message).toContain("out of range");
+  });
+
+  test("within with marker scope is rejected as an invalid instruction", async () => {
+    const res = await patchV2({
+      targetType: "heading",
+      target: ["Alpha"],
+      within: 0,
+      operation: "replace",
+      scope: "marker",
+      content: "x",
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.message).toContain("within-refined");
+  });
+
+  test("within combined with createTargetIfMissing is rejected", async () => {
+    const res = await patchV2({
+      targetType: "heading",
+      target: ["Alpha"],
+      within: 0,
+      operation: "append",
+      content: "x",
+      createTargetIfMissing: true,
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.message).toContain("createTargetIfMissing");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Block targets
 // ---------------------------------------------------------------------------
 
