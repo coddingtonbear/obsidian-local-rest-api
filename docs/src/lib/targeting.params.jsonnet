@@ -253,6 +253,41 @@
       type: 'string',
     },
   },
+  readTargetScope: {
+    name: 'Target-Scope',
+    'in': 'header',
+    description: |||
+      For a URL-path-targeted read: which part of the target to return
+      (default `content`), mirroring PATCH's scopes with a round-trip
+      guarantee — what a scope returns is exactly what a `replace` at that
+      scope consumes.
+
+      - `content` (default): the node's body — a heading's body with its
+        levels made relative to the target, a block's text, a frontmatter
+        value.
+      - `marker`: the label — a heading's raw text (no `#`s, and without the
+        duplicate-marker suffix its map key may carry), a block's bare id, a
+        frontmatter key.
+      - `markerAndContent`: the whole node — a heading's subtree with its own
+        line as `# Title` (levels relative to its parent), a block's full
+        span including its `^id`, or a frontmatter entry as a `{key: value}`
+        JSON object.
+
+      `parent` places a section but carries no readable value, and returns
+      `400 InvalidTargetScopeHeader`. Only meaningful when the URL path
+      addresses a sub-part of the note.
+    |||,
+    required: false,
+    schema: {
+      type: 'string',
+      enum: [
+        'content',
+        'marker',
+        'markerAndContent',
+      ],
+      default: 'content',
+    },
+  },
   targetScope: {
     name: 'Target-Scope',
     'in': 'header',

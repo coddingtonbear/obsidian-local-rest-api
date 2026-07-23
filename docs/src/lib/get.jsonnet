@@ -3,6 +3,7 @@ local T = import 'targeting.params.jsonnet';
 {
   parameters: [
     T.markdownPatchVersion,
+    T.readTargetScope,
   ],
   responses: {
     '200': {
@@ -68,7 +69,7 @@ local T = import 'targeting.params.jsonnet';
       },
     },
     '400': {
-      description: 'The `Markdown-Patch-Version` header was invalid (not `1` or `2`), the deprecated `Target-Type`/`Target` headers were invalid, or a frontmatter target was combined with `Accept: text/html` (frontmatter has no HTML rendering).\n',
+      description: 'The `Markdown-Patch-Version` header was invalid (not `1` or `2`), the deprecated `Target-Type`/`Target` headers were invalid, the `Target-Scope` header was not a readable scope (`content`, `marker`, `markerAndContent`), or a frontmatter target was combined with `Accept: text/html` (frontmatter has no HTML rendering).\n',
       content: {
         'application/json': {
           schema: {

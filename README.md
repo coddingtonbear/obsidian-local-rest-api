@@ -234,6 +234,15 @@ curl -k -X POST \
 
 Supported target types: `heading`, `block`, `frontmatter`.
 
+On a GET, a `Target-Scope` header selects which part of the target comes back, mirroring the PATCH scopes: `content` (the default), `marker` (the label — a heading's raw text, a block's bare id, a frontmatter key), or `markerAndContent` (the whole node, in exactly the shape a PATCH `replace` at that scope consumes — a heading subtree reads back with its own line as `# Title`, levels relative to its parent):
+
+```sh
+# Read a whole section — heading line included — ready to edit and write back
+curl -k -H "Authorization: Bearer <your-api-key>" \
+  -H "Target-Scope: markerAndContent" \
+  https://127.0.0.1:27124/vault/path/to/note.md/heading/My%20Section
+```
+
 > **Deprecated: header-based targeting.** Earlier releases targeted a section with `Target-Type`, `Target`, and `Target-Delimiter` headers (plus `Target-Scope`/`Trim-Target-Whitespace`). That form is **deprecated and will be removed in 6.0**; it is only processed when you also send `Markdown-Patch-Version: 1` (responses then carry a `Deprecation` header). Without it, supplying those targeting headers is rejected with `400`. Supplying both URL-path targeting and the header form on one request returns `422 Unprocessable Entity`.
 
 ## Searching

@@ -318,7 +318,7 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
+        `GET` returns just the addressed section. By default that is the target's `content` scope; add a `Target-Scope` header to read the `marker` (the label — a heading's raw text, a block's bare id, a frontmatter key) or `markerAndContent` (the whole node, in exactly the shape a PATCH `replace` at that scope consumes — a heading subtree comes back with its own line as `# Title`, levels relative to its parent, so a read-modify-write never counts `#`s). `PUT` replaces the section and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         On `PUT` and `POST`, the `Content-Type` of your request body selects how the payload is interpreted, and not every target accepts both:
         
@@ -371,6 +371,36 @@ paths:
             enum:
               - "1"
               - "2"
+            type: "string"
+        - description: |
+            For a URL-path-targeted read: which part of the target to return
+            (default `content`), mirroring PATCH's scopes with a round-trip
+            guarantee — what a scope returns is exactly what a `replace` at that
+            scope consumes.
+            
+            - `content` (default): the node's body — a heading's body with its
+              levels made relative to the target, a block's text, a frontmatter
+              value.
+            - `marker`: the label — a heading's raw text (no `#`s, and without the
+              duplicate-marker suffix its map key may carry), a block's bare id, a
+              frontmatter key.
+            - `markerAndContent`: the whole node — a heading's subtree with its own
+              line as `# Title` (levels relative to its parent), a block's full
+              span including its `^id`, or a frontmatter entry as a `{key: value}`
+              JSON object.
+            
+            `parent` places a section but carries no readable value, and returns
+            `400 InvalidTargetScopeHeader`. Only meaningful when the URL path
+            addresses a sub-part of the note.
+          in: "header"
+          name: "Target-Scope"
+          required: false
+          schema:
+            default: "content"
+            enum:
+              - "content"
+              - "marker"
+              - "markerAndContent"
             type: "string"
       responses:
         "200":
@@ -439,7 +469,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: |
-            The `Markdown-Patch-Version` header was invalid (not `1` or `2`), the deprecated `Target-Type`/`Target` headers were invalid, or a frontmatter target was combined with `Accept: text/html` (frontmatter has no HTML rendering).
+            The `Markdown-Patch-Version` header was invalid (not `1` or `2`), the deprecated `Target-Type`/`Target` headers were invalid, the `Target-Scope` header was not a readable scope (`content`, `marker`, `markerAndContent`), or a frontmatter target was combined with `Accept: text/html` (frontmatter has no HTML rendering).
         "404":
           description: "File or target section does not exist"
       summary: |
@@ -1032,7 +1062,7 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
+        `GET` returns just the addressed section. By default that is the target's `content` scope; add a `Target-Scope` header to read the `marker` (the label — a heading's raw text, a block's bare id, a frontmatter key) or `markerAndContent` (the whole node, in exactly the shape a PATCH `replace` at that scope consumes — a heading subtree comes back with its own line as `# Title`, levels relative to its parent, so a read-modify-write never counts `#`s). `PUT` replaces the section and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         On `PUT` and `POST`, the `Content-Type` of your request body selects how the payload is interpreted, and not every target accepts both:
         
@@ -1166,7 +1196,7 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
+        `GET` returns just the addressed section. By default that is the target's `content` scope; add a `Target-Scope` header to read the `marker` (the label — a heading's raw text, a block's bare id, a frontmatter key) or `markerAndContent` (the whole node, in exactly the shape a PATCH `replace` at that scope consumes — a heading subtree comes back with its own line as `# Title`, levels relative to its parent, so a read-modify-write never counts `#`s). `PUT` replaces the section and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         On `PUT` and `POST`, the `Content-Type` of your request body selects how the payload is interpreted, and not every target accepts both:
         
@@ -1645,7 +1675,7 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
+        `GET` returns just the addressed section. By default that is the target's `content` scope; add a `Target-Scope` header to read the `marker` (the label — a heading's raw text, a block's bare id, a frontmatter key) or `markerAndContent` (the whole node, in exactly the shape a PATCH `replace` at that scope consumes — a heading subtree comes back with its own line as `# Title`, levels relative to its parent, so a read-modify-write never counts `#`s). `PUT` replaces the section and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         On `PUT` and `POST`, the `Content-Type` of your request body selects how the payload is interpreted, and not every target accepts both:
         
@@ -1711,6 +1741,36 @@ paths:
             enum:
               - "1"
               - "2"
+            type: "string"
+        - description: |
+            For a URL-path-targeted read: which part of the target to return
+            (default `content`), mirroring PATCH's scopes with a round-trip
+            guarantee — what a scope returns is exactly what a `replace` at that
+            scope consumes.
+            
+            - `content` (default): the node's body — a heading's body with its
+              levels made relative to the target, a block's text, a frontmatter
+              value.
+            - `marker`: the label — a heading's raw text (no `#`s, and without the
+              duplicate-marker suffix its map key may carry), a block's bare id, a
+              frontmatter key.
+            - `markerAndContent`: the whole node — a heading's subtree with its own
+              line as `# Title` (levels relative to its parent), a block's full
+              span including its `^id`, or a frontmatter entry as a `{key: value}`
+              JSON object.
+            
+            `parent` places a section but carries no readable value, and returns
+            `400 InvalidTargetScopeHeader`. Only meaningful when the URL path
+            addresses a sub-part of the note.
+          in: "header"
+          name: "Target-Scope"
+          required: false
+          schema:
+            default: "content"
+            enum:
+              - "content"
+              - "marker"
+              - "markerAndContent"
             type: "string"
       responses:
         "200":
@@ -1779,7 +1839,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: |
-            The `Markdown-Patch-Version` header was invalid (not `1` or `2`), the deprecated `Target-Type`/`Target` headers were invalid, or a frontmatter target was combined with `Accept: text/html` (frontmatter has no HTML rendering).
+            The `Markdown-Patch-Version` header was invalid (not `1` or `2`), the deprecated `Target-Type`/`Target` headers were invalid, the `Target-Scope` header was not a readable scope (`content`, `marker`, `markerAndContent`), or a frontmatter target was combined with `Accept: text/html` (frontmatter has no HTML rendering).
         "404":
           description: "File or target section does not exist"
       summary: |
@@ -2385,7 +2445,7 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
+        `GET` returns just the addressed section. By default that is the target's `content` scope; add a `Target-Scope` header to read the `marker` (the label — a heading's raw text, a block's bare id, a frontmatter key) or `markerAndContent` (the whole node, in exactly the shape a PATCH `replace` at that scope consumes — a heading subtree comes back with its own line as `# Title`, levels relative to its parent, so a read-modify-write never counts `#`s). `PUT` replaces the section and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         On `PUT` and `POST`, the `Content-Type` of your request body selects how the payload is interpreted, and not every target accepts both:
         
@@ -2532,7 +2592,7 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
+        `GET` returns just the addressed section. By default that is the target's `content` scope; add a `Target-Scope` header to read the `marker` (the label — a heading's raw text, a block's bare id, a frontmatter key) or `markerAndContent` (the whole node, in exactly the shape a PATCH `replace` at that scope consumes — a heading subtree comes back with its own line as `# Title`, levels relative to its parent, so a read-modify-write never counts `#`s). `PUT` replaces the section and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         On `PUT` and `POST`, the `Content-Type` of your request body selects how the payload is interpreted, and not every target accepts both:
         
@@ -2746,7 +2806,7 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
+        `GET` returns just the addressed section. By default that is the target's `content` scope; add a `Target-Scope` header to read the `marker` (the label — a heading's raw text, a block's bare id, a frontmatter key) or `markerAndContent` (the whole node, in exactly the shape a PATCH `replace` at that scope consumes — a heading subtree comes back with its own line as `# Title`, levels relative to its parent, so a read-modify-write never counts `#`s). `PUT` replaces the section and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         On `PUT` and `POST`, the `Content-Type` of your request body selects how the payload is interpreted, and not every target accepts both:
         
@@ -2831,6 +2891,36 @@ paths:
               - "1"
               - "2"
             type: "string"
+        - description: |
+            For a URL-path-targeted read: which part of the target to return
+            (default `content`), mirroring PATCH's scopes with a round-trip
+            guarantee — what a scope returns is exactly what a `replace` at that
+            scope consumes.
+            
+            - `content` (default): the node's body — a heading's body with its
+              levels made relative to the target, a block's text, a frontmatter
+              value.
+            - `marker`: the label — a heading's raw text (no `#`s, and without the
+              duplicate-marker suffix its map key may carry), a block's bare id, a
+              frontmatter key.
+            - `markerAndContent`: the whole node — a heading's subtree with its own
+              line as `# Title` (levels relative to its parent), a block's full
+              span including its `^id`, or a frontmatter entry as a `{key: value}`
+              JSON object.
+            
+            `parent` places a section but carries no readable value, and returns
+            `400 InvalidTargetScopeHeader`. Only meaningful when the URL path
+            addresses a sub-part of the note.
+          in: "header"
+          name: "Target-Scope"
+          required: false
+          schema:
+            default: "content"
+            enum:
+              - "content"
+              - "marker"
+              - "markerAndContent"
+            type: "string"
       responses:
         "200":
           content:
@@ -2898,7 +2988,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: |
-            The `Markdown-Patch-Version` header was invalid (not `1` or `2`), the deprecated `Target-Type`/`Target` headers were invalid, or a frontmatter target was combined with `Accept: text/html` (frontmatter has no HTML rendering).
+            The `Markdown-Patch-Version` header was invalid (not `1` or `2`), the deprecated `Target-Type`/`Target` headers were invalid, the `Target-Scope` header was not a readable scope (`content`, `marker`, `markerAndContent`), or a frontmatter target was combined with `Accept: text/html` (frontmatter has no HTML rendering).
         "404":
           description: "File or target section does not exist"
       summary: |
@@ -3522,7 +3612,7 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
+        `GET` returns just the addressed section. By default that is the target's `content` scope; add a `Target-Scope` header to read the `marker` (the label — a heading's raw text, a block's bare id, a frontmatter key) or `markerAndContent` (the whole node, in exactly the shape a PATCH `replace` at that scope consumes — a heading subtree comes back with its own line as `# Title`, levels relative to its parent, so a read-modify-write never counts `#`s). `PUT` replaces the section and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         On `PUT` and `POST`, the `Content-Type` of your request body selects how the payload is interpreted, and not every target accepts both:
         
@@ -3687,7 +3777,7 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
+        `GET` returns just the addressed section. By default that is the target's `content` scope; add a `Target-Scope` header to read the `marker` (the label — a heading's raw text, a block's bare id, a frontmatter key) or `markerAndContent` (the whole node, in exactly the shape a PATCH `replace` at that scope consumes — a heading subtree comes back with its own line as `# Title`, levels relative to its parent, so a read-modify-write never counts `#`s). `PUT` replaces the section and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         On `PUT` and `POST`, the `Content-Type` of your request body selects how the payload is interpreted, and not every target accepts both:
         
@@ -4251,7 +4341,7 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
+        `GET` returns just the addressed section. By default that is the target's `content` scope; add a `Target-Scope` header to read the `marker` (the label — a heading's raw text, a block's bare id, a frontmatter key) or `markerAndContent` (the whole node, in exactly the shape a PATCH `replace` at that scope consumes — a heading subtree comes back with its own line as `# Title`, levels relative to its parent, so a read-modify-write never counts `#`s). `PUT` replaces the section and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         On `PUT` and `POST`, the `Content-Type` of your request body selects how the payload is interpreted, and not every target accepts both:
         
@@ -4311,6 +4401,36 @@ paths:
             enum:
               - "1"
               - "2"
+            type: "string"
+        - description: |
+            For a URL-path-targeted read: which part of the target to return
+            (default `content`), mirroring PATCH's scopes with a round-trip
+            guarantee — what a scope returns is exactly what a `replace` at that
+            scope consumes.
+            
+            - `content` (default): the node's body — a heading's body with its
+              levels made relative to the target, a block's text, a frontmatter
+              value.
+            - `marker`: the label — a heading's raw text (no `#`s, and without the
+              duplicate-marker suffix its map key may carry), a block's bare id, a
+              frontmatter key.
+            - `markerAndContent`: the whole node — a heading's subtree with its own
+              line as `# Title` (levels relative to its parent), a block's full
+              span including its `^id`, or a frontmatter entry as a `{key: value}`
+              JSON object.
+            
+            `parent` places a section but carries no readable value, and returns
+            `400 InvalidTargetScopeHeader`. Only meaningful when the URL path
+            addresses a sub-part of the note.
+          in: "header"
+          name: "Target-Scope"
+          required: false
+          schema:
+            default: "content"
+            enum:
+              - "content"
+              - "marker"
+              - "markerAndContent"
             type: "string"
       responses:
         "200":
@@ -4373,7 +4493,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: |
-            The `Markdown-Patch-Version` header was invalid (not `1` or `2`), the deprecated `Target-Type`/`Target` headers were invalid, or a frontmatter target was combined with `Accept: text/html` (frontmatter has no HTML rendering).
+            The `Markdown-Patch-Version` header was invalid (not `1` or `2`), the deprecated `Target-Type`/`Target` headers were invalid, the `Target-Scope` header was not a readable scope (`content`, `marker`, `markerAndContent`), or a frontmatter target was combined with `Accept: text/html` (frontmatter has no HTML rendering).
         "404":
           description: "File or target section does not exist"
       summary: |
@@ -4972,7 +5092,7 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
+        `GET` returns just the addressed section. By default that is the target's `content` scope; add a `Target-Scope` header to read the `marker` (the label — a heading's raw text, a block's bare id, a frontmatter key) or `markerAndContent` (the whole node, in exactly the shape a PATCH `replace` at that scope consumes — a heading subtree comes back with its own line as `# Title`, levels relative to its parent, so a read-modify-write never counts `#`s). `PUT` replaces the section and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         On `PUT` and `POST`, the `Content-Type` of your request body selects how the payload is interpreted, and not every target accepts both:
         
@@ -5108,7 +5228,7 @@ paths:
         
         If a document has a duplicate sibling heading (the same text repeated under the same parent) or a duplicate block reference ID, only the first occurrence is addressable by its plain text/id. Each later occurrence gets its own address with a non-printable marker suffix appended by the server — fetch the document map (`Accept: application/vnd.olrapi.document-map+json`) and copy that occurrence's key verbatim; don't try to type or reconstruct the marker yourself.
         
-        `GET` returns just the addressed section. `PUT` replaces it and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
+        `GET` returns just the addressed section. By default that is the target's `content` scope; add a `Target-Scope` header to read the `marker` (the label — a heading's raw text, a block's bare id, a frontmatter key) or `markerAndContent` (the whole node, in exactly the shape a PATCH `replace` at that scope consumes — a heading subtree comes back with its own line as `# Title`, levels relative to its parent, so a read-modify-write never counts `#`s). `PUT` replaces the section and `POST` appends to it, with heading levels normalized and separator whitespace managed for you. `PATCH` also accepts a URL target — its raw-content mode — with the operation and other instruction fields in headers (`Operation`, `Target-Scope`, …) and the raw payload as the body. For the full instruction algebra (renames, moves, deletes, typed frontmatter values), see the PATCH documentation.
         
         On `PUT` and `POST`, the `Content-Type` of your request body selects how the payload is interpreted, and not every target accepts both:
         
