@@ -610,10 +610,10 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           {
             name: "Connection information",
             desc: "REST and MCP connection URLs and API key.",
-            render: (setting, group) => {
-              setting.settingEl.remove();
-              this.renderConnectionInfo(group.listEl);
-              this.renderMcpInfo(group.listEl);
+            render: (setting) => {
+              setting.settingEl.empty();
+              this.renderConnectionInfo(setting.settingEl);
+              this.renderMcpInfo(setting.settingEl);
             },
           },
         ],
@@ -763,9 +763,9 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     return [
       {
         name: "Certificate status",
-        render: (setting, group) => {
-          setting.settingEl.remove();
-          this.renderCertificateWarnings(group.listEl);
+        render: (setting) => {
+          setting.settingEl.empty();
+          this.renderCertificateWarnings(setting.settingEl);
         },
       },
       {
