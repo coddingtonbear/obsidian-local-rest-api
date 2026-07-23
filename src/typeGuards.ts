@@ -1,6 +1,7 @@
 import { ContentType, PatchOperation, PatchTargetScope, PatchTargetType } from "markdown-patch";
 import type {
   Operation as V2Operation,
+  ReadScope as V2ReadScope,
   Scope as V2Scope,
   TargetType as V2TargetType,
 } from "markdown-patch-2";
@@ -47,4 +48,10 @@ export function isV2Scope(value: unknown): value is V2Scope {
     value === "markerAndContent" ||
     value === "parent"
   );
+}
+
+/** The read scopes: the value-bearing subset of the patch scopes (`parent`
+ *  places a section but carries no readable value). */
+export function isV2ReadScope(value: unknown): value is V2ReadScope {
+  return value === "content" || value === "marker" || value === "markerAndContent";
 }

@@ -65,6 +65,7 @@ import {
   isPatchTargetScope,
   isPatchTargetType,
   isV2Operation,
+  isV2ReadScope,
   isV2Scope,
   isV2TargetType,
 } from "./typeGuards";
@@ -575,6 +576,23 @@ export default class RequestHandler {
             : targetType === "block"
               ? { targetType: "block", target: rawTarget }
               : { targetType: "frontmatter", target: rawTarget };
+
+        // Target-Scope narrows what comes back, mirroring the write scopes:
+        // reads and writes are tied by the round-trip guarantee (what a scope
+        // returns is what a `replace` at that scope consumes). `parent` places
+        // a section but carries no readable value, so it is not accepted here.
+        const rawScope = req.get("Target-Scope");
+        if (rawScope !== undefined) {
+          if (!isV2ReadScope(rawScope)) {
+            this.returnCannedResponse(res, {
+              errorCode: ErrorCode.InvalidTargetScopeHeader,
+              message:
+                "Valid values for a read are 'content', 'marker', and 'markerAndContent'.",
+            });
+            return;
+          }
+          address.scope = rawScope;
+        }
         let result;
         try {
           result = readTarget(fileContent, address);

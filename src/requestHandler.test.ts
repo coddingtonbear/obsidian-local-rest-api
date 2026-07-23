@@ -604,6 +604,84 @@ describe("requestHandler", () => {
       expect(result.headers["deprecation"]).toBeUndefined();
     });
 
+    describe("Target-Scope on a path-targeted read", () => {
+      test("marker returns a heading's raw label text", async () => {
+        setFileContent(markdownWithHeadings);
+        app.vault.adapter._statForPath = "somefile.md";
+
+        const result = await request(server)
+          .get("/vault/somefile.md/heading/Heading1/SubHeading")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Accept", "text/markdown")
+          .set("Target-Scope", "marker")
+          .expect(200);
+
+        expect(result.text).toEqual("SubHeading");
+      });
+
+      test("markerAndContent returns the subtree at the parent's baseline", async () => {
+        setFileContent(markdownWithHeadings);
+        app.vault.adapter._statForPath = "somefile.md";
+
+        const result = await request(server)
+          .get("/vault/somefile.md/heading/Heading1/SubHeading")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Accept", "text/markdown")
+          .set("Target-Scope", "markerAndContent")
+          .expect(200);
+
+        // SubHeading is h2 in the document; at its parent's baseline its own
+        // line reads as "# SubHeading" — the shape a markerAndContent replace
+        // consumes.
+        expect(result.text).toEqual("# SubHeading\nSub content\n");
+      });
+
+      test("markerAndContent returns a block's full span including its ^id", async () => {
+        setFileContent(markdownWithBlock);
+        app.vault.adapter._statForPath = "somefile.md";
+
+        const result = await request(server)
+          .get("/vault/somefile.md/block/myblock")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Accept", "text/markdown")
+          .set("Target-Scope", "markerAndContent")
+          .expect(200);
+
+        expect(result.text).toEqual("Some content\nBlock content ^myblock");
+      });
+
+      test("marker and markerAndContent on a frontmatter target return key and entry", async () => {
+        setFileContent(markdownWithHeadings);
+        app.vault.adapter._statForPath = "somefile.md";
+
+        const keyResult = await request(server)
+          .get("/vault/somefile.md/frontmatter/title")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Target-Scope", "marker")
+          .expect(200);
+        expect(keyResult.body).toEqual("title");
+
+        const entryResult = await request(server)
+          .get("/vault/somefile.md/frontmatter/title")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Target-Scope", "markerAndContent")
+          .expect(200);
+        expect(entryResult.body).toEqual({ title: "Test Doc" });
+      });
+
+      test("a non-read scope is rejected with InvalidTargetScopeHeader", async () => {
+        setFileContent(markdownWithHeadings);
+        app.vault.adapter._statForPath = "somefile.md";
+
+        const res = await request(server)
+          .get("/vault/somefile.md/heading/Heading2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Target-Scope", "parent");
+        expect(res.status).toBe(400);
+        expect(JSON.parse(res.text).errorCode).toBe(40059);
+      });
+    });
+
     test("a Markdown-Patch-Version: 1 read still works and is marked deprecated", async () => {
       setFileContent(markdownWithHeadings);
 
