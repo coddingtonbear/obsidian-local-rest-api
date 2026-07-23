@@ -186,6 +186,9 @@ export class VaultOperations {
     const links = Object.keys(
       this.app.metadataCache.resolvedLinks[file.path] ?? {},
     );
+    const unresolvedLinks = Object.keys(
+      this.app.metadataCache.unresolvedLinks[file.path] ?? {},
+    );
 
     const index = backlinksIndex ?? this.buildBacklinksIndex();
     const backlinks = index[file.path] ?? [];
@@ -198,6 +201,7 @@ export class VaultOperations {
       content: includeContent ? await this.app.vault.cachedRead(file) : "",
       links,
       backlinks,
+      unresolvedLinks,
     };
   }
 
