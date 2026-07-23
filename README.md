@@ -165,6 +165,19 @@ Heading levels inside a `content` string are relative to the target (a leading `
 
 > **Note:** Whitespace is library-owned — your content is reduced to trimmed, canonical form (leading and trailing blank lines are meaningless), and the API itself supplies the blank line wherever inserted content faces body text, so an `append` or `prepend` always lands as its own block and never merges into an existing paragraph. Heading lines, existing blank lines, and each document's spacing style are preserved as-is. See the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for worked examples.
 
+To *continue* an existing block instead of starting a new one — say, extending a list — add `within` to a heading instruction: an index selecting one of the section's top-level body blocks (0-based in document order, negative counting from the end, so `-1` is the last block). A `within` edit splices literally, so you own the joint:
+
+```sh
+# Add an item to the last list under "Log" (the leading \n continues the block)
+curl -k -X PATCH \
+  -H "Authorization: Bearer <your-api-key>" \
+  -H "Content-Type: application/json" \
+  --data '{"targetType":"heading","target":["Log"],"within":-1,"operation":"append","content":"\n- new item"}' \
+  https://127.0.0.1:27124/vault/path/to/note.md
+```
+
+With `markerAndContent` scope, `prepend`/`append` instead insert a *new* block beside the indexed one. Indices are positional, so read the document map first and pair the edit with `ifMatch`.
+
 ### Raw-content mode
 
 If your client *templates* markdown into the request body (Shortcuts, Tasker, curl from a template), JSON-escaping that content into an instruction is fragile. Raw-content mode moves the instruction's fields out of the body — target in the URL (or in `Target-Type`/`Target` headers with an explicit `Markdown-Patch-Version: 2`), operation and options in headers — and the body is the raw payload, no JSON escaping required:
@@ -179,7 +192,7 @@ curl -k -X PATCH \
   https://127.0.0.1:27124/vault/notes/daily.md/heading/Log
 ```
 
-A `text/*` body is the `content` carrier, an `application/json` body the `value` carrier, and no body at all carries nothing (a `delete`, or a move via a `Destination` header). `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `If-Match` headers round out the instruction. See the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for the header encodings and the full details.
+A `text/*` body is the `content` carrier, an `application/json` body the `value` carrier, and no body at all carries nothing (a `delete`, or a move via a `Destination` header). `Target-Scope`, `Within` (the instruction's `within` index as a plain integer, e.g. `-1`), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `If-Match` headers round out the instruction. See the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for the header encodings and the full details.
 
 > **Already using the older header-driven PATCH format?** It spread the instruction across request headers instead of a JSON body, and is **deprecated and will be removed in 6.0**. It still works — send `Markdown-Patch-Version: 1` to opt back into it (the same header also selects the legacy `::`-joined document map on GET), and responses served by it carry a `Deprecation: true; sunset-version="6.0"` header. To upgrade, drop that header and move each header into the JSON body; the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) have the field-by-field mapping table.
 
