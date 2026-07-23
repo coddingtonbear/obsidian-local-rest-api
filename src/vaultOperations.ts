@@ -136,9 +136,11 @@ export class VaultOperations {
 
   /**
    * The markdown-patch 2.0 document map: headings nested by containment (each
-   * heading text maps to its child headings; a repeated sibling keeps its first
-   * occurrence), bare block ids, frontmatter field names, and the content-hash
-   * `version` token clients pass back as a patch `ifMatch` precondition.
+   * heading text maps to its child headings; every occurrence of a repeated
+   * sibling gets its own key, later ones carrying a reserved marker suffix),
+   * block ids disambiguated the same way, frontmatter field names, and the
+   * content-hash `version` token clients pass back as a patch `ifMatch`
+   * precondition.
    */
   async getDocumentMapV2Object(file: TFile): Promise<PublicMap> {
     const content = await this.app.vault.adapter.read(file.path);
