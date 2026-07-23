@@ -218,7 +218,7 @@ paths:
         
         ## Rendered HTML
         
-        If you specify the header `Accept: text/html`, will return the note rendered to HTML using Obsidian's own Markdown renderer — the same rendering used in Obsidian's preview mode, including embeds, callouts, and other Obsidian-flavored Markdown extensions. `Target-Type`/`Target` are ignored; the whole note is always rendered.
+        If you specify the header `Accept: text/html`, will return the note rendered to HTML using Obsidian's own Markdown renderer — the same rendering used in Obsidian's preview mode, including embeds, callouts, and other Obsidian-flavored Markdown extensions. If `Target-Type`/`Target` are specified with `heading` or `block`, only that section is rendered. `Target-Type: frontmatter` is not supported for this Accept type and returns a 400 error, since frontmatter has no HTML rendering.
       parameters:
         - description: |
             Type of sub-document section to target. When specified, the operation
@@ -291,7 +291,7 @@ paths:
                 "$ref": "#/components/schemas/NoteJson"
             text/html:
               description: |
-                Returned when `Accept: text/html` is specified. The note rendered to HTML via Obsidian's Markdown renderer (embeds, callouts, etc. included). `Target-Type`/`Target` are ignored; the whole note is rendered.
+                Returned when `Accept: text/html` is specified. The note (or, if `Target-Type`/`Target` are specified with `heading` or `block`, just that section) rendered to HTML via Obsidian's Markdown renderer (embeds, callouts, etc. included). `Target-Type: frontmatter` is not supported for this Accept type and returns a 400 error.
               schema:
                 example: |
                   <h1>This is my document</h1>
@@ -311,6 +311,13 @@ paths:
               schema:
                 example: "notes/file.md"
                 type: "string"
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: |
+            The `Target-Type`/`Target` headers were invalid, or `Target-Type: frontmatter` was combined with `Accept: text/html` (frontmatter has no HTML rendering).
         "404":
           description: "File or target section does not exist"
       summary: |
@@ -1380,7 +1387,7 @@ paths:
         
         ## Rendered HTML
         
-        If you specify the header `Accept: text/html`, will return the note rendered to HTML using Obsidian's own Markdown renderer — the same rendering used in Obsidian's preview mode, including embeds, callouts, and other Obsidian-flavored Markdown extensions. `Target-Type`/`Target` are ignored; the whole note is always rendered.
+        If you specify the header `Accept: text/html`, will return the note rendered to HTML using Obsidian's own Markdown renderer — the same rendering used in Obsidian's preview mode, including embeds, callouts, and other Obsidian-flavored Markdown extensions. If `Target-Type`/`Target` are specified with `heading` or `block`, only that section is rendered. `Target-Type: frontmatter` is not supported for this Accept type and returns a 400 error, since frontmatter has no HTML rendering.
       parameters:
         - description: "The name of the period for which you would like to grab a periodic note."
           in: "path"
@@ -1466,7 +1473,7 @@ paths:
                 "$ref": "#/components/schemas/NoteJson"
             text/html:
               description: |
-                Returned when `Accept: text/html` is specified. The note rendered to HTML via Obsidian's Markdown renderer (embeds, callouts, etc. included). `Target-Type`/`Target` are ignored; the whole note is rendered.
+                Returned when `Accept: text/html` is specified. The note (or, if `Target-Type`/`Target` are specified with `heading` or `block`, just that section) rendered to HTML via Obsidian's Markdown renderer (embeds, callouts, etc. included). `Target-Type: frontmatter` is not supported for this Accept type and returns a 400 error.
               schema:
                 example: |
                   <h1>This is my document</h1>
@@ -1486,6 +1493,13 @@ paths:
               schema:
                 example: "notes/file.md"
                 type: "string"
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: |
+            The `Target-Type`/`Target` headers were invalid, or `Target-Type: frontmatter` was combined with `Accept: text/html` (frontmatter has no HTML rendering).
         "404":
           description: "File or target section does not exist"
       summary: |
@@ -2317,7 +2331,7 @@ paths:
         
         ## Rendered HTML
         
-        If you specify the header `Accept: text/html`, will return the note rendered to HTML using Obsidian's own Markdown renderer — the same rendering used in Obsidian's preview mode, including embeds, callouts, and other Obsidian-flavored Markdown extensions. `Target-Type`/`Target` are ignored; the whole note is always rendered.
+        If you specify the header `Accept: text/html`, will return the note rendered to HTML using Obsidian's own Markdown renderer — the same rendering used in Obsidian's preview mode, including embeds, callouts, and other Obsidian-flavored Markdown extensions. If `Target-Type`/`Target` are specified with `heading` or `block`, only that section is rendered. `Target-Type: frontmatter` is not supported for this Accept type and returns a 400 error, since frontmatter has no HTML rendering.
       parameters:
         - description: "The year of the date for which you would like to grab a periodic note."
           in: "path"
@@ -2421,7 +2435,7 @@ paths:
                 "$ref": "#/components/schemas/NoteJson"
             text/html:
               description: |
-                Returned when `Accept: text/html` is specified. The note rendered to HTML via Obsidian's Markdown renderer (embeds, callouts, etc. included). `Target-Type`/`Target` are ignored; the whole note is rendered.
+                Returned when `Accept: text/html` is specified. The note (or, if `Target-Type`/`Target` are specified with `heading` or `block`, just that section) rendered to HTML via Obsidian's Markdown renderer (embeds, callouts, etc. included). `Target-Type: frontmatter` is not supported for this Accept type and returns a 400 error.
               schema:
                 example: |
                   <h1>This is my document</h1>
@@ -2441,6 +2455,13 @@ paths:
               schema:
                 example: "notes/file.md"
                 type: "string"
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: |
+            The `Target-Type`/`Target` headers were invalid, or `Target-Type: frontmatter` was combined with `Accept: text/html` (frontmatter has no HTML rendering).
         "404":
           description: "File or target section does not exist"
       summary: |
@@ -3658,7 +3679,7 @@ paths:
         
         ## Rendered HTML
         
-        If you specify the header `Accept: text/html`, will return the note rendered to HTML using Obsidian's own Markdown renderer — the same rendering used in Obsidian's preview mode, including embeds, callouts, and other Obsidian-flavored Markdown extensions. `Target-Type`/`Target` are ignored; the whole note is always rendered.
+        If you specify the header `Accept: text/html`, will return the note rendered to HTML using Obsidian's own Markdown renderer — the same rendering used in Obsidian's preview mode, including embeds, callouts, and other Obsidian-flavored Markdown extensions. If `Target-Type`/`Target` are specified with `heading` or `block`, only that section is rendered. `Target-Type: frontmatter` is not supported for this Accept type and returns a 400 error, since frontmatter has no HTML rendering.
       parameters:
         - description: "Path to the relevant file (relative to your vault root).\n Optionally, you may include a reference to target a sub-part of the document; see \"Targeting a Sub-part of your Document\" for details."
           in: "path"
@@ -3738,7 +3759,7 @@ paths:
                 "$ref": "#/components/schemas/NoteJson"
             text/html:
               description: |
-                Returned when `Accept: text/html` is specified. The note rendered to HTML via Obsidian's Markdown renderer (embeds, callouts, etc. included). `Target-Type`/`Target` are ignored; the whole note is rendered.
+                Returned when `Accept: text/html` is specified. The note (or, if `Target-Type`/`Target` are specified with `heading` or `block`, just that section) rendered to HTML via Obsidian's Markdown renderer (embeds, callouts, etc. included). `Target-Type: frontmatter` is not supported for this Accept type and returns a 400 error.
               schema:
                 example: |
                   <h1>This is my document</h1>
@@ -3752,6 +3773,13 @@ paths:
                   something else here
                 type: "string"
           description: "Success"
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: |
+            The `Target-Type`/`Target` headers were invalid, or `Target-Type: frontmatter` was combined with `Accept: text/html` (frontmatter has no HTML rendering).
         "404":
           description: "File or target section does not exist"
       summary: |

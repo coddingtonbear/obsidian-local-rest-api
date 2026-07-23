@@ -203,13 +203,13 @@ export class VaultOperations {
     };
   }
 
-  async renderFileToHtml(file: TFile): Promise<string> {
-    const content = await this.app.vault.cachedRead(file);
+  async renderFileToHtml(file: TFile, content?: string): Promise<string> {
+    const markdown = content ?? (await this.app.vault.cachedRead(file));
     const el = activeDocument.createElement("div");
     const component = new Component();
     component.load();
     try {
-      await MarkdownRenderer.render(this.app, content, el, file.path, component);
+      await MarkdownRenderer.render(this.app, markdown, el, file.path, component);
       return el.innerHTML;
     } finally {
       component.unload();

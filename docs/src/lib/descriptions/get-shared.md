@@ -10,4 +10,4 @@ If you specify the header `Accept: application/vnd.olrapi.document-map+json`, wi
 
 ## Rendered HTML
 
-If you specify the header `Accept: text/html`, will return the note rendered to HTML using Obsidian's own Markdown renderer — the same rendering used in Obsidian's preview mode, including embeds, callouts, and other Obsidian-flavored Markdown extensions. `Target-Type`/`Target` are ignored; the whole note is always rendered.
+If you specify the header `Accept: text/html`, will return the note rendered to HTML using Obsidian's own Markdown renderer — the same rendering used in Obsidian's preview mode, including embeds, callouts, and other Obsidian-flavored Markdown extensions. If `Target-Type`/`Target` are specified with `heading` or `block`, only that section is rendered. `Target-Type: frontmatter` is not supported for this Accept type and returns a 400 error, since frontmatter has no HTML rendering.

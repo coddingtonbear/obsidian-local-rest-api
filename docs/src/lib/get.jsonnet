@@ -17,7 +17,7 @@ local T = import 'targeting.params.jsonnet';
           },
         },
         'text/html': {
-          description: 'Returned when `Accept: text/html` is specified. The note rendered to HTML via Obsidian\'s Markdown renderer (embeds, callouts, etc. included). `Target-Type`/`Target` are ignored; the whole note is rendered.\n',
+          description: 'Returned when `Accept: text/html` is specified. The note (or, if `Target-Type`/`Target` are specified with `heading` or `block`, just that section) rendered to HTML via Obsidian\'s Markdown renderer (embeds, callouts, etc. included). `Target-Type: frontmatter` is not supported for this Accept type and returns a 400 error.\n',
           schema: {
             type: 'string',
             example: '<h1>This is my document</h1>\n<p>something else here</p>\n',
@@ -59,6 +59,16 @@ local T = import 'targeting.params.jsonnet';
         'application/json': {
           description: 'Returned when `Target-Type` is `frontmatter`; the JSON value of the specified frontmatter field.',
           schema: {},
+        },
+      },
+    },
+    '400': {
+      description: 'The `Target-Type`/`Target` headers were invalid, or `Target-Type: frontmatter` was combined with `Accept: text/html` (frontmatter has no HTML rendering).\n',
+      content: {
+        'application/json': {
+          schema: {
+            '$ref': '#/components/schemas/Error',
+          },
         },
       },
     },
