@@ -247,21 +247,32 @@ export class McpHandler {
           .describe(
             dedent`Section to extract. For a heading: an array of heading texts naming the path from the top level down to the target (e.g. ["Heading 1","Subheading"]) — a bare string is rejected, even for a single top-level heading. If a heading is a duplicate of an earlier sibling, its map key carries an extra non-printable marker suffix; copy that key verbatim from vault_get_document_map, don't retype it. For a block: the bare block id without '^' — likewise, a duplicate block id's later occurrence carries the same kind of marker suffix in vault_get_document_map's blocks list. For a frontmatter field: the key name. Use vault_get_document_map to discover valid heading paths and block ids.`,
           ),
+        scope: z
+          .enum(["content", "marker", "markerAndContent"])
+          .optional()
+          .describe(
+            dedent`Which part of the target to read (default 'content'), mirroring vault_patch's scopes: what a scope returns is exactly what a 'replace' at that scope consumes. 'content': the node's body — a heading's body with levels made relative to it, a block's text, a frontmatter value. 'marker': the label — a heading's raw text (no '#'s, no duplicate-marker suffix), a block's bare id, a frontmatter key. 'markerAndContent': the whole node — a heading's subtree with its own line as '# Title' (levels relative to its parent), a block's full span including its '^id', a frontmatter entry as a {key: value} object. Requires targetType and target.`,
+          ),
       },
       READ_ONLY_ANNOTATIONS,
       async ({
         path,
         targetType,
         target,
+        scope,
       }: {
         path: string;
         targetType?: "heading" | "block" | "frontmatter";
         target?: string[] | string;
+        scope?: "content" | "marker" | "markerAndContent";
       }) => {
         const file = this.ops.app.vault.getAbstractFileByPath(path);
         if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
         if ((targetType == null) !== (target == null)) {
           throw new Error("targetType and target must be provided together");
+        }
+        if (scope !== undefined && (targetType == null || target == null)) {
+          throw new Error("scope requires targetType and target");
         }
         if (targetType && target != null) {
           let address: ReadTarget;
@@ -275,6 +286,9 @@ export class McpHandler {
               throw new Error(`A ${targetType} target must be a string, not an array`);
             }
             address = { targetType, target };
+          }
+          if (scope !== undefined) {
+            address.scope = scope;
           }
           const result = await this.ops.readFileSectionMdp2(file, address);
           return this.text(result.kind === "frontmatter" ? result.value : result.content);

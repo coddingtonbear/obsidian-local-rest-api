@@ -306,6 +306,31 @@ describe("McpHandler", () => {
       expect(parseText(result)).toBe("section content");
     });
 
+    test("passes scope through to the read address", async () => {
+      const cb = getToolCallback("vault_read");
+      await cb({
+        path: "test.md",
+        targetType: "heading",
+        target: ["Alpha"],
+        scope: "markerAndContent",
+      });
+      expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
+        expect.anything(),
+        {
+          targetType: "heading",
+          target: ["Alpha"],
+          scope: "markerAndContent",
+        },
+      );
+    });
+
+    test("rejects scope without a target", async () => {
+      const cb = getToolCallback("vault_read");
+      await expect(
+        cb({ path: "test.md", scope: "marker" }),
+      ).rejects.toThrow("scope requires targetType and target");
+    });
+
     test("passes a duplicate-heading marker suffix through a target segment unchanged", async () => {
       const cb = getToolCallback("vault_read");
       const disambiguated = "Alpha\u{FC750}\u{F6440}";
