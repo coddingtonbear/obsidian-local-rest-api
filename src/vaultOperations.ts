@@ -29,13 +29,8 @@ import type {
   ReadTarget,
   ReadResult,
 } from "markdown-patch-2";
-
-const jsonLogic = require("json-logic-js") as {
-  apply: (logic: unknown, data?: unknown) => unknown;
-  add_operation: (name: string, code: (...args: unknown[]) => unknown) => void;
-};
-
-const WildcardRegexp = require("glob-to-regexp") as (pattern: string) => RegExp;
+import jsonLogic from "json-logic-js";
+import WildcardRegexp from "glob-to-regexp";
 
 export class FileNotFoundError extends Error {}
 export class CommandNotFoundError extends Error {}

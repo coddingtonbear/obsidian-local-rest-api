@@ -27,10 +27,6 @@ export default defineConfig([
       // false positives for ambient Obsidian types in declare-module blocks.
       "no-undef": "off",
 
-      // Some CommonJS-only dependencies (json-logic-js, glob-to-regexp) cannot
-      // be imported with ESM syntax; require() is the only option.
-      "@typescript-eslint/no-require-imports": "off",
-
       "@typescript-eslint/no-unsafe-argument": "error",
       "@typescript-eslint/no-unsafe-assignment": "error",
       "@typescript-eslint/no-unsafe-call": "error",
