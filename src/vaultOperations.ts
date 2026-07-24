@@ -17,6 +17,19 @@ import {
   PatchOperation,
   PatchTargetType,
 } from "markdown-patch";
+import {
+  patch as patchV2,
+  projectMap,
+  buildModel,
+  readTarget,
+} from "markdown-patch-2";
+import type {
+  InstructionInput,
+  PatchResult,
+  PublicMap,
+  ReadTarget,
+  ReadResult,
+} from "markdown-patch-2";
  
 const jsonLogic = require("json-logic-js") as {
   apply: (logic: unknown, data?: unknown) => unknown;
@@ -121,6 +134,33 @@ export class VaultOperations {
     };
   }
 
+  /**
+   * The markdown-patch 2.0 document map: headings nested by containment (each
+   * heading text maps to its child headings; every occurrence of a repeated
+   * sibling gets its own key, later ones carrying a reserved marker suffix),
+   * block ids disambiguated the same way, frontmatter field names, and the
+   * content-hash `version` token clients pass back as a patch `ifMatch`
+   * precondition.
+   */
+  async getDocumentMapV2Object(file: TFile): Promise<PublicMap> {
+    const content = await this.app.vault.adapter.read(file.path);
+    return projectMap(buildModel(content));
+  }
+
+  /**
+   * The markdown-patch 2.0 targeted read: resolve a `(targetType, target)`
+   * address — a heading path array, a bare block id, or a frontmatter key — and
+   * return the section body (headings/blocks) or parsed value (frontmatter).
+   * Throws {@link TargetNotFoundError} when the address does not resolve.
+   */
+  async readFileSectionMdp2(
+    file: TFile,
+    target: ReadTarget,
+  ): Promise<ReadResult> {
+    const content = await this.app.vault.adapter.read(file.path);
+    return readTarget(content, target);
+  }
+
   async readFileSection(
     file: TFile,
     targetType: string,
@@ -220,30 +260,51 @@ export class VaultOperations {
     }
   }
 
-  async resolvePathAndTarget(rawPath: string): Promise<{
+  async resolvePathAndTarget(rawSegments: string[]): Promise<{
     filePath: string;
     targetType?: string;
     target?: string;
+    // For a heading target, the raw path segments as an array (e.g. ["A", "B"]
+    // for `.../heading/A/B`). Preserved alongside the `::`-joined `target` so the
+    // 2.0 engine can address headings array-natively without a delimiter split
+    // that a heading containing `::` would break.
+    targetSegments?: string[];
   } | null> {
-    const normalizedPath = rawPath.endsWith("/")
-      ? rawPath.slice(0, -1)
-      : rawPath;
-    if (!normalizedPath) return null;
+    // Segments arrive already split on the URL's *raw* slashes and decoded one
+    // by one, so a `%2F` inside a segment is a literal `/` belonging to that
+    // segment (a heading name), not a path boundary. Drop a trailing empty
+    // segment left by a trailing slash.
+    const segments =
+      rawSegments.length > 0 && rawSegments[rawSegments.length - 1] === ""
+        ? rawSegments.slice(0, -1)
+        : rawSegments;
+    if (segments.length === 0) return null;
 
-    let exactStat = null;
-    try {
-      exactStat = await this.app.vault.adapter.stat(normalizedPath);
-    } catch {
-      // ENOTDIR: a path component is a file, not a directory;
-      // fall through to the backward walk which will find the actual file.
-    }
-    if (exactStat?.type === "file") {
-      return { filePath: normalizedPath };
+    // A file or folder name cannot contain `/`, so a candidate file path is only
+    // valid when none of its segments do. This is what keeps a decoded `%2F`
+    // from re-forming a path separator: `folder%2Fnote.md` is a single segment
+    // "folder/note.md", which can never be a file component and so never
+    // resolves as one.
+    const isFilePath = (parts: string[]): boolean =>
+      parts.every((part) => !part.includes("/"));
+
+    if (isFilePath(segments)) {
+      let exactStat = null;
+      try {
+        exactStat = await this.app.vault.adapter.stat(segments.join("/"));
+      } catch {
+        // ENOTDIR: a path component is a file, not a directory;
+        // fall through to the backward walk which will find the actual file.
+      }
+      if (exactStat?.type === "file") {
+        return { filePath: segments.join("/") };
+      }
     }
 
-    const segments = normalizedPath.split("/");
     for (let i = segments.length - 1; i >= 1; i--) {
-      const candidate = segments.slice(0, i).join("/");
+      const prefix = segments.slice(0, i);
+      if (!isFilePath(prefix)) continue;
+      const candidate = prefix.join("/");
       let s = null;
       try {
         s = await this.app.vault.adapter.stat(candidate);
@@ -253,11 +314,13 @@ export class VaultOperations {
       if (s?.type === "file") {
         const remainder = segments.slice(i);
         const targetType = remainder[0];
+        const targetSegments =
+          targetType === "heading" ? remainder.slice(1) : undefined;
         const target =
           targetType === "heading"
             ? remainder.slice(1).join("::")
             : remainder[1];
-        return { filePath: candidate, targetType, target };
+        return { filePath: candidate, targetType, target, targetSegments };
       }
     }
 
@@ -475,6 +538,26 @@ export class VaultOperations {
     const patched = applyPatch(fileContents, instruction);
     await this.app.vault.adapter.write(filePath, patched);
     return patched;
+  }
+
+  // Applies a single markdown-patch 2.0 instruction and writes the result.
+  // ("Mdp2" = markdown-patch 2.0, not the removed API version 2.0 PATCH.)
+  // Throws FileNotFoundError when the file is missing; lets the 2.0 engine's
+  // typed errors (TargetNotFoundError, PreconditionFailedError, …) propagate for
+  // the caller to map to HTTP responses. Returns the patched document alongside
+  // any advisory warnings the engine surfaced (e.g. heading-depth overflow).
+  async patchFileSectionMdp2(
+    filePath: string,
+    instruction: InstructionInput,
+  ): Promise<PatchResult> {
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    if (!(file instanceof TFile)) {
+      throw new FileNotFoundError(`File not found: ${filePath}`);
+    }
+    const fileContents = await this.app.vault.read(file);
+    const result = patchV2(fileContents, instruction);
+    await this.app.vault.adapter.write(filePath, result.document);
+    return result;
   }
 
   getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {

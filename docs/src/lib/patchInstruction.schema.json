@@ -1,0 +1,159 @@
+{
+  "type": "object",
+  "properties": {
+    "targetType": {
+      "type": "string",
+      "enum": [
+        "heading",
+        "block",
+        "frontmatter"
+      ],
+      "description": "The kind of node to edit."
+    },
+    "target": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "description": "The node to edit. For a heading: an array of heading texts from the top level down to the target (e.g. [\"Overview\",\"Details\"]), or null/[] for the document root. If a heading is a duplicate of an earlier sibling under the same parent, its address carries an extra non-printable marker suffix appended by the server — copy that address verbatim from wherever the document's heading structure was discovered, never retype or reconstruct it. For a block: the bare block id, without the leading `^` (letters, numbers, hyphens, and underscores only) — a duplicate block id's later occurrence carries the same kind of marker suffix, copied verbatim the same way. For a frontmatter field: the key.",
+      "nullable": true
+    },
+    "within": {
+      "type": "integer",
+      "description": "Refines a heading target to one of the section's direct-body top-level blocks (a paragraph, list, table, code fence, blockquote, …): 0 is the first block in document order, and a negative index counts from the end (-1 = last). Isolated `^id` lines are not counted, so indices match the rendered blocks. With scope `content`, the edit is a literal splice into that block — you own the joint, so `append` *continues* the block (e.g. content `\\n- item` extends a list) — and `delete` removes the block. With scope `markerAndContent`, `prepend`/`append` insert a new block immediately before/after it, with library-owned blank-line separators. Heading targets only; cannot be combined with `createTargetIfMissing`."
+    },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "replace",
+        "prepend",
+        "append",
+        "delete"
+      ],
+      "description": "What happens to the scoped span: replace it, insert before (`prepend`) or after (`append`), or `delete` it."
+    },
+    "scope": {
+      "type": "string",
+      "enum": [
+        "content",
+        "marker",
+        "markerAndContent",
+        "parent"
+      ],
+      "default": "content",
+      "description": "Which part of the target the operation acts on (default `content`). `content`: the node body — for a heading, its whole subtree below the heading line. `marker`: the label only — a heading line, a block `^id`, or a frontmatter key (`replace` renames it). `markerAndContent`: the whole node/subtree (`prepend`/`append` insert a sibling). `parent`: a heading's place in the tree — only with operation `replace`, carrying a `destination` (a move)."
+    },
+    "content": {
+      "type": "string",
+      "description": "String payload: a heading/block body or label, a new block id for a block `marker` rename (letters, numbers, hyphens, and underscores only), or a new frontmatter key name for a frontmatter `marker` rename. Heading levels are relative to the edited span (a leading `#` becomes a direct child). For heading writes, whitespace is library-owned: leading/trailing blank lines here are ignored, and the engine supplies the blank line that keeps inserted content a separate block — never add newlines to control spacing. (Block-target `content` is the exception: it is spliced literally for inline edits.) A heading `marker` rename may not contain a line break. Provide exactly one of `content`, `value`, or `destination`."
+    },
+    "value": {
+      "description": "Structured JSON payload: a frontmatter value (any JSON — string, number, boolean, array, object, null; for `prepend`/`append` this merges: list concat, dict merge, string concat), or table rows on a `block` target's `content` cell (a 2-D array of strings, one row per entry — `replace` swaps the body rows, `prepend`/`append` insert before/after the existing ones; each row's length must match the table's column count). Table cells are content, not table source: a `|` is escaped for you, and a cell containing a line break is rejected, since a row is a single line. Provide exactly one of `content`, `value`, or `destination`."
+    },
+    "destination": {
+      "type": "object",
+      "properties": {
+        "parent": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ],
+          "description": "The section's new parent heading address, or null/[] for the document root.",
+          "nullable": true
+        },
+        "place": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "first",
+                "last"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "before": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ],
+                  "description": "A heading's containment path: the ancestor heading texts from the top level down (e.g. [\"Overview\",\"Details\"]), or null/[] for the document root.",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "before"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "after": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ],
+                  "description": "A heading's containment path: the ancestor heading texts from the top level down (e.g. [\"Overview\",\"Details\"]), or null/[] for the document root.",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "after"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "description": "Position among the new parent's children: \"first\", \"last\", or { before } / { after } a sibling heading address."
+        }
+      },
+      "required": [
+        "parent",
+        "place"
+      ],
+      "additionalProperties": false,
+      "description": "For a heading move (operation `replace`, scope `parent`): where the section is re-parented. Provide exactly one of `content`, `value`, or `destination`."
+    },
+    "ifMatch": {
+      "type": "string",
+      "description": "Optimistic-concurrency token (the `version` from a prior document map). If set and the document has changed since, the patch fails with a precondition error without modifying the file."
+    },
+    "createTargetIfMissing": {
+      "type": "boolean",
+      "default": false,
+      "description": "Create the target (heading path, block id, or frontmatter key) if it does not already exist."
+    },
+    "rejectIfContentPreexists": {
+      "type": "boolean",
+      "default": false,
+      "description": "Fail a `prepend`/`append` when the string content already appears in the target span (makes those operations idempotent on retry)."
+    }
+  },
+  "required": [
+    "targetType",
+    "target",
+    "operation"
+  ],
+  "additionalProperties": false,
+  "description": "A single edit expressed as one operation applied to a scope of a target node. The payload rides in exactly one of `content`, `value`, or `destination`, chosen by what it is. Not every operation×scope×targetType combination is valid; invalid ones are rejected."
+}

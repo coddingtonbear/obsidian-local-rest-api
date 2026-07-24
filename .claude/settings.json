@@ -11,12 +11,9 @@
       "Bash(git commit -m ' *)",
       "mcp__obsidian__vault_list",
       "mcp__obsidian__vault_write",
+      "mcp__obsidian__vault_append",
       "Bash(NODE_OPTIONS=--experimental-vm-modules npx jest *)",
-      "Bash(git commit -m ' *)",
-      "mcp__obsidian__vault_list",
-      "mcp__obsidian__vault_write",
-      "Bash(npx jest *)",
-      "mcp__obsidian__vault_append"
+      "Bash(npx jest *)"
     ]
   }
 }

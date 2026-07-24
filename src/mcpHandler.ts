@@ -9,7 +9,8 @@ import { TFile } from "obsidian";
 import { dedent } from "ts-dedent";
 
 import { VaultOperations } from "./vaultOperations";
-import { ContentType, FrontmatterParseError, PatchFailed, PatchOperation, PatchTargetType } from "markdown-patch";
+import type { InstructionInput, ReadTarget } from "markdown-patch-2";
+import { InstructionInputObjectSchema } from "markdown-patch-2";
 import openapiYaml from "../docs/openapi.yaml";
 import { ERROR_CODE_MESSAGES } from "./constants";
 import { LocalRestApiSettings } from "./types";
@@ -241,36 +242,56 @@ export class McpHandler {
           .optional()
           .describe("Type of section to extract: 'heading', 'block' reference, or 'frontmatter' key"),
         target: z
-          .string()
+          .union([z.array(z.string()), z.string()])
           .optional()
           .describe(
-            dedent`Section to extract. Heading text, block reference ID (without '^'), or frontmatter key. Separate nested heading levels with '::' (e.g. 'Heading 1::Subheading').`,
+            dedent`Section to extract. For a heading: an array of heading texts naming the path from the top level down to the target (e.g. ["Heading 1","Subheading"]) — a bare string is rejected, even for a single top-level heading. If a heading is a duplicate of an earlier sibling, its map key carries an extra non-printable marker suffix; copy that key verbatim from vault_get_document_map, don't retype it. For a block: the bare block id without '^' — likewise, a duplicate block id's later occurrence carries the same kind of marker suffix in vault_get_document_map's blocks list. For a frontmatter field: the key name. Use vault_get_document_map to discover valid heading paths and block ids.`,
           ),
-        targetDelimiter: z
-          .string()
+        scope: z
+          .enum(["content", "marker", "markerAndContent"])
           .optional()
-          .describe("Delimiter for nested heading paths (default: '::')"),
+          .describe(
+            dedent`Which part of the target to read (default 'content'), mirroring vault_patch's scopes: what a scope returns is exactly what a 'replace' at that scope consumes. 'content': the node's body — a heading's body with levels made relative to it, a block's text, a frontmatter value. 'marker': the label — a heading's raw text (no '#'s, no duplicate-marker suffix), a block's bare id, a frontmatter key. 'markerAndContent': the whole node — a heading's subtree with its own line as '# Title' (levels relative to its parent), a block's full span including its '^id', a frontmatter entry as a {key: value} object. Requires targetType and target.`,
+          ),
       },
       READ_ONLY_ANNOTATIONS,
       async ({
         path,
         targetType,
         target,
-        targetDelimiter,
+        scope,
       }: {
         path: string;
         targetType?: "heading" | "block" | "frontmatter";
-        target?: string;
-        targetDelimiter?: string;
+        target?: string[] | string;
+        scope?: "content" | "marker" | "markerAndContent";
       }) => {
         const file = this.ops.app.vault.getAbstractFileByPath(path);
         if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
         if ((targetType == null) !== (target == null)) {
           throw new Error("targetType and target must be provided together");
         }
-        if (targetType && target) {
-          const section = await this.ops.readFileSection(file, targetType, target, targetDelimiter);
-          return this.text(section);
+        if (scope !== undefined && (targetType == null || target == null)) {
+          throw new Error("scope requires targetType and target");
+        }
+        if (targetType && target != null) {
+          let address: ReadTarget;
+          if (targetType === "heading") {
+            if (!Array.isArray(target)) {
+              throw new Error("A heading target must be an array of heading texts, not a bare string");
+            }
+            address = { targetType: "heading", target };
+          } else {
+            if (Array.isArray(target)) {
+              throw new Error(`A ${targetType} target must be a string, not an array`);
+            }
+            address = { targetType, target };
+          }
+          if (scope !== undefined) {
+            address.scope = scope;
+          }
+          const result = await this.ops.readFileSectionMdp2(file, address);
+          return this.text(result.kind === "frontmatter" ? result.value : result.content);
         }
         const meta = await this.ops.getFileMetadataObject(file);
         return this.text(meta);
@@ -308,121 +329,81 @@ export class McpHandler {
     this.tool(
       "vault_patch",
       dedent`
-        Patch a specific section of a vault file by targeting a heading, block reference, or frontmatter field.
+        Edit a vault file with a single structured instruction: an operation applied to a scope of a target node.
 
-        To discover valid heading names and block IDs before patching, call vault_get_document_map first.
+        - operation: 'replace', 'prepend', 'append', or 'delete'.
+        - scope (default 'content'): 'content' = the node's body; 'marker' = its label (heading line / block '^id' / frontmatter key); 'markerAndContent' = the whole node/subtree; 'parent' = the node's place in the tree (heading move only).
+        - The payload rides in exactly one field, chosen by what it is: 'content' (a markdown/text string), 'value' (arbitrary JSON — a frontmatter value, or a 2-D array of row cells to write table rows on a block target's 'content' cell), or 'destination' (where a moved heading lands).
+
+        Heading levels inside a 'content' string are relative to the target (a leading '#' becomes a direct child), so you never count '#'s. To discover valid heading paths and block IDs first, call vault_get_document_map.
+
+        To continue an existing block instead of starting a new one, add 'within' (heading targets only): an index picking one of the section's top-level body blocks (0-based, negative from the end; isolated '^id' lines are not counted). 'content'-scope edits then splice literally into that block — append with '\\n- item' extends a list — and 'markerAndContent' prepend/append insert a new block beside it. Read the file first to count blocks, and pair with 'ifMatch'.
       `,
       {
         path: z.string().describe("File path relative to vault root"),
-        targetType: z
-          .enum(["heading", "block", "frontmatter"])
-          .describe("Type of target section: 'heading', 'block' reference, or 'frontmatter' key"),
-        target: z
-          .string()
-          .describe(
-            dedent`The section to patch. Heading text, block reference ID (without '^'), or frontmatter key. Separate nested heading levels with '::' (e.g. 'Heading 1::Subheading').`,
-          ),
-        operation: z
-          .enum(["replace", "prepend", "append"])
-          .describe("How to apply the content: replace the section, prepend before it, or append after it"),
-        content: z
-          .string()
-          .describe(
-            dedent`Content to apply. For contentType 'text/markdown' pass markdown text. For contentType 'application/json' pass a JSON-encoded string (e.g. '["row","cells"]' for a table row, or '42' for a number). No blank line is added automatically between your content and whatever sits next to it — only a blank line that was already there gets kept. If you want one, add '\\n\\n' yourself: at the end of content for append, replace, or createTargetIfMissing; at the start of content for prepend.`,
-          ),
-        contentType: z
-          .nativeEnum(ContentType)
-          .optional()
-          .describe(
-            dedent`MIME type of content. 'text/markdown' (default) or 'application/json'. Use 'application/json' to set typed frontmatter values or to append/prepend table rows (2-D array).`,
-          ),
-        createTargetIfMissing: z
-          .boolean()
-          .optional()
-          .describe("Create the heading or frontmatter key if it does not already exist (default: false)"),
-        trimTargetWhitespace: z
-          .boolean()
-          .optional()
-          .describe("Trim whitespace from the target section before applying the operation (default: false)"),
-        rejectIfContentPreexists: z
-          .boolean()
-          .optional()
-          .describe("If true, fail the patch when the content already appears in the target section (default: false). Use to make append/prepend operations idempotent on retry."),
-        targetDelimiter: z
-          .string()
-          .optional()
-          .describe("Delimiter for nested heading paths (default: '::')"),
-        targetScope: z
-          .enum(["content", "marker", "markerAndContent"])
-          .optional()
-          .describe(
-            dedent`Controls which part of the target the operation acts on. 'content' (default): the section content only. 'marker': just the heading line or block-ID token. 'markerAndContent': both together. Only applies to heading and block targets — combining a non-'content' value with targetType 'frontmatter' returns an error, since a frontmatter field has no marker/content distinction. IMPORTANT — a marker spans more than its visible label: for a heading, the leading '#' characters through the end of the line, including the newline; for a block reference, '^' (plus any preceding whitespace if inline) through the id, including the newline. Replacing 'marker' or 'markerAndContent' replaces that whole span, so match it: the same number of leading '#' as the original (count = targetDelimiter-separated segments in target, e.g. 'Heading 1::Subheading' → '##') or the heading is demoted to plain text; and a trailing newline, or the next line gets glued onto yours.`,
-          ),
+        // The instruction fields (targetType, target, operation, scope,
+        // content, value, destination, ifMatch, and the two flags) come
+        // straight from markdown-patch-2's published schema, so the tool input,
+        // the engine's validation, and the OpenAPI `PatchInstruction` component
+        // are all one definition and cannot drift.
+        ...InstructionInputObjectSchema.shape,
       },
       { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       async ({
         path,
         targetType,
         target,
+        within,
         operation,
+        scope,
         content,
-        contentType,
+        value,
+        destination,
+        ifMatch,
         createTargetIfMissing,
-        trimTargetWhitespace,
         rejectIfContentPreexists,
-        targetDelimiter,
-        targetScope,
       }: {
         path: string;
-        targetType: PatchTargetType;
-        target: string;
-        operation: PatchOperation;
-        content: string;
-        contentType?: ContentType;
+        targetType: "heading" | "block" | "frontmatter";
+        target: string[] | string | null;
+        within?: number;
+        operation: "replace" | "prepend" | "append" | "delete";
+        scope?: "content" | "marker" | "markerAndContent" | "parent";
+        content?: string;
+        value?: unknown;
+        destination?: unknown;
+        ifMatch?: string;
         createTargetIfMissing?: boolean;
-        trimTargetWhitespace?: boolean;
         rejectIfContentPreexists?: boolean;
-        targetDelimiter?: string;
-        targetScope?: "content" | "marker" | "markerAndContent";
       }) => {
-        if (targetType === "frontmatter" && targetScope && targetScope !== "content") {
-          throw new Error(
-            "targetScope must be 'content' (or omitted) when targetType is 'frontmatter' -- a frontmatter field has no marker/content distinction.",
-          );
-        }
+        // Assemble the instruction with exactly the fields that were supplied,
+        // so the engine sees the discriminated-union shape it expects. It
+        // validates the operation×scope×targetType combination and the carrier.
+        const instruction: Record<string, unknown> = {
+          targetType,
+          target,
+          operation,
+          ...(within !== undefined ? { within } : {}),
+          ...(scope !== undefined ? { scope } : {}),
+          ...(content !== undefined ? { content } : {}),
+          ...(value !== undefined ? { value } : {}),
+          ...(destination !== undefined ? { destination } : {}),
+          ...(ifMatch !== undefined ? { ifMatch } : {}),
+          ...(createTargetIfMissing !== undefined ? { createTargetIfMissing } : {}),
+          ...(rejectIfContentPreexists !== undefined ? { rejectIfContentPreexists } : {}),
+        };
         try {
-          // MCP transport delivers all parameters as strings; parse JSON content
-          // here so downstream code receives a native value, not a serialized string.
-          const resolvedContentType = contentType ?? ContentType.text;
-          let parsedContent: unknown = content;
-          if (resolvedContentType === ContentType.json) {
-            try {
-              parsedContent = JSON.parse(content);
-            } catch (err) {
-              throw new Error(
-                `Invalid application/json content: ${err instanceof Error ? err.message : String(err)}`,
-              );
-            }
-          }
-          await this.ops.patchFileSection(
+          const result = await this.ops.patchFileSectionMdp2(
             path,
-            targetType,
-            target,
-            operation,
-            parsedContent,
-            resolvedContentType,
-            { createTargetIfMissing, trimTargetWhitespace, rejectIfContentPreexists, targetDelimiter, targetScope },
+            instruction as InstructionInput,
           );
+          return result.warnings.length > 0
+            ? this.text({ message: "OK", warnings: result.warnings })
+            : this.text({ message: "OK" });
         } catch (e) {
-          if (e instanceof PatchFailed) {
-            throw new Error(e.message);
-          }
-          if (e instanceof FrontmatterParseError) {
-            throw new Error(e.message);
-          }
-          throw e;
+          // Surface the engine's message to the caller.
+          throw e instanceof Error ? e : new Error(String(e));
         }
-        return this.text({ message: "OK" });
       },
     );
 
@@ -565,13 +546,17 @@ export class McpHandler {
 
     this.tool(
       "vault_get_document_map",
-      dedent`Return the structure of a vault file as a document map: the list of heading paths, block reference IDs, and frontmatter field names present in the file. Use this before vault_read or vault_patch with targeting to discover what targets are available without parsing the full markdown content yourself.`,
+      dedent`
+        Return the structure of a vault file as a document map: its heading tree, block reference IDs, and frontmatter field names, plus a version token. Use this before vault_read or vault_patch with targeting to discover what targets are available without parsing the full markdown content yourself.
+
+        headings is a nested object mirroring the document's heading nesting: each heading's text maps to an object of its child headings, and a leaf heading maps to {} (e.g. {"Overview": {"Details": {}}}). To target a heading, use the path of keys from the top level down to it (e.g. ['Overview', 'Details']) as a vault_patch or vault_read heading target. Every occurrence of a heading gets its own key, even a duplicate: the first occurrence keeps its plain text, and each later occurrence's key has an opaque, non-printable marker suffix appended by the server — given '## Log' twice, the tree is {"Log": {}, "Log<marker>": {}}, and both are separately addressable. Always copy such a key verbatim from this response into a vault_read/vault_patch target array; never retype or reconstruct one yourself. blocks are bare reference IDs (no '^'), one entry per block in document order; a duplicate block id gets the same disambiguation treatment as a heading — the first occurrence's entry is the plain id, and each later occurrence's entry carries the same kind of marker suffix, again to be copied verbatim. frontmatterFields are top-level key names. version is a content hash of the file — pass it back as vault_patch's ifMatch to make an edit conditional on the file being unchanged.
+      `,
       { path: z.string().describe("File path relative to vault root") },
       READ_ONLY_ANNOTATIONS,
       async ({ path }: { path: string }) => {
         const file = this.ops.app.vault.getAbstractFileByPath(path);
         if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
-        const map = await this.ops.getDocumentMapObject(file);
+        const map = await this.ops.getDocumentMapV2Object(file);
         return this.text(map);
       },
     );
@@ -680,7 +665,7 @@ export class McpHandler {
 
     this.tool(
       "tag_list",
-      dedent`Return all tags used across the vault, each with a usage count. Tag names do not include the leading '#'. This tool is read-only. To add a tag to a specific file, use vault_patch with targetType 'frontmatter', target 'tags', operation 'append', contentType 'application/json', and content ["tag-name"] (set createTargetIfMissing to true if the file may have no tags yet). To remove a tag, read the current tags list with vault_read, filter client-side, then replace the whole field with vault_patch using operation 'replace'. For full examples, read the OpenAPI spec resource at obsidian://local-rest-api/openapi.yaml.`,
+      dedent`Return all tags used across the vault, each with a usage count. Tag names do not include the leading '#'. This tool is read-only. To add a tag to a specific file, use vault_patch with targetType 'frontmatter', target 'tags', operation 'append', and value ["tag-name"] (set createTargetIfMissing to true if the file may have no tags yet). To remove a tag, read the current tags list with vault_read, filter client-side, then replace the whole field with vault_patch using operation 'replace' and value set to the filtered list. For full examples, read the OpenAPI spec resource at obsidian://local-rest-api/openapi.yaml.`,
       {},
       READ_ONLY_ANNOTATIONS,
       async () => {
