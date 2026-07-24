@@ -44,16 +44,30 @@ export function buildPeriodicNoteInterface(
   const template = settings?.template?.trim() ?? "";
   const folderPath = folder ? normalizePath(folder) : "";
 
+  // A format may itself contain "/" (e.g. YYYY/MM/YYYY-MM-DD), in which case
+  // the formatted filename spans subfolders and must be matched against the
+  // file's folder-relative path rather than its basename.
+  const formatSpansFolders = format.includes("/");
+
   const getAll = (): Record<string, TFile> => {
     const notes: Record<string, TFile> = {};
     const folderPrefix = folderPath ? `${folderPath}/` : "";
     for (const file of app.vault.getMarkdownFiles()) {
-      if (folderPrefix) {
-        if (!file.path.startsWith(folderPrefix)) continue;
-      } else if (file.path.includes("/")) {
-        continue;
+      let candidate: string;
+      if (formatSpansFolders) {
+        if (folderPrefix && !file.path.startsWith(folderPrefix)) continue;
+        candidate = file.path
+          .slice(folderPrefix.length)
+          .replace(/\.md$/, "");
+      } else {
+        if (folderPrefix) {
+          if (!file.path.startsWith(folderPrefix)) continue;
+        } else if (file.path.includes("/")) {
+          continue;
+        }
+        candidate = file.basename;
       }
-      const parsed = window.moment(file.basename, format, true);
+      const parsed = window.moment(candidate, format, true);
       if (!parsed.isValid()) continue;
       notes[parsed.format(format)] = file;
     }
@@ -71,8 +85,12 @@ export function buildPeriodicNoteInterface(
         `${folderPath ? folderPath + "/" : ""}${filename}.md`,
       );
 
-      if (folderPath && !app.vault.getAbstractFileByPath(folderPath)) {
-        await app.vault.createFolder(folderPath);
+      // Ensure the parent folder chain of the full note path — not just the
+      // configured base folder — since the formatted filename may itself
+      // contain "/" segments. createFolder creates intermediate folders.
+      const parentDir = path.split("/").slice(0, -1).join("/");
+      if (parentDir && !app.vault.getAbstractFileByPath(parentDir)) {
+        await app.vault.createFolder(parentDir);
       }
 
       let content = "";
