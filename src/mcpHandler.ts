@@ -90,8 +90,10 @@ export class McpHandler {
     this.resourceSpecs.push({ name, uri, meta, handler });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private tool(name: string, description: string, schema: any, annotations: ToolAnnotations, callback: (args: any) => Promise<CallToolResult>): { remove: () => void } {
+  // Args is inferred from the callback's own parameter annotation; the schema is kept
+  // opaque rather than tied to Args via z.objectOutputType to avoid the same SDK type
+  // evaluation blowup described on MinimalMcpServer above.
+  private tool<Args>(name: string, description: string, schema: Record<string, z.ZodTypeAny>, annotations: ToolAnnotations, callback: (args: Args) => Promise<CallToolResult>): { remove: () => void } {
     const spec: ToolSpec = {
       name,
       description,
@@ -99,7 +101,7 @@ export class McpHandler {
       annotations,
       callback: async (args: unknown) => {
         try {
-          const result = await callback(args);
+          const result = await callback(args as Args);
           if (this.settings.enableVerboseLogging) {
             console.debug(`[MCP] ${name} => ok`);
           }
