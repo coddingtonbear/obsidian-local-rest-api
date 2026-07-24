@@ -72,6 +72,8 @@ export class Vault {
   _cachedRead = "";
   _files: TFile[] = [new TFile()];
   _markdownFiles: TFile[] = [];
+  _create: [string, string] | undefined;
+  _createdFolders: string[] = [];
 
   adapter = new DataAdapter();
 
@@ -83,7 +85,9 @@ export class Vault {
     return this._cachedRead;
   }
 
-  async createFolder(path: string): Promise<void> {}
+  async createFolder(path: string): Promise<void> {
+    this._createdFolders.push(path);
+  }
 
   getFiles(): TFile[] {
     return this._files;
@@ -95,6 +99,41 @@ export class Vault {
 
   getAbstractFileByPath(path: string): TFile {
     return this._getAbstractFileByPath;
+  }
+
+  async create(path: string, content: string): Promise<TFile> {
+    this._create = [path, content];
+    const file = new TFile();
+    file.path = path;
+    file.basename = (path.split("/").pop() ?? path).replace(/\.md$/, "");
+    return file;
+  }
+}
+
+class FileManager {
+  _trashFile: TFile | undefined;
+
+  async trashFile(file: TFile): Promise<void> {
+    this._trashFile = file;
+  }
+}
+
+export class Component {
+  load(): void {}
+  unload(): void {}
+}
+
+export class MarkdownRenderer {
+  static _rendered = "<p>rendered</p>";
+
+  static async render(
+    app: App,
+    markdown: string,
+    el: HTMLElement,
+    sourcePath: string,
+    component: Component,
+  ): Promise<void> {
+    el.innerHTML = MarkdownRenderer._rendered;
   }
 }
 
@@ -123,6 +162,7 @@ export class MetadataCache {
   _getFileCache: CachedMetadata | null = new CachedMetadata();
   _listeners: Map<string, ((...data: unknown[]) => unknown)[]> = new Map();
   resolvedLinks: Record<string, Record<string, number>> = {};
+  unresolvedLinks: Record<string, Record<string, number>> = {};
 
   getFileCache(file: TFile): CachedMetadata | null {
     return this._getFileCache;
@@ -168,12 +208,37 @@ export class Workspace {
   }
 }
 
+class PluginManager {
+  plugins: Record<string, { settings?: Record<string, unknown> }> = {};
+
+  getPlugin(id: string): { settings?: Record<string, unknown> } | null {
+    return this.plugins[id] ?? null;
+  }
+}
+
+class InternalPluginManager {
+  plugins: Record<
+    string,
+    {
+      instance?: { description?: string; id?: string; name?: string; options?: Record<string, unknown> };
+      enabled?: boolean;
+    }
+  > = {};
+
+  getPluginById(id: string): { instance?: { options?: Record<string, unknown> } } | null {
+    return this.plugins[id] ?? null;
+  }
+}
+
 export class App {
   _executeCommandById: [string];
 
   vault = new Vault();
   workspace = new Workspace();
   metadataCache = new MetadataCache();
+  fileManager = new FileManager();
+  plugins = new PluginManager();
+  internalPlugins = new InternalPluginManager();
   commands = {
     commands: {} as Record<string, Command>,
 
@@ -241,4 +306,11 @@ export function prepareSimpleSearch(
     return _prepareSimpleSearchMock.behavior(query);
   }
   return () => null;
+}
+
+export function normalizePath(path: string): string {
+  return path
+    .replace(/\\/g, "/")
+    .replace(/\/+/g, "/")
+    .replace(/^\/+|\/+$/g, "");
 }

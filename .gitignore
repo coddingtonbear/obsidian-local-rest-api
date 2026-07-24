@@ -22,3 +22,6 @@ dist/*
 
 # Vim swap files
 *.swp
+
+# Local Obsidian vault used for manual testing
+test_vault/

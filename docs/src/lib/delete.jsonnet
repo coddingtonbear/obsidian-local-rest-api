@@ -1,5 +1,17 @@
 {
-  parameters: [],
+  parameters: [
+    {
+      name: 'permanent',
+      'in': 'query',
+      description: 'If "true", the file is permanently deleted instead of being moved to trash. Defaults to "false", which moves the file to trash following the user\'s Obsidian "Deleted files" preference (either the ".trash" folder or the system trash).\n',
+      required: false,
+      schema: {
+        type: 'string',
+        enum: ['true', 'false'],
+        default: 'false',
+      },
+    },
+  ],
   responses: {
     '204': {
       description: 'Success',

@@ -3,10 +3,11 @@ import {
   App,
   CachedMetadata,
   Command,
+  Component,
+  MarkdownRenderer,
   prepareSimpleSearch,
   TFile,
 } from "obsidian";
-import * as periodicNotes from "obsidian-daily-notes-interface";
 import path from "path";
 import {
   applyPatch,
@@ -15,12 +16,25 @@ import {
   PatchOperation,
   PatchTargetType,
 } from "markdown-patch";
- 
+import {
+  patch as patchV2,
+  projectMap,
+  buildModel,
+  readTarget,
+} from "markdown-patch-2";
+import type {
+  InstructionInput,
+  PatchResult,
+  PublicMap,
+  ReadTarget,
+  ReadResult,
+} from "markdown-patch-2";
+
 const jsonLogic = require("json-logic-js") as {
   apply: (logic: unknown, data?: unknown) => unknown;
   add_operation: (name: string, code: (...args: unknown[]) => unknown) => void;
 };
- 
+
 const WildcardRegexp = require("glob-to-regexp") as (pattern: string) => RegExp;
 
 export class FileNotFoundError extends Error {}
@@ -31,15 +45,18 @@ import {
   DocumentMapObject,
   ErrorCode,
   FileMetadataObject,
+  LocalRestApiSettings,
   PeriodicNoteInterface,
+  PeriodicNotePeriod,
   SearchContext,
   SearchJsonResponseItem,
   SearchResponseItem,
 } from "./types";
+import { buildPeriodicNoteInterface } from "./periodicNotes";
 import { toArrayBuffer } from "./utils";
 
 export class VaultOperations {
-  constructor(readonly app: App) {
+  constructor(readonly app: App, readonly settings: LocalRestApiSettings) {
     jsonLogic.add_operation(
       "glob",
       (pattern: string | undefined, field: string | undefined) => {
@@ -119,6 +136,33 @@ export class VaultOperations {
     };
   }
 
+  /**
+   * The markdown-patch 2.0 document map: headings nested by containment (each
+   * heading text maps to its child headings; every occurrence of a repeated
+   * sibling gets its own key, later ones carrying a reserved marker suffix),
+   * block ids disambiguated the same way, frontmatter field names, and the
+   * content-hash `version` token clients pass back as a patch `ifMatch`
+   * precondition.
+   */
+  async getDocumentMapV2Object(file: TFile): Promise<PublicMap> {
+    const content = await this.app.vault.adapter.read(file.path);
+    return projectMap(buildModel(content));
+  }
+
+  /**
+   * The markdown-patch 2.0 targeted read: resolve a `(targetType, target)`
+   * address — a heading path array, a bare block id, or a frontmatter key — and
+   * return the section body (headings/blocks) or parsed value (frontmatter).
+   * Throws {@link TargetNotFoundError} when the address does not resolve.
+   */
+  async readFileSectionMdp2(
+    file: TFile,
+    target: ReadTarget,
+  ): Promise<ReadResult> {
+    const content = await this.app.vault.adapter.read(file.path);
+    return readTarget(content, target);
+  }
+
   async readFileSection(
     file: TFile,
     targetType: string,
@@ -186,6 +230,9 @@ export class VaultOperations {
     const links = Object.keys(
       this.app.metadataCache.resolvedLinks[file.path] ?? {},
     );
+    const unresolvedLinks = Object.keys(
+      this.app.metadataCache.unresolvedLinks[file.path] ?? {},
+    );
 
     const index = backlinksIndex ?? this.buildBacklinksIndex();
     const backlinks = index[file.path] ?? [];
@@ -198,33 +245,68 @@ export class VaultOperations {
       content: includeContent ? await this.app.vault.cachedRead(file) : "",
       links,
       backlinks,
+      unresolvedLinks,
     };
   }
 
-  async resolvePathAndTarget(rawPath: string): Promise<{
+  async renderFileToHtml(file: TFile, content?: string): Promise<string> {
+    const markdown = content ?? (await this.app.vault.cachedRead(file));
+    const el = activeDocument.createElement("div");
+    const component = new Component();
+    component.load();
+    try {
+      await MarkdownRenderer.render(this.app, markdown, el, file.path, component);
+      return el.innerHTML;
+    } finally {
+      component.unload();
+    }
+  }
+
+  async resolvePathAndTarget(rawSegments: string[]): Promise<{
     filePath: string;
     targetType?: string;
     target?: string;
+    // For a heading target, the raw path segments as an array (e.g. ["A", "B"]
+    // for `.../heading/A/B`). Preserved alongside the `::`-joined `target` so the
+    // 2.0 engine can address headings array-natively without a delimiter split
+    // that a heading containing `::` would break.
+    targetSegments?: string[];
   } | null> {
-    const normalizedPath = rawPath.endsWith("/")
-      ? rawPath.slice(0, -1)
-      : rawPath;
-    if (!normalizedPath) return null;
+    // Segments arrive already split on the URL's *raw* slashes and decoded one
+    // by one, so a `%2F` inside a segment is a literal `/` belonging to that
+    // segment (a heading name), not a path boundary. Drop a trailing empty
+    // segment left by a trailing slash.
+    const segments =
+      rawSegments.length > 0 && rawSegments[rawSegments.length - 1] === ""
+        ? rawSegments.slice(0, -1)
+        : rawSegments;
+    if (segments.length === 0) return null;
 
-    let exactStat = null;
-    try {
-      exactStat = await this.app.vault.adapter.stat(normalizedPath);
-    } catch {
-      // ENOTDIR: a path component is a file, not a directory;
-      // fall through to the backward walk which will find the actual file.
-    }
-    if (exactStat?.type === "file") {
-      return { filePath: normalizedPath };
+    // A file or folder name cannot contain `/`, so a candidate file path is only
+    // valid when none of its segments do. This is what keeps a decoded `%2F`
+    // from re-forming a path separator: `folder%2Fnote.md` is a single segment
+    // "folder/note.md", which can never be a file component and so never
+    // resolves as one.
+    const isFilePath = (parts: string[]): boolean =>
+      parts.every((part) => !part.includes("/"));
+
+    if (isFilePath(segments)) {
+      let exactStat = null;
+      try {
+        exactStat = await this.app.vault.adapter.stat(segments.join("/"));
+      } catch {
+        // ENOTDIR: a path component is a file, not a directory;
+        // fall through to the backward walk which will find the actual file.
+      }
+      if (exactStat?.type === "file") {
+        return { filePath: segments.join("/") };
+      }
     }
 
-    const segments = normalizedPath.split("/");
     for (let i = segments.length - 1; i >= 1; i--) {
-      const candidate = segments.slice(0, i).join("/");
+      const prefix = segments.slice(0, i);
+      if (!isFilePath(prefix)) continue;
+      const candidate = prefix.join("/");
       let s = null;
       try {
         s = await this.app.vault.adapter.stat(candidate);
@@ -234,11 +316,13 @@ export class VaultOperations {
       if (s?.type === "file") {
         const remainder = segments.slice(i);
         const targetType = remainder[0];
+        const targetSegments =
+          targetType === "heading" ? remainder.slice(1) : undefined;
         const target =
           targetType === "heading"
             ? remainder.slice(1).join("::")
             : remainder[1];
-        return { filePath: candidate, targetType, target };
+        return { filePath: candidate, targetType, target, targetSegments };
       }
     }
 
@@ -314,12 +398,21 @@ export class VaultOperations {
     await this.app.vault.adapter.write(filePath, fileContents);
   }
 
-  async deleteVaultFile(filePath: string): Promise<void> {
-    const pathExists = await this.app.vault.adapter.exists(filePath);
-    if (!pathExists) {
+  async deleteVaultFile(filePath: string, permanent = false): Promise<void> {
+    if (permanent) {
+      const pathExists = await this.app.vault.adapter.exists(filePath);
+      if (!pathExists) {
+        throw new FileNotFoundError(`File not found: ${filePath}`);
+      }
+      await this.app.vault.adapter.remove(filePath);
+      return;
+    }
+
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    if (!file) {
       throw new FileNotFoundError(`File not found: ${filePath}`);
     }
-    await this.app.vault.adapter.remove(filePath);
+    await this.app.fileManager.trashFile(file);
   }
 
   async moveVaultFile(
@@ -361,6 +454,48 @@ export class VaultOperations {
     // @ts-ignore - fileManager exists at runtime but not in type definitions
     await this.app.fileManager.renameFile(sourceFile, destinationPath);
     return sourceFile.path;
+  }
+
+  async copyVaultFile(
+    sourcePath: string,
+    destinationPath: string,
+    allowOverwrite = false,
+  ): Promise<string> {
+    if (!destinationPath) {
+      throw new Error("Destination path must not be empty.");
+    }
+
+    const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(sourceFile instanceof TFile)) {
+      throw new FileNotFoundError(`File not found: ${sourcePath}`);
+    }
+
+    if (sourcePath === destinationPath) {
+      throw new DestinationAlreadyExistsError(
+        `Destination already exists: ${destinationPath}`,
+      );
+    }
+
+    const destExists = await this.app.vault.adapter.exists(destinationPath);
+    if (destExists) {
+      if (!allowOverwrite) {
+        throw new DestinationAlreadyExistsError(
+          `Destination already exists: ${destinationPath}`,
+        );
+      }
+      await this.app.vault.adapter.remove(destinationPath);
+    }
+
+    const parentDir = destinationPath.substring(
+      0,
+      destinationPath.lastIndexOf("/"),
+    );
+    if (parentDir && !(await this.app.vault.adapter.exists(parentDir))) {
+      await this.app.vault.createFolder(parentDir);
+    }
+
+    const copiedFile = await this.app.vault.copy(sourceFile, destinationPath);
+    return copiedFile.path;
   }
 
   // Throws PatchFailed on patch error; caller is responsible for mapping to
@@ -407,57 +542,45 @@ export class VaultOperations {
     return patched;
   }
 
-  getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
-    return {
-      daily: {
-        settings: periodicNotes.getDailyNoteSettings(),
-        loaded: periodicNotes.appHasDailyNotesPluginLoaded(),
-        create: periodicNotes.createDailyNote,
-        get: periodicNotes.getDailyNote,
-        getAll: periodicNotes.getAllDailyNotes,
-      },
-      weekly: {
-        settings: periodicNotes.getWeeklyNoteSettings(),
-        loaded: periodicNotes.appHasWeeklyNotesPluginLoaded(),
-        create: periodicNotes.createWeeklyNote,
-        get: periodicNotes.getWeeklyNote,
-        getAll: periodicNotes.getAllWeeklyNotes,
-      },
-      monthly: {
-        settings: periodicNotes.getMonthlyNoteSettings(),
-        loaded: periodicNotes.appHasMonthlyNotesPluginLoaded(),
-        create: periodicNotes.createMonthlyNote,
-        get: periodicNotes.getMonthlyNote,
-        getAll: periodicNotes.getAllMonthlyNotes,
-      },
-      quarterly: {
-        settings: periodicNotes.getQuarterlyNoteSettings(),
-        loaded: periodicNotes.appHasQuarterlyNotesPluginLoaded(),
-        create: periodicNotes.createQuarterlyNote,
-        get: periodicNotes.getQuarterlyNote,
-        getAll: periodicNotes.getAllQuarterlyNotes,
-      },
-      yearly: {
-        settings: periodicNotes.getYearlyNoteSettings(),
-        loaded: periodicNotes.appHasYearlyNotesPluginLoaded(),
-        create: periodicNotes.createYearlyNote,
-        get: periodicNotes.getYearlyNote,
-        getAll: periodicNotes.getAllYearlyNotes,
-      },
-    };
+  // Applies a single markdown-patch 2.0 instruction and writes the result.
+  // ("Mdp2" = markdown-patch 2.0, not the removed API version 2.0 PATCH.)
+  // Throws FileNotFoundError when the file is missing; lets the 2.0 engine's
+  // typed errors (TargetNotFoundError, PreconditionFailedError, …) propagate for
+  // the caller to map to HTTP responses. Returns the patched document alongside
+  // any advisory warnings the engine surfaced (e.g. heading-depth overflow).
+  async patchFileSectionMdp2(
+    filePath: string,
+    instruction: InstructionInput,
+  ): Promise<PatchResult> {
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    if (!(file instanceof TFile)) {
+      throw new FileNotFoundError(`File not found: ${filePath}`);
+    }
+    const fileContents = await this.app.vault.read(file);
+    const result = patchV2(fileContents, instruction);
+    await this.app.vault.adapter.write(filePath, result.document);
+    return result;
+  }
+
+  getPeriodicNoteInterface(): Record<PeriodicNotePeriod, PeriodicNoteInterface> {
+    const periods: PeriodicNotePeriod[] = ["daily", "weekly", "monthly", "quarterly", "yearly"];
+    return Object.fromEntries(
+      periods.map((period) => [
+        period,
+        buildPeriodicNoteInterface(this.app, period, this.settings.periodicNotes?.[period]),
+      ]),
+    ) as Record<PeriodicNotePeriod, PeriodicNoteInterface>;
   }
 
   periodicGetInterface(
     period: string,
   ): [PeriodicNoteInterface | null, ErrorCode | null] {
-    const periodic = this.getPeriodicNoteInterface();
-    if (!periodic[period]) {
+    const periodic = this.getPeriodicNoteInterface() as Record<string, PeriodicNoteInterface | undefined>;
+    const match = periodic[period];
+    if (!match) {
       return [null, ErrorCode.PeriodDoesNotExist];
     }
-    if (!periodic[period].loaded) {
-      return [null, ErrorCode.PeriodIsNotEnabled];
-    }
-    return [periodic[period], null];
+    return [match, null];
   }
 
   periodicGetNote(

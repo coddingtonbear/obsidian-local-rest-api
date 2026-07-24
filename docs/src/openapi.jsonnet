@@ -1,3 +1,4 @@
+local Copy = import 'lib/copy.jsonnet';
 local Delete = import 'lib/delete.jsonnet';
 local Get = import 'lib/get.jsonnet';
 local Move = import 'lib/move.jsonnet';
@@ -16,7 +17,7 @@ local GetShared = TargetingShared + '\n' + importstr 'lib/descriptions/get-share
 local PostShared = TargetingShared + '\n' + importstr 'lib/descriptions/post-shared.md';
 local PutShared = TargetingShared + '\n' + importstr 'lib/descriptions/put-shared.md';
 local PatchDescription(fileRef) =
-  'Inserts content into ' + fileRef + ' relative to a heading, block reference, or frontmatter field within that document.\n\n' + Patch.description;
+  'Modifies ' + fileRef + ' with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.\n\n' + Patch.description;
 
 local ContentLocationHeader = {
   'Content-Location': {
@@ -37,6 +38,14 @@ std.manifestYamlDoc(
       description: importstr 'lib/descriptions/info.md',
       version: '1.0',
     },
+    // Standalone documentation pages, rendered as sidebar articles by our
+    // customized Stoplight Elements bundle (Bump.sh's x-topics convention).
+    'x-topics': [
+      {
+        title: 'Migrating from 1.x to 2.x',
+        content: importstr 'lib/descriptions/migration-2.0.md',
+      },
+    ],
     servers: [
       {
         url: 'https://{host}:{port}',
@@ -86,6 +95,7 @@ std.manifestYamlDoc(
             'content',
             'links',
             'backlinks',
+            'unresolvedLinks',
           ],
           properties: {
             tags: {
@@ -136,6 +146,13 @@ std.manifestYamlDoc(
                 type: 'string',
               },
             },
+            unresolvedLinks: {
+              type: 'array',
+              description: 'Link text found in this file that does not resolve to an existing vault file.',
+              items: {
+                type: 'string',
+              },
+            },
           },
         },
         Error: {
@@ -153,6 +170,42 @@ std.manifestYamlDoc(
             },
           },
         },
+        HeadingAddress: {
+          description: |||
+            A heading address: the path of heading texts from the top level down
+            to the target. Use `null` or `[]` for the document root.
+          |||,
+          oneOf: [
+            { type: 'array', items: { type: 'string' } },
+            { type: 'null' },
+          ],
+        },
+        HeadingTree: {
+          type: 'object',
+          description: |||
+            The document's headings nested by containment: each heading's text
+            maps to a HeadingTree of its child headings, and a leaf heading maps
+            to `{}`. Nesting carries no heading level — a level skipped in the
+            source leaves no hole. To target a heading, use the path of keys from
+            the top level down to it as a HeadingAddress.
+
+            A repeated sibling heading appears once, but its children are not
+            lost: they merge into that one key, because a heading is addressed by
+            its whole path rather than its name. Given `## Log / ### Monday`
+            followed by `## Log / ### Tuesday`, the tree is
+            `{"Log": {"Monday": {}, "Tuesday": {}}}` and both are separately
+            addressable. Only sections that share an entire path are one address,
+            and that address resolves to the first in document order. The tree
+            therefore lists exactly the headings you can target.
+          |||,
+          additionalProperties: { '$ref': '#/components/schemas/HeadingTree' },
+          example: { Overview: { Details: {} }, Appendix: {} },
+        },
+        // Generated from markdown-patch-2's published Zod schema by
+        // scripts/gen-patch-schema.mjs (run via `npm run build-docs`), so the
+        // REST docs, the MCP tool input, and the engine's validation are one
+        // definition. Edit the Zod schema, not this component.
+        PatchInstruction: import 'lib/patchInstruction.schema.json',
       },
     },
     security: [
@@ -242,6 +295,9 @@ std.manifestYamlDoc(
         additionalOperations: {
           move: Move {
             parameters: Move.parameters + [ParamPath],
+          },
+          copy: Copy {
+            parameters: Copy.parameters + [ParamPath],
           },
         },
         delete: Delete {
@@ -1000,7 +1056,7 @@ std.manifestYamlDoc(
                         arguments: {
                           path: 'path/to/note.md',
                           targetType: 'heading',
-                          target: 'My Section',
+                          target: ['My Section'],
                           operation: 'append',
                           content: 'New line of content\n',
                         },

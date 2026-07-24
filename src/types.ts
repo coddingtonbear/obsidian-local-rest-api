@@ -1,7 +1,6 @@
 // eslint-disable-next-line no-restricted-imports -- Moment type is not re-exported by 'obsidian'; import type causes no runtime bundling
 import type { Moment } from "moment";
 import { FileStats, TFile } from "obsidian";
-import { IPeriodicNoteSettings } from "obsidian-daily-notes-interface";
 
 export enum ErrorCode {
   InvalidFrontmatter = 40005,
@@ -12,6 +11,7 @@ export enum ErrorCode {
   MissingDestinationHeader = 40020,
   PathTraversalNotAllowed = 40021,
   InvalidDestinationHeader = 40022,
+  InvalidWithinHeader = 40023,
   MissingTargetTypeHeader = 40053,
   InvalidTargetTypeHeader = 40054,
   MissingTargetHeader = 40055,
@@ -19,9 +19,12 @@ export enum ErrorCode {
   MissingOperation = 40056,
   InvalidOperation = 40057,
   InvalidTargetHeader = 40058,
-  PeriodIsNotEnabled = 40060,
+  InvalidPatchVersionHeader = 40082,
+  HeaderTargetingRequiresVersion1 = 40083,
+  PatchHeaderTargetingRequiresExplicitVersion = 40084,
   InvalidFilterQuery = 40070,
   PatchFailed = 40080,
+  InvalidPatchInstruction = 40081,
   InvalidSearch = 40090,
   ApiKeyAuthorizationRequired = 40101,
   PeriodDoesNotExist = 40460,
@@ -31,6 +34,14 @@ export enum ErrorCode {
   ConflictingTargetSpecification = 42200,
   ErrorPreparingSimpleSearch = 50010,
   FileOperationFailed = 50020,
+}
+
+export type PeriodicNotePeriod = "daily" | "weekly" | "monthly" | "quarterly" | "yearly";
+
+export interface PeriodicNotePeriodSettings {
+  folder: string;
+  format: string;
+  template: string;
 }
 
 export interface LocalRestApiSettings {
@@ -49,11 +60,16 @@ export interface LocalRestApiSettings {
   bindingHost?: string;
   subjectAltNames?: string;
   enableVerboseLogging?: boolean;
+
+  periodicNotes?: Partial<Record<PeriodicNotePeriod, PeriodicNotePeriodSettings>>;
 }
 
 export interface PeriodicNoteInterface {
-  settings: IPeriodicNoteSettings;
-  loaded: boolean;
+  settings: {
+    folder: string;
+    format: string;
+    template: string;
+  };
   create: (date: Moment) => Promise<TFile>;
   get: (date: Moment, all: Record<string, TFile>) => TFile;
   getAll: () => Record<string, TFile>;
@@ -89,8 +105,10 @@ declare module "obsidian" {
       plugins: {
         [key: string]: PluginManifest;
       };
+      getPlugin(id: string): { settings?: Record<string, unknown> } | null;
     };
     internalPlugins: {
+      getPluginById(id: string): { instance?: { options?: Record<string, unknown> } } | null;
       plugins: {
         [key: string]: {
           instance: {
@@ -158,6 +176,7 @@ export interface FileMetadataObject {
   content: string;
   links: string[];
   backlinks: string[];
+  unresolvedLinks: string[];
 }
 
 export interface DocumentMapObject {

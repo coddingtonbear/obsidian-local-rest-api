@@ -1,4 +1,5 @@
-// Periodic note tests require the Daily Notes (or Calendar) plugin to be enabled in Obsidian.
+// Periodic note tests require daily notes to be enabled under this plugin's own
+// "Periodic Notes" settings section (Settings → Local REST API with MCP → Periodic Notes → Daily).
 // Set OBSIDIAN_PERIODIC_NOTES=true to run these tests.
 // Optionally set OBSIDIAN_DAILY_NOTE_EXISTS=true|false to gate which sub-tests run.
 
@@ -31,18 +32,6 @@ describe("GET /periodic/daily", () => {
   });
 });
 
-describe("GET /periodic/daily — plugin not enabled", () => {
-  // Only run when OBSIDIAN_PERIODIC_NOTES=false is explicitly set
-  const pluginDisabledTest = process.env.OBSIDIAN_PERIODIC_NOTES === "false" ? test : test.skip;
-
-  pluginDisabledTest("returns 400 with errorCode 40060 when period is not enabled", async () => {
-    const res = await authedFetch("/periodic/daily/");
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.errorCode).toBe(40060);
-  });
-});
-
 describe("PUT /periodic/daily", () => {
   maybeTest("creates or replaces today's daily note and returns 200 or 204", async () => {
     const res = await authedFetch("/periodic/daily/", {
@@ -62,6 +51,22 @@ describe("POST /periodic/daily", () => {
       body: "Integration test append.\n",
     });
     expect([200, 204]).toContain(res.status);
+  });
+});
+
+describe("PATCH /periodic/daily — raw-content suffix targeting", () => {
+  maybeTest("a URL suffix targets a section in raw-content mode", async () => {
+    const res = await authedFetch("/periodic/daily/heading/Daily%20Note", {
+      method: "PATCH",
+      headers: {
+        Operation: "append",
+        "Create-Target-If-Missing": "true",
+        "Content-Type": "text/markdown",
+      },
+      body: "Raw-content suffix append.\n",
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Raw-content suffix append.");
   });
 });
 
