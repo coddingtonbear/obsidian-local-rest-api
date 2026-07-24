@@ -1,5 +1,3 @@
-// eslint-disable-next-line no-restricted-imports -- Moment type is not re-exported by 'obsidian'; import type causes no runtime bundling
-import type { Moment } from "moment";
 import { FileStats, TFile } from "obsidian";
 
 export enum ErrorCode {
@@ -27,21 +25,11 @@ export enum ErrorCode {
   InvalidPatchInstruction = 40081,
   InvalidSearch = 40090,
   ApiKeyAuthorizationRequired = 40101,
-  PeriodDoesNotExist = 40460,
-  PeriodicNoteDoesNotExist = 40461,
   RequestMethodValidOnlyForFiles = 40510,
   DestinationAlreadyExists = 40920,
   ConflictingTargetSpecification = 42200,
   ErrorPreparingSimpleSearch = 50010,
   FileOperationFailed = 50020,
-}
-
-export type PeriodicNotePeriod = "daily" | "weekly" | "monthly" | "quarterly" | "yearly";
-
-export interface PeriodicNotePeriodSettings {
-  folder: string;
-  format: string;
-  template: string;
 }
 
 export interface LocalRestApiSettings {
@@ -61,18 +49,6 @@ export interface LocalRestApiSettings {
   subjectAltNames?: string;
   enableVerboseLogging?: boolean;
 
-  periodicNotes?: Partial<Record<PeriodicNotePeriod, PeriodicNotePeriodSettings>>;
-}
-
-export interface PeriodicNoteInterface {
-  settings: {
-    folder: string;
-    format: string;
-    template: string;
-  };
-  create: (date: Moment) => Promise<TFile>;
-  get: (date: Moment, all: Record<string, TFile>) => TFile;
-  getAll: () => Record<string, TFile>;
 }
 
 declare module "obsidian" {

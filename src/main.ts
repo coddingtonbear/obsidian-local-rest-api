@@ -5,14 +5,13 @@ import {
   PluginSettingTab,
   Setting,
   SettingDefinitionItem,
-  TFile,
 } from "obsidian";
 import * as https from "https";
 import * as http from "http";
 import forge, { pki } from "node-forge";
 
 import RequestHandler from "./requestHandler";
-import { LocalRestApiSettings, PeriodicNotePeriod, PeriodicNotePeriodSettings } from "./types";
+import { LocalRestApiSettings } from "./types";
 
 import {
   DefaultBearerTokenHeaderName,
@@ -29,20 +28,6 @@ import LocalRestApiPublicApi, { ApiVersionUnsupportedError } from "./api";
 export { ApiVersionUnsupportedError } from "./api";
 import { PluginManifest } from "obsidian";
 import { configureHttpServerTimeouts } from "./serverTimeouts";
-import {
-  DEFAULT_PERIODIC_NOTE_SETTINGS,
-  PERIOD_DEFAULT_FORMAT,
-  seedPeriodicNoteSettingsFromExistingPlugins,
-} from "./periodicNotes";
-
-const PERIODIC_NOTE_PERIODS: readonly PeriodicNotePeriod[] = ["daily", "weekly", "monthly", "quarterly", "yearly"];
-const PERIODIC_NOTE_PERIOD_LABELS: Record<PeriodicNotePeriod, string> = {
-  daily: "Daily",
-  weekly: "Weekly",
-  monthly: "Monthly",
-  quarterly: "Quarterly",
-  yearly: "Yearly",
-};
 
 export default class LocalRestApi extends Plugin {
   settings: LocalRestApiSettings;
@@ -58,17 +43,6 @@ export default class LocalRestApi extends Plugin {
     );
 
     await this.loadSettings();
-
-    if (!this.settings.periodicNotes) {
-      // Deferred until other plugins have finished loading, since seeding
-      // reads their settings — running this synchronously in onload() risks
-      // racing plugins that haven't loaded yet on a fresh Obsidian startup.
-      this.app.workspace.onLayoutReady(() => {
-        if (this.settings.periodicNotes) return;
-        this.settings.periodicNotes = seedPeriodicNoteSettingsFromExistingPlugins(this.app);
-        void this.saveSettings();
-      });
-    }
 
     this.requestHandler = new RequestHandler(
       this.app,
@@ -306,60 +280,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         ? !getCertificateIsUptoStandards(parsedCertificate)
         : false,
     };
-  }
-
-  private getPeriodicNoteSettings(period: PeriodicNotePeriod): PeriodicNotePeriodSettings {
-    return this.plugin.settings.periodicNotes?.[period] ?? { ...DEFAULT_PERIODIC_NOTE_SETTINGS };
-  }
-
-  private setPeriodicNoteSetting<K extends keyof PeriodicNotePeriodSettings>(
-    period: PeriodicNotePeriod,
-    field: K,
-    value: PeriodicNotePeriodSettings[K],
-  ): void {
-    const current = this.getPeriodicNoteSettings(period);
-    this.plugin.settings.periodicNotes = {
-      ...this.plugin.settings.periodicNotes,
-      [period]: { ...current, [field]: value },
-    };
-  }
-
-  private getPeriodicNoteDisplayValue(period: PeriodicNotePeriod): string {
-    const settings = this.getPeriodicNoteSettings(period);
-    const location = settings.folder ? `${settings.folder}/` : "Vault root";
-    return `${location} · ${settings.format || PERIOD_DEFAULT_FORMAT[period]}`;
-  }
-
-  private getPeriodicNoteSettingDefinitions(period: PeriodicNotePeriod): SettingDefinitionItem[] {
-    return [
-      {
-        name: "Folder",
-        desc: "Folder in which new notes are created. Leave blank for the vault root.",
-        control: {
-          type: "folder",
-          key: `periodicNotes:${period}:folder`,
-          includeRoot: true,
-        },
-      },
-      {
-        name: "Date format",
-        desc: `Moment.js format used for the note's filename and for the {{date}} template placeholder. Default: "${PERIOD_DEFAULT_FORMAT[period]}".`,
-        control: {
-          type: "text",
-          key: `periodicNotes:${period}:format`,
-          placeholder: PERIOD_DEFAULT_FORMAT[period],
-        },
-      },
-      {
-        name: "Template",
-        desc: "Markdown file used as the content of newly-created notes. Supports {{date}}, {{time}}, and {{title}} placeholders. Leave blank to create empty notes.",
-        control: {
-          type: "file",
-          key: `periodicNotes:${period}:template`,
-          filter: (file: TFile) => file.extension === "md",
-        },
-      },
-    ];
   }
 
   private renderConnectionInfo(el: HTMLElement): void {
@@ -765,16 +685,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           },
         ],
       },
-      {
-        type: "group",
-        heading: "Periodic Notes",
-        items: PERIODIC_NOTE_PERIODS.map((period) => ({
-          type: "page",
-          name: PERIODIC_NOTE_PERIOD_LABELS[period],
-          displayValue: () => this.getPeriodicNoteDisplayValue(period),
-          items: this.getPeriodicNoteSettingDefinitions(period),
-        })),
-      },
     ];
   }
 
@@ -891,12 +801,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
   }
 
   getControlValue(key: string): unknown {
-    const periodicMatch = /^periodicNotes:([a-z]+):([a-z]+)$/.exec(key);
-    if (periodicMatch) {
-      const [, period, field] = periodicMatch;
-      const settings = this.getPeriodicNoteSettings(period as PeriodicNotePeriod);
-      return settings[field as keyof PeriodicNotePeriodSettings];
-    }
     switch (key) {
       case "enableInsecureServer":
         return this.plugin.settings.enableInsecureServer;
@@ -931,17 +835,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
   }
 
   async setControlValue(key: string, value: unknown): Promise<void> {
-    const periodicMatch = /^periodicNotes:([a-z]+):([a-z]+)$/.exec(key);
-    if (periodicMatch) {
-      const [, period, field] = periodicMatch;
-      this.setPeriodicNoteSetting(
-        period as PeriodicNotePeriod,
-        field as keyof PeriodicNotePeriodSettings,
-        value as never,
-      );
-      await this.plugin.saveSettings();
-      return;
-    }
     switch (key) {
       case "enableInsecureServer":
         this.plugin.settings.enableInsecureServer = value as boolean;

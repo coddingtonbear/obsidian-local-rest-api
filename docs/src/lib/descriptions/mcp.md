@@ -18,7 +18,6 @@ Include the `MCP-Protocol-Version` header on all requests after initialization, 
 | `vault_copy` | Copy a vault file to a new path |
 | `vault_get_document_map` | List the headings, block references, and frontmatter fields in a file |
 | `active_file_get_path` | Return the vault path of the file currently open in Obsidian |
-| `periodic_note_get_path` | Return the vault path of the current periodic note (daily, weekly, monthly, quarterly, yearly) |
 | `search_query` | Search using a JsonLogic query evaluated against each note's metadata |
 | `search_simple` | Full-text search using Obsidian's built-in search |
 | `tag_list` | List all tags across the vault with usage counts |

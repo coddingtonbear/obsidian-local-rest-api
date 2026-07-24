@@ -6,11 +6,7 @@ local Patch = import 'lib/patch.jsonnet';
 local Post = import 'lib/post.jsonnet';
 local Put = import 'lib/put.jsonnet';
 
-local ParamDay = import 'lib/day.param.jsonnet';
-local ParamMonth = import 'lib/month.param.jsonnet';
 local ParamPath = import 'lib/path.param.jsonnet';
-local ParamPeriod = import 'lib/period.param.jsonnet';
-local ParamYear = import 'lib/year.param.jsonnet';
 
 local TargetingShared = importstr 'lib/descriptions/targeting.md';
 local GetShared = TargetingShared + '\n' + importstr 'lib/descriptions/get-shared.md';
@@ -216,7 +212,6 @@ std.manifestYamlDoc(
     tags: [
       { name: 'Vault Files' },
       { name: 'Active File' },
-      { name: 'Periodic Notes' },
       { name: 'Vault Directories' },
       { name: 'Search' },
       { name: 'Commands' },
@@ -407,89 +402,6 @@ std.manifestYamlDoc(
               },
             },
           },
-        },
-      },
-      '/periodic/{period}/': {
-        get: Get + WithContentLocation(['200']) {
-          tags: [
-            'Periodic Notes',
-          ],
-          summary: 'Get current periodic note for the specified period.\n',
-          description: (importstr 'lib/descriptions/periodic-current-get.md') + '\n' + GetShared,
-          parameters: [ParamPeriod] + super.parameters,
-        },
-        put: Put + WithContentLocation(['200', '204']) {
-          tags: [
-            'Periodic Notes',
-          ],
-          summary: 'Update the content of the current periodic note for the specified period.\n',
-          description: PutShared,
-          parameters: [ParamPeriod] + super.parameters,
-        },
-        post: Post + WithContentLocation(['200', '204']) {
-          tags: [
-            'Periodic Notes',
-          ],
-          summary: 'Append content to the current periodic note for the specified period.\n',
-          description: (importstr 'lib/descriptions/periodic-current-post.md') + '\n' + PostShared,
-          parameters: [ParamPeriod] + super.parameters,
-        },
-        patch: Patch + WithContentLocation(['200']) {
-          tags: [
-            'Periodic Notes',
-          ],
-          summary: 'Partially update content in the current periodic note for the specified period.\n',
-          description: PatchDescription('the current periodic note for the specified period'),
-          parameters: [ParamPeriod] + super.parameters,
-        },
-        delete: Delete + WithContentLocation(['204']) {
-          tags: [
-            'Periodic Notes',
-          ],
-          summary: 'Delete the current periodic note for the specified period.\n',
-          parameters+: [ParamPeriod],
-        },
-      },
-      '/periodic/{period}/{year}/{month}/{day}/': {
-        get: Get + WithContentLocation(['200']) {
-          tags: [
-            'Periodic Notes',
-          ],
-          summary: 'Get the periodic note for the specified period and date.\n',
-          description: (importstr 'lib/descriptions/periodic-date-get.md') + '\n' + GetShared,
-          parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
-        },
-        put: Put + WithContentLocation(['200', '204']) {
-          tags: [
-            'Periodic Notes',
-          ],
-          summary: 'Update the content of the periodic note for the specified period and date.\n',
-          description: PutShared,
-          parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
-        },
-        post: Post + WithContentLocation(['200', '204']) {
-          tags: [
-            'Periodic Notes',
-          ],
-          summary: 'Append content to the periodic note for the specified period and date.\n',
-          description: (importstr 'lib/descriptions/periodic-date-post.md') + '\n' + PostShared,
-          parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
-        },
-        patch: Patch + WithContentLocation(['200']) {
-          tags: [
-            'Periodic Notes',
-          ],
-          summary: 'Partially update content in the periodic note for the specified period and date.\n',
-          description: PatchDescription('a periodic note for the specified period and date'),
-          parameters: [ParamYear, ParamMonth, ParamDay, ParamPeriod] + super.parameters,
-        },
-        delete: Delete + WithContentLocation(['204']) {
-          tags: [
-            'Periodic Notes',
-          ],
-          summary: 'Delete the periodic note for the specified period and date.\n',
-          description: 'Deletes the periodic note for the specified period.\n',
-          parameters+: [ParamYear, ParamMonth, ParamDay, ParamPeriod],
         },
       },
       '/tags/': {

@@ -12,10 +12,7 @@ import { VaultOperations } from "./vaultOperations";
 import type { InstructionInput, ReadTarget } from "markdown-patch-2";
 import { InstructionInputObjectSchema } from "markdown-patch-2";
 import openapiYaml from "../docs/openapi.yaml";
-import { ERROR_CODE_MESSAGES } from "./constants";
 import { LocalRestApiSettings } from "./types";
-
-const PERIODS = ["daily", "weekly", "monthly", "quarterly", "yearly"] as const;
 
 // Minimal structural type for McpServer — typed as a plain interface rather than the SDK's
 // McpServer class to avoid TypeScript heap OOM from evaluating ToolCallback<ZodRawShape>.
@@ -570,25 +567,6 @@ export class McpHandler {
       READ_ONLY_ANNOTATIONS,
       async () => {
         const file = this.getActiveFile();
-        return this.text({ path: file.path });
-      },
-    );
-
-    this.tool(
-      "periodic_note_get_path",
-      dedent`Return the vault-relative path of the current periodic note for the given period (daily, weekly, monthly, quarterly, or yearly). Creates the note file if it does not already exist, applying any configured template. Every period is always available; its folder, filename format, and template can be configured under this plugin's "Periodic Notes" settings section, with sensible per-period defaults otherwise. Use the returned path with vault_read, vault_write, vault_append, vault_patch, or vault_get_document_map to operate on the note.`,
-      {
-        period: z
-          .enum(PERIODS)
-          .describe("Periodic note period: 'daily', 'weekly', 'monthly', 'quarterly', or 'yearly'"),
-      },
-      { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-      async ({ period }: { period: typeof PERIODS[number] }) => {
-        const [file, err] = await this.ops.periodicGetOrCreateNote(period, Date.now());
-        if (err || !file)
-          throw new Error(
-            `Could not get or create periodic note: ${err != null ? ERROR_CODE_MESSAGES[err] : "unknown error"}`,
-          );
         return this.text({ path: file.path });
       },
     );

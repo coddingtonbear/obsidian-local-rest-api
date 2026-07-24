@@ -41,7 +41,6 @@ jest.mock("@modelcontextprotocol/sdk/server/streamableHttp.js", () => ({
 }));
 
 import { McpHandler } from "./mcpHandler";
-import { ErrorCode } from "./types";
 import { DEFAULT_SETTINGS } from "./constants";
 import { TFile } from "../mocks/obsidian";
 
@@ -114,8 +113,6 @@ function makeMockOps() {
     openVaultFile: jest.fn(),
     moveVaultFile: jest.fn().mockResolvedValue(""),
     copyVaultFile: jest.fn().mockResolvedValue(""),
-    periodicGetNote: jest.fn().mockReturnValue([mockFile, null]),
-    periodicGetOrCreateNote: jest.fn().mockResolvedValue([mockFile, null]),
   };
 }
 
@@ -188,8 +185,8 @@ describe("McpHandler", () => {
 
   // ---- tool registration --------------------------------------------------
 
-  test("registers all 17 tools", () => {
-    expect(mockTool).toHaveBeenCalledTimes(17);
+  test("registers all 16 tools", () => {
+    expect(mockTool).toHaveBeenCalledTimes(16);
     const names = mockTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -203,7 +200,6 @@ describe("McpHandler", () => {
         "vault_copy",
         "vault_get_document_map",
         "active_file_get_path",
-        "periodic_note_get_path",
         "search_query",
         "search_simple",
         "tag_list",
@@ -861,28 +857,6 @@ describe("McpHandler", () => {
       ops.app.workspace.getActiveFile.mockReturnValue(null);
       const cb = getToolCallback("active_file_get_path");
       await expect(cb({})).rejects.toThrow("No active file");
-    });
-  });
-
-  // ---- periodic_note_get_path ---------------------------------------------
-
-  describe("periodic_note_get_path", () => {
-    test("returns path of the current periodic note (creates if needed)", async () => {
-      const cb = getToolCallback("periodic_note_get_path");
-      const result = await cb({ period: "daily" });
-      expect(ops.periodicGetOrCreateNote).toHaveBeenCalledWith(
-        "daily",
-        expect.any(Number),
-      );
-      expect(parseText(result).path).toBe("test.md");
-    });
-
-    test("throws when the periodic note cannot be resolved", async () => {
-      ops.periodicGetOrCreateNote.mockResolvedValue([null, ErrorCode.PeriodDoesNotExist]);
-      const cb = getToolCallback("periodic_note_get_path");
-      await expect(cb({ period: "weekly" })).rejects.toThrow(
-        "Could not get or create periodic note",
-      );
     });
   });
 

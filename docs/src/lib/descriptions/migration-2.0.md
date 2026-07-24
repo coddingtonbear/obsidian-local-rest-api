@@ -16,7 +16,7 @@ You are affected if you:
 - parse the **`MD-Patch-Warnings`** response header;
 - use the **MCP tools** `vault_patch`, `vault_read` (with a heading target), or `vault_get_document_map`.
 
-You are **not** affected if you only read and write whole files, search, or use the active/periodic endpoints without section targeting.
+You are **not** affected if you only read and write whole files, search, or use the active-file endpoints without section targeting.
 
 # Nothing fails silently
 
@@ -162,7 +162,7 @@ Sending `Markdown-Patch-Version: 1` still returns the old flat map (with the `De
 - **Whitespace is library-owned.** The 2.x engine reduces your `content` to trimmed, canonical form (leading and trailing blank lines are meaningless) and itself supplies the blank line wherever inserted content faces body text, so a naive `append` or `prepend` always lands as its own block and can never merge into an existing paragraph; `Trim-Target-Whitespace` is gone because there is nothing left for it to fix. If your 1.x client added `\n` padding to manage spacing, it is now ignored — and a `content`-scope `append` can no longer continue an existing list or paragraph (use a `^id` block target for inline edits).
 - **Heading levels in `content` are relative.** A leading `#` becomes a direct child of the target regardless of the target's own depth — you never count `#`s. A level rebased past h6 still writes, but adds a `heading-depth-overflow` warning.
 - **The warnings header was renamed** from `MD-Patch-Warnings` to `Markdown-Patch-Warnings`, and its JSON value is now percent-encoded so warnings can embed non-ASCII document text. Run it through `decodeURIComponent` before parsing.
-- **URL targets on `/active/` and `/periodic/` PATCH now work.** Previously a suffix like `/active/heading/Log` was silently ignored on PATCH and the whole file was patched; it now targets the addressed section, matching PUT/POST.
+- **URL targets on `/active/` PATCH now work.** Previously a suffix like `/active/heading/Log` was silently ignored on PATCH and the whole file was patched; it now targets the addressed section, matching PUT/POST.
 - **Cleaner error mapping.** Unparseable frontmatter YAML is a `400`, a frontmatter key collision is a `409`, a mismatched table row or a cell containing a line break is a `400`, and an `ifMatch`/`If-Match` mismatch is a `412` — cases that previously surfaced as generic errors or `500`s.
 
 # MCP tool changes

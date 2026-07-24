@@ -38,16 +38,12 @@ export class DestinationAlreadyExistsError extends Error {}
 
 import {
   DocumentMapObject,
-  ErrorCode,
   FileMetadataObject,
   LocalRestApiSettings,
-  PeriodicNoteInterface,
-  PeriodicNotePeriod,
   SearchContext,
   SearchJsonResponseItem,
   SearchResponseItem,
 } from "./types";
-import { buildPeriodicNoteInterface } from "./periodicNotes";
 import { toArrayBuffer } from "./utils";
 
 export class VaultOperations {
@@ -555,67 +551,6 @@ export class VaultOperations {
     const result = patchV2(fileContents, instruction);
     await this.app.vault.adapter.write(filePath, result.document);
     return result;
-  }
-
-  getPeriodicNoteInterface(): Record<PeriodicNotePeriod, PeriodicNoteInterface> {
-    const periods: PeriodicNotePeriod[] = ["daily", "weekly", "monthly", "quarterly", "yearly"];
-    return Object.fromEntries(
-      periods.map((period) => [
-        period,
-        buildPeriodicNoteInterface(this.app, period, this.settings.periodicNotes?.[period]),
-      ]),
-    ) as Record<PeriodicNotePeriod, PeriodicNoteInterface>;
-  }
-
-  periodicGetInterface(
-    period: string,
-  ): [PeriodicNoteInterface | null, ErrorCode | null] {
-    const periodic = this.getPeriodicNoteInterface() as Record<string, PeriodicNoteInterface | undefined>;
-    const match = periodic[period];
-    if (!match) {
-      return [null, ErrorCode.PeriodDoesNotExist];
-    }
-    return [match, null];
-  }
-
-  periodicGetNote(
-    periodName: string,
-    timestamp: number,
-  ): [TFile | null, ErrorCode | null] {
-    const [period, err] = this.periodicGetInterface(periodName);
-    if (err || !period) {
-      return [null, err ?? ErrorCode.PeriodDoesNotExist];
-    }
-    const now = window.moment(timestamp);
-    const all = period.getAll();
-
-    const file = period.get(now, all);
-    if (!file) {
-      return [null, ErrorCode.PeriodicNoteDoesNotExist];
-    }
-    return [file, null];
-  }
-
-  async periodicGetOrCreateNote(
-    periodName: string,
-    timestamp: number,
-  ): Promise<[TFile | null, ErrorCode | null]> {
-    const [gottenFile, err] = this.periodicGetNote(periodName, timestamp);
-    let file = gottenFile;
-    if (err === ErrorCode.PeriodicNoteDoesNotExist) {
-      const [period] = this.periodicGetInterface(periodName);
-      if (!period) {
-        return [null, ErrorCode.PeriodDoesNotExist];
-      }
-      const now = window.moment(Date.now());
-
-      file = await period.create(now);
-      await this.waitForFileCache(file);
-    } else if (err) {
-      return [null, err];
-    }
-
-    return [file, null];
   }
 
   async simpleSearch(

@@ -46,7 +46,6 @@ import {
   ErrorResponseDescriptor,
   FileMetadataObject,
   LocalRestApiSettings,
-  PeriodicNoteInterface,
   SearchJsonResponseItem,
 } from "./types";
 import {
@@ -336,7 +335,7 @@ export default class RequestHandler {
     return segments.join("/");
   }
 
-  /** The wildcard suffix of an `/active/*` or `/periodic/…/*` route, split into
+  /** The wildcard suffix of an `/active/*` route, split into
    *  decoded segments. Express decodes the `req.params[0]` wildcard capture
    *  before the handler runs — collapsing a `%2F` to a boundary — so the raw
    *  suffix is recovered from `req.path` (still encoded) and each segment decoded
@@ -1841,30 +1840,6 @@ export default class RequestHandler {
     return this._vaultCopy(filePath, req, res);
   }
 
-  getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
-    return this.operations.getPeriodicNoteInterface();
-  }
-
-  periodicGetInterface(
-    period: string,
-  ): [PeriodicNoteInterface | null, ErrorCode | null] {
-    return this.operations.periodicGetInterface(period);
-  }
-
-  periodicGetNote(
-    periodName: string,
-    timestamp: number,
-  ): [TFile | null, ErrorCode | null] {
-    return this.operations.periodicGetNote(periodName, timestamp);
-  }
-
-  async periodicGetOrCreateNote(
-    periodName: string,
-    timestamp: number,
-  ): Promise<[TFile | null, ErrorCode | null]> {
-    return this.operations.periodicGetOrCreateNote(periodName, timestamp);
-  }
-
   redirectToVaultPath(
     file: TFile,
     req: express.Request,
@@ -1879,229 +1854,6 @@ export default class RequestHandler {
     res.set("Content-Location", encodeURI(path));
 
     return handler(path, req, res);
-  }
-
-  getPeriodicDateFromParams(params: {
-    year?: string;
-    month?: string;
-    day?: string;
-  }): number {
-    const { year, month, day } = params;
-
-    if (year && month && day) {
-      const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-      return date.getTime();
-    }
-
-    return Date.now();
-  }
-
-  async periodicGet(
-    req: express.Request,
-    res: express.Response,
-  ): Promise<void> {
-    const date = this.getPeriodicDateFromParams(req.params);
-    const [file, err] = this.periodicGetNote(req.params.period, date);
-    if (err || !file) {
-      this.returnCannedResponse(res, {
-        errorCode: err ?? ErrorCode.PeriodicNoteDoesNotExist,
-      });
-      return;
-    }
-
-    const suffixSegments = this.rawSuffixSegments(req, res);
-    if (suffixSegments === null) return;
-    res.set("Content-Location", encodeURI(file.path));
-    return this._vaultGet(
-      [...file.path.split("/"), ...suffixSegments],
-      req,
-      res,
-    );
-  }
-
-  async periodicPut(
-    req: express.Request,
-    res: express.Response,
-  ): Promise<void> {
-    const date = this.getPeriodicDateFromParams(req.params);
-    const [file, err] = await this.periodicGetOrCreateNote(
-      req.params.period,
-      date,
-    );
-    if (err || !file) {
-      this.returnCannedResponse(res, {
-        errorCode: err ?? ErrorCode.PeriodicNoteDoesNotExist,
-      });
-      return;
-    }
-    const suffixSegments = this.rawSuffixSegments(req, res);
-    if (suffixSegments === null) return;
-    if (suffixSegments.length > 0) {
-      const resolved = await this._resolvePathAndTarget([
-        ...file.path.split("/"),
-        ...suffixSegments,
-      ]);
-      if (resolved?.targetType) {
-        if (req.get("Target-Type") || req.get("Target")) {
-          this.returnCannedResponse(res, {
-            errorCode: ErrorCode.ConflictingTargetSpecification,
-          });
-          return;
-        }
-        res.set("Content-Location", encodeURI(file.path));
-        return this._vaultPatchTargeted(
-          resolved.filePath,
-          resolved.targetType,
-          resolved.target ?? "",
-          "replace",
-          req,
-          res,
-          { createTargetIfMissing: true, source: "path", targetSegments: resolved.targetSegments },
-        );
-      }
-    }
-    const headerTarget = this._getHeaderTarget(req, res);
-    if (headerTarget !== undefined) {
-      if (!headerTarget) return; // error already sent
-      res.set("Content-Location", encodeURI(file.path));
-      return this._vaultPatchTargeted(
-        file.path,
-        headerTarget.targetType,
-        headerTarget.target,
-        "replace",
-        req,
-        res,
-        { createTargetIfMissing: true, source: "header" },
-      );
-    }
-    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPut(p, rq, rs); });
-  }
-
-  async periodicPost(
-    req: express.Request,
-    res: express.Response,
-  ): Promise<void> {
-    const date = this.getPeriodicDateFromParams(req.params);
-    const [file, err] = await this.periodicGetOrCreateNote(
-      req.params.period,
-      date,
-    );
-    if (err || !file) {
-      this.returnCannedResponse(res, {
-        errorCode: err ?? ErrorCode.PeriodicNoteDoesNotExist,
-      });
-      return;
-    }
-    const suffixSegments = this.rawSuffixSegments(req, res);
-    if (suffixSegments === null) return;
-    if (suffixSegments.length > 0) {
-      const resolved = await this._resolvePathAndTarget([
-        ...file.path.split("/"),
-        ...suffixSegments,
-      ]);
-      if (resolved?.targetType) {
-        if (req.get("Target-Type") || req.get("Target")) {
-          this.returnCannedResponse(res, {
-            errorCode: ErrorCode.ConflictingTargetSpecification,
-          });
-          return;
-        }
-        res.set("Content-Location", encodeURI(file.path));
-        return this._vaultPatchTargeted(
-          resolved.filePath,
-          resolved.targetType,
-          resolved.target ?? "",
-          "append",
-          req,
-          res,
-          { source: "path", targetSegments: resolved.targetSegments },
-        );
-      }
-    }
-    const headerTarget = this._getHeaderTarget(req, res);
-    if (headerTarget !== undefined) {
-      if (!headerTarget) return; // error already sent
-      res.set("Content-Location", encodeURI(file.path));
-      return this._vaultPatchTargeted(
-        file.path,
-        headerTarget.targetType,
-        headerTarget.target,
-        "append",
-        req,
-        res,
-        { source: "header" },
-      );
-    }
-    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPost(p, rq, rs); });
-  }
-
-  async periodicPatch(
-    req: express.Request,
-    res: express.Response,
-  ): Promise<void> {
-    const date = this.getPeriodicDateFromParams(req.params);
-    const [file, err] = await this.periodicGetOrCreateNote(
-      req.params.period,
-      date,
-    );
-    if (err || !file) {
-      this.returnCannedResponse(res, {
-        errorCode: err ?? ErrorCode.PeriodicNoteDoesNotExist,
-      });
-      return;
-    }
-    const suffixSegments = this.rawSuffixSegments(req, res);
-    if (suffixSegments === null) return;
-    if (suffixSegments.length > 0) {
-      const resolved = await this._resolvePathAndTarget([
-        ...file.path.split("/"),
-        ...suffixSegments,
-      ]);
-      if (resolved?.targetType) {
-        res.set("Content-Location", encodeURI(file.path));
-        return this._vaultPatch(resolved.filePath, req, res, {
-          targetType: resolved.targetType,
-          target: resolved.target,
-          targetSegments: resolved.targetSegments,
-        });
-      }
-    }
-    return this.redirectToVaultPath(
-      file,
-      req,
-      res,
-      (p, rq, rs) => { void this._vaultPatch(p, rq, rs); },
-    );
-  }
-
-  async periodicDelete(
-    req: express.Request,
-    res: express.Response,
-  ): Promise<void> {
-    const date = this.getPeriodicDateFromParams(req.params);
-    const [file, err] = this.periodicGetNote(req.params.period, date);
-    if (err || !file) {
-      this.returnCannedResponse(res, {
-        errorCode: err ?? ErrorCode.PeriodicNoteDoesNotExist,
-      });
-      return;
-    }
-    const suffixSegments = this.rawSuffixSegments(req, res);
-    if (suffixSegments === null) return;
-    if (suffixSegments.length > 0) {
-      this.returnCannedResponse(res, {
-        statusCode: 405,
-        message:
-          "Deleting a targeted section via URL is not supported. Use PATCH with Operation: replace and an empty body instead.",
-      });
-      return;
-    }
-    return this.redirectToVaultPath(
-      file,
-      req,
-      res,
-      (p, rq, rs) => { void this._vaultDelete(p, rq, rs); },
-    );
   }
 
   async activeFileGet(
@@ -2566,21 +2318,6 @@ export default class RequestHandler {
           next();
         }
       });
-
-    this.api
-      .route("/periodic/:period/:year(\\d{4})/:month(\\d{1,2})/:day(\\d{1,2})/*")
-      .get(this.handle((rq, rs) => this.periodicGet(rq, rs)))
-      .put(this.handle((rq, rs) => this.periodicPut(rq, rs)))
-      .patch(this.handle((rq, rs) => this.periodicPatch(rq, rs)))
-      .post(this.handle((rq, rs) => this.periodicPost(rq, rs)))
-      .delete(this.handle((rq, rs) => this.periodicDelete(rq, rs)));
-    this.api
-      .route("/periodic/:period/*")
-      .get(this.handle((rq, rs) => this.periodicGet(rq, rs)))
-      .put(this.handle((rq, rs) => this.periodicPut(rq, rs)))
-      .patch(this.handle((rq, rs) => this.periodicPatch(rq, rs)))
-      .post(this.handle((rq, rs) => this.periodicPost(rq, rs)))
-      .delete(this.handle((rq, rs) => this.periodicDelete(rq, rs)));
 
     this.api.route("/tags/").get(this.handle((rq, rs) => this.tagsGet(rq, rs)));
 

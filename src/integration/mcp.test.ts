@@ -856,24 +856,6 @@ describe("active_file_get_path tool", () => {
 });
 
 // ---------------------------------------------------------------------------
-// periodic_note_* (conditional on OBSIDIAN_PERIODIC_NOTES=true)
-// ---------------------------------------------------------------------------
-
-const periodicTest =
-  process.env.OBSIDIAN_PERIODIC_NOTES === "true" ? test : test.skip;
-
-describe("periodic_note_get_path tool", () => {
-  periodicTest("returns vault-relative path of the daily note", async () => {
-    const result = await client.callTool({
-      name: "periodic_note_get_path",
-      arguments: { period: "daily" },
-    });
-    const body = jsonOf<any>(result);
-    expect(typeof body.path).toBe("string");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Multi-session routing (regression for shared-McpServer bug)
 // ---------------------------------------------------------------------------
 

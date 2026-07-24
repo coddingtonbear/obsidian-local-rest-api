@@ -21,9 +21,6 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "Unknown or invalid Content-Type specified in Content-Type header.",
   [ErrorCode.InvalidContentForContentType]:
     "Your request body could not be processed as the content-type specified in your Content-Type header.",
-  [ErrorCode.PeriodDoesNotExist]: "Specified period does not exist.",
-  [ErrorCode.PeriodicNoteDoesNotExist]:
-    "Periodic note does not exist for the specified period.",
   [ErrorCode.RequestMethodValidOnlyForFiles]:
     "Request method is valid only for file paths, not directories.",
   [ErrorCode.TextContentEncodingRequired]:

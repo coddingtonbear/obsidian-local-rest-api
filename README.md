@@ -12,7 +12,6 @@ Access your vault through the **REST API** or the **built-in [MCP server](https:
 - **Surgically patch specific sections** — target a heading, block reference, or frontmatter key and append, prepend, replace, delete, or move just that section without touching the rest of the file
 - **Search your vault** — simple full-text search or structured [JsonLogic](https://jsonlogic.com/) queries against note metadata (frontmatter, tags, path, content)
 - **Access the active file** — read or write whatever note is currently open in Obsidian
-- **Work with periodic notes** — get or create daily, weekly, monthly, quarterly, and yearly notes; each period's folder, filename format, and template are configurable in the plugin's settings, with sensible defaults out of the box
 - **List and execute commands** — trigger any Obsidian command as if you'd used the command palette
 - **Query tags** — list all tags across your vault with usage counts
 - **Open files in Obsidian** — tell Obsidian to open a specific note in its UI
@@ -133,8 +132,6 @@ Any MCP client that supports the Streamable HTTP transport can connect to `https
 |---|---|---|
 | `/vault/{path}` | GET PUT PATCH POST DELETE | Read, write, or delete any file in your vault |
 | `/active/` | GET PUT PATCH POST DELETE | Operate on the currently open file |
-| `/periodic/{period}/` | GET PUT PATCH POST DELETE | Today's periodic note (`daily`, `weekly`, etc.) |
-| `/periodic/{period}/{year}/{month}/{day}/` | GET PUT PATCH POST DELETE | Periodic note for a specific date |
 | `/search/simple/` | POST | Full-text search across all notes |
 | `/search/` | POST | Structured search via JsonLogic |
 | `/commands/` | GET | List available Obsidian commands |
@@ -254,7 +251,7 @@ curl -k -H "Authorization: Bearer <your-api-key>" \
 ## MCP (Model Context Protocol)
 
 > [!NOTE]
-> Several third-party MCP servers for Obsidian exist, but they are no longer necessary — this plugin ships a built-in MCP server that runs inside Obsidian and has direct access to your vault's live metadata, active file, periodic notes, and command palette. If you are currently using a third-party server, switching to this one is likely to give you better results.
+> Several third-party MCP servers for Obsidian exist, but they are no longer necessary — this plugin ships a built-in MCP server that runs inside Obsidian and has direct access to your vault's live metadata, active file, and command palette. If you are currently using a third-party server, switching to this one is likely to give you better results.
 
 The plugin includes a built-in MCP server at `/mcp/` so AI agents and MCP-compatible clients can interact with your vault without hand-crafting HTTP requests.
 
@@ -290,7 +287,6 @@ The exact config syntax varies by client; see the [Quick start](#mcp-clients) ex
 | `vault_copy` | Copy a vault file to a new path |
 | `vault_get_document_map` | List the headings, block references, and frontmatter fields in a file |
 | `active_file_get_path` | Return the vault path of the file currently open in Obsidian |
-| `periodic_note_get_path` | Return the vault path of the current periodic note (`daily`, `weekly`, `monthly`, `quarterly`, `yearly`) |
 | `search_query` | Search using a [JsonLogic](https://jsonlogic.com/) query against note metadata |
 | `search_simple` | Full-text search using Obsidian's built-in search |
 | `tag_list` | List all tags across the vault with usage counts |

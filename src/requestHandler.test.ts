@@ -4069,195 +4069,6 @@ describe("requestHandler", () => {
         .send("hello");
       expect(res.status).toBe(500);
     });
-
-    test("synchronous throw from periodicGetNote returns 500", async () => {
-      jest.spyOn(handler.operations, "periodicGetNote").mockImplementation(() => {
-        throw new Error("plugin not ready");
-      });
-      const res = await request(server)
-        .get("/periodic/daily/")
-        .set("Authorization", `Bearer ${API_KEY}`);
-      expect(res.status).toBe(500);
-    });
-
-    test("rejected promise from periodicGetOrCreateNote returns 500", async () => {
-      jest.spyOn(handler.operations, "periodicGetOrCreateNote").mockRejectedValue(
-        new Error("plugin not ready"),
-      );
-      const res = await request(server)
-        .patch("/periodic/daily/")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Target-Type", "heading")
-        .set("Operation", "append")
-        .set("Target", "My Heading")
-        .set("Content-Type", "text/plain")
-        .send("content");
-      expect(res.status).toBe(500);
-    });
-  });
-
-  describe("periodicNotes", () => {
-    // These tests call through to the real VaultOperations.getPeriodicNoteInterface()
-    // implementation (native, settings-driven — see src/periodicNotes.ts) rather than
-    // mocking handler.operations.periodicGetNote/periodicGetOrCreateNote, to exercise
-    // the actual folder/format matching logic. Regression coverage for #255 (crash
-    // when the period isn't configured) is preserved below.
-
-    test("unknown period name returns 404", async () => {
-      const res = await request(server)
-        .get("/periodic/decennial/")
-        .set("Authorization", `Bearer ${API_KEY}`);
-      expect(res.status).toBe(404);
-    });
-
-    test("unconfigured period serves defaults rather than erroring", async () => {
-      // No settings.periodicNotes.daily configured at all — every period is
-      // always available, falling back to its built-in defaults (vault root,
-      // default format). With no matching note, that's a 404, not a 400.
-      // (Also regression coverage for #255: undefined settings once crashed.)
-      const res = await request(server)
-        .get("/periodic/daily/")
-        .set("Authorization", `Bearer ${API_KEY}`);
-      expect(res.status).toBe(404);
-      expect(res.body.errorCode).toBe(40461);
-    });
-
-    test("note does not exist returns 404, not a crash", async () => {
-      settings.periodicNotes = {
-        daily: { folder: "", format: "YYYY-MM-DD", template: "" },
-      };
-      // No matching file in app.vault.getMarkdownFiles() — note doesn't exist yet.
-      const res = await request(server)
-        .get("/periodic/daily/")
-        .set("Authorization", `Bearer ${API_KEY}`);
-      expect(res.status).toBe(404);
-    });
-
-    test("note exists returns 200 with file content", async () => {
-      settings.periodicNotes = {
-        daily: { folder: "", format: "YYYY-MM-DD", template: "" },
-      };
-      const noteFile = new TFile();
-      noteFile.path = `${window.moment().format("YYYY-MM-DD")}.md`;
-      noteFile.basename = window.moment().format("YYYY-MM-DD");
-      app.vault._markdownFiles = [noteFile];
-
-      const res = await request(server)
-        .get("/periodic/daily/")
-        .set("Authorization", `Bearer ${API_KEY}`);
-      expect(res.status).toBe(200);
-    });
-
-    test("note in configured folder is found", async () => {
-      settings.periodicNotes = {
-        daily: { folder: "journal", format: "YYYY-MM-DD", template: "" },
-      };
-      const noteFile = new TFile();
-      const basename = window.moment().format("YYYY-MM-DD");
-      noteFile.path = `journal/${basename}.md`;
-      noteFile.basename = basename;
-      app.vault._markdownFiles = [noteFile];
-
-      const res = await request(server)
-        .get("/periodic/daily/")
-        .set("Authorization", `Bearer ${API_KEY}`);
-      expect(res.status).toBe(200);
-    });
-
-    test("note outside configured folder is not found", async () => {
-      settings.periodicNotes = {
-        daily: { folder: "journal", format: "YYYY-MM-DD", template: "" },
-      };
-      const noteFile = new TFile();
-      const basename = window.moment().format("YYYY-MM-DD");
-      noteFile.path = `${basename}.md`; // vault root, not "journal/"
-      noteFile.basename = basename;
-      app.vault._markdownFiles = [noteFile];
-
-      const res = await request(server)
-        .get("/periodic/daily/")
-        .set("Authorization", `Bearer ${API_KEY}`);
-      expect(res.status).toBe(404);
-    });
-  });
-
-  describe("periodic Content-Location header", () => {
-    const periodicFilePath = "daily/2024-01-15.md";
-
-    beforeEach(() => {
-      const noteFile = Object.assign(new TFile(), { path: periodicFilePath });
-      jest.spyOn(handler.operations, "periodicGetNote").mockReturnValue([noteFile, null]);
-      jest.spyOn(handler.operations, "periodicGetOrCreateNote").mockResolvedValue([noteFile, null]);
-      app.vault.adapter._readBinary = Buffer.from("# Daily\n");
-    });
-
-    test("GET returns Content-Location", async () => {
-      const res = await request(server)
-        .get("/periodic/daily/")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .expect(200);
-      expect(res.headers["content-location"]).toEqual(periodicFilePath);
-    });
-
-    test("PUT (whole-file replace) returns Content-Location", async () => {
-      const res = await request(server)
-        .put("/periodic/daily/")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Content-Type", "text/markdown")
-        .send("# Replaced\n")
-        .expect(204);
-      expect(res.headers["content-location"]).toEqual(periodicFilePath);
-    });
-
-    test("POST (append) returns Content-Location", async () => {
-      const res = await request(server)
-        .post("/periodic/daily/")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Content-Type", "text/markdown")
-        .send("appended\n")
-        .expect(204);
-      expect(res.headers["content-location"]).toEqual(periodicFilePath);
-    });
-
-    test("PATCH returns Content-Location", async () => {
-      jest.spyOn(handler.operations, "patchFileSection").mockResolvedValue("# Patched\n");
-      const res = await request(server)
-        .patch("/periodic/daily/")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Markdown-Patch-Version", "1")
-        .set("Content-Type", "text/markdown")
-        .set("Operation", "append")
-        .set("Target-Type", "heading")
-        .set("Target", "Daily")
-        .send("appended\n")
-        .expect(200);
-      expect(res.headers["content-location"]).toEqual(periodicFilePath);
-    });
-
-    test("PATCH with FrontmatterParseError returns 400 with errorCode 40005", async () => {
-      jest.spyOn(handler.operations, "patchFileSection").mockRejectedValueOnce(
-        new FrontmatterParseError("YAML parse error on line 2: nested mappings are not allowed")
-      );
-      const res = await request(server)
-        .patch("/periodic/daily/")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Markdown-Patch-Version", "1")
-        .set("Content-Type", "text/markdown")
-        .set("Operation", "append")
-        .set("Target-Type", "heading")
-        .set("Target", "Daily")
-        .send("appended\n");
-      expect(res.status).toBe(400);
-      expect(res.body.errorCode).toBe(40005);
-    });
-
-    test("DELETE returns Content-Location", async () => {
-      const res = await request(server)
-        .delete("/periodic/daily/")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .expect(204);
-      expect(res.headers["content-location"]).toEqual(periodicFilePath);
-    });
   });
 
   describe("apiExtensions", () => {
@@ -4345,8 +4156,8 @@ describe("requestHandler", () => {
     });
   });
 
-  describe("active/periodic PATCH — URL-target raw-content mode", () => {
-    // A URL suffix on an active-file or periodic-note PATCH was previously
+  describe("active PATCH — URL-target raw-content mode", () => {
+    // A URL suffix on an active-file PATCH was previously
     // ignored (the whole file was patched); it now routes into raw-content
     // mode against the resolved sub-target, matching PUT/POST.
     const noteContent = "# Log\nEntry\n\n# Other\nOther content\n";
@@ -4354,8 +4165,6 @@ describe("requestHandler", () => {
     function setNote(path: string): void {
       const noteFile = Object.assign(new TFile(), { path });
       jest.spyOn(app.workspace, "getActiveFile").mockReturnValue(noteFile);
-      jest.spyOn(handler.operations, "periodicGetNote").mockReturnValue([noteFile, null]);
-      jest.spyOn(handler.operations, "periodicGetOrCreateNote").mockResolvedValue([noteFile, null]);
       app.vault.adapter._statForPath = path;
       app.vault._read = noteContent;
       app.vault.adapter._read = noteContent;
@@ -4398,31 +4207,6 @@ describe("requestHandler", () => {
       expect(res.text).toContain("Entry\n\n- appended");
     });
 
-    test("a periodic-note PATCH suffix targets the section and sets Content-Location", async () => {
-      setNote("daily/2024-01-15.md");
-      const res = await request(server)
-        .patch("/periodic/daily/heading/Log")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Operation", "append")
-        .set("Content-Type", "text/markdown")
-        .send("- appended\n");
-      expect(res.status).toBe(200);
-      expect(res.text).toContain("Entry\n\n- appended");
-      expect(res.headers["content-location"]).toEqual("daily/2024-01-15.md");
-    });
-
-    test("a periodic-note PATCH suffix plus Target-Type header returns 422", async () => {
-      setNote("daily/2024-01-15.md");
-      const res = await request(server)
-        .patch("/periodic/daily/heading/Log")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Target-Type", "heading")
-        .set("Operation", "append")
-        .set("Content-Type", "text/markdown")
-        .send("x");
-      expect(res.status).toBe(422);
-    });
-
     test("an active-file PATCH suffix targets a heading whose text contains a slash", async () => {
       // The suffix reaches these handlers through the wildcard capture, which
       // Express decodes — collapsing %2F to a boundary. The raw suffix must be
@@ -4432,20 +4216,6 @@ describe("requestHandler", () => {
       app.vault.adapter._read = app.vault._read;
       const res = await request(server)
         .patch("/active/heading/A%2FB")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Operation", "append")
-        .set("Content-Type", "text/markdown")
-        .send("- added\n");
-      expect(res.status).toBe(200);
-      expect(res.text).toContain("Entry\n\n- added");
-    });
-
-    test("a periodic-note PATCH suffix targets a heading whose text contains a slash", async () => {
-      setNote("daily/2024-01-15.md");
-      app.vault._read = "# A/B\nEntry\n\n# Other\nx\n";
-      app.vault.adapter._read = app.vault._read;
-      const res = await request(server)
-        .patch("/periodic/daily/heading/A%2FB")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Operation", "append")
         .set("Content-Type", "text/markdown")

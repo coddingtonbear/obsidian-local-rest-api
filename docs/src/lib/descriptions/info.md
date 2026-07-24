@@ -1,6 +1,6 @@
 The Obsidian Local REST API with MCP plugin gives you two ways to interact with your Obsidian vault programmatically:
 
-- **REST API** — standard HTTP endpoints for reading and writing notes, searching vault contents, managing periodic notes, and more. Useful from scripts, applications, or any HTTP client.
+- **REST API** — standard HTTP endpoints for reading and writing notes, searching vault contents, and more. Useful from scripts, applications, or any HTTP client.
 - **MCP server** — exposes the same capabilities as structured tools for AI assistants (Claude, Cursor, and other MCP-compatible clients). See the `POST /mcp/` endpoint for connection details.
 
 ## Testing with this interface
