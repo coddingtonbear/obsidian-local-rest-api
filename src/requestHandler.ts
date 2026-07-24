@@ -2502,8 +2502,9 @@ export default class RequestHandler {
       next();
     });
     mcpRouter.use(express.json({ limit: MaximumRequestSize }));
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises
-    mcpRouter.all("/", async (req, res) => this.mcpHandler.handleRequest(req, res));
+    mcpRouter.all("/", (req, res, next) => {
+      this.mcpHandler.handleRequest(req, res).catch(next);
+    });
     this.api.use("/mcp", mcpRouter);
 
     this.api.use(this.publicApiExtensionRouter);
