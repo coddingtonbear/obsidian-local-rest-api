@@ -35,8 +35,11 @@ export default defineConfig([
       "@typescript-eslint/no-unsafe-enum-comparison": "error",
 
       // Acronyms and brand names that must stay capitalised in UI text.
+      // Severity is warn, not error: the community plugin review only forbids
+      // disabling this rule, and mid-sentence link texts legitimately start
+      // lowercase, so violations should not fail CI.
       "obsidianmd/ui/sentence-case": [
-        "error",
+        "warn",
         {
           acronyms: ["REST", "API", "MCP", "HTTPS", "HTTP", "URL", "JSON", "CSS", "HTML", "SSL", "TLS"],
           brands: ["Obsidian", "Claude"],
