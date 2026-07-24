@@ -73,6 +73,7 @@ export class Vault {
   _files: TFile[] = [new TFile()];
   _markdownFiles: TFile[] = [];
   _create: [string, string] | undefined;
+  _createdFolders: string[] = [];
 
   adapter = new DataAdapter();
 
@@ -84,7 +85,9 @@ export class Vault {
     return this._cachedRead;
   }
 
-  async createFolder(path: string): Promise<void> {}
+  async createFolder(path: string): Promise<void> {
+    this._createdFolders.push(path);
+  }
 
   getFiles(): TFile[] {
     return this._files;
