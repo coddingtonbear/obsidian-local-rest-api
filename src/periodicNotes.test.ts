@@ -14,7 +14,6 @@ describe("buildPeriodicNoteInterface", () => {
 
   function settings(overrides: Partial<PeriodicNotePeriodSettings> = {}): PeriodicNotePeriodSettings {
     return {
-      enabled: true,
       folder: "",
       format: "YYYY-MM-DD",
       template: "",
@@ -22,15 +21,19 @@ describe("buildPeriodicNoteInterface", () => {
     };
   }
 
-  test("loaded reflects the enabled flag", () => {
-    expect(buildPeriodicNoteInterface(app, "daily", settings({ enabled: true })).loaded).toBe(true);
-    expect(buildPeriodicNoteInterface(app, "daily", settings({ enabled: false })).loaded).toBe(false);
+  test("defaults are used when settings are undefined", () => {
+    const iface = buildPeriodicNoteInterface(app, "daily", undefined);
+    expect(iface.settings.format).toBe("YYYY-MM-DD");
+    expect(iface.settings.folder).toBe("");
+    expect(iface.settings.template).toBe("");
   });
 
-  test("loaded is false and defaults are used when settings are undefined", () => {
-    const iface = buildPeriodicNoteInterface(app, "daily", undefined);
-    expect(iface.loaded).toBe(false);
-    expect(iface.settings.format).toBe("YYYY-MM-DD");
+  test("each period falls back to its own default format when unconfigured", () => {
+    expect(buildPeriodicNoteInterface(app, "daily", undefined).settings.format).toBe("YYYY-MM-DD");
+    expect(buildPeriodicNoteInterface(app, "weekly", undefined).settings.format).toBe("gggg-[W]ww");
+    expect(buildPeriodicNoteInterface(app, "monthly", undefined).settings.format).toBe("YYYY-MM");
+    expect(buildPeriodicNoteInterface(app, "quarterly", undefined).settings.format).toBe("YYYY-[Q]Q");
+    expect(buildPeriodicNoteInterface(app, "yearly", undefined).settings.format).toBe("YYYY");
   });
 
   test("falls back to the period's default format when format is blank", () => {
@@ -231,7 +234,6 @@ describe("seedPeriodicNoteSettingsFromExistingPlugins", () => {
 
     const seeded = seedPeriodicNoteSettingsFromExistingPlugins(app);
     expect(seeded.daily).toEqual({
-      enabled: true,
       folder: "daily",
       format: "YYYY-MM-DD",
       template: "",
@@ -288,8 +290,8 @@ describe("seedPeriodicNoteSettingsFromExistingPlugins", () => {
     };
 
     const seeded = seedPeriodicNoteSettingsFromExistingPlugins(app);
-    expect(seeded.weekly).toEqual({ enabled: true, folder: "weekly", format: "gggg-[W]ww", template: "" });
-    expect(seeded.monthly).toEqual({ enabled: true, folder: "monthly", format: "YYYY-MM", template: "" });
+    expect(seeded.weekly).toEqual({ folder: "weekly", format: "gggg-[W]ww", template: "" });
+    expect(seeded.monthly).toEqual({ folder: "monthly", format: "YYYY-MM", template: "" });
     expect(seeded.quarterly).toBeUndefined();
     expect(seeded.yearly).toBeUndefined();
   });

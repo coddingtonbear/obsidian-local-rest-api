@@ -12,7 +12,7 @@ Access your vault through the **REST API** or the **built-in [MCP server](https:
 - **Surgically patch specific sections** — target a heading, block reference, or frontmatter key and append, prepend, replace, delete, or move just that section without touching the rest of the file
 - **Search your vault** — simple full-text search or structured [JsonLogic](https://jsonlogic.com/) queries against note metadata (frontmatter, tags, path, content)
 - **Access the active file** — read or write whatever note is currently open in Obsidian
-- **Work with periodic notes** — get or create daily, weekly, monthly, quarterly, and yearly notes
+- **Work with periodic notes** — get or create daily, weekly, monthly, quarterly, and yearly notes; each period's folder, filename format, and template are configurable in the plugin's settings, with sensible defaults out of the box
 - **List and execute commands** — trigger any Obsidian command as if you'd used the command palette
 - **Query tags** — list all tags across your vault with usage counts
 - **Open files in Obsidian** — tell Obsidian to open a specific note in its UI

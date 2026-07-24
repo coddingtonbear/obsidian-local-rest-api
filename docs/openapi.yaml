@@ -1662,6 +1662,8 @@ paths:
       description: |
         Returns the content of the current periodic note for the specified period.
         
+        Every period is always available. Each period's folder, filename date format, and creation template are configurable in the plugin's "Periodic Notes" settings section; an unconfigured period uses sensible defaults (notes at the vault root, with a standard format such as `YYYY-MM-DD` for daily notes).
+        
         # Targeting a Sub-part of your Document
         
         You can operate on a specific section of a note instead of the whole file by embedding a target in the URL path, immediately after the note identifier. The first segment after the note is the target type, and the remaining segments address the target:
@@ -2792,6 +2794,8 @@ paths:
     get:
       description: |
         Returns the content of the periodic note for the specified period and date.
+        
+        Every period is always available. Each period's folder, filename date format, and creation template are configurable in the plugin's "Periodic Notes" settings section; an unconfigured period uses sensible defaults (notes at the vault root, with a standard format such as `YYYY-MM-DD` for daily notes).
         
         # Targeting a Sub-part of your Document
         

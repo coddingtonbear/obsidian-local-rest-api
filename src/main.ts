@@ -326,17 +326,12 @@ class LocalRestApiSettingTab extends PluginSettingTab {
 
   private getPeriodicNoteDisplayValue(period: PeriodicNotePeriod): string {
     const settings = this.getPeriodicNoteSettings(period);
-    if (!settings.enabled) return "Disabled";
-    return settings.folder ? `Enabled — ${settings.folder}/` : "Enabled — vault root";
+    const location = settings.folder ? `${settings.folder}/` : "Vault root";
+    return `${location} · ${settings.format || PERIOD_DEFAULT_FORMAT[period]}`;
   }
 
   private getPeriodicNoteSettingDefinitions(period: PeriodicNotePeriod): SettingDefinitionItem[] {
     return [
-      {
-        name: "Enable",
-        desc: `Create and manage ${period} notes via this plugin's periodic note endpoints and MCP tool.`,
-        control: { type: "toggle", key: `periodicNotes:${period}:enabled` },
-      },
       {
         name: "Folder",
         desc: "Folder in which new notes are created. Leave blank for the vault root.",

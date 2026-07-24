@@ -574,7 +574,7 @@ export class McpHandler {
 
     this.tool(
       "periodic_note_get_path",
-      dedent`Return the vault-relative path of the current periodic note for the given period (daily, weekly, monthly, quarterly, or yearly). Creates the note file if it does not already exist, applying any configured template. Requires that period to be enabled under this plugin's "Periodic Notes" settings section. Use the returned path with vault_read, vault_write, vault_append, vault_patch, or vault_get_document_map to operate on the note.`,
+      dedent`Return the vault-relative path of the current periodic note for the given period (daily, weekly, monthly, quarterly, or yearly). Creates the note file if it does not already exist, applying any configured template. Every period is always available; its folder, filename format, and template can be configured under this plugin's "Periodic Notes" settings section, with sensible per-period defaults otherwise. Use the returned path with vault_read, vault_write, vault_append, vault_patch, or vault_get_document_map to operate on the note.`,
       {
         period: z
           .enum(PERIODS)

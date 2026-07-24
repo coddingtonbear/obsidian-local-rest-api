@@ -4110,18 +4110,21 @@ describe("requestHandler", () => {
       expect(res.status).toBe(404);
     });
 
-    test("period not enabled returns 400", async () => {
-      // No settings.periodicNotes.daily configured at all — regression for #255
-      // (undefined settings previously crashed rather than reporting "not enabled").
+    test("unconfigured period serves defaults rather than erroring", async () => {
+      // No settings.periodicNotes.daily configured at all — every period is
+      // always available, falling back to its built-in defaults (vault root,
+      // default format). With no matching note, that's a 404, not a 400.
+      // (Also regression coverage for #255: undefined settings once crashed.)
       const res = await request(server)
         .get("/periodic/daily/")
         .set("Authorization", `Bearer ${API_KEY}`);
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(404);
+      expect(res.body.errorCode).toBe(40461);
     });
 
     test("note does not exist returns 404, not a crash", async () => {
       settings.periodicNotes = {
-        daily: { enabled: true, folder: "", format: "YYYY-MM-DD", template: "" },
+        daily: { folder: "", format: "YYYY-MM-DD", template: "" },
       };
       // No matching file in app.vault.getMarkdownFiles() — note doesn't exist yet.
       const res = await request(server)
@@ -4132,7 +4135,7 @@ describe("requestHandler", () => {
 
     test("note exists returns 200 with file content", async () => {
       settings.periodicNotes = {
-        daily: { enabled: true, folder: "", format: "YYYY-MM-DD", template: "" },
+        daily: { folder: "", format: "YYYY-MM-DD", template: "" },
       };
       const noteFile = new TFile();
       noteFile.path = `${window.moment().format("YYYY-MM-DD")}.md`;
@@ -4147,7 +4150,7 @@ describe("requestHandler", () => {
 
     test("note in configured folder is found", async () => {
       settings.periodicNotes = {
-        daily: { enabled: true, folder: "journal", format: "YYYY-MM-DD", template: "" },
+        daily: { folder: "journal", format: "YYYY-MM-DD", template: "" },
       };
       const noteFile = new TFile();
       const basename = window.moment().format("YYYY-MM-DD");
@@ -4163,7 +4166,7 @@ describe("requestHandler", () => {
 
     test("note outside configured folder is not found", async () => {
       settings.periodicNotes = {
-        daily: { enabled: true, folder: "journal", format: "YYYY-MM-DD", template: "" },
+        daily: { folder: "journal", format: "YYYY-MM-DD", template: "" },
       };
       const noteFile = new TFile();
       const basename = window.moment().format("YYYY-MM-DD");

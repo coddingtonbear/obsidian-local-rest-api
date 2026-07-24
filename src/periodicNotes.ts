@@ -16,7 +16,6 @@ export const PERIOD_DEFAULT_FORMAT: Record<PeriodicNotePeriod, string> = {
 };
 
 export const DEFAULT_PERIODIC_NOTE_SETTINGS: PeriodicNotePeriodSettings = {
-  enabled: false,
   folder: "",
   format: "",
   template: "",
@@ -76,7 +75,6 @@ export function buildPeriodicNoteInterface(
 
   return {
     settings: { folder, format, template },
-    loaded: settings?.enabled ?? false,
     getAll,
     get: (date: Moment, all: Record<string, TFile>) => all[date.format(format)],
     create: async (date: Moment): Promise<TFile> => {
@@ -118,7 +116,6 @@ type RawPeriodSettings = {
 
 function toPeriodicNotePeriodSettings(raw: RawPeriodSettings): PeriodicNotePeriodSettings {
   return {
-    enabled: raw.enabled ?? false,
     folder: raw.folder?.trim() ?? "",
     format: raw.format?.trim() ?? "",
     template: raw.template?.trim() ?? "",
@@ -130,10 +127,10 @@ function toPeriodicNotePeriodSettings(raw: RawPeriodSettings): PeriodicNotePerio
  * Notes (community) plugin configuration into our own native settings, so
  * upgrading users don't lose their periodic-note configuration. Reads
  * undocumented plugin internals defensively — any unexpected shape is
- * skipped rather than thrown, leaving that period unseeded (disabled by
- * default) rather than risk seeding a bad value. Runs at most once per
- * vault (callers should only invoke this when `settings.periodicNotes` is
- * not yet set).
+ * skipped rather than thrown, leaving that period unseeded (falling back
+ * to the built-in defaults) rather than risk seeding a bad value. Runs at
+ * most once per vault (callers should only invoke this when
+ * `settings.periodicNotes` is not yet set).
  *
  * Known gap: weekly notes configured only via the legacy "Calendar" plugin
  * (not the "Periodic Notes" plugin) are not migrated — reading a third
@@ -162,7 +159,7 @@ export function seedPeriodicNoteSettingsFromExistingPlugins(
         | RawPeriodSettings
         | undefined;
       if (options) {
-        seeded.daily = toPeriodicNotePeriodSettings({ ...options, enabled: true });
+        seeded.daily = toPeriodicNotePeriodSettings(options);
       }
     }
   } catch (e) {
