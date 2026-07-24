@@ -580,9 +580,6 @@ export class VaultOperations {
     if (!match) {
       return [null, ErrorCode.PeriodDoesNotExist];
     }
-    if (!match.loaded) {
-      return [null, ErrorCode.PeriodIsNotEnabled];
-    }
     return [match, null];
   }
 

@@ -16,7 +16,6 @@ export const PERIOD_DEFAULT_FORMAT: Record<PeriodicNotePeriod, string> = {
 };
 
 export const DEFAULT_PERIODIC_NOTE_SETTINGS: PeriodicNotePeriodSettings = {
-  enabled: false,
   folder: "",
   format: "",
   template: "",
@@ -44,16 +43,30 @@ export function buildPeriodicNoteInterface(
   const template = settings?.template?.trim() ?? "";
   const folderPath = folder ? normalizePath(folder) : "";
 
+  // A format may itself contain "/" (e.g. YYYY/MM/YYYY-MM-DD), in which case
+  // the formatted filename spans subfolders and must be matched against the
+  // file's folder-relative path rather than its basename.
+  const formatSpansFolders = format.includes("/");
+
   const getAll = (): Record<string, TFile> => {
     const notes: Record<string, TFile> = {};
     const folderPrefix = folderPath ? `${folderPath}/` : "";
     for (const file of app.vault.getMarkdownFiles()) {
-      if (folderPrefix) {
-        if (!file.path.startsWith(folderPrefix)) continue;
-      } else if (file.path.includes("/")) {
-        continue;
+      let candidate: string;
+      if (formatSpansFolders) {
+        if (folderPrefix && !file.path.startsWith(folderPrefix)) continue;
+        candidate = file.path
+          .slice(folderPrefix.length)
+          .replace(/\.md$/, "");
+      } else {
+        if (folderPrefix) {
+          if (!file.path.startsWith(folderPrefix)) continue;
+        } else if (file.path.includes("/")) {
+          continue;
+        }
+        candidate = file.basename;
       }
-      const parsed = window.moment(file.basename, format, true);
+      const parsed = window.moment(candidate, format, true);
       if (!parsed.isValid()) continue;
       notes[parsed.format(format)] = file;
     }
@@ -62,7 +75,6 @@ export function buildPeriodicNoteInterface(
 
   return {
     settings: { folder, format, template },
-    loaded: settings?.enabled ?? false,
     getAll,
     get: (date: Moment, all: Record<string, TFile>) => all[date.format(format)],
     create: async (date: Moment): Promise<TFile> => {
@@ -71,8 +83,12 @@ export function buildPeriodicNoteInterface(
         `${folderPath ? folderPath + "/" : ""}${filename}.md`,
       );
 
-      if (folderPath && !app.vault.getAbstractFileByPath(folderPath)) {
-        await app.vault.createFolder(folderPath);
+      // Ensure the parent folder chain of the full note path — not just the
+      // configured base folder — since the formatted filename may itself
+      // contain "/" segments. createFolder creates intermediate folders.
+      const parentDir = path.split("/").slice(0, -1).join("/");
+      if (parentDir && !app.vault.getAbstractFileByPath(parentDir)) {
+        await app.vault.createFolder(parentDir);
       }
 
       let content = "";
@@ -100,7 +116,6 @@ type RawPeriodSettings = {
 
 function toPeriodicNotePeriodSettings(raw: RawPeriodSettings): PeriodicNotePeriodSettings {
   return {
-    enabled: raw.enabled ?? false,
     folder: raw.folder?.trim() ?? "",
     format: raw.format?.trim() ?? "",
     template: raw.template?.trim() ?? "",
@@ -112,10 +127,10 @@ function toPeriodicNotePeriodSettings(raw: RawPeriodSettings): PeriodicNotePerio
  * Notes (community) plugin configuration into our own native settings, so
  * upgrading users don't lose their periodic-note configuration. Reads
  * undocumented plugin internals defensively — any unexpected shape is
- * skipped rather than thrown, leaving that period unseeded (disabled by
- * default) rather than risk seeding a bad value. Runs at most once per
- * vault (callers should only invoke this when `settings.periodicNotes` is
- * not yet set).
+ * skipped rather than thrown, leaving that period unseeded (falling back
+ * to the built-in defaults) rather than risk seeding a bad value. Runs at
+ * most once per vault (callers should only invoke this when
+ * `settings.periodicNotes` is not yet set).
  *
  * Known gap: weekly notes configured only via the legacy "Calendar" plugin
  * (not the "Periodic Notes" plugin) are not migrated — reading a third
@@ -144,7 +159,7 @@ export function seedPeriodicNoteSettingsFromExistingPlugins(
         | RawPeriodSettings
         | undefined;
       if (options) {
-        seeded.daily = toPeriodicNotePeriodSettings({ ...options, enabled: true });
+        seeded.daily = toPeriodicNotePeriodSettings(options);
       }
     }
   } catch (e) {

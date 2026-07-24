@@ -22,7 +22,6 @@ export enum ErrorCode {
   InvalidPatchVersionHeader = 40082,
   HeaderTargetingRequiresVersion1 = 40083,
   PatchHeaderTargetingRequiresExplicitVersion = 40084,
-  PeriodIsNotEnabled = 40060,
   InvalidFilterQuery = 40070,
   PatchFailed = 40080,
   InvalidPatchInstruction = 40081,
@@ -40,7 +39,6 @@ export enum ErrorCode {
 export type PeriodicNotePeriod = "daily" | "weekly" | "monthly" | "quarterly" | "yearly";
 
 export interface PeriodicNotePeriodSettings {
-  enabled: boolean;
   folder: string;
   format: string;
   template: string;
@@ -72,7 +70,6 @@ export interface PeriodicNoteInterface {
     format: string;
     template: string;
   };
-  loaded: boolean;
   create: (date: Moment) => Promise<TFile>;
   get: (date: Moment, all: Record<string, TFile>) => TFile;
   getAll: () => Record<string, TFile>;

@@ -877,8 +877,8 @@ describe("McpHandler", () => {
       expect(parseText(result).path).toBe("test.md");
     });
 
-    test("throws when the period is not enabled", async () => {
-      ops.periodicGetOrCreateNote.mockResolvedValue([null, ErrorCode.PeriodIsNotEnabled]);
+    test("throws when the periodic note cannot be resolved", async () => {
+      ops.periodicGetOrCreateNote.mockResolvedValue([null, ErrorCode.PeriodDoesNotExist]);
       const cb = getToolCallback("periodic_note_get_path");
       await expect(cb({ period: "weekly" })).rejects.toThrow(
         "Could not get or create periodic note",

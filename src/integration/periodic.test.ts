@@ -32,18 +32,6 @@ describe("GET /periodic/daily", () => {
   });
 });
 
-describe("GET /periodic/daily — plugin not enabled", () => {
-  // Only run when OBSIDIAN_PERIODIC_NOTES=false is explicitly set
-  const pluginDisabledTest = process.env.OBSIDIAN_PERIODIC_NOTES === "false" ? test : test.skip;
-
-  pluginDisabledTest("returns 400 with errorCode 40060 when period is not enabled", async () => {
-    const res = await authedFetch("/periodic/daily/");
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.errorCode).toBe(40060);
-  });
-});
-
 describe("PUT /periodic/daily", () => {
   maybeTest("creates or replaces today's daily note and returns 200 or 204", async () => {
     const res = await authedFetch("/periodic/daily/", {

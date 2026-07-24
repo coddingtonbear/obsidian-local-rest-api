@@ -14,7 +14,6 @@ describe("buildPeriodicNoteInterface", () => {
 
   function settings(overrides: Partial<PeriodicNotePeriodSettings> = {}): PeriodicNotePeriodSettings {
     return {
-      enabled: true,
       folder: "",
       format: "YYYY-MM-DD",
       template: "",
@@ -22,15 +21,19 @@ describe("buildPeriodicNoteInterface", () => {
     };
   }
 
-  test("loaded reflects the enabled flag", () => {
-    expect(buildPeriodicNoteInterface(app, "daily", settings({ enabled: true })).loaded).toBe(true);
-    expect(buildPeriodicNoteInterface(app, "daily", settings({ enabled: false })).loaded).toBe(false);
+  test("defaults are used when settings are undefined", () => {
+    const iface = buildPeriodicNoteInterface(app, "daily", undefined);
+    expect(iface.settings.format).toBe("YYYY-MM-DD");
+    expect(iface.settings.folder).toBe("");
+    expect(iface.settings.template).toBe("");
   });
 
-  test("loaded is false and defaults are used when settings are undefined", () => {
-    const iface = buildPeriodicNoteInterface(app, "daily", undefined);
-    expect(iface.loaded).toBe(false);
-    expect(iface.settings.format).toBe("YYYY-MM-DD");
+  test("each period falls back to its own default format when unconfigured", () => {
+    expect(buildPeriodicNoteInterface(app, "daily", undefined).settings.format).toBe("YYYY-MM-DD");
+    expect(buildPeriodicNoteInterface(app, "weekly", undefined).settings.format).toBe("gggg-[W]ww");
+    expect(buildPeriodicNoteInterface(app, "monthly", undefined).settings.format).toBe("YYYY-MM");
+    expect(buildPeriodicNoteInterface(app, "quarterly", undefined).settings.format).toBe("YYYY-[Q]Q");
+    expect(buildPeriodicNoteInterface(app, "yearly", undefined).settings.format).toBe("YYYY");
   });
 
   test("falls back to the period's default format when format is blank", () => {
@@ -90,6 +93,43 @@ describe("buildPeriodicNoteInterface", () => {
       const iface = buildPeriodicNoteInterface(app, "daily", settings({ format: "YYYY-MM-DD" }));
       expect(iface.getAll()).toEqual({});
     });
+
+    test("a format containing '/' matches notes nested in format-derived subfolders", () => {
+      // Core Daily Notes supports formats like YYYY/MM/YYYY-MM-DD, where the
+      // formatted filename itself spans subfolders under the configured folder.
+      const nested = new TFile();
+      nested.path = "journal/2024/01/2024-01-15.md";
+      nested.basename = "2024-01-15";
+      const decoy = new TFile();
+      decoy.path = "journal/2024/01/notes.md";
+      decoy.basename = "notes";
+      app.vault._markdownFiles = [nested, decoy];
+
+      const iface = buildPeriodicNoteInterface(
+        app,
+        "daily",
+        settings({ folder: "journal", format: "YYYY/MM/YYYY-MM-DD" }),
+      );
+      const all = iface.getAll();
+      expect(Object.keys(all)).toEqual(["2024/01/2024-01-15"]);
+
+      const found = iface.get(window.moment("2024-01-15", "YYYY-MM-DD"), all);
+      expect(found).toBe(nested);
+    });
+
+    test("a format containing '/' works with no folder configured", () => {
+      const nested = new TFile();
+      nested.path = "2024/01/2024-01-15.md";
+      nested.basename = "2024-01-15";
+      app.vault._markdownFiles = [nested];
+
+      const iface = buildPeriodicNoteInterface(
+        app,
+        "daily",
+        settings({ format: "YYYY/MM/YYYY-MM-DD" }),
+      );
+      expect(Object.keys(iface.getAll())).toEqual(["2024/01/2024-01-15"]);
+    });
   });
 
   describe("create", () => {
@@ -130,6 +170,36 @@ describe("buildPeriodicNoteInterface", () => {
       expect(content).toContain("Time: 09:30");
     });
 
+    test("a format containing '/' creates the full parent folder chain", async () => {
+      // Previously only the configured base folder was ensured, so a
+      // format-derived subfolder path (e.g. YYYY/MM/…) made vault.create fail.
+      app.vault._getAbstractFileByPath = null; // nothing exists yet
+      const iface = buildPeriodicNoteInterface(
+        app,
+        "daily",
+        settings({ folder: "journal", format: "YYYY/MM/YYYY-MM-DD" }),
+      );
+      const date = window.moment("2024-01-15", "YYYY-MM-DD");
+      await iface.create(date);
+
+      expect(app.vault._createdFolders).toEqual(["journal/2024/01"]);
+      expect(app.vault._create?.[0]).toBe("journal/2024/01/2024-01-15.md");
+    });
+
+    test("a format containing '/' creates parent folders even with no folder configured", async () => {
+      app.vault._getAbstractFileByPath = null;
+      const iface = buildPeriodicNoteInterface(
+        app,
+        "daily",
+        settings({ format: "YYYY/MM/YYYY-MM-DD" }),
+      );
+      const date = window.moment("2024-01-15", "YYYY-MM-DD");
+      await iface.create(date);
+
+      expect(app.vault._createdFolders).toEqual(["2024/01"]);
+      expect(app.vault._create?.[0]).toBe("2024/01/2024-01-15.md");
+    });
+
     test("creates an empty note when the configured template file cannot be found", async () => {
       app.vault._getAbstractFileByPath = null;
       const iface = buildPeriodicNoteInterface(
@@ -164,7 +234,6 @@ describe("seedPeriodicNoteSettingsFromExistingPlugins", () => {
 
     const seeded = seedPeriodicNoteSettingsFromExistingPlugins(app);
     expect(seeded.daily).toEqual({
-      enabled: true,
       folder: "daily",
       format: "YYYY-MM-DD",
       template: "",
@@ -221,8 +290,8 @@ describe("seedPeriodicNoteSettingsFromExistingPlugins", () => {
     };
 
     const seeded = seedPeriodicNoteSettingsFromExistingPlugins(app);
-    expect(seeded.weekly).toEqual({ enabled: true, folder: "weekly", format: "gggg-[W]ww", template: "" });
-    expect(seeded.monthly).toEqual({ enabled: true, folder: "monthly", format: "YYYY-MM", template: "" });
+    expect(seeded.weekly).toEqual({ folder: "weekly", format: "gggg-[W]ww", template: "" });
+    expect(seeded.monthly).toEqual({ folder: "monthly", format: "YYYY-MM", template: "" });
     expect(seeded.quarterly).toBeUndefined();
     expect(seeded.yearly).toBeUndefined();
   });
