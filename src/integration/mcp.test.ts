@@ -157,20 +157,20 @@ describe("vault_read tool", () => {
   test("returns heading section content when targetType=heading", async () => {
     const result = await client.callTool({
       name: "vault_read",
-      arguments: { path: TEST_PATH, targetType: "heading", target: HEADING_ALPHA },
+      arguments: { path: TEST_PATH, targetType: "heading", target: [HEADING_ALPHA] },
     });
     const text = textOf(result);
     expect(text).toContain(TERM_ALPHA);
     expect(text).not.toContain(TERM_DELTA);
   });
 
-  test("returns nested heading section using :: delimiter", async () => {
+  test("returns nested heading section using an array address", async () => {
     const result = await client.callTool({
       name: "vault_read",
       arguments: {
         path: TEST_PATH,
         targetType: "heading",
-        target: `${HEADING_ALPHA}::${HEADING_SUB}`,
+        target: [HEADING_ALPHA, HEADING_SUB],
       },
     });
     const text = textOf(result);
@@ -207,9 +207,18 @@ describe("vault_read tool", () => {
   test("returns isError when heading target is not found", async () => {
     const result = await client.callTool({
       name: "vault_read",
-      arguments: { path: TEST_PATH, targetType: "heading", target: "NoSuchHeading" },
+      arguments: { path: TEST_PATH, targetType: "heading", target: ["NoSuchHeading"] },
     });
     expect(result.isError).toBe(true);
+  });
+
+  test("returns isError when heading target is a bare string", async () => {
+    const result = await client.callTool({
+      name: "vault_read",
+      arguments: { path: TEST_PATH, targetType: "heading", target: HEADING_ALPHA },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("array");
   });
 });
 
@@ -224,11 +233,13 @@ describe("vault_get_document_map tool", () => {
       arguments: { path: TEST_PATH },
     });
     const body = jsonOf<any>(result);
-    expect(Array.isArray(body.headings)).toBe(true);
+    expect(typeof body.version).toBe("string");
     expect(Array.isArray(body.blocks)).toBe(true);
     expect(Array.isArray(body.frontmatterFields)).toBe(true);
-    expect(body.headings).toContain(HEADING_ALPHA);
-    expect(body.headings.some((h: string) => h.includes(HEADING_SUB))).toBe(true);
+    // 2.0 map: headings nest by containment (Sub under Alpha); block ids bare.
+    expect(Array.isArray(body.headings)).toBe(false);
+    expect(body.headings).toHaveProperty(HEADING_ALPHA);
+    expect(body.headings[HEADING_ALPHA]).toHaveProperty(HEADING_SUB);
     expect(body.blocks).toContain(BLOCK_BETA);
     expect(body.frontmatterFields).toContain(FM_TITLE);
     expect(body.frontmatterFields).toContain(FM_PRIORITY);
@@ -240,6 +251,177 @@ describe("vault_get_document_map tool", () => {
       arguments: { path: `${TEST_DIR}/no-such-file.md` },
     });
     expect(result.isError).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Duplicate sibling heading addressing (uses its own path so it doesn't
+// disturb the shared fixture's heading structure)
+// ---------------------------------------------------------------------------
+
+describe("duplicate sibling heading addressing", () => {
+  const DUP_PATH = `${TEST_DIR}/mcp-duplicate-headings.md`;
+  const DUP_DOCUMENT = [
+    "# Notes",
+    "",
+    "first",
+    "",
+    "# Notes",
+    "",
+    "second",
+    "",
+    "# Notes",
+    "",
+    "third",
+    "",
+  ].join("\n");
+
+  beforeEach(async () => {
+    await resetFixture(DUP_DOCUMENT, DUP_PATH);
+  });
+
+  afterAll(async () => {
+    await deleteFixture(DUP_PATH).catch((_e: unknown): void => {});
+  });
+
+  test("the map lists a distinct key per occurrence, each reachable via vault_read", async () => {
+    const mapResult = await client.callTool({
+      name: "vault_get_document_map",
+      arguments: { path: DUP_PATH },
+    });
+    const body = jsonOf<{ headings: Record<string, unknown> }>(mapResult);
+    const keys = Object.keys(body.headings);
+    expect(keys).toHaveLength(3);
+    // The first occurrence keeps its plain text; the exact form of the
+    // marker suffix on the others is an implementation detail — what matters
+    // is that they round-trip through the real MCP JSON transport intact and
+    // each resolves to its own section.
+    expect(keys[0]).toBe("Notes");
+    expect(keys[1]).not.toBe("Notes");
+    expect(keys[2]).not.toBe("Notes");
+    expect(keys[2]).not.toBe(keys[1]);
+
+    const expectedBodies = ["first", "second", "third"];
+    for (let i = 0; i < keys.length; i++) {
+      const readResult = await client.callTool({
+        name: "vault_read",
+        arguments: { path: DUP_PATH, targetType: "heading", target: [keys[i]] },
+      });
+      expect(textOf(readResult).trim()).toBe(expectedBodies[i]);
+    }
+  });
+
+  test("vault_patch on the third occurrence's key edits only that section", async () => {
+    const mapResult = await client.callTool({
+      name: "vault_get_document_map",
+      arguments: { path: DUP_PATH },
+    });
+    const body = jsonOf<{ headings: Record<string, unknown> }>(mapResult);
+    const thirdKey = Object.keys(body.headings)[2];
+
+    const patchResult = await client.callTool({
+      name: "vault_patch",
+      arguments: {
+        path: DUP_PATH,
+        targetType: "heading",
+        target: [thirdKey],
+        operation: "replace",
+        content: "replaced third",
+      },
+    });
+    expect(patchResult.isError).toBeFalsy();
+
+    const readBody = jsonOf<{ content: string }>(
+      await client.callTool({ name: "vault_read", arguments: { path: DUP_PATH } })
+    );
+    expect(readBody.content).toContain("first");
+    expect(readBody.content).toContain("second");
+    expect(readBody.content).toContain("replaced third");
+    // The original (unreplaced) third section's body is gone — checked as a
+    // standalone line so it doesn't false-match inside "replaced third".
+    expect(readBody.content).not.toContain("\nthird\n");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Duplicate block-id addressing (uses its own path so it doesn't disturb the
+// shared fixture's block ids)
+// ---------------------------------------------------------------------------
+
+describe("duplicate block-id addressing", () => {
+  const DUP_BLOCK_PATH = `${TEST_DIR}/mcp-duplicate-blocks.md`;
+  const DUP_BLOCK_DOCUMENT = [
+    "first ^dup",
+    "",
+    "second ^dup",
+    "",
+    "third ^dup",
+    "",
+  ].join("\n");
+
+  beforeEach(async () => {
+    await resetFixture(DUP_BLOCK_DOCUMENT, DUP_BLOCK_PATH);
+  });
+
+  afterAll(async () => {
+    await deleteFixture(DUP_BLOCK_PATH).catch((_e: unknown): void => {});
+  });
+
+  test("the map lists a distinct entry per occurrence, each reachable via vault_read", async () => {
+    const mapResult = await client.callTool({
+      name: "vault_get_document_map",
+      arguments: { path: DUP_BLOCK_PATH },
+    });
+    const body = jsonOf<{ blocks: string[] }>(mapResult);
+    expect(body.blocks).toHaveLength(3);
+    // The first occurrence keeps its plain id; the exact form of the marker
+    // suffix on the others is an implementation detail — what matters is
+    // that they round-trip through the real MCP JSON transport intact and
+    // each resolves to its own block.
+    expect(body.blocks[0]).toBe("dup");
+    expect(body.blocks[1]).not.toBe("dup");
+    expect(body.blocks[2]).not.toBe("dup");
+    expect(body.blocks[2]).not.toBe(body.blocks[1]);
+
+    const expectedContent = ["first", "second", "third"];
+    for (let i = 0; i < body.blocks.length; i++) {
+      const readResult = await client.callTool({
+        name: "vault_read",
+        arguments: { path: DUP_BLOCK_PATH, targetType: "block", target: body.blocks[i] },
+      });
+      expect(textOf(readResult).trim()).toBe(expectedContent[i]);
+    }
+  });
+
+  test("vault_patch on the third occurrence's id edits only that block", async () => {
+    const mapResult = await client.callTool({
+      name: "vault_get_document_map",
+      arguments: { path: DUP_BLOCK_PATH },
+    });
+    const body = jsonOf<{ blocks: string[] }>(mapResult);
+    const thirdId = body.blocks[2];
+
+    const patchResult = await client.callTool({
+      name: "vault_patch",
+      arguments: {
+        path: DUP_BLOCK_PATH,
+        targetType: "block",
+        target: thirdId,
+        operation: "replace",
+        content: "replaced third",
+      },
+    });
+    expect(patchResult.isError).toBeFalsy();
+
+    const readBody = jsonOf<{ content: string }>(
+      await client.callTool({ name: "vault_read", arguments: { path: DUP_BLOCK_PATH } })
+    );
+    expect(readBody.content).toContain("first");
+    expect(readBody.content).toContain("second");
+    expect(readBody.content).toContain("replaced third");
+    // The original (unreplaced) third block's content is gone — checked as a
+    // standalone line so it doesn't false-match inside "replaced third ^dup".
+    expect(readBody.content).not.toContain("\nthird ^dup");
   });
 });
 
@@ -319,7 +501,7 @@ describe("vault_patch tool", () => {
       arguments: {
         path: TEST_PATH,
         targetType: "heading",
-        target: HEADING_DELTA,
+        target: [HEADING_DELTA],
         operation: "append",
         content: "mcp-patch-append\n",
       },
@@ -337,7 +519,7 @@ describe("vault_patch tool", () => {
       arguments: {
         path: TEST_PATH,
         targetType: "heading",
-        target: HEADING_DELTA,
+        target: [HEADING_DELTA],
         operation: "replace",
         content: "mcp-patch-replace\n",
       },
@@ -349,7 +531,7 @@ describe("vault_patch tool", () => {
     expect(body.content).not.toContain(TERM_DELTA);
   });
 
-  test("replaces a frontmatter field", async () => {
+  test("replaces a frontmatter field with a native JSON value", async () => {
     await client.callTool({
       name: "vault_patch",
       arguments: {
@@ -357,9 +539,7 @@ describe("vault_patch tool", () => {
         targetType: "frontmatter",
         target: "title",
         operation: "replace",
-        // Default contentType is text/markdown, so the string is stored verbatim.
-        // (application/json content is parsed into a native value — see below.)
-        content: "MCP Patched Title",
+        value: "MCP Patched Title",
       },
     });
     const body = jsonOf<any>(
@@ -368,7 +548,7 @@ describe("vault_patch tool", () => {
     expect(body.frontmatter?.title).toBe("MCP Patched Title");
   });
 
-  test("parses a stringified JSON array for application/json into a real list", async () => {
+  test("sets a frontmatter list from a native JSON array value", async () => {
     await client.callTool({
       name: "vault_patch",
       arguments: {
@@ -376,8 +556,7 @@ describe("vault_patch tool", () => {
         targetType: "frontmatter",
         target: "related",
         operation: "replace",
-        contentType: "application/json",
-        content: '["alpha","beta"]',
+        value: ["alpha", "beta"],
         createTargetIfMissing: true,
       },
     });
@@ -387,20 +566,54 @@ describe("vault_patch tool", () => {
     expect(body.frontmatter?.related).toEqual(["alpha", "beta"]);
   });
 
-  test("rejects malformed application/json content", async () => {
+  test("surfaces an error for an unresolvable target", async () => {
     const result = await client.callTool({
       name: "vault_patch",
       arguments: {
         path: TEST_PATH,
-        targetType: "frontmatter",
-        target: "related",
+        targetType: "heading",
+        target: ["NoSuchHeadingMcp"],
         operation: "replace",
-        contentType: "application/json",
-        content: "[[../plans/foo]]",
-        createTargetIfMissing: true,
+        content: "x",
       },
     });
     expect(result.isError).toBe(true);
+  });
+
+  test("within continues an existing block literally", async () => {
+    const result = await client.callTool({
+      name: "vault_patch",
+      arguments: {
+        path: TEST_PATH,
+        targetType: "heading",
+        target: ["Alpha"],
+        within: 0,
+        operation: "append",
+        content: " mcp-within-continued",
+      },
+    });
+    expect(result.isError).toBeFalsy();
+    const body = jsonOf<any>(
+      await client.callTool({ name: "vault_read", arguments: { path: TEST_PATH } })
+    );
+    // Continued on the same line: no library-supplied separator.
+    expect(body.content).toContain("#inline-tag mcp-within-continued");
+  });
+
+  test("an out-of-range within surfaces the engine's message", async () => {
+    const result = await client.callTool({
+      name: "vault_patch",
+      arguments: {
+        path: TEST_PATH,
+        targetType: "heading",
+        target: ["Alpha"],
+        within: 9,
+        operation: "append",
+        content: "x",
+      },
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toContain("out of range");
   });
 });
 

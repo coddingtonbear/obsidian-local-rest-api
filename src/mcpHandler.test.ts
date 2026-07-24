@@ -44,7 +44,6 @@ import { McpHandler } from "./mcpHandler";
 import { ErrorCode } from "./types";
 import { DEFAULT_SETTINGS } from "./constants";
 import { TFile } from "../mocks/obsidian";
-import { FrontmatterParseError, PatchFailed, PatchFailureReason } from "markdown-patch";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -84,10 +83,22 @@ function makeMockOps() {
       blocks: ["beta-block"],
       frontmatterFields: ["title", "priority"],
     }),
+    getDocumentMapV2Object: jest.fn().mockResolvedValue({
+      version: "abc123",
+      headings: { Alpha: { Subsection: {} } },
+      blocks: ["beta-block"],
+      frontmatterFields: ["title", "priority"],
+    }),
     readFileSection: jest.fn().mockResolvedValue("section content"),
+    readFileSectionMdp2: jest
+      .fn()
+      .mockResolvedValue({ kind: "heading", content: "section content" }),
     writeFileContent: jest.fn().mockResolvedValue(undefined),
     appendFileContent: jest.fn().mockResolvedValue(undefined),
     patchFileSection: jest.fn().mockResolvedValue("patched content"),
+    patchFileSectionMdp2: jest
+      .fn()
+      .mockResolvedValue({ document: "patched content", warnings: [] }),
     deleteVaultFile: jest.fn().mockResolvedValue(undefined),
     searchJsonLogic: jest
       .fn()
@@ -280,28 +291,98 @@ describe("McpHandler", () => {
       );
     });
 
-    test("calls readFileSection when targetType and target are provided", async () => {
+    test("calls readFileSectionMdp2 with an array heading address", async () => {
       const cb = getToolCallback("vault_read");
-      const result = await cb({ path: "test.md", targetType: "heading", target: "Alpha" });
-      expect(ops.readFileSection).toHaveBeenCalledWith(
+      const result = await cb({
+        path: "test.md",
+        targetType: "heading",
+        target: ["Alpha", "Subsection"],
+      });
+      expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
         expect.objectContaining({ path: "test.md" }),
-        "heading",
-        "Alpha",
-        undefined,
+        { targetType: "heading", target: ["Alpha", "Subsection"] },
       );
       expect(ops.getFileMetadataObject).not.toHaveBeenCalled();
       expect(parseText(result)).toBe("section content");
     });
 
-    test("passes targetDelimiter to readFileSection", async () => {
+    test("passes scope through to the read address", async () => {
       const cb = getToolCallback("vault_read");
-      await cb({ path: "test.md", targetType: "heading", target: "A>B", targetDelimiter: ">" });
-      expect(ops.readFileSection).toHaveBeenCalledWith(
+      await cb({
+        path: "test.md",
+        targetType: "heading",
+        target: ["Alpha"],
+        scope: "markerAndContent",
+      });
+      expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
         expect.anything(),
-        "heading",
-        "A>B",
-        ">",
+        {
+          targetType: "heading",
+          target: ["Alpha"],
+          scope: "markerAndContent",
+        },
       );
+    });
+
+    test("rejects scope without a target", async () => {
+      const cb = getToolCallback("vault_read");
+      await expect(
+        cb({ path: "test.md", scope: "marker" }),
+      ).rejects.toThrow("scope requires targetType and target");
+    });
+
+    test("passes a duplicate-heading marker suffix through a target segment unchanged", async () => {
+      const cb = getToolCallback("vault_read");
+      const disambiguated = "Alpha\u{FC750}\u{F6440}";
+      await cb({
+        path: "test.md",
+        targetType: "heading",
+        target: [disambiguated],
+      });
+      expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
+        expect.anything(),
+        { targetType: "heading", target: [disambiguated] },
+      );
+    });
+
+    test("rejects a bare string heading target", async () => {
+      const cb = getToolCallback("vault_read");
+      await expect(
+        cb({ path: "test.md", targetType: "heading", target: "Alpha" }),
+      ).rejects.toThrow("must be an array");
+    });
+
+    test("passes a block target through as a string", async () => {
+      const cb = getToolCallback("vault_read");
+      await cb({ path: "test.md", targetType: "block", target: "beta-block" });
+      expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
+        expect.anything(),
+        { targetType: "block", target: "beta-block" },
+      );
+    });
+
+    test("passes a duplicate-block marker suffix through a block target unchanged", async () => {
+      const cb = getToolCallback("vault_read");
+      const disambiguated = "beta-block\u{FC750}\u{F6440}";
+      await cb({ path: "test.md", targetType: "block", target: disambiguated });
+      expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
+        expect.anything(),
+        { targetType: "block", target: disambiguated },
+      );
+    });
+
+    test("returns a frontmatter value from readFileSectionMdp2", async () => {
+      ops.readFileSectionMdp2.mockResolvedValueOnce({ kind: "frontmatter", value: 3 });
+      const cb = getToolCallback("vault_read");
+      const result = await cb({ path: "test.md", targetType: "frontmatter", target: "priority" });
+      expect(parseText(result)).toBe(3);
+    });
+
+    test("rejects an array target for a non-heading targetType", async () => {
+      const cb = getToolCallback("vault_read");
+      await expect(
+        cb({ path: "test.md", targetType: "block", target: ["a", "b"] }),
+      ).rejects.toThrow("must be a string, not an array");
     });
 
     test("throws when targetType is provided without target", async () => {
@@ -322,12 +403,13 @@ describe("McpHandler", () => {
   // ---- vault_get_document_map ---------------------------------------------
 
   describe("vault_get_document_map", () => {
-    test("calls getDocumentMapObject and returns the map", async () => {
+    test("calls getDocumentMapV2Object and returns the 2.0 heading tree and version", async () => {
       const cb = getToolCallback("vault_get_document_map");
       const result = await cb({ path: "test.md" });
-      expect(ops.getDocumentMapObject).toHaveBeenCalled();
+      expect(ops.getDocumentMapV2Object).toHaveBeenCalled();
       const body = parseText(result);
-      expect(body.headings).toEqual(["Alpha", "Alpha::Subsection"]);
+      expect(body.version).toBe("abc123");
+      expect(body.headings).toEqual({ Alpha: { Subsection: {} } });
       expect(body.blocks).toEqual(["beta-block"]);
       expect(body.frontmatterFields).toEqual(["title", "priority"]);
     });
@@ -336,6 +418,34 @@ describe("McpHandler", () => {
       ops.app.vault.getAbstractFileByPath.mockReturnValue(null);
       const cb = getToolCallback("vault_get_document_map");
       await expect(cb({ path: "missing.md" })).rejects.toThrow("File not found");
+    });
+
+    test("returns a duplicate heading's marker-suffixed key unmodified", async () => {
+      const disambiguated = "Alpha\u{FC750}\u{F6440}";
+      ops.getDocumentMapV2Object.mockResolvedValueOnce({
+        version: "abc123",
+        headings: { Alpha: {}, [disambiguated]: {} },
+        blocks: [],
+        frontmatterFields: [],
+      });
+      const cb = getToolCallback("vault_get_document_map");
+      const result = await cb({ path: "test.md" });
+      const body = parseText(result);
+      expect(Object.keys(body.headings)).toEqual(["Alpha", disambiguated]);
+    });
+
+    test("returns a duplicate block's marker-suffixed entry unmodified", async () => {
+      const disambiguated = "dup\u{FC750}\u{F6440}";
+      ops.getDocumentMapV2Object.mockResolvedValueOnce({
+        version: "abc123",
+        headings: {},
+        blocks: ["dup", disambiguated],
+        frontmatterFields: [],
+      });
+      const cb = getToolCallback("vault_get_document_map");
+      const result = await cb({ path: "test.md" });
+      const body = parseText(result);
+      expect(body.blocks).toEqual(["dup", disambiguated]);
     });
   });
 
@@ -359,232 +469,214 @@ describe("McpHandler", () => {
 
   // ---- vault_patch --------------------------------------------------------
 
-  test("vault_patch calls patchFileSection with correct args", async () => {
+  test("vault_patch builds a heading content instruction and calls patchFileSectionMdp2", async () => {
     const cb = getToolCallback("vault_patch");
     await cb({
       path: "out.md",
       targetType: "heading",
-      target: "Introduction",
+      target: ["Overview", "Details"],
       operation: "append",
       content: "new text",
-      contentType: "text/markdown",
     });
-    expect(ops.patchFileSection).toHaveBeenCalledWith(
-      "out.md",
-      "heading",
-      "Introduction",
-      "append",
-      "new text",
-      "text/markdown",
-      expect.objectContaining({}),
-    );
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "heading",
+      target: ["Overview", "Details"],
+      operation: "append",
+      content: "new text",
+    });
   });
 
-  test("vault_patch passes rejectIfContentPreexists to patchFileSection", async () => {
+  test("vault_patch passes a duplicate-heading marker suffix through a target segment unchanged", async () => {
+    const cb = getToolCallback("vault_patch");
+    const disambiguated = "Overview\u{FC750}\u{F6440}";
+    await cb({
+      path: "out.md",
+      targetType: "heading",
+      target: [disambiguated],
+      operation: "append",
+      content: "new text",
+    });
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "heading",
+      target: [disambiguated],
+      operation: "append",
+      content: "new text",
+    });
+  });
+
+  test("vault_patch passes a duplicate-block marker suffix through a block target unchanged", async () => {
+    const cb = getToolCallback("vault_patch");
+    const disambiguated = "dup\u{FC750}\u{F6440}";
+    await cb({
+      path: "out.md",
+      targetType: "block",
+      target: disambiguated,
+      operation: "replace",
+      content: "new text",
+    });
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "block",
+      target: disambiguated,
+      operation: "replace",
+      content: "new text",
+    });
+  });
+
+  test("vault_patch omits absent optional fields from the instruction", async () => {
     const cb = getToolCallback("vault_patch");
     await cb({
       path: "out.md",
       targetType: "heading",
-      target: "Introduction",
+      target: ["A"],
+      operation: "replace",
+      content: "x",
+    });
+    const instruction = ops.patchFileSectionMdp2.mock.calls[0][1];
+    expect(instruction).not.toHaveProperty("scope");
+    expect(instruction).not.toHaveProperty("value");
+    expect(instruction).not.toHaveProperty("destination");
+    expect(instruction).not.toHaveProperty("ifMatch");
+    expect(instruction).not.toHaveProperty("within");
+  });
+
+  test("vault_patch passes within through to the instruction, including 0 and negatives", async () => {
+    const cb = getToolCallback("vault_patch");
+    for (const within of [0, -1]) {
+      await cb({
+        path: "out.md",
+        targetType: "heading",
+        target: ["Log"],
+        within,
+        operation: "append",
+        content: "\n- item",
+      });
+      expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+        targetType: "heading",
+        target: ["Log"],
+        within,
+        operation: "append",
+        content: "\n- item",
+      });
+    }
+  });
+
+  test("vault_patch passes a frontmatter value as native JSON (not a string)", async () => {
+    const cb = getToolCallback("vault_patch");
+    await cb({
+      path: "out.md",
+      targetType: "frontmatter",
+      target: "related",
+      operation: "replace",
+      value: ["alpha", "beta"],
+    });
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "frontmatter",
+      target: "related",
+      operation: "replace",
+      value: ["alpha", "beta"],
+    });
+  });
+
+  test("vault_patch passes a block table-row value as native JSON (not a string)", async () => {
+    const cb = getToolCallback("vault_patch");
+    await cb({
+      path: "out.md",
+      targetType: "block",
+      target: "2c7cfa",
       operation: "append",
-      content: "new text",
+      value: [["Chicago, IL", "16"]],
+    });
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "block",
+      target: "2c7cfa",
+      operation: "append",
+      value: [["Chicago, IL", "16"]],
+    });
+  });
+
+  test("vault_patch forwards scope, ifMatch, and creation flags", async () => {
+    const cb = getToolCallback("vault_patch");
+    await cb({
+      path: "out.md",
+      targetType: "heading",
+      target: ["A"],
+      operation: "replace",
+      scope: "marker",
+      content: "Renamed",
+      ifMatch: "v1",
+      createTargetIfMissing: true,
       rejectIfContentPreexists: true,
     });
-    expect(ops.patchFileSection).toHaveBeenCalledWith(
-      "out.md",
-      "heading",
-      "Introduction",
-      "append",
-      "new text",
-      "text/markdown",
-      expect.objectContaining({ rejectIfContentPreexists: true }),
-    );
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "heading",
+      target: ["A"],
+      operation: "replace",
+      scope: "marker",
+      content: "Renamed",
+      ifMatch: "v1",
+      createTargetIfMissing: true,
+      rejectIfContentPreexists: true,
+    });
   });
 
-
-  test("vault_patch passes targetScope to patchFileSection", async () => {
+  test("vault_patch forwards a move destination", async () => {
     const cb = getToolCallback("vault_patch");
     await cb({
       path: "out.md",
       targetType: "heading",
-      target: "Introduction",
+      target: ["Overview", "Details"],
       operation: "replace",
-      content: "## New Heading",
-      targetScope: "marker",
+      scope: "parent",
+      destination: { parent: ["Appendix"], place: "last" },
     });
-    expect(ops.patchFileSection).toHaveBeenCalledWith(
-      "out.md",
-      "heading",
-      "Introduction",
-      "replace",
-      "## New Heading",
-      "text/markdown",
-      expect.objectContaining({ targetScope: "marker" }),
-    );
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "heading",
+      target: ["Overview", "Details"],
+      operation: "replace",
+      scope: "parent",
+      destination: { parent: ["Appendix"], place: "last" },
+    });
   });
 
-  test("vault_patch rejects targetType frontmatter combined with a non-content targetScope", async () => {
+  test("vault_patch reports OK on success", async () => {
     const cb = getToolCallback("vault_patch");
-    await expect(
-      cb({
-        path: "out.md",
-        targetType: "frontmatter",
-        target: "title",
-        operation: "replace",
-        content: '"New Title"',
-        contentType: "application/json",
-        targetScope: "marker",
-      }),
-    ).rejects.toThrow(/targetScope/);
-    expect(ops.patchFileSection).not.toHaveBeenCalled();
-  });
-
-  test("vault_patch allows targetType frontmatter with targetScope content", async () => {
-    const cb = getToolCallback("vault_patch");
-    await cb({
+    const result = await cb({
       path: "out.md",
-      targetType: "frontmatter",
-      target: "title",
+      targetType: "heading",
+      target: ["A"],
       operation: "replace",
-      content: '"New Title"',
-      contentType: "application/json",
-      targetScope: "content",
+      content: "x",
     });
-    expect(ops.patchFileSection).toHaveBeenCalledWith(
-      "out.md",
-      "frontmatter",
-      "title",
-      "replace",
-      "New Title",
-      "application/json",
-      expect.objectContaining({ targetScope: "content" }),
-    );
+    expect(parseText(result).message).toBe("OK");
   });
 
-  test("vault_patch surfaces PatchFailed message as error", async () => {
+  test("vault_patch surfaces engine warnings in the result", async () => {
+    ops.patchFileSectionMdp2.mockResolvedValueOnce({
+      document: "patched",
+      warnings: [{ code: "heading-depth-overflow", message: "too deep" }],
+    });
     const cb = getToolCallback("vault_patch");
-    const err = new PatchFailed(PatchFailureReason.InvalidTarget, { targetType: "heading", target: ["NoSuch"], operation: "append", content: "x" } as any, null);
-    ops.patchFileSection.mockRejectedValueOnce(err);
-    await expect(
-      cb({ path: "out.md", targetType: "heading", target: "NoSuch", operation: "append", content: "x" }),
-    ).rejects.toThrow(err.message);
-  });
-
-  test("vault_patch re-throws non-PatchFailed errors unchanged", async () => {
-    const cb = getToolCallback("vault_patch");
-    const boom = new Error("disk full");
-    ops.patchFileSection.mockRejectedValueOnce(boom);
-    await expect(
-      cb({ path: "out.md", targetType: "heading", target: "Alpha", operation: "append", content: "x" }),
-    ).rejects.toThrow("disk full");
-  });
-
-  test("vault_patch surfaces FrontmatterParseError message as error", async () => {
-    const cb = getToolCallback("vault_patch");
-    const err = new FrontmatterParseError("YAML parse error on line 2: nested mappings are not allowed");
-    ops.patchFileSection.mockRejectedValueOnce(err);
-    await expect(
-      cb({ path: "out.md", targetType: "heading", target: "Heading1", operation: "append", content: "x" }),
-    ).rejects.toThrow(err.message);
-  });
-
-  test("vault_patch parses a stringified JSON array for application/json into a native array", async () => {
-    const cb = getToolCallback("vault_patch");
-    await cb({
+    const result = await cb({
       path: "out.md",
-      targetType: "frontmatter",
-      target: "related",
+      targetType: "heading",
+      target: ["A"],
       operation: "replace",
-      content: '["alpha","beta"]',
-      contentType: "application/json",
+      content: "####### x",
     });
-    expect(ops.patchFileSection).toHaveBeenCalledWith(
-      "out.md",
-      "frontmatter",
-      "related",
-      "replace",
-      ["alpha", "beta"],
-      "application/json",
-      expect.objectContaining({}),
-    );
+    const payload = parseText(result);
+    expect(payload.message).toBe("OK");
+    expect(payload.warnings).toHaveLength(1);
+    expect(payload.warnings[0].code).toBe("heading-depth-overflow");
   });
 
-  test("vault_patch parses a stringified JSON null for application/json into native null", async () => {
+  test("vault_patch surfaces engine error messages", async () => {
     const cb = getToolCallback("vault_patch");
-    await cb({
-      path: "out.md",
-      targetType: "frontmatter",
-      target: "tags",
-      operation: "replace",
-      content: "null",
-      contentType: "application/json",
-    });
-    expect(ops.patchFileSection).toHaveBeenCalledWith(
-      "out.md",
-      "frontmatter",
-      "tags",
-      "replace",
-      null,
-      "application/json",
-      expect.objectContaining({}),
+    ops.patchFileSectionMdp2.mockRejectedValueOnce(
+      new Error("could not resolve heading target"),
     );
-  });
-
-  test("vault_patch parses a JSON-encoded scalar string for application/json without double-encoding", async () => {
-    const cb = getToolCallback("vault_patch");
-    await cb({
-      path: "out.md",
-      targetType: "frontmatter",
-      target: "plan",
-      operation: "replace",
-      content: '"[[../plans/foo]]"',
-      contentType: "application/json",
-    });
-    expect(ops.patchFileSection).toHaveBeenCalledWith(
-      "out.md",
-      "frontmatter",
-      "plan",
-      "replace",
-      "[[../plans/foo]]",
-      "application/json",
-      expect.objectContaining({}),
-    );
-  });
-
-  test("vault_patch throws on malformed application/json string content and does not patch", async () => {
-    const cb = getToolCallback("vault_patch");
     await expect(
-      cb({
-        path: "out.md",
-        targetType: "frontmatter",
-        target: "plan",
-        operation: "replace",
-        content: "[[../plans/foo]]",
-        contentType: "application/json",
-      }),
-    ).rejects.toThrow(/json/i);
-    expect(ops.patchFileSection).not.toHaveBeenCalled();
-  });
-
-  test("vault_patch does not parse string content for text/markdown", async () => {
-    const cb = getToolCallback("vault_patch");
-    await cb({
-      path: "out.md",
-      targetType: "frontmatter",
-      target: "related",
-      operation: "replace",
-      content: '["alpha","beta"]',
-      contentType: "text/markdown",
-    });
-    expect(ops.patchFileSection).toHaveBeenCalledWith(
-      "out.md",
-      "frontmatter",
-      "related",
-      "replace",
-      '["alpha","beta"]',
-      "text/markdown",
-      expect.objectContaining({}),
-    );
+      cb({ path: "out.md", targetType: "heading", target: ["NoSuch"], operation: "replace", content: "x" }),
+    ).rejects.toThrow("could not resolve heading target");
   });
 
   // ---- vault_delete -------------------------------------------------------
