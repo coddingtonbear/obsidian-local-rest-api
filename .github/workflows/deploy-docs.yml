@@ -24,8 +24,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
       - name: Install jsonnet
         run: sudo apt-get install -y jsonnet
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Build docs
         run: npm run build-docs
