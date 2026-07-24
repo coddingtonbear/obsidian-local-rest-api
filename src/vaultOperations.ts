@@ -8,7 +8,6 @@ import {
   prepareSimpleSearch,
   TFile,
 } from "obsidian";
-import * as periodicNotes from "obsidian-daily-notes-interface";
 import path from "path";
 import {
   applyPatch,
@@ -30,12 +29,12 @@ import type {
   ReadTarget,
   ReadResult,
 } from "markdown-patch-2";
- 
+
 const jsonLogic = require("json-logic-js") as {
   apply: (logic: unknown, data?: unknown) => unknown;
   add_operation: (name: string, code: (...args: unknown[]) => unknown) => void;
 };
- 
+
 const WildcardRegexp = require("glob-to-regexp") as (pattern: string) => RegExp;
 
 export class FileNotFoundError extends Error {}
@@ -46,15 +45,18 @@ import {
   DocumentMapObject,
   ErrorCode,
   FileMetadataObject,
+  LocalRestApiSettings,
   PeriodicNoteInterface,
+  PeriodicNotePeriod,
   SearchContext,
   SearchJsonResponseItem,
   SearchResponseItem,
 } from "./types";
+import { buildPeriodicNoteInterface } from "./periodicNotes";
 import { toArrayBuffer } from "./utils";
 
 export class VaultOperations {
-  constructor(readonly app: App) {
+  constructor(readonly app: App, readonly settings: LocalRestApiSettings) {
     jsonLogic.add_operation(
       "glob",
       (pattern: string | undefined, field: string | undefined) => {
@@ -560,57 +562,28 @@ export class VaultOperations {
     return result;
   }
 
-  getPeriodicNoteInterface(): Record<string, PeriodicNoteInterface> {
-    return {
-      daily: {
-        settings: periodicNotes.getDailyNoteSettings(),
-        loaded: periodicNotes.appHasDailyNotesPluginLoaded(),
-        create: periodicNotes.createDailyNote,
-        get: periodicNotes.getDailyNote,
-        getAll: periodicNotes.getAllDailyNotes,
-      },
-      weekly: {
-        settings: periodicNotes.getWeeklyNoteSettings(),
-        loaded: periodicNotes.appHasWeeklyNotesPluginLoaded(),
-        create: periodicNotes.createWeeklyNote,
-        get: periodicNotes.getWeeklyNote,
-        getAll: periodicNotes.getAllWeeklyNotes,
-      },
-      monthly: {
-        settings: periodicNotes.getMonthlyNoteSettings(),
-        loaded: periodicNotes.appHasMonthlyNotesPluginLoaded(),
-        create: periodicNotes.createMonthlyNote,
-        get: periodicNotes.getMonthlyNote,
-        getAll: periodicNotes.getAllMonthlyNotes,
-      },
-      quarterly: {
-        settings: periodicNotes.getQuarterlyNoteSettings(),
-        loaded: periodicNotes.appHasQuarterlyNotesPluginLoaded(),
-        create: periodicNotes.createQuarterlyNote,
-        get: periodicNotes.getQuarterlyNote,
-        getAll: periodicNotes.getAllQuarterlyNotes,
-      },
-      yearly: {
-        settings: periodicNotes.getYearlyNoteSettings(),
-        loaded: periodicNotes.appHasYearlyNotesPluginLoaded(),
-        create: periodicNotes.createYearlyNote,
-        get: periodicNotes.getYearlyNote,
-        getAll: periodicNotes.getAllYearlyNotes,
-      },
-    };
+  getPeriodicNoteInterface(): Record<PeriodicNotePeriod, PeriodicNoteInterface> {
+    const periods: PeriodicNotePeriod[] = ["daily", "weekly", "monthly", "quarterly", "yearly"];
+    return Object.fromEntries(
+      periods.map((period) => [
+        period,
+        buildPeriodicNoteInterface(this.app, period, this.settings.periodicNotes?.[period]),
+      ]),
+    ) as Record<PeriodicNotePeriod, PeriodicNoteInterface>;
   }
 
   periodicGetInterface(
     period: string,
   ): [PeriodicNoteInterface | null, ErrorCode | null] {
-    const periodic = this.getPeriodicNoteInterface();
-    if (!periodic[period]) {
+    const periodic = this.getPeriodicNoteInterface() as Record<string, PeriodicNoteInterface | undefined>;
+    const match = periodic[period];
+    if (!match) {
       return [null, ErrorCode.PeriodDoesNotExist];
     }
-    if (!periodic[period].loaded) {
+    if (!match.loaded) {
       return [null, ErrorCode.PeriodIsNotEnabled];
     }
-    return [periodic[period], null];
+    return [match, null];
   }
 
   periodicGetNote(
