@@ -27,6 +27,12 @@ export default defineConfig([
       // false positives for ambient Obsidian types in declare-module blocks.
       "no-undef": "off",
 
+      // The settings tab deliberately uses the pre-1.13 imperative settings
+      // APIs (display, setWarning) so the plugin can run on Obsidian 1.8.7+
+      // while 1.13 remains early-access-only. Remove this override when the
+      // declarative settings tab is restored.
+      "@typescript-eslint/no-deprecated": "warn",
+
       "@typescript-eslint/no-unsafe-argument": "error",
       "@typescript-eslint/no-unsafe-assignment": "error",
       "@typescript-eslint/no-unsafe-call": "error",

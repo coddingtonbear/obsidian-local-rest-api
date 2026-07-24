@@ -1,10 +1,8 @@
 import {
   App,
-  ConfirmationModal,
   Plugin,
   PluginSettingTab,
   Setting,
-  SettingDefinitionItem,
 } from "obsidian";
 import * as https from "https";
 import * as http from "http";
@@ -259,6 +257,7 @@ export default class LocalRestApi extends Plugin {
 
 class LocalRestApiSettingTab extends PluginSettingTab {
   plugin: LocalRestApi;
+  showAdvancedSettings = false;
 
   constructor(app: App, plugin: LocalRestApi) {
     super(app, plugin);
@@ -560,355 +559,275 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     }
   }
 
-  private confirmDestructiveAction(options: {
-    title: string;
-    message: string;
-    confirmText: string;
-    onConfirm: () => void;
-  }): void {
-    const modal = new ConfirmationModal(this.app);
-    modal.titleEl.setText(options.title);
-    modal.contentEl.createEl("p", { text: options.message });
-    modal.addButton((btn) => {
-      btn.setButtonText(options.confirmText)
-        .setDestructive()
-        .onClick(() => {
-          options.onConfirm();
-        });
-    });
-    modal.addCancelButton();
-    modal.open();
-  }
+  display(): void {
+    const { containerEl } = this;
+    containerEl.empty();
+    containerEl.classList.add("obsidian-local-rest-api-settings");
 
-  getSettingDefinitions(): SettingDefinitionItem[] {
-    this.containerEl.classList.add("obsidian-local-rest-api-settings");
+    this.renderConnectionInfo(containerEl);
+    this.renderMcpInfo(containerEl);
 
-    const { remainingCertificateValidityDays, shouldRegenerateCertificate } =
-      this.getCertificateStatus();
+    new Setting(containerEl).setHeading().setName("Settings");
 
-    const certificateDisplayValue = (): string => {
-      if (remainingCertificateValidityDays === null) return "";
-      if (remainingCertificateValidityDays < 0) return "Expired";
-      if (remainingCertificateValidityDays < 30) {
-        const days = Math.floor(remainingCertificateValidityDays);
-        return `Expires in ${days} day${days === 1 ? "" : "s"}`;
-      }
-      if (shouldRegenerateCertificate) return "Should be regenerated";
-      return "Valid";
-    };
+    this.renderCertificateWarnings(containerEl);
 
-    return [
-      {
-        type: "group",
-        items: [
-          {
-            name: "Connection information",
-            desc: "REST and MCP connection URLs and API key.",
-            render: (setting) => {
-              setting.settingEl.empty();
-              setting.settingEl.addClass("full-width-setting");
-              this.renderConnectionInfo(setting.settingEl);
-              this.renderMcpInfo(setting.settingEl);
-            },
-          },
-        ],
-      },
-      {
-        type: "group",
-        heading: "Settings",
-        items: [
-          {
-            name: "Enable non-encrypted (HTTP) server",
-            desc: "Enables a non-encrypted (HTTP) server on the port designated below.  By default this plugin requires a secure HTTPS connection, but in safe environments you may turn on the non-encrypted server to simplify interacting with the API. Interactions with the API will still require the API key shown above.  Under no circumstances is it recommended that you expose this service to the internet, especially if you turn on this feature!",
-            control: { type: "toggle", key: "enableInsecureServer" },
-          },
-          {
-            type: "page",
-            name: "Certificates",
-            desc: "Regenerate certificates and edit certificate hostnames, key material, and the API key.",
-            displayValue: certificateDisplayValue,
-            status: shouldRegenerateCertificate ? "warning" : null,
-            items: this.getCertificateSettingDefinitions(),
-          },
-          {
-            name: "Reset all cryptography",
-            desc: "Regenerates your certificate, private key, public key, and API key. This settings panel will be closed when you confirm.",
-            render: (setting) => {
-              setting.addButton((cb) => {
-                cb.setButtonText("Reset all crypto")
-                  .setDestructive()
-                  .onClick(() => {
-                    this.confirmDestructiveAction({
-                      title: "Reset all cryptography?",
-                      message: "This regenerates your certificate, private key, public key, and API key, and closes this settings panel. This cannot be undone.",
-                      confirmText: "Reset all crypto",
-                      onConfirm: () => {
-                        delete this.plugin.settings.apiKey;
-                        delete this.plugin.settings.crypto;
-                        void this.plugin.saveSettings();
-                        this.plugin.unload();
-                        this.plugin.load();
-                      },
-                    });
-                  });
-              });
-            },
-          },
-          {
-            name: "Restore default settings",
-            desc: "Resets this plugin's settings to defaults. This settings panel will be closed when you confirm.",
-            render: (setting) => {
-              setting.addButton((cb) => {
-                cb.setButtonText("Restore defaults")
-                  .setDestructive()
-                  .onClick(() => {
-                    this.confirmDestructiveAction({
-                      title: "Restore default settings?",
-                      message: "This resets this plugin's settings to defaults and closes this settings panel. This cannot be undone.",
-                      confirmText: "Restore defaults",
-                      onConfirm: () => {
-                        this.plugin.settings = Object.assign({}, DEFAULT_SETTINGS);
-                        void this.plugin.saveSettings();
-                        this.plugin.unload();
-                        this.plugin.load();
-                      },
-                    });
-                  });
-              });
-            },
-          },
-          {
-            type: "page",
-            name: "Advanced settings",
-            desc: "Advanced settings are dangerous and may make your environment less secure.",
-            items: this.getAdvancedSettingDefinitions(),
-          },
-        ],
-      },
-    ];
-  }
+    new Setting(containerEl)
+      .setName("Enable non-encrypted (HTTP) server")
+      .setDesc(
+        "Enables a non-encrypted (HTTP) server on the port designated below.  By default this plugin requires a secure HTTPS connection, but in safe environments you may turn on the non-encrypted server to simplify interacting with the API. Interactions with the API will still require the API key shown above.  Under no circumstances is it recommended that you expose this service to the internet, especially if you turn on this feature!"
+      )
+      .addToggle((cb) =>
+        cb
+          .onChange((value) => {
+            const originalValue = this.plugin.settings.enableInsecureServer;
+            this.plugin.settings.enableInsecureServer = value;
+            void this.plugin.saveSettings();
+            this.plugin.refreshServerState();
+            if (value !== originalValue) {
+              this.display();
+            }
+          })
+          .setValue(this.plugin.settings.enableInsecureServer)
+      );
 
-  private getAdvancedSettingDefinitions(): SettingDefinitionItem[] {
-    return [
-      {
-        name: "License",
-        render: (setting) => {
-          setting.settingEl.empty();
-          setting.settingEl.addClass("full-width-setting");
-          setting.settingEl.createEl("p", {
-            text: `
-              The settings below are potentially dangerous and
-              are intended for use only by people who know what
-              they are doing. Do not change any of these settings if
-              you do not understand what that setting is used for
-              and what security impacts changing that setting will have.
-            `,
+    new Setting(containerEl)
+      .setName("Reset all cryptography")
+      .setDesc(
+        "Pressing this button will cause your certificate, private key, public key, and API key to be regenerated. This settings panel will be closed when you press this."
+      )
+      .addButton((cb) => {
+        cb.setWarning()
+          .setButtonText("Reset all crypto")
+          .onClick(() => {
+            delete this.plugin.settings.apiKey;
+            delete this.plugin.settings.crypto;
+            void this.plugin.saveSettings();
+            this.plugin.unload();
+            this.plugin.load();
           });
-          const noWarrantee = setting.settingEl.createEl("p");
-          noWarrantee.createSpan({
-            text: `
-              Use of this software is licensed to you under the
-              MIT license, and it is important that you understand that
-              this license provides you with no warranty.
-              For the complete license text please see
-            `,
-          });
-          noWarrantee.createEl("a", {
-            href: LicenseUrl,
-            text: LicenseUrl,
-          });
-          noWarrantee.createSpan({ text: "." });
-        },
-      },
-      {
-        name: "Enable encrypted (HTTPS) server",
-        desc: "This controls whether the HTTPS server is enabled.  You almost certainly want to leave this switch in its default state ('on'), but may find it useful to turn this switch off for troubleshooting.",
-        control: { type: "toggle", key: "enableSecureServer" },
-      },
-      {
-        name: "Encrypted (HTTPS) server port",
-        desc: "This configures the port on which your REST API will listen for HTTPS connections.  It is recommended that you leave this port with its default setting as tools integrating with this API may expect the default port to be in use.  Under no circumstances is it recommended that you expose this service directly to the internet.",
-        control: { type: "number", key: "port", min: 1, max: 65535 },
-      },
-      {
-        name: "Non-encrypted (HTTP) server port",
-        control: { type: "number", key: "insecurePort", min: 1, max: 65535 },
-      },
-      {
-        name: "API key",
-        control: { type: "text", key: "apiKey" },
-      },
-      {
-        name: "Authorization header",
-        control: { type: "text", key: "authorizationHeaderName" },
-      },
-      {
-        name: "Binding host",
-        control: { type: "text", key: "bindingHost" },
-      },
-      {
-        name: "Enable verbose logging",
-        desc: "When enabled, logs server startup messages and a one-line access log entry for every request to the browser console.",
-        control: { type: "toggle", key: "enableVerboseLogging" },
-      },
-    ];
-  }
+      });
 
-  private getCertificateSettingDefinitions(): SettingDefinitionItem[] {
-    return [
-      {
-        name: "Certificate status",
-        render: (setting) => {
-          setting.settingEl.empty();
-          setting.settingEl.addClass("full-width-setting");
-          this.renderCertificateWarnings(setting.settingEl);
-        },
-      },
-      {
-        name: "Re-generate certificates",
-        desc: "Regenerates your certificate, private key, and public key; your API key remains unchanged. This settings panel will be closed when you press this.",
-        render: (setting) => {
-          setting.addButton((cb) => {
-            cb.setButtonText("Re-generate certificates")
-              .setDestructive()
-              .onClick(() => {
-                delete this.plugin.settings.crypto;
-                void this.plugin.saveSettings();
-                this.plugin.unload();
-                this.plugin.load();
-              });
+    new Setting(containerEl)
+      .setName("Re-generate certificates")
+      .setDesc(
+        "Pressing this button will cause your certificate, private key, and public key to be re-generated, but your API key will remain unchanged. This settings panel will be closed when you press this."
+      )
+      .addButton((cb) => {
+        cb.setWarning()
+          .setButtonText("Re-generate certificates")
+          .onClick(() => {
+            delete this.plugin.settings.crypto;
+            void this.plugin.saveSettings();
+            this.plugin.unload();
+            this.plugin.load();
           });
-        },
-      },
-      {
-        name: "Certificate hostnames",
-        desc: 'List of extra hostnames to add to your certificate\'s `subjectAltName` field. One hostname per line. You must click the "Re-generate certificates" button above after changing this value for this to have an effect.  This is useful for situations in which you are accessing Obsidian from a hostname other than the host on which it is running.',
-        control: { type: "textarea", key: "subjectAltNames" },
-      },
-      {
-        name: "Certificate",
-        control: { type: "textarea", key: "cryptoCert" },
-      },
-      {
-        name: "Public key",
-        control: { type: "textarea", key: "cryptoPublicKey" },
-      },
-      {
-        name: "Private key",
-        control: { type: "textarea", key: "cryptoPrivateKey" },
-      },
-    ];
-  }
+      });
 
-  getControlValue(key: string): unknown {
-    switch (key) {
-      case "enableInsecureServer":
-        return this.plugin.settings.enableInsecureServer;
-      case "enableSecureServer":
-        return this.plugin.settings.enableSecureServer ?? true;
-      case "port":
-        return this.plugin.settings.port;
-      case "insecurePort":
-        return this.plugin.settings.insecurePort;
-      case "apiKey":
-        return this.plugin.settings.apiKey ?? "";
-      case "subjectAltNames":
-        return this.plugin.settings.subjectAltNames ?? "";
-      case "cryptoCert":
-        return this.plugin.settings.crypto?.cert ?? "";
-      case "cryptoPublicKey":
-        return this.plugin.settings.crypto?.publicKey ?? "";
-      case "cryptoPrivateKey":
-        return this.plugin.settings.crypto?.privateKey ?? "";
-      case "authorizationHeaderName":
-        return (
-          this.plugin.settings.authorizationHeaderName ??
-          DefaultBearerTokenHeaderName
-        );
-      case "bindingHost":
-        return this.plugin.settings.bindingHost ?? DefaultBindingHost;
-      case "enableVerboseLogging":
-        return this.plugin.settings.enableVerboseLogging ?? false;
-      default:
-        return undefined;
+    new Setting(containerEl)
+      .setName("Restore default settings")
+      .setDesc(
+        "Pressing this button will reset this plugin's settings to defaults. This settings panel will be closed when you press this."
+      )
+      .addButton((cb) => {
+        cb.setWarning()
+          .setButtonText("Restore defaults")
+          .onClick(() => {
+            this.plugin.settings = Object.assign({}, DEFAULT_SETTINGS);
+            void this.plugin.saveSettings();
+            this.plugin.unload();
+            this.plugin.load();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Show advanced settings")
+      .setDesc(
+        "Advanced settings are dangerous and may make your environment less secure."
+      )
+      .addToggle((cb) => {
+        cb.onChange((value) => {
+          if (this.showAdvancedSettings !== value) {
+            this.showAdvancedSettings = value;
+            this.display();
+          }
+        }).setValue(this.showAdvancedSettings);
+      });
+
+    if (this.showAdvancedSettings) {
+      this.renderAdvancedSettings(containerEl);
     }
   }
 
-  async setControlValue(key: string, value: unknown): Promise<void> {
-    switch (key) {
-      case "enableInsecureServer":
-        this.plugin.settings.enableInsecureServer = value as boolean;
-        await this.plugin.saveSettings();
+  private renderAdvancedSettings(containerEl: HTMLElement): void {
+    new Setting(containerEl).setHeading().setName("Advanced settings");
+    containerEl.createEl("p", {
+      text: `
+        The settings below are potentially dangerous and
+        are intended for use only by people who know what
+        they are doing. Do not change any of these settings if
+        you do not understand what that setting is used for
+        and what security impacts changing that setting will have.
+      `,
+    });
+    const noWarrantee = containerEl.createEl("p");
+    noWarrantee.createSpan({
+      text: `
+        Use of this software is licensed to you under the
+        MIT license, and it is important that you understand that
+        this license provides you with no warranty.
+        For the complete license text please see
+      `,
+    });
+    noWarrantee.createEl("a", {
+      href: LicenseUrl,
+      text: LicenseUrl,
+    });
+    noWarrantee.createSpan({ text: "." });
+
+    new Setting(containerEl)
+      .setName("Enable encrypted (HTTPS) server")
+      .setDesc(
+        "This controls whether the HTTPS server is enabled.  You almost certainly want to leave this switch in its default state ('on'), but may find it useful to turn this switch off for troubleshooting."
+      )
+      .addToggle((cb) =>
+        cb
+          .onChange((value) => {
+            const originalValue = this.plugin.settings.enableSecureServer;
+            this.plugin.settings.enableSecureServer = value;
+            void this.plugin.saveSettings();
+            this.plugin.refreshServerState();
+            if (value !== originalValue) {
+              this.display();
+            }
+          })
+          .setValue(this.plugin.settings.enableSecureServer ?? true)
+      );
+
+    new Setting(containerEl)
+      .setName("Encrypted (HTTPS) server port")
+      .setDesc(
+        "This configures the port on which your REST API will listen for HTTPS connections.  It is recommended that you leave this port with its default setting as tools integrating with this API may expect the default port to be in use.  Under no circumstances is it recommended that you expose this service directly to the internet."
+      )
+      .addText((cb) =>
+        cb
+          .onChange((value) => {
+            this.plugin.settings.port = parseInt(value, 10);
+            void this.plugin.saveSettings();
+            this.plugin.refreshServerState();
+          })
+          .setValue(this.plugin.settings.port.toString())
+      );
+
+    new Setting(containerEl)
+      .setName("Non-encrypted (HTTP) server port")
+      .addText((cb) =>
+        cb
+          .onChange((value) => {
+            this.plugin.settings.insecurePort = parseInt(value, 10);
+            void this.plugin.saveSettings();
+            this.plugin.refreshServerState();
+          })
+          .setValue(this.plugin.settings.insecurePort.toString())
+      );
+
+    new Setting(containerEl).setName("API key").addText((cb) => {
+      cb.onChange((value) => {
+        this.plugin.settings.apiKey = value;
+        void this.plugin.saveSettings();
         this.plugin.refreshServerState();
-        break;
-      case "enableSecureServer":
-        this.plugin.settings.enableSecureServer = value as boolean;
-        await this.plugin.saveSettings();
-        this.plugin.refreshServerState();
-        break;
-      case "port":
-        this.plugin.settings.port = value as number;
-        await this.plugin.saveSettings();
-        this.plugin.refreshServerState();
-        break;
-      case "insecurePort":
-        this.plugin.settings.insecurePort = value as number;
-        await this.plugin.saveSettings();
-        this.plugin.refreshServerState();
-        break;
-      case "apiKey":
-        this.plugin.settings.apiKey = value as string;
-        await this.plugin.saveSettings();
-        this.plugin.refreshServerState();
-        break;
-      case "subjectAltNames":
-        this.plugin.settings.subjectAltNames = value as string;
-        await this.plugin.saveSettings();
-        break;
-      case "cryptoCert":
-        if (this.plugin.settings.crypto) {
-          this.plugin.settings.crypto.cert = value as string;
-          await this.plugin.saveSettings();
-          this.plugin.refreshServerState();
-        }
-        break;
-      case "cryptoPublicKey":
-        if (this.plugin.settings.crypto) {
-          this.plugin.settings.crypto.publicKey = value as string;
-          await this.plugin.saveSettings();
-          this.plugin.refreshServerState();
-        }
-        break;
-      case "cryptoPrivateKey":
-        if (this.plugin.settings.crypto) {
-          this.plugin.settings.crypto.privateKey = value as string;
-          await this.plugin.saveSettings();
-          this.plugin.refreshServerState();
-        }
-        break;
-      case "authorizationHeaderName":
+      }).setValue(this.plugin.settings.apiKey ?? "");
+    });
+
+    new Setting(containerEl)
+      .setName("Certificate hostnames")
+      .setDesc(
+        'List of extra hostnames to add to your certificate\'s `subjectAltName` field. One hostname per line. You must click the "Re-generate certificates" button above after changing this value for this to have an effect.  This is useful for situations in which you are accessing Obsidian from a hostname other than the host on which it is running.'
+      )
+      .addTextArea((cb) =>
+        cb
+          .onChange((value) => {
+            this.plugin.settings.subjectAltNames = value;
+            void this.plugin.saveSettings();
+          })
+          .setValue(this.plugin.settings.subjectAltNames ?? "")
+      );
+
+    new Setting(containerEl).setName("Certificate").addTextArea((cb) =>
+      cb
+        .onChange((value) => {
+          if (this.plugin.settings.crypto) {
+            this.plugin.settings.crypto.cert = value;
+            void this.plugin.saveSettings();
+            this.plugin.refreshServerState();
+          }
+        })
+        .setValue(this.plugin.settings.crypto?.cert ?? "")
+    );
+
+    new Setting(containerEl).setName("Public key").addTextArea((cb) =>
+      cb
+        .onChange((value) => {
+          if (this.plugin.settings.crypto) {
+            this.plugin.settings.crypto.publicKey = value;
+            void this.plugin.saveSettings();
+            this.plugin.refreshServerState();
+          }
+        })
+        .setValue(this.plugin.settings.crypto?.publicKey ?? "")
+    );
+
+    new Setting(containerEl).setName("Private key").addTextArea((cb) =>
+      cb
+        .onChange((value) => {
+          if (this.plugin.settings.crypto) {
+            this.plugin.settings.crypto.privateKey = value;
+            void this.plugin.saveSettings();
+            this.plugin.refreshServerState();
+          }
+        })
+        .setValue(this.plugin.settings.crypto?.privateKey ?? "")
+    );
+
+    new Setting(containerEl).setName("Authorization header").addText((cb) => {
+      cb.onChange((value) => {
         if (value !== DefaultBearerTokenHeaderName) {
-          this.plugin.settings.authorizationHeaderName = value as string;
+          this.plugin.settings.authorizationHeaderName = value;
         } else {
           delete this.plugin.settings.authorizationHeaderName;
         }
-        await this.plugin.saveSettings();
+        void this.plugin.saveSettings();
         this.plugin.refreshServerState();
-        break;
-      case "bindingHost":
+      }).setValue(
+        this.plugin.settings.authorizationHeaderName ??
+          DefaultBearerTokenHeaderName
+      );
+    });
+
+    new Setting(containerEl).setName("Binding host").addText((cb) => {
+      cb.onChange((value) => {
         if (value !== DefaultBindingHost) {
-          this.plugin.settings.bindingHost = value as string;
+          this.plugin.settings.bindingHost = value;
         } else {
           delete this.plugin.settings.bindingHost;
         }
-        await this.plugin.saveSettings();
+        void this.plugin.saveSettings();
         this.plugin.refreshServerState();
-        break;
-      case "enableVerboseLogging":
-        this.plugin.settings.enableVerboseLogging = (value as boolean) || undefined;
-        await this.plugin.saveSettings();
-        break;
-    }
+      }).setValue(this.plugin.settings.bindingHost ?? DefaultBindingHost);
+    });
+
+    new Setting(containerEl)
+      .setName("Enable verbose logging")
+      .setDesc(
+        "When enabled, logs server startup messages and a one-line access log entry for every request to the browser console."
+      )
+      .addToggle((cb) =>
+        cb
+          .onChange((value) => {
+            this.plugin.settings.enableVerboseLogging = value || undefined;
+            void this.plugin.saveSettings();
+          })
+          .setValue(this.plugin.settings.enableVerboseLogging ?? false)
+      );
   }
 }
 
