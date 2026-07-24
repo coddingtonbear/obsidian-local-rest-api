@@ -403,7 +403,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     secureNote.createSpan({ text: "Requires that " });
     secureNote.createEl("a", {
       href: `https://127.0.0.1:${this.plugin.settings.port}/${CERT_NAME}`,
-      // eslint-disable-next-line obsidianmd/ui/sentence-case
       text: "this certificate",
     });
     secureNote.createSpan({
@@ -411,7 +410,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
     secureNote.createEl("a", {
       href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
-      // eslint-disable-next-line obsidianmd/ui/sentence-case
       text: "wiki",
     });
     secureNote.createSpan({ text: " for more information." });
@@ -480,7 +478,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
     seeMore.createEl("a", {
       href: "https://coddingtonbear.github.io/obsidian-local-rest-api/",
-      // eslint-disable-next-line obsidianmd/ui/sentence-case
       text: "the online docs",
     });
     seeMore.createSpan({ text: "." });
@@ -523,7 +520,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     mcpSecureNote.createSpan({ text: "Requires that " });
     mcpSecureNote.createEl("a", {
       href: `https://127.0.0.1:${this.plugin.settings.port}/${CERT_NAME}`,
-      // eslint-disable-next-line obsidianmd/ui/sentence-case
       text: "this certificate",
     });
     mcpSecureNote.createSpan({
@@ -531,7 +527,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
     mcpSecureNote.createEl("a", {
       href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
-      // eslint-disable-next-line obsidianmd/ui/sentence-case
       text: "wiki",
     });
     mcpSecureNote.createSpan({ text: " for more information." });
@@ -604,7 +599,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
     mcpSeeMore.createEl("a", {
       href: "https://github.com/coddingtonbear/obsidian-local-rest-api#readme",
-      // eslint-disable-next-line obsidianmd/ui/sentence-case
       text: "the project readme",
     });
     mcpSeeMore.createSpan({ text: "." });
