@@ -2,9 +2,8 @@
 
 Give your scripts, browser extensions, and AI agents a direct line into your Obsidian vault via a secure, authenticated REST API.
 
-**Obsidian Community:** https://community.obsidian.md/plugins/obsidian-local-rest-api/
-
-**Interactive API docs:** https://coddingtonbear.github.io/obsidian-local-rest-api/
+- **Interactive API docs:** https://coddingtonbear.github.io/obsidian-local-rest-api/
+- **Obsidian Community page:** https://community.obsidian.md/plugins/obsidian-local-rest-api/
 
 ## What you can do
 
@@ -301,6 +300,10 @@ The exact config syntax varies by client; see the [Quick start](#mcp-clients) ex
 | URI | Description |
 |---|---|
 | `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API |
+
+## API Extensions
+
+- [Periodic Notes](https://github.com/coddingtonbear/obsidian-local-rest-api-periodic-notes): Adds support for periodic notes
 
 ## Contributing
 
