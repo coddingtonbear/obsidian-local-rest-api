@@ -5,6 +5,31 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
 - **Interactive API docs:** https://coddingtonbear.github.io/obsidian-local-rest-api/
 - **Obsidian Community page:** https://community.obsidian.md/plugins/obsidian-local-rest-api/
 
+<!-- toc -->
+
+- [What you can do](#what-you-can-do)
+- [Quick start](#quick-start)
+  * [REST API](#rest-api)
+  * [MCP clients](#mcp-clients)
+    + [Claude Code](#claude-code)
+    + [Claude Desktop](#claude-desktop)
+    + [Cursor](#cursor)
+    + [Other clients](#other-clients)
+- [API overview](#api-overview)
+- [Patching notes](#patching-notes)
+  * [Raw-content mode](#raw-content-mode)
+- [Targeting specific sections](#targeting-specific-sections)
+- [Searching](#searching)
+- [MCP (Model Context Protocol)](#mcp-model-context-protocol)
+  * [Connecting a client](#connecting-a-client)
+  * [Available tools](#available-tools)
+  * [Available resources](#available-resources)
+- [API Extensions](#api-extensions)
+- [Contributing](#contributing)
+- [Credits](#credits)
+
+<!-- tocstop -->
+
 ## What you can do
 
 Access your vault through the **REST API** or the **built-in [MCP server](https://modelcontextprotocol.io/)** — both interfaces expose the same core capabilities, so scripts, browser extensions, and AI agents all speak the same language.

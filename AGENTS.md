@@ -73,6 +73,14 @@ npm run build-docs
 
 Stage the resulting `docs/openapi.yaml` alongside any Jsonnet changes. `src/mcpHandler.ts` imports this file directly, so a stale compiled spec means MCP clients receive outdated API documentation.
 
+### Regenerating the Readme table of contents
+
+`README.md` carries a `markdown-toc`-generated table of contents between the `<!-- toc -->` and `<!-- tocstop -->` markers. After adding, removing, or renaming any Readme heading, regenerate it and stage the result:
+
+```
+npm run build-toc
+```
+
 ### Checklist
 
 Before marking any endpoint-related change complete:
@@ -81,6 +89,7 @@ Before marking any endpoint-related change complete:
 - [ ] `src/mcpHandler.ts` exposes matching parameters and an accurate description
 - [ ] `docs/src/` Jsonnet/Markdown reflects the change
 - [ ] `docs/openapi.yaml` has been regenerated (`npm run build-docs`)
+- [ ] `README.md`'s table of contents has been regenerated if headings changed (`npm run build-toc`)
 - [ ] Unit tests in `src/requestHandler.test.ts` and/or `src/mcpHandler.test.ts` cover the changed behavior
 - [ ] Integration tests in `src/integration/` cover the changed behavior
 
