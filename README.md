@@ -3,6 +3,7 @@
 Give your scripts, browser extensions, and AI agents a direct line into your Obsidian vault via a secure, authenticated REST API.
 
 **Obsidian Community:** https://community.obsidian.md/plugins/obsidian-local-rest-api/
+
 **Interactive API docs:** https://coddingtonbear.github.io/obsidian-local-rest-api/
 
 ## What you can do
