@@ -1,5 +1,7 @@
 # Local REST API with MCP
 
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2Fcoddingtonbear%2Fobsidian-local-rest-api.svg)](https://mcptoplist.com/server/glama%2Fcoddingtonbear%2Fobsidian-local-rest-api)
+
 Give your scripts, browser extensions, and AI agents a direct line into your Obsidian vault via a secure, authenticated REST API.
 
 - **Interactive API docs:** https://coddingtonbear.github.io/obsidian-local-rest-api/
