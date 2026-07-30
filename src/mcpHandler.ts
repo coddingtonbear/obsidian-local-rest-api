@@ -38,6 +38,29 @@ const READ_ONLY_ANNOTATIONS: ToolAnnotations = {
   openWorldHint: false,
 };
 
+// Some MCP clients do not resolve anyOf parameter schemas and forward the raw
+// JSON text of an array argument as a plain string, which the `target` union's
+// string branch then accepts (#315). When a heading target arrives as a string,
+// recover the intended value: returns the parsed array (or null, vault_patch's
+// document root) when the string is the JSON encoding of one, and undefined
+// when it isn't.
+function parseStringHeadingTarget(target: string): string[] | null | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(target);
+  } catch {
+    return undefined;
+  }
+  if (parsed === null) return null;
+  if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
+    return parsed;
+  }
+  return undefined;
+}
+
+const HEADING_TARGET_STRING_HINT =
+  "received a string that is not the JSON encoding of an array — if you did pass an array, your MCP client may not support anyOf-typed tool parameters";
+
 interface ResourceSpec {
   name: string;
   uri: string;
@@ -276,10 +299,14 @@ export class McpHandler {
         if (targetType && target != null) {
           let address: ReadTarget;
           if (targetType === "heading") {
-            if (!Array.isArray(target)) {
-              throw new Error("A heading target must be an array of heading texts, not a bare string");
+            const heading =
+              typeof target === "string" ? parseStringHeadingTarget(target) : target;
+            if (!Array.isArray(heading)) {
+              throw new Error(
+                `A heading target must be an array of heading texts, not a bare string (${HEADING_TARGET_STRING_HINT})`,
+              );
             }
-            address = { targetType: "heading", target };
+            address = { targetType: "heading", target: heading };
           } else {
             if (Array.isArray(target)) {
               throw new Error(`A ${targetType} target must be a string, not an array`);
@@ -375,12 +402,24 @@ export class McpHandler {
         createTargetIfMissing?: boolean;
         rejectIfContentPreexists?: boolean;
       }) => {
+        // Heading targets only: block/frontmatter targets are legitimately
+        // strings and must never be JSON-parsed.
+        let normalizedTarget = target;
+        if (targetType === "heading" && typeof target === "string") {
+          const parsed = parseStringHeadingTarget(target);
+          if (parsed === undefined) {
+            throw new Error(
+              `target: a heading target must be an array of heading texts, or null for the document root, not a bare string (${HEADING_TARGET_STRING_HINT})`,
+            );
+          }
+          normalizedTarget = parsed;
+        }
         // Assemble the instruction with exactly the fields that were supplied,
         // so the engine sees the discriminated-union shape it expects. It
         // validates the operation×scope×targetType combination and the carrier.
         const instruction: Record<string, unknown> = {
           targetType,
-          target,
+          target: normalizedTarget,
           operation,
           ...(within !== undefined ? { within } : {}),
           ...(scope !== undefined ? { scope } : {}),
