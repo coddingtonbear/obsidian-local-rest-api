@@ -348,6 +348,38 @@ describe("McpHandler", () => {
       ).rejects.toThrow("must be an array");
     });
 
+    // Some MCP clients don't resolve anyOf parameter schemas and forward the
+    // raw JSON text of an array argument as a string (#315). A heading target
+    // string that parses to an array of strings is accepted as that array.
+    test("accepts a JSON-encoded string heading target", async () => {
+      const cb = getToolCallback("vault_read");
+      await cb({
+        path: "test.md",
+        targetType: "heading",
+        target: '["Parent", "Child"]',
+      });
+      expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
+        expect.anything(),
+        { targetType: "heading", target: ["Parent", "Child"] },
+      );
+    });
+
+    test("mentions anyOf client support when a heading target string is not a JSON array", async () => {
+      const cb = getToolCallback("vault_read");
+      await expect(
+        cb({ path: "test.md", targetType: "heading", target: "Alpha" }),
+      ).rejects.toThrow(/anyOf/);
+      expect(ops.readFileSectionMdp2).not.toHaveBeenCalled();
+    });
+
+    test("rejects a JSON-encoded heading target whose elements are not all strings", async () => {
+      const cb = getToolCallback("vault_read");
+      await expect(
+        cb({ path: "test.md", targetType: "heading", target: '["Parent", 2]' }),
+      ).rejects.toThrow("must be an array");
+      expect(ops.readFileSectionMdp2).not.toHaveBeenCalled();
+    });
+
     test("passes a block target through as a string", async () => {
       const cb = getToolCallback("vault_read");
       await cb({ path: "test.md", targetType: "block", target: "beta-block" });
@@ -515,6 +547,73 @@ describe("McpHandler", () => {
       target: disambiguated,
       operation: "replace",
       content: "new text",
+    });
+  });
+
+  // Same anyOf-client accommodation as vault_read (#315): a heading target
+  // arriving as the JSON text of an array is parsed before reaching the engine.
+  test("vault_patch accepts a JSON-encoded string heading target", async () => {
+    const cb = getToolCallback("vault_patch");
+    await cb({
+      path: "out.md",
+      targetType: "heading",
+      target: '["Overview", "Details"]',
+      operation: "append",
+      content: "new text",
+    });
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "heading",
+      target: ["Overview", "Details"],
+      operation: "append",
+      content: "new text",
+    });
+  });
+
+  test("vault_patch accepts the JSON-encoded string 'null' as a heading document-root target", async () => {
+    const cb = getToolCallback("vault_patch");
+    await cb({
+      path: "out.md",
+      targetType: "heading",
+      target: "null",
+      operation: "append",
+      content: "new text",
+    });
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "heading",
+      target: null,
+      operation: "append",
+      content: "new text",
+    });
+  });
+
+  test("vault_patch rejects an unparseable bare-string heading target before calling the engine", async () => {
+    const cb = getToolCallback("vault_patch");
+    await expect(
+      cb({
+        path: "out.md",
+        targetType: "heading",
+        target: "Overview",
+        operation: "append",
+        content: "new text",
+      }),
+    ).rejects.toThrow(/anyOf/);
+    expect(ops.patchFileSectionMdp2).not.toHaveBeenCalled();
+  });
+
+  test("vault_patch does not JSON-parse block or frontmatter string targets", async () => {
+    const cb = getToolCallback("vault_patch");
+    await cb({
+      path: "out.md",
+      targetType: "frontmatter",
+      target: '["a", "b"]',
+      operation: "replace",
+      value: 1,
+    });
+    expect(ops.patchFileSectionMdp2).toHaveBeenCalledWith("out.md", {
+      targetType: "frontmatter",
+      target: '["a", "b"]',
+      operation: "replace",
+      value: 1,
     });
   });
 
