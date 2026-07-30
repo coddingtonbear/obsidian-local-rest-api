@@ -219,6 +219,23 @@ describe("vault_read tool", () => {
     });
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain("array");
+    expect(textOf(result)).toContain("anyOf");
+  });
+
+  // Simulates a client that doesn't resolve anyOf parameter schemas and
+  // forwards the array argument as its raw JSON text (#315).
+  test("accepts a JSON-encoded string heading target", async () => {
+    const result = await client.callTool({
+      name: "vault_read",
+      arguments: {
+        path: TEST_PATH,
+        targetType: "heading",
+        target: JSON.stringify([HEADING_ALPHA, HEADING_SUB]),
+      },
+    });
+    const text = textOf(result);
+    expect(text).toContain(TERM_SUB);
+    expect(text).not.toContain(TERM_ALPHA);
   });
 });
 
@@ -529,6 +546,27 @@ describe("vault_patch tool", () => {
     );
     expect(body.content).toContain("mcp-patch-replace");
     expect(body.content).not.toContain(TERM_DELTA);
+  });
+
+  // Simulates a client that doesn't resolve anyOf parameter schemas and
+  // forwards the array argument as its raw JSON text (#315).
+  test("appends to a heading section addressed by a JSON-encoded string target", async () => {
+    const patchResult = await client.callTool({
+      name: "vault_patch",
+      arguments: {
+        path: TEST_PATH,
+        targetType: "heading",
+        target: JSON.stringify([HEADING_DELTA]),
+        operation: "append",
+        content: "mcp-patch-anyof-append\n",
+      },
+    });
+    expect(jsonOf<any>(patchResult).message).toBe("OK");
+    const body = jsonOf<any>(
+      await client.callTool({ name: "vault_read", arguments: { path: TEST_PATH } })
+    );
+    expect(body.content).toContain(TERM_DELTA);
+    expect(body.content).toContain("mcp-patch-anyof-append");
   });
 
   test("replaces a frontmatter field with a native JSON value", async () => {
