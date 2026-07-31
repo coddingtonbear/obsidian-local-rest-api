@@ -46,6 +46,16 @@ import {
 } from "./types";
 import { toArrayBuffer } from "./utils";
 
+/**
+ * Writes go through Vault.modify/Vault.create rather than Vault.adapter.write.
+ *
+ * The adapter writes straight to disk, behind Obsidian's back: the change is only
+ * noticed later, by the file watcher. Until it is, metadataCache still describes the
+ * previous revision, and because getFileMetadataObject serves frontmatter and tags
+ * from that cache, a client that wrote and immediately read back could be handed
+ * pre-write metadata. Going through the Vault API keeps Obsidian's own bookkeeping in
+ * step with the write instead of racing it.
+ */
 export class VaultOperations {
   constructor(readonly app: App, readonly settings: LocalRestApiSettings) {
     jsonLogic.add_operation(
@@ -362,7 +372,12 @@ export class VaultOperations {
       // folder already exists
     }
     if (typeof content === "string") {
-      await this.app.vault.adapter.write(filePath, content);
+      const existing = this.app.vault.getAbstractFileByPath(filePath);
+      if (existing instanceof TFile) {
+        await this.app.vault.modify(existing, content);
+      } else {
+        await this.app.vault.create(filePath, content);
+      }
     } else {
       await this.app.vault.adapter.writeBinary(
         filePath,
@@ -384,9 +399,11 @@ export class VaultOperations {
       if (!fileContents.endsWith("\n")) {
         fileContents += "\n";
       }
+      fileContents += content;
+      await this.app.vault.modify(file, fileContents);
+      return;
     }
-    fileContents += content;
-    await this.app.vault.adapter.write(filePath, fileContents);
+    await this.app.vault.create(filePath, content);
   }
 
   async deleteVaultFile(filePath: string, permanent = false): Promise<void> {
@@ -529,7 +546,7 @@ export class VaultOperations {
     } as PatchInstruction;
 
     const patched = applyPatch(fileContents, instruction);
-    await this.app.vault.adapter.write(filePath, patched);
+    await this.app.vault.modify(file, patched);
     return patched;
   }
 
@@ -549,7 +566,7 @@ export class VaultOperations {
     }
     const fileContents = await this.app.vault.read(file);
     const result = patchV2(fileContents, instruction);
-    await this.app.vault.adapter.write(filePath, result.document);
+    await this.app.vault.modify(file, result.document);
     return result;
   }
 
