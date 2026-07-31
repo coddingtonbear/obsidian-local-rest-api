@@ -85,6 +85,15 @@ export class Vault {
     return this._cachedRead;
   }
 
+  _modify: [string, string] | undefined;
+
+  async modify(file: TFile, content: string): Promise<void> {
+    this._modify = [file.path, content];
+    // Mirror the adapter-level record too, so assertions written against either
+    // spelling of "what got written" keep working.
+    this.adapter._write = [file.path, content];
+  }
+
   async createFolder(path: string): Promise<void> {
     this._createdFolders.push(path);
   }
@@ -185,11 +194,13 @@ export class MetadataCache {
     }
   }
 
-  // Helper method for tests to simulate cache change events
-  _emitChanged(file: TFile): void {
+  // Helper method for tests to simulate cache change events. Obsidian passes the
+  // file's new content as the second argument, which callers use to tell an update
+  // for their own write apart from one for an unrelated revision.
+  _emitChanged(file: TFile, data = ""): void {
     const listeners = this._listeners.get("changed");
     if (listeners) {
-      listeners.forEach((cb) => cb(file));
+      listeners.forEach((cb) => cb(file, data));
     }
   }
 }
