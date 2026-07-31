@@ -14,7 +14,8 @@
       "Bash(* npx jest *)",
       "Bash(npx jest *)",
       "Bash(NODE_OPTIONS=--experimental-vm-modules npx jest *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(npm audit *)"
     ]
   }
 }
