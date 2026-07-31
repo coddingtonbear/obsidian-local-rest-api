@@ -16,5 +16,10 @@ jobs:
       run: npm test
     - name: Build
       run: npm run build
+    # `npm run build` regenerates publicApi.js/publicApi.d.ts from src/publicApi.ts.
+    # If they differ from what is committed, the package's published types no longer
+    # describe the source they came from.
+    - name: Check generated extension API types are up to date
+      run: git diff --exit-code -- publicApi.js publicApi.d.ts
     - name: Type check
       run: npm run typecheck

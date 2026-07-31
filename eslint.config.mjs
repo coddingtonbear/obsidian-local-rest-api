@@ -5,7 +5,15 @@ import globals from "globals";
 
 export default defineConfig([
   {
-    ignores: ["dist/", "docs/", "node_modules/", "main.js", "main.d.ts"],
+    // main.js, publicApi.js and publicApi.d.ts are build output, not source.
+    ignores: [
+      "dist/",
+      "docs/",
+      "node_modules/",
+      "main.js",
+      "publicApi.js",
+      "publicApi.d.ts",
+    ],
   },
 
   ...obsidianmd.configs.recommended,

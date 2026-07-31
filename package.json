@@ -2,11 +2,19 @@
   "name": "obsidian-local-rest-api",
   "version": "5.0.3",
   "description": "A secure REST API and Model Context Protocol (MCP) server for Obsidian.",
-  "main": "main.js",
-  "types": "main.d.ts",
+  "main": "publicApi.js",
+  "types": "publicApi.d.ts",
+  "files": [
+    "publicApi.js",
+    "publicApi.d.ts",
+    "manifest.json",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "dev": "node esbuild.config.mjs",
-    "build": "node esbuild.config.mjs production",
+    "build": "node esbuild.config.mjs production && npm run build-types",
+    "build-types": "tsc -p tsconfig.types.json",
     "typecheck": "node --max-old-space-size=6144 node_modules/.bin/tsc -noEmit -skipLibCheck",
     "build-docs": "node scripts/gen-patch-schema.mjs && jsonnet -J docs/src/lib/ -S docs/src/openapi.jsonnet -o docs/openapi.yaml",
     "serve-docs": "npx serve docs",

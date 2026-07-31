@@ -1,0 +1,32 @@
+// Emits the package's public entry point: publicApi.js and publicApi.d.ts at the
+// repository root, generated from src/publicApi.ts by `npm run build-types`.
+//
+// Only src/publicApi.ts is compiled. That module imports nothing from the rest of the
+// plugin, so the emit is a single self-contained pair of files rather than a mirror of
+// src/ — extension authors get the public surface and none of the internals. If a
+// `./somethingInternal` import ever creeps into src/publicApi.ts, this build starts
+// emitting extra files, which is the signal that the surface has stopped standing alone.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    // Same reason `npm run typecheck` passes -skipLibCheck: obsidian.d.ts does not
+    // type-check cleanly against itself, and that is not this package's problem.
+    "skipLibCheck": true,
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    // Matches esbuild.config.mjs's target, so the shim is no newer than the bundle
+    // the plugin itself ships.
+    "target": "ES2020",
+    "rootDir": "src",
+    "outDir": ".",
+    // The published files should be readable on their own: no inlined sources, and no
+    // tslib import for a consumer to resolve.
+    "inlineSourceMap": false,
+    "inlineSources": false,
+    "importHelpers": false,
+    "isolatedModules": false
+  },
+  "include": ["src/publicApi.ts"],
+  "exclude": []
+}
