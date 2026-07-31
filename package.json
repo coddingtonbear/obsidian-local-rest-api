@@ -29,7 +29,6 @@
     "@types/node": "^18",
     "@types/node-forge": "^1.0.0",
     "@types/supertest": "^2.0.11",
-    "@types/uuid": "^8.3.4",
     "esbuild": "0.28.0",
     "eslint": "^9.39.4",
     "eslint-plugin-obsidianmd": "^0.3.0",
@@ -53,14 +52,10 @@
     "json-logic-js": "^2.0.2",
     "markdown-patch": "^1.1.0",
     "markdown-patch-2": "npm:markdown-patch@^2.0.0",
-    "matcher": "^5.0.0",
     "mime-types": "^2.1.35",
-    "minimatch": "^5.0.1",
     "node-forge": "^1.2.1",
-    "obsidian-dataview": "^0.5.47",
     "query-string": "^7.1.1",
     "response-time": "^2.3.2",
-    "ts-dedent": "^2.3.0",
-    "uuid": "^8.3.2"
+    "ts-dedent": "^2.3.0"
   }
 }
