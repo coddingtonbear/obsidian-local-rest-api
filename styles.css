@@ -56,6 +56,39 @@ div.obsidian-local-rest-api-content div.copyable-value pre {
   overflow-x: auto;
 }
 
+/* Copyable URLs inside the api-urls tables. The standalone copyable-value
+   margin above is sized for block content sitting directly in a settings
+   panel; inside a table cell the cell's own padding already provides the
+   indent, so the full margin would double it. */
+div.obsidian-local-rest-api-content table.api-urls td.url div.copyable-value {
+  margin: 4px 0;
+}
+
+/* The copyable-value variant for a setting item's control slot (the API key
+   row on the main page). Unlike .copyable-value it cannot be scoped to
+   .obsidian-local-rest-api-content: that class turns the setting item into a
+   block layout, which would destroy the name/desc-left, control-right row
+   this variant exists to sit inside. */
+div.obsidian-local-rest-api-settings div.inline-copyable-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+div.obsidian-local-rest-api-settings div.inline-copyable-value pre {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow-x: auto;
+  font-size: 0.8em;
+  padding: 6px 10px;
+  background-color: var(--background-modifier-cover);
+  font-family: monospace;
+  user-select: all;
+}
+
 div.obsidian-local-rest-api-content div.certificate-expired {
   padding: 10px 20px;
   border: 2px solid #ff0000;

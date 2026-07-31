@@ -305,9 +305,10 @@ class LocalRestApiSettingTab extends PluginSettingTab {
   private renderCopyableValue(
     el: HTMLElement,
     value: string,
-    label: string
+    label: string,
+    cls = "copyable-value"
   ): void {
-    const wrapper = el.createDiv({ cls: "copyable-value" });
+    const wrapper = el.createDiv({ cls });
     wrapper.createEl("pre", { text: value });
     new ExtraButtonComponent(wrapper)
       .setIcon("copy")
@@ -330,101 +331,125 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     }
   }
 
-  private renderConnectionInfo(el: HTMLElement): void {
-    new Setting(el).setHeading().setName("Local REST API with MCP");
-    new Setting(el).setHeading().setName("How to access via REST");
+  /**
+   * Returns the extra hostnames configured for the certificate, one URL table
+   * row (and certificate `subjectAltName`) per non-blank line.
+   */
+  private getSubjectAltNames(): string[] {
+    return (this.plugin.settings.subjectAltNames ?? "")
+      .split("\n")
+      .map((name) => name.trim())
+      .filter((name) => name.length > 0);
+  }
 
+  /**
+   * Renders the two-row (HTTPS/HTTP) URL table used by the main settings page
+   * and both "How to access" pages. Each URL gets the copy-button treatment.
+   *
+   * `pathSuffix` is appended to every URL (`/` for the API root, `/mcp/` for
+   * the MCP endpoint). `disabledHint` tells the reader where the enable
+   * switches live, which differs between the main page ("below") and the
+   * sub-pages (back on the main page). The certificate note is instructional,
+   * so the main page's status table leaves it off.
+   */
+  private renderServerUrlTable(
+    el: HTMLElement,
+    options: {
+      pathSuffix: string;
+      secureName: string;
+      insecureName: string;
+      copyLabel: string;
+      includeCertificateNote: boolean;
+      disabledHint: string;
+    }
+  ): void {
+    const settings = this.plugin.settings;
+    const altNames = this.getSubjectAltNames();
+    const table = el.createEl("table", { cls: "api-urls" });
+    const tbody = table.createEl("tbody");
+
+    const addRow = (row: {
+      enabled: boolean;
+      name: string;
+      urls: string[];
+      note?: (noteEl: HTMLElement) => void;
+    }) => {
+      const tr = tbody.createEl(
+        "tr",
+        row.enabled
+          ? { title: "Enabled" }
+          : { cls: "disabled", title: `Disabled.  ${options.disabledHint}` }
+      );
+      tr.createEl("td", { text: row.enabled ? "✅" : "❌" });
+      const nameTd = tr.createEl("td", { cls: "name" });
+      nameTd.createSpan({ text: row.name });
+      if (row.note) {
+        nameTd.createEl("br");
+        nameTd.createEl("br");
+        row.note(nameTd.createEl("i"));
+      }
+      const urlTd = tr.createEl("td", { cls: "url" });
+      for (const url of row.urls) {
+        this.renderCopyableValue(urlTd, url, options.copyLabel);
+      }
+    };
+
+    addRow({
+      enabled: settings.enableSecureServer !== false,
+      name: options.secureName,
+      urls: [
+        `https://127.0.0.1:${settings.port}${options.pathSuffix}`,
+        ...altNames.map(
+          (name) => `https://${name}:${settings.port}${options.pathSuffix}`
+        ),
+      ],
+      note: options.includeCertificateNote
+        ? (noteEl) => {
+            noteEl.createSpan({ text: "Requires that " });
+            noteEl.createEl("a", {
+              href: `https://127.0.0.1:${settings.port}/${CERT_NAME}`,
+              text: "this certificate",
+            });
+            noteEl.createSpan({
+              text: " be configured as a trusted certificate authority.  See ",
+            });
+            noteEl.createEl("a", {
+              href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
+              text: "wiki",
+            });
+            noteEl.createSpan({ text: " for more information." });
+          }
+        : undefined,
+    });
+
+    addRow({
+      enabled: settings.enableInsecureServer !== false,
+      name: options.insecureName,
+      urls: [
+        `http://127.0.0.1:${settings.insecurePort}${options.pathSuffix}`,
+        ...altNames.map(
+          (name) => `http://${name}:${settings.insecurePort}${options.pathSuffix}`
+        ),
+      ],
+    });
+  }
+
+  private renderConnectionInfo(el: HTMLElement): void {
     const apiKeyDiv = el.createDiv();
     apiKeyDiv.classList.add("api-key-display");
 
     apiKeyDiv.createEl("p", {
-      text: "You can access Obsidian local REST API & MCP server via the following URLs:",
+      text: "You can access the REST API via the following URLs:",
     });
 
-    const addUrlRow = (container: HTMLElement, url: string) => {
-      container.createEl("pre", { text: url });
-    };
-
-    const connectionUrls = apiKeyDiv.createEl("table", { cls: "api-urls" });
-    const connectionUrlsTbody = connectionUrls.createEl("tbody");
-    const secureTr = connectionUrlsTbody.createEl(
-      "tr",
-      this.plugin.settings.enableSecureServer === false
-        ? {
-            cls: "disabled",
-            title: "Disabled.  You can enable this in 'Settings' below.",
-          }
-        : {
-            title: "Enabled",
-          }
-    );
-    const secureUrl = `https://127.0.0.1:${this.plugin.settings.port}/`;
-
-    secureTr.createEl("td", {
-      text: this.plugin.settings.enableSecureServer === false ? "❌" : "✅",
+    this.renderServerUrlTable(apiKeyDiv, {
+      pathSuffix: "/",
+      secureName: "Encrypted (HTTPS) API URL",
+      insecureName: "Non-encrypted (HTTP) API URL",
+      copyLabel: "API URL",
+      includeCertificateNote: true,
+      disabledHint: "You can enable this from the plugin's settings page.",
     });
-    const secureNameTd = secureTr.createEl("td", { cls: "name" });
-    secureNameTd.createSpan({ text: "Encrypted (HTTPS) API URL" });
-    secureNameTd.createEl("br");
-    secureNameTd.createEl("br");
-    const secureNote = secureNameTd.createEl("i");
-    secureNote.createSpan({ text: "Requires that " });
-    secureNote.createEl("a", {
-      href: `https://127.0.0.1:${this.plugin.settings.port}/${CERT_NAME}`,
-      text: "this certificate",
-    });
-    secureNote.createSpan({
-      text: " be configured as a trusted certificate authority for your browser.  See ",
-    });
-    secureNote.createEl("a", {
-      href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
-      text: "wiki",
-    });
-    secureNote.createSpan({ text: " for more information." });
-
-    const secureUrlsTd = secureTr.createEl("td", { cls: "url" });
-    addUrlRow(secureUrlsTd, secureUrl);
-    if (this.plugin.settings.subjectAltNames) {
-      for (const name of this.plugin.settings.subjectAltNames.split("\n")) {
-        if (name.trim()) {
-          addUrlRow(
-            secureUrlsTd,
-            `https://${name.trim()}:${this.plugin.settings.port}/`
-          );
-        }
-      }
-    }
-
-    const insecureTr = connectionUrlsTbody.createEl(
-      "tr",
-      this.plugin.settings.enableInsecureServer === false
-        ? {
-            cls: "disabled",
-            title: "Disabled.  You can enable this in 'Settings' below.",
-          }
-        : {
-            title: "Enabled",
-          }
-    );
-    const insecureUrl = `http://127.0.0.1:${this.plugin.settings.insecurePort}/`;
-
-    insecureTr.createEl("td", {
-      text: this.plugin.settings.enableInsecureServer === false ? "❌" : "✅",
-    });
-    insecureTr.createEl("td", { cls: "name", text: "Non-encrypted (HTTP) API URL" });
-
-    const insecureUrlsTd = insecureTr.createEl("td", { cls: "url" });
-    addUrlRow(insecureUrlsTd, insecureUrl);
-    if (this.plugin.settings.subjectAltNames) {
-      for (const name of this.plugin.settings.subjectAltNames.split("\n")) {
-        if (name.trim()) {
-          addUrlRow(
-            insecureUrlsTd,
-            `http://${name.trim()}:${this.plugin.settings.insecurePort}/`
-          );
-        }
-      }
-    }
 
     const authHeaderP = apiKeyDiv.createEl("p");
     authHeaderP.createSpan({
@@ -464,8 +489,6 @@ class LocalRestApiSettingTab extends PluginSettingTab {
   }
 
   private renderMcpInfo(el: HTMLElement): void {
-    new Setting(el).setHeading().setName("How to access via MCP");
-
     const mcpDiv = el.createDiv();
     mcpDiv.classList.add("mcp-display");
 
@@ -473,70 +496,16 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       text: "You can connect to the MCP server via the following endpoints:",
     });
 
-    const mcpUrls = mcpDiv.createEl("table", { cls: "api-urls" });
-    const mcpUrlsTbody = mcpUrls.createEl("tbody");
+    this.renderServerUrlTable(mcpDiv, {
+      pathSuffix: "/mcp/",
+      secureName: "Encrypted (HTTPS) MCP endpoint",
+      insecureName: "Non-encrypted (HTTP) MCP endpoint",
+      copyLabel: "MCP endpoint URL",
+      includeCertificateNote: true,
+      disabledHint: "You can enable this from the plugin's settings page.",
+    });
 
-    const mcpSecureTr = mcpUrlsTbody.createEl(
-      "tr",
-      this.plugin.settings.enableSecureServer === false
-        ? {
-            cls: "disabled",
-            title: "Disabled.  You can enable this in 'Settings' below.",
-          }
-        : {
-            title: "Enabled",
-          }
-    );
     const mcpSecureUrl = `https://127.0.0.1:${this.plugin.settings.port}/mcp/`;
-
-    mcpSecureTr.createEl("td", {
-      text: this.plugin.settings.enableSecureServer === false ? "❌" : "✅",
-    });
-    const mcpSecureNameTd = mcpSecureTr.createEl("td", { cls: "name" });
-    mcpSecureNameTd.createSpan({ text: "Encrypted (HTTPS) MCP Endpoint" });
-    mcpSecureNameTd.createEl("br");
-    mcpSecureNameTd.createEl("br");
-    const mcpSecureNote = mcpSecureNameTd.createEl("i");
-    mcpSecureNote.createSpan({ text: "Requires that " });
-    mcpSecureNote.createEl("a", {
-      href: `https://127.0.0.1:${this.plugin.settings.port}/${CERT_NAME}`,
-      text: "this certificate",
-    });
-    mcpSecureNote.createSpan({
-      text: " be configured as a trusted certificate authority.  See ",
-    });
-    mcpSecureNote.createEl("a", {
-      href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
-      text: "wiki",
-    });
-    mcpSecureNote.createSpan({ text: " for more information." });
-
-    const mcpSecureUrlsTd = mcpSecureTr.createEl("td", { cls: "url" });
-    mcpSecureUrlsTd.createEl("pre", { text: mcpSecureUrl });
-
-    const mcpInsecureTr = mcpUrlsTbody.createEl(
-      "tr",
-      this.plugin.settings.enableInsecureServer === false
-        ? {
-            cls: "disabled",
-            title: "Disabled.  You can enable this in 'Settings' below.",
-          }
-        : {
-            title: "Enabled",
-          }
-    );
-    const mcpInsecureUrl = `http://127.0.0.1:${this.plugin.settings.insecurePort}/mcp/`;
-
-    mcpInsecureTr.createEl("td", {
-      text: this.plugin.settings.enableInsecureServer === false ? "❌" : "✅",
-    });
-    mcpInsecureTr.createEl("td", {
-      cls: "name",
-      text: "Non-encrypted (HTTP) MCP endpoint",
-    });
-
-    const mcpInsecureUrlsTd = mcpInsecureTr.createEl("td", { cls: "url" });
-    mcpInsecureUrlsTd.createEl("pre", { text: mcpInsecureUrl });
 
     const headerName =
       this.plugin.settings.authorizationHeaderName ??
@@ -696,13 +665,59 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         type: "group",
         items: [
           {
-            name: "Connection information",
-            desc: "REST and MCP connection URLs and API key.",
+            name: "Server status",
             render: (setting) => {
               const el = this.prepareCustomContent(setting);
-              this.renderConnectionInfo(el);
-              this.renderMcpInfo(el);
+              this.renderServerUrlTable(el, {
+                pathSuffix: "/",
+                secureName: "Encrypted (HTTPS) server",
+                insecureName: "Non-encrypted (HTTP) server",
+                copyLabel: "server URL",
+                includeCertificateNote: false,
+                disabledHint: "You can enable this in the settings below.",
+              });
             },
+          },
+          {
+            name: "API key",
+            desc: `Passed as a bearer token via the ${
+              this.plugin.settings.authorizationHeaderName ??
+              DefaultBearerTokenHeaderName
+            } header; see the "How to access" pages below for details.`,
+            render: (setting) => {
+              this.renderCopyableValue(
+                setting.controlEl,
+                this.plugin.settings.apiKey ?? "",
+                "API key",
+                "inline-copyable-value"
+              );
+            },
+          },
+          {
+            type: "page",
+            name: "How to access via REST",
+            desc: "Connection URLs, authentication, and API documentation.",
+            items: [
+              {
+                name: "How to access via REST",
+                render: (setting) => {
+                  this.renderConnectionInfo(this.prepareCustomContent(setting));
+                },
+              },
+            ],
+          },
+          {
+            type: "page",
+            name: "How to access via MCP",
+            desc: "MCP endpoints, authentication, and client configuration examples.",
+            items: [
+              {
+                name: "How to access via MCP",
+                render: (setting) => {
+                  this.renderMcpInfo(this.prepareCustomContent(setting));
+                },
+              },
+            ],
           },
         ],
       },
