@@ -569,6 +569,28 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     }
   }
 
+  /**
+   * Prepares a setting item to hold arbitrary block content, and returns the
+   * element to render into.
+   *
+   * Two things are going on here. `.setting-item` lays its children out as a
+   * flex row -- name/desc on the left, control on the right -- so block content
+   * written straight into one ends up side-by-side rather than stacked. And
+   * every styles.css rule for content this plugin renders itself is scoped to
+   * the class added here.
+   *
+   * That scope lives on the setting item rather than on the settings tab's
+   * containerEl on purpose: a `type: "page"` item renders into its own
+   * SettingPage container, which is not a descendant of containerEl, so a rule
+   * scoped to the tab root silently stops applying once the content moves onto
+   * the Certificates or Advanced settings page.
+   */
+  private prepareCustomContent(setting: Setting): HTMLElement {
+    setting.settingEl.empty();
+    setting.settingEl.addClass("obsidian-local-rest-api-content");
+    return setting.settingEl;
+  }
+
   private confirmDestructiveAction(options: {
     title: string;
     message: string;
@@ -614,10 +636,9 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             name: "Connection information",
             desc: "REST and MCP connection URLs and API key.",
             render: (setting) => {
-              setting.settingEl.empty();
-              setting.settingEl.addClass("full-width-setting");
-              this.renderConnectionInfo(setting.settingEl);
-              this.renderMcpInfo(setting.settingEl);
+              const el = this.prepareCustomContent(setting);
+              this.renderConnectionInfo(el);
+              this.renderMcpInfo(el);
             },
           },
         ],
@@ -702,9 +723,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       {
         name: "License",
         render: (setting) => {
-          setting.settingEl.empty();
-          setting.settingEl.addClass("full-width-setting");
-          setting.settingEl.createEl("p", {
+          const el = this.prepareCustomContent(setting);
+          el.createEl("p", {
             text: `
               The settings below are potentially dangerous and
               are intended for use only by people who know what
@@ -713,7 +733,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
               and what security impacts changing that setting will have.
             `,
           });
-          const noWarrantee = setting.settingEl.createEl("p");
+          const noWarrantee = el.createEl("p");
           noWarrantee.createSpan({
             text: `
               Use of this software is licensed to you under the
@@ -768,9 +788,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       {
         name: "Certificate status",
         render: (setting) => {
-          setting.settingEl.empty();
-          setting.settingEl.addClass("full-width-setting");
-          this.renderCertificateWarnings(setting.settingEl);
+          this.renderCertificateWarnings(this.prepareCustomContent(setting));
         },
       },
       {

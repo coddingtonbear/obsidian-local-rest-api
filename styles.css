@@ -1,10 +1,29 @@
-/* Sets all the text color to red! */
+/* Rules below are scoped one of two ways, and the difference matters.
 
-div.obsidian-local-rest-api-settings div.api-key-display {
+   .obsidian-local-rest-api-content is added to each setting item this plugin
+   fills with its own block content (see prepareCustomContent in src/main.ts).
+   Anything scoped to it follows that content wherever the item is rendered --
+   including onto the Certificates and Advanced settings pages, which the
+   declarative settings framework renders into their own SettingPage container
+   rather than as descendants of the settings tab.
+
+   .obsidian-local-rest-api-settings is added to the settings tab's own
+   containerEl, so rules scoped to it reach only the top-level page. Use it
+   only for framework-rendered elements that this plugin cannot class itself. */
+
+/* .setting-item lays its children out as a flex row (name/desc left, control
+   right). Block content written into one needs this, or every top-level child
+   -- headings, tables, paragraphs -- becomes a flex item sitting side-by-side
+   with its siblings instead of stacking. */
+div.setting-item.obsidian-local-rest-api-content {
+  display: block;
+}
+
+div.obsidian-local-rest-api-content div.api-key-display {
   margin-bottom: 20px;
 }
 
-div.obsidian-local-rest-api-settings pre {
+div.obsidian-local-rest-api-content pre {
   font-size: 0.8em;
   padding: 10px 20px;
   margin: 10px 25px;
@@ -13,51 +32,48 @@ div.obsidian-local-rest-api-settings pre {
   user-select: all;
 }
 
-div.obsidian-local-rest-api-settings div.setting-item-control {
-  min-width: 50%;
+div.obsidian-local-rest-api-content p {
+  padding: 0px 15px;
 }
 
-/* Used for settings items whose render() callback fills setting.settingEl
-   with arbitrary block content instead of the usual name/desc + control
-   pair -- .setting-item's default flex-row layout would otherwise lay that
-   content out side-by-side instead of stacking it. */
-div.obsidian-local-rest-api-settings div.setting-item.full-width-setting {
-  display: block;
-}
-
-div.obsidian-local-rest-api-settings textarea {
-  width: 100%;
-}
-
-div.obsidian-local-rest-api-settings div.certificate-expired {
+div.obsidian-local-rest-api-content div.certificate-expired {
   padding: 10px 20px;
   border: 2px solid #ff0000;
 }
 
-div.obsidian-local-rest-api-settings div.certificate-expiring-soon {
+div.obsidian-local-rest-api-content div.certificate-expiring-soon {
   padding: 10px 20px;
   border: 2px solid #ffff00;
 }
 
-div.obsidian-local-rest-api-settings div.certificate-regeneration-recommended {
+div.obsidian-local-rest-api-content div.certificate-regeneration-recommended {
   padding: 10px 20px;
   border: 2px solid #ffff00;
 }
 
-div.obsidian-local-rest-api-settings table.api-urls tr {
+div.obsidian-local-rest-api-content table.api-urls tr {
   width: 100%;
 }
 
-div.obsidian-local-rest-api-settings table.api-urls th,
-div.obsidian-local-rest-api-settings table.api-urls td {
+div.obsidian-local-rest-api-content table.api-urls th,
+div.obsidian-local-rest-api-content table.api-urls td {
   padding: 5px 25px;
 }
 
-div.obsidian-local-rest-api-settings table.api-urls tr.disabled td.name,
-div.obsidian-local-rest-api-settings table.api-urls tr.disabled td.url {
+div.obsidian-local-rest-api-content table.api-urls tr.disabled td.name,
+div.obsidian-local-rest-api-content table.api-urls tr.disabled td.url {
   text-decoration: line-through;
 }
 
-div.obsidian-local-rest-api-settings p {
-  padding: 0px 15px;
+div.obsidian-local-rest-api-settings div.setting-item-control {
+  min-width: 50%;
+}
+
+/* Framework-rendered controls cannot be given a class of our own, so this only
+   reaches textareas on the top-level page. The certificate and key textareas
+   live on the Certificates page and therefore keep the framework's own sizing;
+   widening those would mean a selector broad enough to restyle every other
+   plugin's settings, which is not worth it. */
+div.obsidian-local-rest-api-settings textarea {
+  width: 100%;
 }
