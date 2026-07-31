@@ -28,6 +28,7 @@
     "@types/mime-types": "^2.1.1",
     "@types/node": "^18",
     "@types/node-forge": "^1.0.0",
+    "@types/response-time": "^2.3.9",
     "@types/supertest": "^2.0.11",
     "esbuild": "0.28.0",
     "eslint": "^9.39.4",
@@ -40,12 +41,10 @@
     "tslib": "2.4.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.3",
-    "zod": "3.25.76",
     "zod-to-json-schema": "^3.25.2"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.24.3",
-    "@types/response-time": "^2.3.5",
     "cors": "^2.8.5",
     "express": "^4.21.1",
     "glob-to-regexp": "^0.4.1",
@@ -56,6 +55,7 @@
     "node-forge": "^1.2.1",
     "query-string": "^7.1.1",
     "response-time": "^2.3.2",
-    "ts-dedent": "^2.3.0"
+    "ts-dedent": "^2.3.0",
+    "zod": "3.25.76"
   }
 }
