@@ -340,6 +340,8 @@ Install this package as a development dependency to get `getAPI` and the types f
 npm install --save-dev obsidian-local-rest-api
 ```
 
+This package declares `obsidian`, `zod`, and `@types/express` as peer dependencies, because its types refer to all three — `addRoute` returns express's `IRoute`, and `addMcpTool` takes zod schemas. npm installs peers for you; if you pin them yourself, keep them resolvable. Without them, TypeScript quietly widens those positions to `any` instead of reporting an error, so a project that suppresses the missing-types diagnostic gets no warning that it has lost type checking exactly where it matters most.
+
 ```ts
 import { getAPI, type LocalRestApiPublicApi } from "obsidian-local-rest-api";
 

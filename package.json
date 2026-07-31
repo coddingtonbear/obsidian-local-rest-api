@@ -29,6 +29,7 @@
   "license": "MIT",
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@types/cors": "^2.8.12",
     "@types/express": "^4.17.13",
     "@types/glob-to-regexp": "^0.4.1",
@@ -38,35 +39,37 @@
     "@types/node-forge": "^1.0.0",
     "@types/response-time": "^2.3.9",
     "@types/supertest": "^2.0.11",
+    "cors": "^2.8.5",
     "esbuild": "0.28.1",
     "eslint": "^9.39.4",
     "eslint-plugin-obsidianmd": "^0.3.0",
+    "express": "^4.21.1",
+    "glob-to-regexp": "^0.4.1",
     "jest": "^29",
+    "json-logic-js": "^2.0.2",
+    "markdown-patch": "^1.1.0",
+    "markdown-patch-2": "npm:markdown-patch@^2.0.0",
     "markdown-toc": "^1.2.0",
+    "mime-types": "^2.1.35",
+    "node-forge": "^1.2.1",
     "obsidian": "^1.13.1",
+    "query-string": "^7.1.1",
+    "response-time": "^2.3.2",
     "supertest": "^6.2.2",
+    "ts-dedent": "^2.3.0",
     "ts-jest": "^29",
     "tslib": "2.4.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.3",
+    "zod": "3.25.76",
     "zod-to-json-schema": "^3.25.2"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.0",
-    "cors": "^2.8.5",
-    "express": "^4.21.1",
-    "glob-to-regexp": "^0.4.1",
-    "json-logic-js": "^2.0.2",
-    "markdown-patch": "^1.1.0",
-    "markdown-patch-2": "npm:markdown-patch@^2.0.0",
-    "mime-types": "^2.1.35",
-    "node-forge": "^1.2.1",
-    "query-string": "^7.1.1",
-    "response-time": "^2.3.2",
-    "ts-dedent": "^2.3.0",
-    "zod": "3.25.76"
   },
   "overrides": {
     "brace-expansion": "^5.0.8"
+  },
+  "peerDependencies": {
+    "@types/express": "^4.17.13",
+    "obsidian": "^1.0.0",
+    "zod": "^3.25.76"
   }
 }
