@@ -36,6 +36,26 @@ div.obsidian-local-rest-api-content p {
   padding: 0px 15px;
 }
 
+/* A value the user is expected to copy, sat next to its copy button. The pre
+   carries the margin the standalone rule above would otherwise apply, so that
+   the row lines up with surrounding blocks rather than the button hanging off
+   the end of one. */
+div.obsidian-local-rest-api-content div.copyable-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 25px;
+}
+
+div.obsidian-local-rest-api-content div.copyable-value pre {
+  flex: 1 1 auto;
+  /* Without this a long key refuses to shrink and pushes the button out of
+     the panel, since flex items floor at their content width by default. */
+  min-width: 0;
+  margin: 0;
+  overflow-x: auto;
+}
+
 div.obsidian-local-rest-api-content div.certificate-expired {
   padding: 10px 20px;
   border: 2px solid #ff0000;

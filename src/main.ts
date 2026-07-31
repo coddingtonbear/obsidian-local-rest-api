@@ -1,6 +1,8 @@
 import {
   App,
   ConfirmationModal,
+  ExtraButtonComponent,
+  Notice,
   Plugin,
   PluginSettingTab,
   Setting,
@@ -291,6 +293,44 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     };
   }
 
+  /**
+   * Renders a value in a `pre` block with a button that copies it.
+   *
+   * These blocks are styled `user-select: all`, so a single click already
+   * selects the whole value -- but nothing about them says so. The button is
+   * the discoverable version of that affordance.
+   *
+   * `label` names the value in the tooltip and in the confirmation notice, so
+   * it reads as a lowercase noun phrase ("API key", not "Copy API Key").
+   */
+  private renderCopyableValue(
+    el: HTMLElement,
+    value: string,
+    label: string
+  ): void {
+    const wrapper = el.createDiv({ cls: "copyable-value" });
+    wrapper.createEl("pre", { text: value });
+    new ExtraButtonComponent(wrapper)
+      .setIcon("copy")
+      .setTooltip(`Copy ${label}`)
+      .onClick(() => {
+        void this.copyToClipboard(value, label);
+      });
+  }
+
+  private async copyToClipboard(value: string, label: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(value);
+      new Notice(`Copied ${label} to clipboard.`);
+    } catch {
+      // writeText rejects when the document is not focused or the platform
+      // refuses permission. The notice is this button's only feedback, so
+      // swallowing the rejection would make a failed copy indistinguishable
+      // from a successful one.
+      new Notice(`Could not copy ${label} to the clipboard.`);
+    }
+  }
+
   private renderConnectionInfo(el: HTMLElement): void {
     new Setting(el).setHeading().setName("Local REST API with MCP");
     new Setting(el).setHeading().setName("How to access via REST");
@@ -398,9 +438,21 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     });
     authHeaderP.createSpan({ text: " header:" });
 
-    apiKeyDiv.createEl("pre", {
-      text: `Bearer ${this.plugin.settings.apiKey}`,
+    this.renderCopyableValue(
+      apiKeyDiv,
+      `Bearer ${this.plugin.settings.apiKey}`,
+      "authorization header value"
+    );
+
+    apiKeyDiv.createEl("p", {
+      text: "Some tools ask for the API key on its own instead:",
     });
+    this.renderCopyableValue(
+      apiKeyDiv,
+      this.plugin.settings.apiKey ?? "",
+      "API key"
+    );
+
     const seeMore = apiKeyDiv.createEl("p");
     seeMore.createSpan({
       text: "Comprehensive documentation of what API endpoints are available can be found in ",
@@ -498,9 +550,21 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     mcpAuthHeaderP.createEl("code", { text: headerName });
     mcpAuthHeaderP.createSpan({ text: " header:" });
 
-    mcpDiv.createEl("pre", {
-      text: `Bearer ${this.plugin.settings.apiKey}`,
+    this.renderCopyableValue(
+      mcpDiv,
+      `Bearer ${this.plugin.settings.apiKey}`,
+      "authorization header value"
+    );
+
+    mcpDiv.createEl("p", {
+      text: "Some tools ask for the API key on its own instead:",
     });
+    this.renderCopyableValue(
+      mcpDiv,
+      this.plugin.settings.apiKey ?? "",
+      "API key"
+    );
+
     const mcpSampleConfig = JSON.stringify(
       {
         mcpServers: {
