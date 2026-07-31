@@ -60,6 +60,8 @@ This project has several parallel representations of each API capability that mu
 | OpenAPI docs (compiled) | `docs/openapi.yaml` |
 | Unit tests | `src/requestHandler.test.ts`, `src/mcpHandler.test.ts` |
 | Integration tests | `src/integration/*.test.ts` |
+| Extension API (source) | `src/publicApi.ts` |
+| Extension API (compiled) | `publicApi.d.ts`, `publicApi.js` |
 
 After making any changes to REST API endpoints or MCP tools, be sure to update the matching OpenAPI docs and Project Readme entries regarding that feature.
 
@@ -90,6 +92,23 @@ Stage the resulting `docs/openapi.yaml` alongside any Jsonnet changes. `src/mcpH
 npm run build-toc
 ```
 
+### Changing the extension API
+
+`src/publicApi.ts` is the single source of truth for what other plugins may depend on: the `LocalRestApiPublicApi` interface, `getAPI`, and their supporting types. `publicApi.d.ts` and `publicApi.js` at the repository root are generated from it and committed, and package.json's `types` and `main` fields point at them, so extension authors install a small standalone module rather than the plugin bundle.
+
+Two constraints hold this together:
+
+- **`src/publicApi.ts` may not import plugin internals.** Only `import type` from `obsidian`, `express`, and `zod`. Anything else leaks a relative import into the generated declaration and breaks for consumers.
+- **The implementation is checked against it in both directions.** `LocalRestApiPublicApiImpl` in `src/api.ts` declares `implements LocalRestApiPublicApi`, which catches a member the class dropped, and the `PublicSurfaceIsComplete` type at the bottom of that file catches a public member the class grew that the interface never learned about. Adding a public method to the class without documenting it in `src/publicApi.ts` fails `npm run typecheck`.
+
+After any change to `src/publicApi.ts`, regenerate and stage the compiled output:
+
+```
+npm run build-types
+```
+
+`npm run build` runs this too, and CI fails if the committed output does not match a fresh build. Bumping the extension API's capabilities means bumping `apiVersion` in `src/api.ts`, since `getAPI`'s optional version argument is what extension authors use to detect an older host.
+
 ### Checklist
 
 Before marking any endpoint-related change complete:
@@ -99,6 +118,7 @@ Before marking any endpoint-related change complete:
 - [ ] `docs/src/` Jsonnet/Markdown reflects the change
 - [ ] `docs/openapi.yaml` has been regenerated (`npm run build-docs`)
 - [ ] `README.md`'s table of contents has been regenerated if headings changed (`npm run build-toc`)
+- [ ] `publicApi.d.ts`/`publicApi.js` have been regenerated if `src/publicApi.ts` changed (`npm run build-types`)
 - [ ] Unit tests in `src/requestHandler.test.ts` and/or `src/mcpHandler.test.ts` cover the changed behavior
 - [ ] Integration tests in `src/integration/` cover the changed behavior
 

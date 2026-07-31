@@ -25,6 +25,8 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
   * [Available tools](#available-tools)
   * [Available resources](#available-resources)
 - [API Extensions](#api-extensions)
+  * [Typed extension API](#typed-extension-api)
+  * [Known extensions](#known-extensions)
 - [Contributing](#contributing)
 - [Credits](#credits)
 
@@ -327,6 +329,28 @@ The exact config syntax varies by client; see the [Quick start](#mcp-clients) ex
 | `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API |
 
 ## API Extensions
+
+Other plugins can register their own authenticated routes, public routes, and MCP tools against this plugin's server. See [Adding your own API Routes via an Extension](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension) for a walkthrough.
+
+### Typed extension API
+
+Install this package as a development dependency to get `getAPI` and the types for everything it returns:
+
+```
+npm install --save-dev obsidian-local-rest-api
+```
+
+```ts
+import { getAPI, type LocalRestApiPublicApi } from "obsidian-local-rest-api";
+
+const api: LocalRestApiPublicApi | undefined = getAPI(this.app, this.manifest, 2);
+```
+
+The package entry point is a small standalone module — it resolves the *running* host plugin out of Obsidian's plugin registry rather than pulling the plugin bundle into your build. Passing an extension API version (`2` above) makes `getAPI` throw `ApiVersionUnsupportedError` when the installed host is older than the surface you need; omit it to accept whatever is installed and feature-detect yourself. `getAPI` returns `undefined` when the plugin isn't installed or hasn't loaded yet.
+
+`publicApi.d.ts` is generated from [`src/publicApi.ts`](src/publicApi.ts), which the implementation is compile-time-checked against, so the published types cannot drift from what the plugin actually offers.
+
+### Known extensions
 
 - [Periodic Notes](https://github.com/coddingtonbear/obsidian-local-rest-api-periodic-notes): Adds support for periodic notes
 
