@@ -44,7 +44,7 @@
     "zod-to-json-schema": "^3.25.2"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.24.3",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "cors": "^2.8.5",
     "express": "^4.21.1",
     "glob-to-regexp": "^0.4.1",
