@@ -19,6 +19,12 @@
  *    public member the class grew but this interface never learned about. The types
  *    therefore cannot drift from the implementation the way the old hand-written
  *    `main.d.ts` did.
+ *
+ * A member the host calls on the implementation but does not want to promise to
+ * extensions is opted out by name in `HostOnlyMembers` in `./api`, rather than being
+ * declared here. Adding it here instead is the easy mistake: it silences the guard just
+ * as well, but it also freezes the member's signature into the published contract
+ * forever.
  */
 import type { App, PluginManifest } from "obsidian";
 import type { IRoute } from "express";
@@ -39,11 +45,6 @@ export interface McpToolAnnotations {
     idempotentHint?: boolean;
     openWorldHint?: boolean;
 }
-/** A route an extension has registered, as reported by {@link LocalRestApiPublicApi.getRoutes}. */
-export interface RegisteredRoute {
-    path: string;
-    authenticated: boolean;
-}
 /**
  * Thrown by {@link getAPI} when the caller asks for an extension API version newer
  * than the installed plugin implements.
@@ -62,8 +63,6 @@ export declare class ApiVersionUnsupportedError extends Error {
 export interface LocalRestApiPublicApi {
     /** The extension API version implemented by the installed host plugin. */
     readonly apiVersion: number;
-    /** The routes registered so far through this handle. */
-    getRoutes(): RegisteredRoute[];
     /**
      * Adds a route that requires the caller to present the API key, exactly as the
      * plugin's own routes do.
@@ -81,8 +80,6 @@ export interface LocalRestApiPublicApi {
      * Throws if a tool with this name is already registered.
      */
     addMcpTool(name: string, description: string, schema: Record<string, z.ZodTypeAny>, callback: (args: Record<string, unknown>) => Promise<unknown>, annotations?: McpToolAnnotations): void;
-    /** The names of the MCP tools registered so far through this handle. */
-    getMcpTools(): string[];
     /** Removes every route and MCP tool registered through this handle. */
     unregister(): void;
 }

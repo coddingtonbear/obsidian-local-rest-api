@@ -35,7 +35,6 @@ export {
   getAPI,
   type McpToolAnnotations,
   type LocalRestApiPublicApi,
-  type RegisteredRoute,
 } from "./publicApi";
 import { PluginManifest } from "obsidian";
 import { configureHttpServerTimeouts } from "./serverTimeouts";

@@ -3,14 +3,26 @@ import { z } from "zod";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { BUILT_IN_ROUTES } from "./constants";
 import { McpHandler } from "./mcpHandler";
-import type { LocalRestApiPublicApi, RegisteredRoute } from "./publicApi";
+import type { LocalRestApiPublicApi } from "./publicApi";
 
-// The public surface — the interface, RegisteredRoute, and ApiVersionUnsupportedError —
-// lives in ./publicApi, which is what the generated publicApi.d.ts is emitted from.
-// Re-exported here so internal callers keep importing them from the module that
-// implements them.
+// The public surface — the interface and ApiVersionUnsupportedError — lives in
+// ./publicApi, which is what the generated publicApi.d.ts is emitted from. Re-exported
+// here so internal callers keep importing them from the module that implements them.
 export { ApiVersionUnsupportedError } from "./publicApi";
-export type { LocalRestApiPublicApi, RegisteredRoute } from "./publicApi";
+export type { LocalRestApiPublicApi } from "./publicApi";
+
+/**
+ * A route an extension has registered, as reported by {@link
+ * LocalRestApiPublicApiImpl.getRoutes}.
+ *
+ * Deliberately declared here rather than in ./publicApi: it describes the host's own
+ * bookkeeping, which only `GET /` consumes, so publishing it would freeze this shape
+ * into the extension contract for no one's benefit.
+ */
+export interface RegisteredRoute {
+  path: string;
+  authenticated: boolean;
+}
 
 export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi {
   public readonly apiVersion = 2;
@@ -39,8 +51,15 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     }
   }
 
+  /**
+   * Host-only: the routes registered through this handle, for the `GET /` response.
+   * Not part of {@link LocalRestApiPublicApi} — see `HostOnlyMembers` below.
+   *
+   * Returns a copy. Handing back the live array would let any caller reorder or empty
+   * the registration bookkeeping this instance relies on.
+   */
   public getRoutes(): RegisteredRoute[] {
-    return this.registeredRoutes;
+    return [...this.registeredRoutes];
   }
 
   /** Adds an authenticated route to the request handler. */
@@ -76,8 +95,9 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     this.registeredMcpTools.push(name);
   }
 
+  /** Host-only counterpart to {@link getRoutes}, returning a copy for the same reason. */
   public getMcpTools(): string[] {
-    return this.registeredMcpTools;
+    return [...this.registeredMcpTools];
   }
 
   public unregister(): void {
@@ -93,16 +113,35 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
 type AssertNever<T extends never> = T;
 
 /**
- * Compile-time guard that ./publicApi describes the *whole* public surface.
+ * Members that are public on the class because the host calls them across module
+ * boundaries, but that are deliberately *not* promised to extensions.
+ *
+ * TypeScript has no visibility level for "public to this codebase, private to our
+ * consumers", so the distinction has to be written down. Anything named here is exempt
+ * from the completeness check below; everything else must appear in
+ * {@link LocalRestApiPublicApi}.
+ */
+type HostOnlyMembers = "getRoutes" | "getMcpTools";
+
+/**
+ * Compile-time guard that every public member is a deliberate choice.
  *
  * The `implements` clause above already fails the build when the class drops something
  * the interface promises. This catches the opposite drift: a public member added to the
- * class that ./publicApi — and therefore the generated declaration extension authors
- * consume — never learned about. Adding a public method here without documenting it
- * there breaks `npm run typecheck`.
+ * class that neither ./publicApi nor HostOnlyMembers accounts for. Adding a public
+ * method here without classifying it breaks `npm run typecheck`.
+ *
+ * The classification matters more than it looks. Before HostOnlyMembers existed, the
+ * only way to satisfy this guard was to declare the member in ./publicApi — so the
+ * guard, meant to keep the published surface honest, actively pushed host-internal
+ * methods into the extension contract. `getRoutes` and `getMcpTools` reached the
+ * published types that way; both are called only by the `GET /` handler.
  *
  * Exported only so it counts as used; it has no runtime representation.
  */
 export type PublicSurfaceIsComplete = AssertNever<
-  Exclude<keyof LocalRestApiPublicApiImpl, keyof LocalRestApiPublicApi>
+  Exclude<
+    keyof LocalRestApiPublicApiImpl,
+    keyof LocalRestApiPublicApi | HostOnlyMembers
+  >
 >;

@@ -110,7 +110,11 @@ export default class RequestHandler {
 
   apiExtensionRouter: express.Router;
   publicApiExtensionRouter: express.Router;
-  apiExtensions: Map<string, { manifest: PluginManifest; api: LocalRestApiPublicApi }> = new Map();
+  // Holds the implementation type rather than LocalRestApiPublicApi: the `GET /`
+  // handler reads getRoutes()/getMcpTools(), which are host-only and therefore
+  // absent from the published interface. registerApiExtension still hands
+  // extensions the narrower interface.
+  apiExtensions: Map<string, { manifest: PluginManifest; api: LocalRestApiPublicApiImpl }> = new Map();
 
   operations: VaultOperations;
   mcpHandler: McpHandler;
