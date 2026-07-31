@@ -26,6 +26,15 @@ Integration tests require a live Obsidian instance with the plugin's insecure HT
 npm run test:integration
 ```
 
+Two groups of integration tests are skipped by default and opt in via environment
+variable, because each needs something of the person running them:
+
+- `OBSIDIAN_ACTIVE_FILE=<vault-relative path>` — enables the `active_file_*` tests, which
+  need that file open in Obsidian.
+- `OBSIDIAN_TEST_OPEN_FILE=1` — enables the `open_file` test. It is off by default
+  because opening a file pulls Obsidian to the foreground and takes keyboard focus
+  mid-run, so keystrokes meant for another window can land in the opened note.
+
 ### Commit message format
 
 Use a plain imperative subject line (no `type:` prefix). Always include a `Co-Authored-By` trailer crediting the AI assistant that helped author the commit.
