@@ -3,26 +3,16 @@ import { z } from "zod";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { BUILT_IN_ROUTES } from "./constants";
 import { McpHandler } from "./mcpHandler";
+import type { LocalRestApiPublicApi, RegisteredRoute } from "./publicApi";
 
-export interface RegisteredRoute {
-  path: string;
-  authenticated: boolean;
-}
+// The public surface — the interface, RegisteredRoute, and ApiVersionUnsupportedError —
+// lives in ./publicApi, which is what the generated publicApi.d.ts is emitted from.
+// Re-exported here so internal callers keep importing them from the module that
+// implements them.
+export { ApiVersionUnsupportedError } from "./publicApi";
+export type { LocalRestApiPublicApi, RegisteredRoute } from "./publicApi";
 
-export class ApiVersionUnsupportedError extends Error {
-  constructor(
-    public readonly requestedVersion: number,
-    public readonly availableVersion: number,
-  ) {
-    super(
-      `Obsidian Local REST API does not support API version ${requestedVersion}. ` +
-      `The installed plugin supports API version ${availableVersion}.`
-    );
-    this.name = "ApiVersionUnsupportedError";
-  }
-}
-
-export default class LocalRestApiPublicApi {
+export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi {
   public readonly apiVersion = 2;
   private router: express.Router;
   private publicRouter: express.Router;
@@ -98,3 +88,21 @@ export default class LocalRestApiPublicApi {
     this.unregistered = true;
   }
 }
+
+/** Resolves to `T` only when `T` is `never`; any other type is a compile error. */
+type AssertNever<T extends never> = T;
+
+/**
+ * Compile-time guard that ./publicApi describes the *whole* public surface.
+ *
+ * The `implements` clause above already fails the build when the class drops something
+ * the interface promises. This catches the opposite drift: a public member added to the
+ * class that ./publicApi — and therefore the generated declaration extension authors
+ * consume — never learned about. Adding a public method here without documenting it
+ * there breaks `npm run typecheck`.
+ *
+ * Exported only so it counts as used; it has no runtime representation.
+ */
+export type PublicSurfaceIsComplete = AssertNever<
+  Exclude<keyof LocalRestApiPublicApiImpl, keyof LocalRestApiPublicApi>
+>;

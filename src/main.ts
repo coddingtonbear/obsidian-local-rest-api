@@ -22,8 +22,17 @@ import {
   getCertificateIsUptoStandards,
   getCertificateValidityDays,
 } from "./utils";
-import LocalRestApiPublicApi, { ApiVersionUnsupportedError } from "./api";
-export { ApiVersionUnsupportedError } from "./api";
+import type { LocalRestApiPublicApi } from "./publicApi";
+// The extension API is defined in ./publicApi, which is what the generated
+// publicApi.d.ts ships to extension authors. Re-exported here so that anything
+// importing the plugin entry point keeps seeing the same names it always has.
+export {
+  ApiVersionUnsupportedError,
+  getAPI,
+  type McpToolAnnotations,
+  type LocalRestApiPublicApi,
+  type RegisteredRoute,
+} from "./publicApi";
 import { PluginManifest } from "obsidian";
 import { configureHttpServerTimeouts } from "./serverTimeouts";
 
@@ -830,20 +839,3 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       );
   }
 }
-
-export const getAPI = (
-  app: App,
-  manifest: PluginManifest,
-  version?: number,
-): LocalRestApiPublicApi | undefined => {
-  const plugin = app.plugins.plugins["obsidian-local-rest-api"];
-  if (!plugin) return undefined;
-  const api = (plugin as unknown as LocalRestApi).getPublicApi(manifest);
-  if (version !== undefined) {
-    const availableVersion = api.apiVersion ?? 1;
-    if (availableVersion < version) {
-      throw new ApiVersionUnsupportedError(version, availableVersion);
-    }
-  }
-  return api;
-};

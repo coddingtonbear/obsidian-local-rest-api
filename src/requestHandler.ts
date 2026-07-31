@@ -68,7 +68,8 @@ import {
   isV2Scope,
   isV2TargetType,
 } from "./typeGuards";
-import LocalRestApiPublicApi from "./api";
+import LocalRestApiPublicApiImpl from "./api";
+import type { LocalRestApiPublicApi } from "./publicApi";
 import {
   CommandNotFoundError,
   DestinationAlreadyExistsError,
@@ -148,7 +149,7 @@ export default class RequestHandler {
         parent.stack.splice(idx, 1);
       }
     };
-    const api = new LocalRestApiPublicApi(router, publicRouter, this.mcpHandler, () => {
+    const api = new LocalRestApiPublicApiImpl(router, publicRouter, this.mcpHandler, () => {
       if (this.apiExtensions.delete(manifest.id)) {
         removeRouter(this.apiExtensionRouter, router);
         removeRouter(this.publicApiExtensionRouter, publicRouter);
