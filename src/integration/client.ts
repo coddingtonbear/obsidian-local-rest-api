@@ -27,10 +27,18 @@ export async function ensureServerReachable(): Promise<void> {
   }
 }
 
-// PUT the fixture doc to the vault, then poll until Obsidian's metadata cache has indexed it.
-// We use the note+json endpoint as the readiness probe: it returns 200 only when
-// getAbstractFileByPath and getFileMetadataObject both succeed, which means the file
-// is in Obsidian's internal index AND the metadata cache is populated.
+// PUT the fixture doc to the vault, then poll until Obsidian's metadata cache reflects
+// the content we just wrote.
+//
+// A 200 from the note+json endpoint is NOT sufficient on its own. Every suite reuses the
+// same fixture path, so on all but the first reset the file already exists with the
+// *previous* test's content, and Obsidian already holds a cache entry for it. The plugin's
+// waitForFileCache returns any existing cache entry immediately rather than waiting for one
+// current with the latest write, so a 200 can be served entirely from the pre-PUT snapshot.
+// A test that then patched and read back could observe frontmatter from before the reset.
+//
+// Comparing the returned content against what we PUT closes that window: the cache can only
+// echo this exact body once it has caught up with our write.
 export async function resetFixture(content: string, path: string): Promise<void> {
   const putRes = await authedFetch(`/vault/${path}`, {
     method: "PUT",
@@ -45,7 +53,9 @@ export async function resetFixture(content: string, path: string): Promise<void>
     const check = await authedFetch(`/vault/${path}`, {
       headers: { Accept: "application/vnd.olrapi.note+json" },
     });
-    if (check.status === 200) return;
+    if (check.status !== 200) continue;
+    const body = (await check.json()) as { content?: string };
+    if (body.content === content) return;
   }
   throw new Error(`resetFixture: Obsidian did not index ${path} within 5s`);
 }
