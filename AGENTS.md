@@ -109,6 +109,8 @@ npm run build-types
 
 `npm run build` runs this too, and CI fails if the committed output does not match a fresh build. Bumping the extension API's capabilities means bumping `apiVersion` in `src/api.ts`, since `getAPI`'s optional version argument is what extension authors use to detect an older host.
 
+The generated module is also what ships to npm as the `obsidian-local-rest-api` package that extension authors install for typings. npm publication happens manually, by the user, as part of cutting a release whenever the extension API changed — see step 8 of the Release Process below.
+
 ### Checklist
 
 Before marking any endpoint-related change complete:
@@ -177,3 +179,17 @@ Releases are performed on the `main` branch after all feature branches have been
    - Credit external contributors where relevant (e.g. `Thanks @username!`). GitHub handles are not present in commit messages — look them up via `gh pr view <number>` for any PR-sourced changes.
    - Sub-bullets may be used for multi-part changes.
    - For re-releases (e.g. fixing a botched release), add a short prose paragraph before or after the bullets explaining what changed from the prior release attempt and that the underlying content is otherwise identical.
+
+8. After pushing the tag, check whether the extension API changed since the previous release:
+
+   ```
+   git diff <previous-tag> HEAD -- src/publicApi.ts publicApi.d.ts publicApi.js package.json
+   ```
+
+   If it did, **remind the user to publish the types package to npm** — the same `obsidian-local-rest-api` package extension authors install for `publicApi.d.ts` typings. Publishing is a manual step the user must perform themselves; their npm authentication setup means it cannot run in CI and cannot be performed by an assistant. Suggest they run:
+
+   ```
+   npm publish
+   ```
+
+   (`npm publish --dry-run` first shows exactly what will ship; package.json's `files` whitelist limits it to the generated `publicApi.js`/`publicApi.d.ts` plus manifest, Readme, and license.)
