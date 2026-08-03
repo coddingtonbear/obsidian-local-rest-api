@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marketing site candidates — Local REST API with MCP</title>
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/png" href="../favicon-32x32.png" sizes="32x32">
+<style>
+:root {
+  --paper: #f5f6f8; --card: #fff; --rule: #dde2e8; --ink: #18202a; --ink-2: #4a5765; --muted: #798694; --accent: #2f5d50;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --paper: #12161b; --card: #191e25; --rule: #2a323b; --ink: #e6ebf1; --ink-2: #aab4c0; --muted: #7b8794; --accent: #6cc7ad; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --paper: #12161b; --card: #191e25; --rule: #2a323b; --ink: #e6ebf1; --ink-2: #aab4c0; --muted: #7b8794; --accent: #6cc7ad; color-scheme: dark; }
+:root[data-theme="light"] { --paper: #f5f6f8; --card: #fff; --rule: #dde2e8; --ink: #18202a; --ink-2: #4a5765; --muted: #798694; --accent: #2f5d50; color-scheme: light; }
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans); font-size: 16.5px; line-height: 1.65; }
+.wrap { width: min(100% - 40px, 760px); margin: 0 auto; padding: 72px 0 88px; }
+h1 { margin: 0; font-size: 30px; letter-spacing: -0.02em; text-wrap: balance; }
+.tag { font-family: var(--mono); font-size: 11.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); margin-bottom: 14px; }
+p.intro { margin: 16px 0 0; color: var(--ink-2); }
+ul { list-style: none; margin: 36px 0 0; padding: 0; display: grid; gap: 14px; }
+li a { display: block; text-decoration: none; color: inherit; background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 20px 22px; }
+li a:hover { border-color: var(--accent); }
+li h2 { margin: 0; font-size: 18.5px; letter-spacing: -0.01em; }
+li h2 span { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-left: 10px; }
+li p { margin: 8px 0 0; color: var(--ink-2); font-size: 15.4px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--rule); font-size: 14.5px; color: var(--muted); }
+footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="tag">Candidates · not the published site</p>
+  <h1>Three marketing site directions</h1>
+  <p class="intro">
+    Same facts and same calls to action in each; the difference is who they are pitched at and how
+    they argue. Pick one, and it gets promoted to the site root — see
+    <code>docs/site/README.md</code> for how that is done without breaking the existing docs URL.
+  </p>
+
+  <ul>
+    <li>
+      <a href="./terminal/">
+        <h2>The wire <span>terminal</span></h2>
+        <p>Dark and developer-facing, built around a live request/response transcript. Argues that the API is concrete and immediate. Modelled on obsidian.md and make.md.</p>
+      </a>
+    </li>
+    <li>
+      <a href="./datasheet/">
+        <h2>The datasheet <span>datasheet</span></h2>
+        <p>Light, dense, and reference-like: a spec block, a contents rail, and the full endpoint matrix on the page. Argues that the thing is thoroughly documented. Modelled on the docs-style plugin sites.</p>
+      </a>
+    </li>
+    <li>
+      <a href="./conversation/">
+        <h2>The exchange <span>conversation</span></h2>
+        <p>Editorial and agent-facing, built around what an agent actually does to a vault. Argues from outcomes rather than endpoints. Modelled on Copilot for Obsidian and Smart Connections.</p>
+      </a>
+    </li>
+  </ul>
+
+  <footer>
+    The published interactive API reference stays where it is:
+    <a href="https://coddingtonbear.github.io/obsidian-local-rest-api/">coddingtonbear.github.io/obsidian-local-rest-api</a>.
+  </footer>
+</div>
+</body>
+</html>

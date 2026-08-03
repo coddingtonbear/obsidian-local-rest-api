@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local REST API with MCP — give your agent the keys to your Obsidian vault</title>
+<meta name="description" content="An Obsidian plugin that serves a built-in MCP server and a full REST API from inside the app, so AI agents work with your live vault instead of a copy of your folder.">
+<link rel="icon" type="image/png" href="../../favicon-32x32.png" sizes="32x32">
+<link rel="icon" type="image/png" href="../../favicon-16x16.png" sizes="16x16">
+<style>
+/* ---------------------------------------------------------------------------
+   Direction: "the exchange". The reader is deciding whether to let an agent
+   into their notes, so the page is built out of the thing they are deciding
+   about: someone asks for something, tools run, and the vault changes. Human
+   voice is set in a serif; the machine's half of every exchange is monospace.
+   Ground is a cool slate-green paper — a notebook, not a terminal — with one
+   deep teal doing all the work.
+   --------------------------------------------------------------------------- */
+:root {
+  --paper: #edf1ee;
+  --card: #f9fbf9;
+  --card-2: #e4ebe6;
+  --rule: #d3ddd7;
+  --rule-soft: #e0e8e3;
+  --ink: #13201b;
+  --ink-2: #42544c;
+  --muted: #77877e;
+  --accent: #0e6e62;
+  --accent-2: #0a544a;
+  --wash: #e2ede9;
+  --on-accent: #f4fbf9;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --col: 720px;
+  --wide: 1080px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0f1614;
+    --card: #16201d;
+    --card-2: #1c2724;
+    --rule: #27342f;
+    --rule-soft: #202b28;
+    --ink: #e3ebe6;
+    --ink-2: #a7b7af;
+    --muted: #7b8c84;
+    --accent: #5fd9c0;
+    --accent-2: #86e6d2;
+    --wash: #16302b;
+    --on-accent: #06201c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1614;
+  --card: #16201d;
+  --card-2: #1c2724;
+  --rule: #27342f;
+  --rule-soft: #202b28;
+  --ink: #e3ebe6;
+  --ink-2: #a7b7af;
+  --muted: #7b8c84;
+  --accent: #5fd9c0;
+  --accent-2: #86e6d2;
+  --wash: #16302b;
+  --on-accent: #06201c;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --paper: #edf1ee;
+  --card: #f9fbf9;
+  --card-2: #e4ebe6;
+  --rule: #d3ddd7;
+  --rule-soft: #e0e8e3;
+  --ink: #13201b;
+  --ink-2: #42544c;
+  --muted: #77877e;
+  --accent: #0e6e62;
+  --accent-2: #0a544a;
+  --wash: #e2ede9;
+  --on-accent: #f4fbf9;
+  color-scheme: light;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+h1, h2, h3 { margin: 0; font-family: var(--serif); font-weight: 600; line-height: 1.14; letter-spacing: -0.014em; text-wrap: balance; }
+p { margin: 0; }
+code { font-family: var(--mono); font-size: .88em; }
+
+.col { width: min(100% - 44px, var(--col)); margin-inline: auto; }
+.wide { width: min(100% - 44px, var(--wide)); margin-inline: auto; }
+
+/* --------------------------------- nav ----------------------------------- */
+.top { border-bottom: 1px solid var(--rule); background: color-mix(in srgb, var(--paper) 88%, transparent); backdrop-filter: blur(10px); position: sticky; top: 0; z-index: 30; }
+.top .wide { display: flex; align-items: center; gap: 22px; height: 60px; }
+.brand { margin-right: auto; text-decoration: none; color: var(--ink); font-family: var(--serif); font-size: 18.5px; font-weight: 600; }
+.brand em { font-style: normal; color: var(--accent); }
+.top nav { display: flex; align-items: center; gap: 20px; }
+.top nav a { color: var(--ink-2); text-decoration: none; font-size: 14.5px; }
+.top nav a:hover { color: var(--accent); }
+/* The button in the nav is a button first: out-specify `.top nav a`, or its
+   label inherits the nav's ink colour and disappears into the accent fill. */
+.top nav a.btn-solid { color: var(--on-accent); }
+.top nav a.btn-solid:hover { color: var(--on-accent); }
+@media (max-width: 760px) { .top nav a.hide-sm { display: none; } }
+
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 19px; border-radius: 999px; font-size: 15px; font-weight: 600; text-decoration: none; border: 1px solid transparent; }
+.btn-solid { background: var(--accent); color: var(--on-accent); }
+.btn-solid:hover { background: var(--accent-2); }
+.btn-line { border-color: var(--rule); color: var(--ink); background: var(--card); }
+.btn-line:hover { border-color: var(--accent); color: var(--accent); }
+.btn-sm { padding: 7px 14px; font-size: 13.6px; }
+
+/* --------------------------------- hero ---------------------------------- */
+.hero { padding: 84px 0 64px; }
+@media (max-width: 760px) { .hero { padding: 52px 0 44px; } }
+.hero .col { text-align: left; }
+.overline { font-family: var(--mono); font-size: 11.5px; letter-spacing: .17em; text-transform: uppercase; color: var(--muted); margin-bottom: 20px; }
+h1 { font-size: clamp(38px, 5.6vw, 60px); letter-spacing: -0.026em; }
+h1 em { font-style: italic; color: var(--accent); }
+.hero p.lede { margin-top: 24px; font-size: clamp(17.5px, 1.5vw, 20px); color: var(--ink-2); }
+.hero .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+.hero .fineprint { margin-top: 18px; font-size: 14px; color: var(--muted); }
+
+/* --------------------------- the exchange device -------------------------- */
+.exchange {
+  border: 1px solid var(--rule); border-radius: 16px; background: var(--card);
+  overflow: hidden; margin-top: 44px;
+}
+.ex-ask {
+  padding: 22px 26px; border-bottom: 1px solid var(--rule-soft);
+  font-family: var(--serif); font-size: 20px; font-style: italic; line-height: 1.45; color: var(--ink);
+  display: flex; gap: 14px; align-items: baseline;
+}
+.ex-ask::before { content: "You"; font-family: var(--mono); font-style: normal; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); flex: none; padding-top: 4px; }
+.ex-run { padding: 18px 26px; background: var(--card-2); border-bottom: 1px solid var(--rule-soft); display: grid; gap: 9px; }
+.ex-run .step { font-family: var(--mono); font-size: 13px; color: var(--ink-2); display: flex; gap: 10px; align-items: baseline; }
+.ex-run .step b { color: var(--accent); font-weight: 500; }
+.ex-run .step span.arg { color: var(--muted); }
+.ex-out { padding: 20px 26px 22px; display: flex; gap: 14px; align-items: baseline; }
+.ex-out::before { content: "Vault"; font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); flex: none; padding-top: 4px; }
+.ex-out p { color: var(--ink-2); font-size: 15.5px; }
+.ex-out strong { color: var(--ink); font-weight: 600; }
+
+/* -------------------------------- sections -------------------------------- */
+section { padding: 72px 0; }
+@media (max-width: 760px) { section { padding: 52px 0; } }
+.band { background: var(--card); border-block: 1px solid var(--rule); }
+h2 { font-size: clamp(27px, 3.4vw, 38px); }
+.lead { margin-top: 18px; font-size: 17.5px; color: var(--ink-2); }
+.kicker { font-family: var(--mono); font-size: 11.5px; letter-spacing: .17em; text-transform: uppercase; color: var(--accent); margin-bottom: 16px; }
+.prose > * + * { margin-top: 22px; }
+.prose p { color: var(--ink-2); }
+
+/* capability list, kept plain — this page argues in sentences, not cards */
+.caps { margin: 34px 0 0; padding: 0; list-style: none; display: grid; gap: 1px; background: var(--rule-soft); border: 1px solid var(--rule); border-radius: 14px; overflow: hidden; }
+.caps li { background: var(--card); padding: 18px 22px; display: grid; grid-template-columns: 200px minmax(0,1fr); gap: 20px; align-items: baseline; }
+@media (max-width: 640px) { .caps li { grid-template-columns: 1fr; gap: 6px; } }
+.caps b { font-weight: 650; font-size: 15.6px; }
+.caps span { color: var(--ink-2); font-size: 15.4px; }
+.band .caps li { background: var(--paper); }
+
+/* comparison */
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 14px; background: var(--card); margin-top: 30px; }
+.band .table-wrap { background: var(--paper); }
+table { border-collapse: collapse; width: 100%; min-width: 680px; font-size: 14.8px; }
+th, td { text-align: left; padding: 13px 18px; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+thead th { font-family: var(--mono); font-size: 11px; letter-spacing: .11em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+thead th.mine { color: var(--accent); }
+tbody th { font-weight: 500; color: var(--ink-2); }
+tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
+td.mine { background: var(--wash); color: var(--ink); }
+td.other { color: var(--muted); }
+.aside { margin-top: 18px; font-size: 14.6px; color: var(--muted); }
+
+/* code */
+pre { margin: 0; border: 1px solid var(--rule); border-radius: 12px; background: var(--card); padding: 18px 20px; overflow-x: auto; font-family: var(--mono); font-size: 13.2px; line-height: 1.8; }
+.band pre { background: var(--paper); }
+pre .cm { color: var(--muted); }
+pre .st { color: var(--accent); }
+.steps { display: grid; gap: 20px; margin-top: 32px; }
+.step-head { font-family: var(--mono); font-size: 11.5px; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+
+/* trust panel */
+.trust { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 1px; background: var(--rule-soft); border: 1px solid var(--rule); border-radius: 14px; overflow: hidden; margin-top: 32px; }
+@media (max-width: 760px) { .trust { grid-template-columns: 1fr; } }
+.trust div { background: var(--card); padding: 22px; }
+.band .trust div { background: var(--paper); }
+.trust h3 { font-family: var(--sans); font-size: 15.5px; font-weight: 650; letter-spacing: 0; }
+.trust p { margin-top: 8px; font-size: 14.8px; color: var(--ink-2); }
+
+/* faq */
+details { border-bottom: 1px solid var(--rule); }
+details:first-of-type { border-top: 1px solid var(--rule); }
+summary { cursor: pointer; padding: 18px 0; font-weight: 600; font-size: 16.5px; list-style: none; display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; font-family: var(--mono); color: var(--accent); font-size: 18px; }
+details[open] summary::after { content: "–"; }
+details p { padding-bottom: 20px; color: var(--ink-2); font-size: 16px; }
+
+/* closing */
+.closing { text-align: center; padding: 92px 0 100px; }
+.closing h2 { font-size: clamp(30px, 4.2vw, 44px); }
+.closing p { margin: 18px auto 0; max-width: 52ch; color: var(--ink-2); }
+.closing .actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+
+footer { border-top: 1px solid var(--rule); background: var(--card); padding: 34px 0 48px; }
+footer .wide { display: flex; flex-wrap: wrap; gap: 16px 34px; align-items: baseline; }
+footer a { color: var(--ink-2); text-decoration: none; font-size: 14.4px; }
+footer a:hover { color: var(--accent); }
+footer .rights { margin-left: auto; font-family: var(--mono); font-size: 12.4px; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) { * { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wide">
+    <a class="brand" href="#top">Local REST API <em>with MCP</em></a>
+    <nav>
+      <a href="#how" class="hide-sm">How it works</a>
+      <a href="#compare" class="hide-sm">Why this one</a>
+      <a href="#rest" class="hide-sm">REST API</a>
+      <a href="https://coddingtonbear.github.io/obsidian-local-rest-api/">API docs</a>
+      <a class="btn btn-solid btn-sm" href="https://obsidian.md/plugins?id=obsidian-local-rest-api">Install</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+  <section class="hero">
+    <div class="col">
+      <p class="overline">Obsidian community plugin · free · MIT</p>
+      <h1>Give your agent the keys to your vault — <em>not a copy of it.</em></h1>
+      <p class="lede">
+        This plugin runs a Model Context Protocol server and a full REST API from inside Obsidian.
+        Your agent doesn't read a folder of files on the side; it works in the vault you have open,
+        with the tags, links, search, and commands Obsidian already resolved.
+      </p>
+      <div class="actions">
+        <a class="btn btn-solid" href="https://obsidian.md/plugins?id=obsidian-local-rest-api">Install from Obsidian</a>
+        <a class="btn btn-line" href="https://coddingtonbear.github.io/obsidian-local-rest-api/">Read the API docs</a>
+      </div>
+      <p class="fineprint">Runs on 127.0.0.1 behind an API key. Nothing is sent anywhere.</p>
+
+      <div class="exchange">
+        <div class="ex-ask">Add today's decisions to my project log, and file the loose ends as tasks.</div>
+        <div class="ex-run">
+          <div class="step"><b>vault_get_document_map</b> <span class="arg">Projects/API.md</span></div>
+          <div class="step"><b>vault_patch</b> <span class="arg">heading ["Log"] · append · ifMatch</span></div>
+          <div class="step"><b>search_query</b> <span class="arg">tags contains "loose-end"</span></div>
+          <div class="step"><b>vault_append</b> <span class="arg">Tasks/Inbox.md</span></div>
+        </div>
+        <div class="ex-out">
+          <p>One heading in <strong>Projects/API.md</strong> gained four lines. Nothing else in the note moved, and Obsidian — still open in front of you — shows the change immediately.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how" class="band">
+    <div class="col prose">
+      <p class="kicker">How it works</p>
+      <h2>An agent that can see what Obsidian sees</h2>
+      <p class="lead">
+        Most ways of getting an agent into a vault treat it as a directory of text. That works until
+        the agent needs to know which notes carry a tag, what the note in front of you is, or how to
+        change one section of a long file without rewriting the whole thing.
+      </p>
+      <p>
+        Because this server lives inside Obsidian, none of those are hard problems. It reads the
+        metadata cache the app already maintains, it can name the file you currently have open, and
+        it edits by address — a heading path, a block reference, a frontmatter key — rather than by
+        rewriting bytes. Writes go through Obsidian's own vault API, so the app you are looking at
+        never misses a change or overwrites one.
+      </p>
+
+      <ul class="caps">
+        <li><b>Read and write</b><span>Any file in the vault, including attachments — plus the note that happens to be open right now.</span></li>
+        <li><b>Edit by address</b><span>Append under a heading, replace a block, set a frontmatter field. Optimistic concurrency stops two writers from stepping on each other.</span></li>
+        <li><b>Search properly</b><span>Obsidian's own fuzzy search, or a structured JsonLogic query across frontmatter, tags, paths, and content.</span></li>
+        <li><b>Run the app</b><span>List and execute any Obsidian command, and open a note on screen when a human should look at it.</span></li>
+        <li><b>Know the vault</b><span>Every tag with its usage count; the heading, block, and frontmatter map of any file before touching it.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="compare">
+    <div class="wide">
+      <div class="col prose" style="padding-left:0; padding-right:0; width:100%; max-width:var(--col); margin-inline:auto;">
+        <p class="kicker">Why this one</p>
+        <h2>Compared with pointing a filesystem server at the folder</h2>
+        <p class="lead">
+          A filesystem MCP server is genuinely simpler, and it keeps working when Obsidian is shut.
+          What it cannot do is see any of the structure Obsidian builds on top of those files — or
+          tell the running app that something changed.
+        </p>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">&nbsp;</th>
+              <th scope="col" class="mine">This plugin</th>
+              <th scope="col">Filesystem MCP server</th>
+              <th scope="col">Third-party REST wrapper</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Tags, links, and frontmatter</th>
+              <td class="mine">Obsidian's live metadata cache</td>
+              <td class="other">Re-parsed from the raw files</td>
+              <td class="other">Whatever this plugin returns</td>
+            </tr>
+            <tr>
+              <th scope="row">Changes reach the open app</th>
+              <td class="mine">Immediately — written through Obsidian</td>
+              <td class="other">Written behind its back</td>
+              <td class="other">Whatever this plugin does</td>
+            </tr>
+            <tr>
+              <th scope="row">Editing one section</th>
+              <td class="mine">By heading, block, or field</td>
+              <td class="other">Usually a whole-file rewrite</td>
+              <td class="other">Only what it chooses to expose</td>
+            </tr>
+            <tr>
+              <th scope="row">The note you have open</th>
+              <td class="mine">Addressable directly</td>
+              <td class="other">Unknowable</td>
+              <td class="other">Only if it proxies it</td>
+            </tr>
+            <tr>
+              <th scope="row">Obsidian commands</th>
+              <td class="mine">Listed and executable</td>
+              <td class="other">Out of reach</td>
+              <td class="other">Only if it proxies them</td>
+            </tr>
+            <tr>
+              <th scope="row">Extra software to run</th>
+              <td class="mine">None beyond the plugin</td>
+              <td class="other">A separate server</td>
+              <td class="other">A separate server, plus this plugin</td>
+            </tr>
+            <tr>
+              <th scope="row">Works with Obsidian closed</th>
+              <td class="mine other">No</td>
+              <td class="other">Yes</td>
+              <td class="other">No</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="max-width:var(--col); margin-inline:auto;">
+        <p class="aside">
+          The last row is the trade-off, said plainly. Worth knowing too: the popular third-party
+          Obsidian MCP servers are wrappers that call this plugin's REST API underneath — so if you
+          are running one of those, you are already running this, with an extra process in between.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section id="rest" class="band">
+    <div class="col prose">
+      <p class="kicker">Not only for agents</p>
+      <h2>The same vault, over plain HTTP</h2>
+      <p class="lead">
+        Long before MCP existed, this was a REST API — and it still is. Every capability an agent
+        gets through a tool call is also an ordinary HTTP endpoint, documented in OpenAPI, reachable
+        from a shell script, an iOS Shortcut, a browser extension, or anything else that can make a
+        request.
+      </p>
+
+<pre><span class="cm"># Append a line under a heading. No JSON escaping required.</span>
+curl -k -X PATCH \
+  -H <span class="st">"Authorization: Bearer $KEY"</span> \
+  -H <span class="st">"Operation: append"</span> \
+  -H <span class="st">"Content-Type: text/markdown"</span> \
+  --data <span class="st">"- One more thing"</span> \
+  https://127.0.0.1:27124/vault/Projects/API.md/heading/Log</pre>
+
+      <p>
+        The full reference is interactive: every route, parameter, and response shape, generated
+        from the same specification the plugin serves to MCP clients at runtime.
+      </p>
+      <p><a class="btn btn-line" href="https://coddingtonbear.github.io/obsidian-local-rest-api/">Open the interactive API documentation</a></p>
+    </div>
+  </section>
+
+  <section id="start">
+    <div class="col prose">
+      <p class="kicker">Quick start</p>
+      <h2>Three minutes, start to finish</h2>
+      <p class="lead">Install the plugin from Obsidian's community browser, then open <strong>Settings → Local REST API</strong> and copy your API key.</p>
+
+      <div class="steps">
+        <div>
+          <p class="step-head">Claude Code</p>
+<pre>claude mcp add --transport http obsidian https://127.0.0.1:27124/mcp/ \
+  --header <span class="st">"Authorization: Bearer &lt;your-api-key&gt;"</span></pre>
+        </div>
+        <div>
+          <p class="step-head">Cursor · ~/.cursor/mcp.json</p>
+<pre>{
+  "mcpServers": {
+    "obsidian": {
+      "url": <span class="st">"https://127.0.0.1:27124/mcp/"</span>,
+      "headers": { "Authorization": <span class="st">"Bearer &lt;your-api-key&gt;"</span> }
+    }
+  }
+}</pre>
+        </div>
+        <div>
+          <p class="step-head">Claude Desktop · via mcp-remote</p>
+<pre>{
+  "mcpServers": {
+    "obsidian": {
+      "command": <span class="st">"npx"</span>,
+      "args": [
+        <span class="st">"mcp-remote@latest"</span>,
+        <span class="st">"https://127.0.0.1:27124/mcp/"</span>,
+        <span class="st">"--header"</span>,
+        <span class="st">"Authorization: Bearer &lt;your-api-key&gt;"</span>
+      ]
+    }
+  }
+}</pre>
+        </div>
+      </div>
+      <p class="aside">Any client that speaks the Streamable HTTP transport works the same way: that URL, that header.</p>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="col prose">
+      <p class="kicker">Trust</p>
+      <h2>Your notes stay on your machine</h2>
+      <p class="lead">
+        This is a local server, not a service. There is no account, no telemetry, and no upstream —
+        the only things that reach your vault are the clients you hand a key to.
+      </p>
+
+      <div class="trust">
+        <div>
+          <h3>Loopback by default</h3>
+          <p>The server binds to 127.0.0.1. Nothing on your network can reach it unless you deliberately change that.</p>
+        </div>
+        <div>
+          <h3>Authenticated everywhere</h3>
+          <p>Every route but the status check requires your bearer API key, over HTTPS with a certificate generated on your machine.</p>
+        </div>
+        <div>
+          <h3>Open source</h3>
+          <p>MIT licensed, developed in the open, and reviewed by the Obsidian community plugin process.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="col prose">
+      <p class="kicker">Questions</p>
+      <h2>Before you install</h2>
+      <div style="margin-top:28px;">
+        <details open>
+          <summary>Does Obsidian have to be open?</summary>
+          <p>Yes — and that is what makes the difference. The metadata cache, the active file, Obsidian's search, and the command palette all live inside a running app. If you specifically want vault access while Obsidian is closed, a filesystem tool is the better fit.</p>
+        </details>
+        <details>
+          <summary>Do I still need a third-party Obsidian MCP server?</summary>
+          <p>No. The MCP server is built into the plugin, so there is no bridge process to install, configure, or keep up to date — and the popular third-party servers are wrappers around this plugin's REST API anyway.</p>
+        </details>
+        <details>
+          <summary>What about the certificate warning?</summary>
+          <p>The certificate is self-signed because it is issued locally for a loopback address. Trust it from <code>https://127.0.0.1:27124/obsidian-local-rest-api.crt</code>, hand it to your client directly, or enable the optional plain-HTTP port for clients that cannot be talked round.</p>
+        </details>
+        <details>
+          <summary>Can an agent destroy my notes?</summary>
+          <p>It has the access you grant it, so treat the API key as you would any other credential — and keep your vault in version control or a backup, as you would anyway. Deletes move files to the trash by default, section edits touch only the section they name, and an <code>ifMatch</code> token lets a careful client refuse to write over a file that changed underneath it.</p>
+        </details>
+        <details>
+          <summary>Does it work on mobile?</summary>
+          <p>No, desktop only. The plugin needs Node's TLS and HTTP server APIs, which Obsidian's mobile runtime does not provide.</p>
+        </details>
+        <details>
+          <summary>Can my own plugin add to the API?</summary>
+          <p>Yes. Plugins can register their own authenticated routes and MCP tools on this server, and a published, generated type package means the whole host surface is checked at compile time.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="closing band">
+    <div class="col">
+      <h2>Let it work where you work.</h2>
+      <p>Free, open source, and installed from Obsidian's community plugin browser in about a minute.</p>
+      <div class="actions">
+        <a class="btn btn-solid" href="https://obsidian.md/plugins?id=obsidian-local-rest-api">Install the plugin</a>
+        <a class="btn btn-line" href="https://coddingtonbear.github.io/obsidian-local-rest-api/">Interactive API docs</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wide">
+    <a href="https://coddingtonbear.github.io/obsidian-local-rest-api/">API documentation</a>
+    <a href="https://github.com/coddingtonbear/obsidian-local-rest-api">GitHub</a>
+    <a href="https://community.obsidian.md/plugins/obsidian-local-rest-api/">Community plugin page</a>
+    <a href="https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension">Build an extension</a>
+    <span class="rights">MIT · Adam Coddington</span>
+  </div>
+</footer>
+
+</body>
+</html>
