@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local REST API with MCP — the documented interface to your Obsidian vault</title>
+<meta name="description" content="A secure REST API and Model Context Protocol server that runs inside Obsidian. Fully documented, section-level editing, sixteen MCP tools, extensible by other plugins.">
+<link rel="icon" type="image/png" href="../../favicon-32x32.png" sizes="32x32">
+<link rel="icon" type="image/png" href="../../favicon-16x16.png" sizes="16x16">
+<style>
+/* ---------------------------------------------------------------------------
+   Direction: "datasheet". The audience arrives asking what the thing does and
+   whether it is documented, so the page reads like the cover sheet of a good
+   reference manual: a persistent contents rail, sections that announce
+   themselves, and a specification table doing the heavy lifting. Serif
+   headings against a cool paper, with oxblood as the single mark of emphasis.
+   --------------------------------------------------------------------------- */
+:root {
+  --paper: #f4f5f7;
+  --card: #ffffff;
+  --card-2: #eef0f4;
+  --rule: #d9dee5;
+  --rule-soft: #e6eaef;
+  --ink: #161d27;
+  --ink-2: #46525f;
+  --muted: #788593;
+  --accent: #8e2c3b;
+  --accent-2: #b4535f;
+  --accent-wash: #f6ecee;
+  --on-accent: #ffffff;
+  --ok: #1f6b4d;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --measure: 66ch;
+  --shell: 1160px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #13171d;
+    --card: #191e26;
+    --card-2: #1f252e;
+    --rule: #2b333d;
+    --rule-soft: #232a33;
+    --ink: #e7ecf2;
+    --ink-2: #aab6c3;
+    --muted: #7c8896;
+    --accent: #e58394;
+    --accent-2: #c96878;
+    --accent-wash: #241a1d;
+    --on-accent: #1a1013;
+    --ok: #6cc79c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #13171d;
+  --card: #191e26;
+  --card-2: #1f252e;
+  --rule: #2b333d;
+  --rule-soft: #232a33;
+  --ink: #e7ecf2;
+  --ink-2: #aab6c3;
+  --muted: #7c8896;
+  --accent: #e58394;
+  --accent-2: #c96878;
+  --accent-wash: #241a1d;
+  --on-accent: #1a1013;
+  --ok: #6cc79c;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --paper: #f4f5f7;
+  --card: #ffffff;
+  --card-2: #eef0f4;
+  --rule: #d9dee5;
+  --rule-soft: #e6eaef;
+  --ink: #161d27;
+  --ink-2: #46525f;
+  --muted: #788593;
+  --accent: #8e2c3b;
+  --accent-2: #b4535f;
+  --accent-wash: #f6ecee;
+  --on-accent: #ffffff;
+  --ok: #1f6b4d;
+  color-scheme: light;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16.5px;
+  line-height: 1.68;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+h1, h2, h3, h4 { margin: 0; text-wrap: balance; font-family: var(--serif); font-weight: 600; line-height: 1.15; letter-spacing: -0.012em; }
+p { margin: 0; }
+code { font-family: var(--mono); font-size: .9em; }
+
+.shell { width: min(100% - 44px, var(--shell)); margin-inline: auto; }
+
+/* ------------------------------- masthead -------------------------------- */
+.masthead { border-bottom: 1px solid var(--rule); background: var(--card); position: sticky; top: 0; z-index: 40; }
+.masthead .shell { display: flex; align-items: center; gap: 20px; height: 60px; }
+.mark {
+  display: flex; align-items: baseline; gap: 9px; margin-right: auto;
+  text-decoration: none; color: var(--ink); font-family: var(--serif); font-size: 18px; font-weight: 600;
+}
+.mark span.sub { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.masthead nav { display: flex; align-items: center; gap: 20px; }
+.masthead nav a { color: var(--ink-2); text-decoration: none; font-size: 14.5px; }
+.masthead nav a:hover { color: var(--accent); }
+.pill {
+  border: 1px solid var(--accent); color: var(--accent);
+  padding: 6px 13px; border-radius: 999px; font-size: 13.5px; font-weight: 600; text-decoration: none;
+}
+/* Out-specify `.masthead nav a`, which would otherwise win on the hover fill. */
+.masthead nav a.pill { color: var(--accent); }
+.masthead nav a.pill:hover { background: var(--accent); color: var(--on-accent); }
+@media (max-width: 800px) { .masthead nav a.hide-sm { display: none; } }
+
+/* --------------------------------- hero ---------------------------------- */
+.hero { border-bottom: 1px solid var(--rule); background: var(--card); }
+.hero .shell { padding: 72px 0 60px; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 56px; align-items: start; }
+@media (max-width: 900px) { .hero .shell { grid-template-columns: 1fr; gap: 36px; padding: 48px 0 44px; } }
+.kicker {
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--accent); padding-bottom: 14px; margin-bottom: 22px; border-bottom: 1px solid var(--rule);
+}
+h1 { font-size: clamp(36px, 5vw, 56px); letter-spacing: -0.024em; }
+.hero .lede { margin-top: 20px; font-size: clamp(17px, 1.4vw, 19px); color: var(--ink-2); max-width: var(--measure); }
+.hero .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; padding: 11px 18px;
+  border-radius: 6px; font-size: 15px; font-weight: 600; text-decoration: none; border: 1px solid transparent;
+}
+.btn-solid { background: var(--accent); color: var(--on-accent); }
+.btn-solid:hover { background: var(--accent-2); }
+.btn-line { border-color: var(--rule); color: var(--ink); background: var(--paper); }
+.btn-line:hover { border-color: var(--accent); color: var(--accent); }
+
+/* spec block in the hero — the datasheet conceit, stated up front */
+.spec { border: 1px solid var(--rule); border-radius: 8px; background: var(--paper); overflow: hidden; }
+.spec-head {
+  padding: 11px 16px; border-bottom: 1px solid var(--rule); background: var(--card-2);
+  font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted);
+}
+.spec dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; }
+.spec dt, .spec dd {
+  margin: 0; padding: 11px 16px; border-bottom: 1px solid var(--rule-soft);
+  font-size: 14px; font-variant-numeric: tabular-nums;
+}
+.spec dt { font-family: var(--mono); font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); border-right: 1px solid var(--rule-soft); white-space: nowrap; }
+.spec dd { color: var(--ink); }
+.spec dl > :nth-last-child(-n+2) { border-bottom: 0; }
+
+/* ------------------------------- body grid ------------------------------- */
+.body-grid { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 56px; align-items: start; padding: 56px 0 24px; }
+@media (max-width: 940px) { .body-grid { grid-template-columns: 1fr; gap: 0; padding-top: 36px; } }
+.rail { position: sticky; top: 88px; }
+@media (max-width: 940px) { .rail { display: none; } }
+.rail p {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--muted); padding-bottom: 10px; border-bottom: 1px solid var(--rule);
+}
+.rail ol { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 9px; counter-reset: r; }
+.rail a { display: block; text-decoration: none; color: var(--ink-2); font-size: 14px; }
+.rail a:hover, .rail a[aria-current="true"] { color: var(--accent); }
+
+section { padding: 0 0 72px; scroll-margin-top: 84px; }
+.sec-head { border-top: 1px solid var(--rule); padding-top: 18px; margin-bottom: 28px; }
+.sec-head .tag {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--accent);
+}
+.sec-head h2 { font-size: clamp(25px, 3vw, 33px); margin-top: 12px; }
+.sec-head p { margin-top: 14px; color: var(--ink-2); max-width: var(--measure); }
+
+/* capability list — a manual's numbered entries, because these really are a set */
+.caps { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 1px; background: var(--rule-soft); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+@media (max-width: 760px) { .caps { grid-template-columns: 1fr; } }
+.cap { background: var(--card); padding: 22px 22px 20px; }
+.cap h3 { font-family: var(--sans); font-size: 16px; font-weight: 650; letter-spacing: -0.005em; }
+.cap p { margin-top: 8px; font-size: 14.8px; color: var(--ink-2); }
+.cap .route { margin-top: 12px; font-family: var(--mono); font-size: 12.4px; color: var(--muted); }
+.cap .route b { color: var(--accent); font-weight: 500; }
+
+/* endpoint matrix */
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--card); }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 14.6px; }
+caption { text-align: left; padding: 14px 18px; border-bottom: 1px solid var(--rule); background: var(--card-2); font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+th, td { text-align: left; padding: 12px 18px; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+thead th { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
+tbody th { font-family: var(--mono); font-size: 13.4px; font-weight: 500; color: var(--ink); white-space: nowrap; }
+td.verbs { font-family: var(--mono); font-size: 12.6px; color: var(--accent); white-space: nowrap; }
+td.note { color: var(--ink-2); }
+th.mine, td.mine { background: var(--accent-wash); }
+th.mine { color: var(--accent); }
+td.y { color: var(--ok); }
+td.n { color: var(--muted); }
+.foot-note { margin-top: 14px; font-size: 13.8px; color: var(--muted); max-width: var(--measure); }
+
+/* code */
+pre.block {
+  margin: 0; border: 1px solid var(--rule); border-radius: 8px; background: var(--card);
+  padding: 18px 20px; overflow-x: auto; font-family: var(--mono); font-size: 13.2px; line-height: 1.78;
+}
+pre.block .cm { color: var(--muted); }
+pre.block .kw { color: var(--accent); }
+pre.block .st { color: var(--ok); }
+.stack { display: grid; gap: 16px; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 20px; }
+@media (max-width: 800px) { .two { grid-template-columns: 1fr; } }
+h4.sub { font-family: var(--mono); font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; font-weight: 500; }
+
+/* tool inventory */
+.tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.tools li {
+  list-style: none; font-family: var(--mono); font-size: 12.8px;
+  border: 1px solid var(--rule); border-radius: 5px; padding: 6px 10px; background: var(--card); color: var(--ink-2);
+}
+.tools { padding: 0; margin: 0; }
+
+/* faq */
+details { border: 1px solid var(--rule); border-radius: 8px; background: var(--card); margin-bottom: 10px; }
+summary { cursor: pointer; padding: 15px 18px; font-weight: 600; font-size: 15.4px; list-style: none; display: flex; gap: 10px; align-items: baseline; }
+summary::-webkit-details-marker { display: none; }
+summary::before { content: "§"; font-family: var(--mono); color: var(--accent); }
+details p { padding: 0 18px 16px 36px; color: var(--ink-2); font-size: 15px; max-width: var(--measure); }
+
+/* closing */
+.closing { border-top: 1px solid var(--rule); background: var(--card); }
+.closing .shell { padding: 66px 0 72px; display: flex; flex-wrap: wrap; gap: 28px; align-items: center; justify-content: space-between; }
+.closing h2 { font-size: clamp(26px, 3.2vw, 36px); max-width: 18ch; }
+.closing p { margin-top: 12px; color: var(--ink-2); max-width: 46ch; }
+
+footer { border-top: 1px solid var(--rule); padding: 32px 0 48px; }
+footer .shell { display: flex; flex-wrap: wrap; gap: 16px 36px; align-items: baseline; }
+footer a { color: var(--ink-2); text-decoration: none; font-size: 14.4px; }
+footer a:hover { color: var(--accent); }
+footer .rights { margin-left: auto; font-family: var(--mono); font-size: 12.4px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="shell">
+    <a class="mark" href="#top">Local REST API <span class="sub">with MCP</span></a>
+    <nav>
+      <a href="#capabilities" class="hide-sm">Capabilities</a>
+      <a href="#endpoints" class="hide-sm">Endpoints</a>
+      <a href="#comparison" class="hide-sm">Comparison</a>
+      <a href="https://coddingtonbear.github.io/obsidian-local-rest-api/">API reference</a>
+      <a class="pill" href="https://obsidian.md/plugins?id=obsidian-local-rest-api">Install</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+  <div class="hero">
+    <div class="shell">
+      <div>
+        <p class="kicker">Obsidian community plugin · v5 · MIT</p>
+        <h1>The documented interface to your Obsidian vault.</h1>
+        <p class="lede">
+          One plugin serves a full REST API <em>and</em> a Model Context Protocol server from inside
+          Obsidian itself — authenticated, loopback-only, and specified end to end in OpenAPI. Point
+          curl, a browser extension, a Shortcut, or an AI agent at it and get the same vault, with
+          the same guarantees.
+        </p>
+        <div class="actions">
+          <a class="btn btn-solid" href="https://obsidian.md/plugins?id=obsidian-local-rest-api">Install from Obsidian</a>
+          <a class="btn btn-line" href="https://coddingtonbear.github.io/obsidian-local-rest-api/">Interactive API reference</a>
+        </div>
+      </div>
+
+      <div class="spec">
+        <div class="spec-head">At a glance</div>
+        <dl>
+          <dt>Interfaces</dt><dd>REST + MCP (Streamable HTTP)</dd>
+          <dt>Transport</dt><dd>HTTPS on 127.0.0.1:27124</dd>
+          <dt>Auth</dt><dd>Bearer API key, every route</dd>
+          <dt>MCP tools</dt><dd>16, no bridge process</dd>
+          <dt>Edit granularity</dt><dd>Heading, block, frontmatter</dd>
+          <dt>Spec</dt><dd>OpenAPI 3, served at runtime</dd>
+          <dt>Extensible</dt><dd>Routes + tools from other plugins</dd>
+          <dt>Platform</dt><dd>Obsidian desktop, 1.13.1+</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <div class="shell body-grid">
+    <aside class="rail">
+      <p>Contents</p>
+      <ol>
+        <li><a href="#capabilities">Capabilities</a></li>
+        <li><a href="#patching">Section-level editing</a></li>
+        <li><a href="#endpoints">Endpoint matrix</a></li>
+        <li><a href="#mcp">MCP server</a></li>
+        <li><a href="#comparison">Comparison</a></li>
+        <li><a href="#start">Quick start</a></li>
+        <li><a href="#extensions">Extensions</a></li>
+        <li><a href="#faq">Questions</a></li>
+      </ol>
+    </aside>
+
+    <div>
+      <section id="capabilities">
+        <div class="sec-head">
+          <p class="tag">Capabilities</p>
+          <h2>What the API can reach</h2>
+          <p>
+            Because the server runs inside Obsidian, it can reach things a folder of markdown does
+            not contain: the resolved metadata cache, the file you currently have open, and the
+            command palette.
+          </p>
+        </div>
+
+        <div class="caps">
+          <div class="cap">
+            <h3>Files, in full</h3>
+            <p>Create, read, update, and delete any file in the vault, including binary attachments, plus directory listings.</p>
+            <p class="route"><b>GET PUT PATCH POST DELETE</b> /vault/{path}</p>
+          </div>
+          <div class="cap">
+            <h3>Sections, in isolation</h3>
+            <p>Read or write one heading, block reference, or frontmatter field without fetching or rewriting the whole note.</p>
+            <p class="route"><b>GET PUT POST PATCH</b> /vault/{path}/heading/{…}</p>
+          </div>
+          <div class="cap">
+            <h3>The active file</h3>
+            <p>Operate on whatever note is open in front of you, without knowing its path in advance.</p>
+            <p class="route"><b>GET PUT PATCH POST DELETE</b> /active/</p>
+          </div>
+          <div class="cap">
+            <h3>Search, two ways</h3>
+            <p>Obsidian's own fuzzy search with scored context snippets, or a JsonLogic expression over each note's metadata.</p>
+            <p class="route"><b>POST</b> /search/simple/ · <b>POST</b> /search/</p>
+          </div>
+          <div class="cap">
+            <h3>Commands</h3>
+            <p>List every registered Obsidian command and execute any of them, exactly as the command palette would.</p>
+            <p class="route"><b>GET</b> /commands/ · <b>POST</b> /commands/{id}/</p>
+          </div>
+          <div class="cap">
+            <h3>Tags and the UI</h3>
+            <p>Enumerate every tag in the vault with usage counts, or tell Obsidian to open a particular note on screen.</p>
+            <p class="route"><b>GET</b> /tags/ · <b>POST</b> /open/{path}</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="patching">
+        <div class="sec-head">
+          <p class="tag">Section-level editing</p>
+          <h2>PATCH is the reason people stay</h2>
+          <p>
+            An instruction names an <strong>operation</strong> (replace, prepend, append, delete),
+            a <strong>scope</strong> (the node's content, its marker, both, or its place in the
+            tree), and a <strong>target</strong> (a heading path, a block id, a frontmatter key).
+            Heading levels in your content are rebased for you; whitespace is normalised for you;
+            an <code>ifMatch</code> token makes the write conditional on the file being unchanged.
+          </p>
+        </div>
+
+        <div class="two">
+          <div>
+            <h4 class="sub">JSON instruction</h4>
+<pre class="block">{
+  <span class="kw">"targetType"</span>: <span class="st">"heading"</span>,
+  <span class="kw">"target"</span>: [<span class="st">"Work"</span>, <span class="st">"Log"</span>],
+  <span class="kw">"operation"</span>: <span class="st">"append"</span>,
+  <span class="kw">"content"</span>: <span class="st">"- Shipped the release"</span>,
+  <span class="kw">"ifMatch"</span>: <span class="st">"&lt;version from the document map&gt;"</span>
+}</pre>
+          </div>
+          <div>
+            <h4 class="sub">Or move the fields out of the body</h4>
+<pre class="block"><span class="cm"># Target in the URL, operation in a header,
+# body is the raw payload — nothing to escape.</span>
+curl -k -X PATCH \
+  -H <span class="st">"Authorization: Bearer $KEY"</span> \
+  -H <span class="st">"Operation: append"</span> \
+  -H <span class="st">"Content-Type: text/markdown"</span> \
+  --data <span class="st">"- $TEMPLATED_LINE"</span> \
+  <span class="cm">…</span>/vault/daily.md/heading/Log</pre>
+          </div>
+        </div>
+        <p class="foot-note">
+          Raw-content mode exists because clients that template markdown — Shortcuts, Tasker, a
+          shell script — should not have to JSON-escape it. Both forms drive the same engine.
+        </p>
+      </section>
+
+      <section id="endpoints">
+        <div class="sec-head">
+          <p class="tag">Endpoint matrix</p>
+          <h2>The whole surface on one page</h2>
+          <p>Every route, with the methods it accepts. Full request and response schemas live in the interactive reference.</p>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <caption>REST endpoints</caption>
+            <thead>
+              <tr><th scope="col">Route</th><th scope="col">Methods</th><th scope="col">Purpose</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">/vault/{path}</th><td class="verbs">GET PUT PATCH POST DELETE</td><td class="note">Read, write, patch, or delete any file</td></tr>
+              <tr><th scope="row">/active/</th><td class="verbs">GET PUT PATCH POST DELETE</td><td class="note">The same, against the currently open note</td></tr>
+              <tr><th scope="row">/search/simple/</th><td class="verbs">POST</td><td class="note">Obsidian's fuzzy search, with scored snippets</td></tr>
+              <tr><th scope="row">/search/</th><td class="verbs">POST</td><td class="note">JsonLogic query over note metadata</td></tr>
+              <tr><th scope="row">/commands/</th><td class="verbs">GET</td><td class="note">List registered Obsidian commands</td></tr>
+              <tr><th scope="row">/commands/{id}/</th><td class="verbs">POST</td><td class="note">Execute a command</td></tr>
+              <tr><th scope="row">/tags/</th><td class="verbs">GET</td><td class="note">Every tag in the vault, with usage counts</td></tr>
+              <tr><th scope="row">/open/{path}</th><td class="verbs">POST</td><td class="note">Open a note in the Obsidian UI</td></tr>
+              <tr><th scope="row">/mcp/</th><td class="verbs">GET POST</td><td class="note">Model Context Protocol server</td></tr>
+              <tr><th scope="row">/</th><td class="verbs">GET</td><td class="note">Status and authentication check</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="foot-note">
+          <a href="https://coddingtonbear.github.io/obsidian-local-rest-api/">Open the interactive reference →</a>
+        </p>
+      </section>
+
+      <section id="mcp">
+        <div class="sec-head">
+          <p class="tag">MCP server</p>
+          <h2>Sixteen tools, already inside the app</h2>
+          <p>
+            The Model Context Protocol server is part of the plugin, not a separate process wrapping
+            it. Connect any Streamable HTTP client to <code>/mcp/</code> with the same bearer token,
+            and it gets the same live vault the REST API does.
+          </p>
+        </div>
+
+        <ul class="tools">
+          <li>vault_list</li><li>vault_read</li><li>vault_write</li><li>vault_append</li>
+          <li>vault_patch</li><li>vault_delete</li><li>vault_move</li><li>vault_copy</li>
+          <li>vault_get_document_map</li><li>active_file_get_path</li><li>search_query</li>
+          <li>search_simple</li><li>tag_list</li><li>command_list</li><li>command_execute</li><li>open_file</li>
+        </ul>
+
+        <p class="foot-note" style="margin-top:18px;">
+          The server also publishes its own OpenAPI specification as an MCP resource, so a capable
+          client can read the full API contract without being told about it.
+        </p>
+      </section>
+
+      <section id="comparison">
+        <div class="sec-head">
+          <p class="tag">Comparison</p>
+          <h2>Against the alternatives</h2>
+          <p>
+            Three architectures are commonly used to get an agent into an Obsidian vault. They are
+            not equivalent, and the differences are mostly about what the server can see.
+          </p>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <caption>Architectures compared</caption>
+            <thead>
+              <tr>
+                <th scope="col">&nbsp;</th>
+                <th scope="col" class="mine">This plugin</th>
+                <th scope="col">Filesystem MCP server</th>
+                <th scope="col">Third-party REST wrapper</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Obsidian's resolved tags, links, frontmatter</th>
+                <td class="mine y">Live metadata cache</td>
+                <td class="n">Re-parsed from disk</td>
+                <td class="n">Whatever this plugin returns</td>
+              </tr>
+              <tr>
+                <th scope="row">Writes seen by the running app</th>
+                <td class="mine y">Written through Obsidian's vault API</td>
+                <td class="n">Written behind Obsidian's back</td>
+                <td class="n">Whatever this plugin does</td>
+              </tr>
+              <tr>
+                <th scope="row">Single-section edits</th>
+                <td class="mine y">Heading, block, or field, with ifMatch</td>
+                <td class="n">Typically whole-file rewrite</td>
+                <td class="n">Only what it exposes of this plugin</td>
+              </tr>
+              <tr>
+                <th scope="row">Obsidian commands and UI</th>
+                <td class="mine y">List, execute, open notes</td>
+                <td class="n">Out of reach</td>
+                <td class="n">Only if it proxies them</td>
+              </tr>
+              <tr>
+                <th scope="row">Non-MCP clients</th>
+                <td class="mine y">curl, Shortcuts, browser extensions</td>
+                <td class="n">MCP only</td>
+                <td class="n">MCP only</td>
+              </tr>
+              <tr>
+                <th scope="row">Processes to install and run</th>
+                <td class="mine y">The plugin</td>
+                <td class="n">A server, kept up to date</td>
+                <td class="n">A server, plus this plugin</td>
+              </tr>
+              <tr>
+                <th scope="row">Usable with Obsidian closed</th>
+                <td class="mine n">No</td>
+                <td class="y">Yes</td>
+                <td class="n">No</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="foot-note">
+          Stated plainly: this is a door into a running Obsidian. That last row is the cost, and the
+          rest of the table is what it buys. Note also that the widely used third-party Obsidian MCP
+          servers are wrappers that call this plugin's REST API — if you are running one, you are
+          already running this.
+        </p>
+      </section>
+
+      <section id="start">
+        <div class="sec-head">
+          <p class="tag">Quick start</p>
+          <h2>From install to first request</h2>
+          <p>Enable the plugin, then open <strong>Settings → Local REST API</strong> to copy your API key.</p>
+        </div>
+
+        <div class="stack">
+          <div>
+            <h4 class="sub">1 · Check the server</h4>
+<pre class="block">curl -k https://127.0.0.1:27124/            <span class="cm"># status, no auth required</span></pre>
+          </div>
+          <div>
+            <h4 class="sub">2 · Read something</h4>
+<pre class="block">curl -k -H <span class="st">"Authorization: Bearer $KEY"</span> \
+  https://127.0.0.1:27124/vault/Projects/API.md/heading/Log</pre>
+          </div>
+          <div>
+            <h4 class="sub">3 · Connect an agent</h4>
+<pre class="block">claude mcp add --transport http obsidian https://127.0.0.1:27124/mcp/ \
+  --header <span class="st">"Authorization: Bearer $KEY"</span>
+
+<span class="cm"># Cursor, Claude Desktop, and any other Streamable HTTP client
+# use the same URL and the same header.</span></pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="extensions">
+        <div class="sec-head">
+          <p class="tag">Extensions</p>
+          <h2>Other plugins can add to it</h2>
+          <p>
+            A plugin can register authenticated routes, public routes, and MCP tools on this server.
+            Install the published types as a dev dependency and the entire host surface is checked at
+            compile time — the declarations are generated from the plugin's own source, so they
+            cannot drift from what is actually running.
+          </p>
+        </div>
+
+        <div class="two">
+          <div>
+            <h4 class="sub">Install</h4>
+<pre class="block">npm install --save-dev obsidian-local-rest-api</pre>
+          </div>
+          <div>
+            <h4 class="sub">Use</h4>
+<pre class="block">import { getAPI } from <span class="st">"obsidian-local-rest-api"</span>;
+
+const api = getAPI(this.app, this.manifest, <span class="kw">2</span>);
+api?.addRoute(<span class="st">"/mine/"</span>).get(handler);</pre>
+          </div>
+        </div>
+        <p class="foot-note">
+          <a href="https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension">Extension guide →</a>
+        </p>
+      </section>
+
+      <section id="faq">
+        <div class="sec-head">
+          <p class="tag">Questions</p>
+          <h2>Before you install</h2>
+        </div>
+
+        <details open>
+          <summary>Does Obsidian need to be running?</summary>
+          <p>Yes. Everything the plugin offers beyond plain file access — the metadata cache, the active file, commands, Obsidian's own search — exists only inside a running app.</p>
+        </details>
+        <details>
+          <summary>How exposed is the server?</summary>
+          <p>It binds to 127.0.0.1 by default, and every route except the status check requires a bearer API key. The certificate is generated on your machine. The plain-HTTP port is off unless you enable it.</p>
+        </details>
+        <details>
+          <summary>Why the certificate warning?</summary>
+          <p>The certificate is self-signed, because it is issued locally for a loopback address. Trust it from <code>https://127.0.0.1:27124/obsidian-local-rest-api.crt</code>, pass it to your client directly, or use the optional plain-HTTP port.</p>
+        </details>
+        <details>
+          <summary>Does it work on mobile?</summary>
+          <p>No — desktop only. The plugin needs Node's TLS and HTTP server APIs, which Obsidian's mobile runtime does not provide.</p>
+        </details>
+        <details>
+          <summary>What does it cost?</summary>
+          <p>Nothing. MIT licensed, open source, installed from Obsidian's community plugin browser.</p>
+        </details>
+      </section>
+    </div>
+  </div>
+
+  <div class="closing">
+    <div class="shell">
+      <div>
+        <h2>Read the spec. Then read your vault.</h2>
+        <p>The interactive reference documents every route, parameter, and response — and it is generated from the same specification the plugin serves at runtime.</p>
+      </div>
+      <div class="actions" style="display:flex; gap:12px; flex-wrap:wrap;">
+        <a class="btn btn-solid" href="https://obsidian.md/plugins?id=obsidian-local-rest-api">Install the plugin</a>
+        <a class="btn btn-line" href="https://coddingtonbear.github.io/obsidian-local-rest-api/">API reference</a>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="shell">
+    <a href="https://coddingtonbear.github.io/obsidian-local-rest-api/">API documentation</a>
+    <a href="https://github.com/coddingtonbear/obsidian-local-rest-api">Source</a>
+    <a href="https://community.obsidian.md/plugins/obsidian-local-rest-api/">Community plugin page</a>
+    <a href="https://github.com/coddingtonbear/obsidian-local-rest-api/issues">Issues</a>
+    <span class="rights">MIT · Adam Coddington</span>
+  </div>
+</footer>
+
+<script>
+/* Mark the contents entry for whichever section is currently in view. */
+(function () {
+  var links = Array.prototype.slice.call(document.querySelectorAll('.rail a'));
+  var sections = links
+    .map(function (a) { return document.querySelector(a.getAttribute('href')); })
+    .filter(Boolean);
+  if (!('IntersectionObserver' in window) || !sections.length) return;
+
+  var observer = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (!entry.isIntersecting) return;
+      links.forEach(function (a) {
+        a.setAttribute('aria-current', String(a.getAttribute('href') === '#' + entry.target.id));
+      });
+    });
+  }, { rootMargin: '-84px 0px -70% 0px' });
+
+  sections.forEach(function (s) { observer.observe(s); });
+})();
+</script>
+
+</body>
+</html>
