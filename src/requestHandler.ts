@@ -37,7 +37,7 @@ import type {
   PublicMap,
   ReadTarget,
 } from "markdown-patch-2";
-import { SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/sdk/types.js";
+import { SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/server";
 
 import {
   CannedResponse,
@@ -56,6 +56,7 @@ import {
   CERT_NAME,
   ContentTypes,
   ERROR_CODE_MESSAGES,
+  MCP_MODERN_PROTOCOL_VERSION,
   MaximumRequestSize,
 } from "./constants";
 import {
@@ -2252,7 +2253,11 @@ export default class RequestHandler {
     });
     mcpRouter.use((req, res, next) => {
       const version = req.headers["mcp-protocol-version"] as string | undefined;
-      if (version !== undefined && !SUPPORTED_PROTOCOL_VERSIONS.includes(version)) {
+      if (
+        version !== undefined &&
+        version !== MCP_MODERN_PROTOCOL_VERSION &&
+        !SUPPORTED_PROTOCOL_VERSIONS.includes(version)
+      ) {
         res.status(400).json({ error: `Unsupported MCP-Protocol-Version: ${version}` });
         return;
       }

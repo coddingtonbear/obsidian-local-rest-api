@@ -804,91 +804,33 @@ std.manifestYamlDoc(
         },
       },
       '/mcp/': {
-        get: {
-          tags: ['MCP'],
-          summary: 'Open a server-sent events stream for an existing MCP session.\n',
-          description: 'Opens a long-lived SSE stream so the server can push messages to the client for an existing session. Requires the session ID returned by the `initialize` response.\n',
-          parameters: [
-            {
-              name: 'Mcp-Session-Id',
-              'in': 'header',
-              description: 'Session ID returned by the server on initialization.',
-              required: true,
-              schema: {
-                type: 'string',
-              },
-            },
-            {
-              name: 'MCP-Protocol-Version',
-              'in': 'header',
-              description: 'MCP protocol version negotiated during initialization (e.g. `2025-06-18`). Required on all requests after initialization. Unrecognised values are rejected with 400.',
-              required: false,
-              schema: {
-                type: 'string',
-              },
-            },
-          ],
-          responses: {
-            '200': {
-              description: 'SSE stream opened. The server pushes JSON-RPC messages as server-sent events.',
-              content: {
-                'text/event-stream': {
-                  schema: {
-                    type: 'string',
-                  },
-                },
-              },
-            },
-            '400': {
-              description: 'Unsupported MCP-Protocol-Version.',
-              content: {
-                'application/json': {
-                  schema: {
-                    '$ref': '#/components/schemas/Error',
-                  },
-                },
-              },
-            },
-            '404': {
-              description: 'Session not found.',
-              content: {
-                'application/json': {
-                  schema: {
-                    '$ref': '#/components/schemas/Error',
-                  },
-                },
-              },
-            },
-            '401': {
-              description: 'API key required.',
-              content: {
-                'application/json': {
-                  schema: {
-                    '$ref': '#/components/schemas/Error',
-                  },
-                },
-              },
-            },
-          },
-        },
         post: {
           tags: ['MCP'],
           summary: 'Send a JSON-RPC 2.0 message to the MCP server.\n',
           description: importstr 'lib/descriptions/mcp.md',
           parameters: [
             {
-              name: 'Mcp-Session-Id',
+              name: 'MCP-Protocol-Version',
               'in': 'header',
-              description: 'Session ID returned by the server on initialization. Omit for the initial `initialize` request; required for all subsequent requests.',
+              description: 'Protocol revision this request speaks. Required on every request on the `2026-07-28` revision, where it must match `params._meta["io.modelcontextprotocol/protocolVersion"]`; on the legacy revisions it carries the version negotiated during `initialize` (e.g. `2025-06-18`). Unrecognised values are rejected with 400.',
               required: false,
               schema: {
                 type: 'string',
               },
             },
             {
-              name: 'MCP-Protocol-Version',
+              name: 'Mcp-Method',
               'in': 'header',
-              description: 'MCP protocol version negotiated during initialization (e.g. `2025-06-18`). Required on all requests after initialization. Unrecognised values are rejected with 400.',
+              description: 'The JSON-RPC method named in the request body. Required on `2026-07-28` requests; a value that disagrees with the body is rejected with 400 and JSON-RPC error `-32020`.',
+              required: false,
+              schema: {
+                type: 'string',
+              },
+            },
+            {
+              name: 'Mcp-Name',
+              'in': 'header',
+              description: 'The primary subject named in the request body — `params.name` for `tools/call` and `prompts/get`, `params.uri` for `resources/read`. Required on `2026-07-28` requests that carry one; a value that disagrees with the body is rejected with 400 and JSON-RPC error `-32020`.',
               required: false,
               schema: {
                 type: 'string',
@@ -917,6 +859,7 @@ std.manifestYamlDoc(
                       type: 'string',
                       description: 'MCP method to invoke.',
                       enum: [
+                        'server/discover',
                         'initialize',
                         'tools/list',
                         'tools/call',
@@ -934,13 +877,34 @@ std.manifestYamlDoc(
                   },
                 },
                 examples: {
-                  list_tools: {
-                    summary: 'List all available MCP tools',
+                  discover: {
+                    summary: 'Discover the supported protocol revisions and capabilities (2026-07-28)',
                     value: {
                       jsonrpc: '2.0',
                       id: 1,
+                      method: 'server/discover',
+                      params: {
+                        _meta: {
+                          'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+                          'io.modelcontextprotocol/clientInfo': { name: 'my-client', version: '1.0.0' },
+                          'io.modelcontextprotocol/clientCapabilities': {},
+                        },
+                      },
+                    },
+                  },
+                  list_tools: {
+                    summary: 'List all available MCP tools (2026-07-28)',
+                    value: {
+                      jsonrpc: '2.0',
+                      id: 2,
                       method: 'tools/list',
-                      params: {},
+                      params: {
+                        _meta: {
+                          'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+                          'io.modelcontextprotocol/clientInfo': { name: 'my-client', version: '1.0.0' },
+                          'io.modelcontextprotocol/clientCapabilities': {},
+                        },
+                      },
                     },
                   },
                   call_vault_read: {
@@ -992,28 +956,10 @@ std.manifestYamlDoc(
           },
           responses: {
             '200': {
-              description: 'Message handled. Response body contains the JSON-RPC result, or may be empty for notifications. On session initialization the `Mcp-Session-Id` response header contains the new session ID.',
-              headers: {
-                'Mcp-Session-Id': {
-                  description: 'Session ID assigned by the server. Present only on the `initialize` response.',
-                  schema: {
-                    type: 'string',
-                  },
-                },
-              },
+              description: 'Message handled. The body is either a single JSON-RPC response (`application/json`) or a server-sent event stream carrying request-scoped notifications followed by the response (`text/event-stream`); notifications are answered with `202 Accepted` and no body. No session ID is issued — every request is served on its own.',
             },
             '400': {
-              description: 'Unsupported MCP-Protocol-Version.',
-              content: {
-                'application/json': {
-                  schema: {
-                    '$ref': '#/components/schemas/Error',
-                  },
-                },
-              },
-            },
-            '404': {
-              description: 'Session not found.',
+              description: 'Unsupported `MCP-Protocol-Version`, or — on the `2026-07-28` revision — a JSON-RPC error response carrying `-32020` (headers disagree with the body), `-32022` (unsupported protocol version), or `-32602` (malformed `_meta` envelope).',
               content: {
                 'application/json': {
                   schema: {
@@ -1024,6 +970,16 @@ std.manifestYamlDoc(
             },
             '401': {
               description: 'API key required.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                },
+              },
+            },
+            '405': {
+              description: 'Method not allowed. The `2026-07-28` revision removed the GET stream endpoint and session termination, so only POST is served.',
               content: {
                 'application/json': {
                   schema: {

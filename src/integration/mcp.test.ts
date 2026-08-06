@@ -26,6 +26,10 @@ import {
   TERM_SUB,
 } from "./fixtures";
 
+// Legacy-era coverage: this suite drives the v1 MCP SDK client, which opens with the
+// `initialize` handshake and therefore exercises the endpoint's legacy path end to end.
+// The 2026-07-28 path is covered by mcpModern.test.ts.
+
 // A separate temp path so vault_write / vault_delete tests don't touch the shared fixture.
 const TEMP_PATH = `${TEST_DIR}/mcp-temp.md`;
 

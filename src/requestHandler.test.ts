@@ -3896,6 +3896,14 @@ describe("requestHandler", () => {
         .expect(200);
     });
 
+    test("POST /mcp/ with MCP-Protocol-Version 2026-07-28 passes through", async () => {
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MCP-Protocol-Version", "2026-07-28")
+        .expect(200);
+    });
+
     test("POST /mcp/ without MCP-Protocol-Version passes through", async () => {
       await request(server)
         .post("/mcp/")

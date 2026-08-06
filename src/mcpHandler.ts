@@ -1,8 +1,15 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { McpServer, createMcpHandler, isLegacyRequest, legacyStatelessFallback } from "@modelcontextprotocol/server";
+import type {
+  CacheHint,
+  CallToolResult,
+  McpHttpHandler,
+  ReadResourceResult,
+  StandardSchemaWithJSON,
+  ToolAnnotations,
+} from "@modelcontextprotocol/server";
+import { toNodeHandler, toWebRequest } from "@modelcontextprotocol/node";
+import type { NodeMcpRequestHandler } from "@modelcontextprotocol/node";
 import { posix } from "path";
-import { randomUUID } from "crypto";
 import { z } from "zod";
 import express from "express";
 import { TFile } from "obsidian";
@@ -12,20 +19,30 @@ import { VaultOperations } from "./vaultOperations";
 import type { InstructionInput, ReadTarget } from "markdown-patch-2";
 import { InstructionInputObjectSchema } from "markdown-patch-2";
 import openapiYaml from "../docs/openapi.yaml";
+import { toStandardSchema } from "./mcpSchema";
 import { LocalRestApiSettings } from "./types";
 
-// Minimal structural type for McpServer — typed as a plain interface rather than the SDK's
-// McpServer class to avoid TypeScript heap OOM from evaluating ToolCallback<ZodRawShape>.
-interface MinimalMcpServer {
-  tool(name: string, description: string, schema: unknown, annotations: ToolAnnotations, callback: (args: unknown) => Promise<CallToolResult>): { remove: () => void };
-  connect(transport: StreamableHTTPServerTransport): Promise<void>;
-  resource(name: string, uri: string, meta: unknown, handler: (uri: URL) => Promise<unknown>): void;
-}
+const SERVER_INFO = { name: "obsidian-local-rest-api", version: "1.0.0" };
+
+// Freshness hints stamped onto every cacheable 2026-07-28 result. The vault is local and
+// changes under the client's feet, so nothing is advertised as `public` — a shared proxy
+// must never hand one vault's listing to another client — and the lifetimes are short
+// enough that a stale answer is measured in seconds. `server/discover` is the exception:
+// the tool/resource capability set only changes when a plugin registers a tool.
+const CACHE_HINTS = {
+  "server/discover": { ttlMs: 300_000, cacheScope: "private" },
+  "tools/list": { ttlMs: 60_000, cacheScope: "private" },
+  "resources/list": { ttlMs: 60_000, cacheScope: "private" },
+  "resources/templates/list": { ttlMs: 60_000, cacheScope: "private" },
+  "resources/read": { ttlMs: 60_000, cacheScope: "private" },
+} as const satisfies Record<string, CacheHint>;
 
 interface ToolSpec {
   name: string;
   description: string;
-  schema: unknown;
+  // Converted from the registered zod shape once, not per request: a request builds a
+  // whole server from these specs, and the shape never changes after registration.
+  inputSchema: StandardSchemaWithJSON<Record<string, unknown>, Record<string, unknown>>;
   annotations: ToolAnnotations;
   callback: (args: unknown) => Promise<CallToolResult>;
 }
@@ -64,60 +81,86 @@ const HEADING_TARGET_STRING_HINT =
 interface ResourceSpec {
   name: string;
   uri: string;
-  meta: unknown;
-  handler: (uri: URL) => Promise<unknown>;
-}
-
-interface SessionEntry {
-  server: MinimalMcpServer;
-  transport: StreamableHTTPServerTransport;
-  toolHandles: Map<string, { remove: () => void }>;
+  meta: { mimeType?: string; description?: string };
+  handler: (uri: URL) => Promise<ReadResourceResult>;
 }
 
 export class McpHandler {
-  private readonly sessions: Map<string, SessionEntry> = new Map();
+  // The tool and resource registries are this handler's application state: the 2026-07-28
+  // revision has no protocol-level session to hang anything off, so everything a request
+  // needs must be reachable from the handler itself. `buildServer()` replays them onto a
+  // fresh server for every request.
   private readonly toolSpecs: Map<string, ToolSpec> = new Map();
   private readonly resourceSpecs: ResourceSpec[] = [];
+
+  // The modern (2026-07-28) leg. `legacy: "reject"` keeps it strictly modern: every
+  // request is answered on its own, with no session id and no cross-request state, and
+  // 2025-era traffic is handed to the separate legacy leg below by `handleRequest`.
+  private readonly modernHandler: McpHttpHandler;
+  private readonly modernNodeHandler: NodeMcpRequestHandler;
+  // The legacy (2024-10-07 … 2025-11-25) leg, kept deliberately separate from the modern
+  // one so that older clients — which still open with an `initialize` handshake — keep
+  // working unchanged. It is the SDK's own stateless 2025-era serving, so it too holds no
+  // per-session state; the `Mcp-Session-Id` routing this handler used to do is gone.
+  private readonly legacyNodeHandler: NodeMcpRequestHandler;
 
   constructor(
     private readonly ops: VaultOperations,
     private readonly settings: LocalRestApiSettings,
   ) {
+    const factory = () => this.buildServer();
+    const onerror = (error: Error) => this.logHandlerError(error);
+    this.modernHandler = createMcpHandler(factory, { legacy: "reject", onerror });
+    this.modernNodeHandler = toNodeHandler(this.modernHandler, { onerror });
+    this.legacyNodeHandler = toNodeHandler(
+      { fetch: legacyStatelessFallback(factory, onerror) },
+      { onerror },
+    );
     this.registerResources();
     this.registerTools();
   }
 
-  // Build a fresh McpServer for a single session/transport. Each transport MUST own
-  // its own server: the SDK's Server.connect() binds a single _transport, so sharing
-  // one server across multiple connected transports routes every response to the
-  // most-recently-connected transport, hanging all older sessions.
-  private buildServer(): { server: MinimalMcpServer; toolHandles: Map<string, { remove: () => void }> } {
-    const server: MinimalMcpServer = new McpServer({
-      name: "obsidian-local-rest-api",
-      version: "1.0.0",
+  // Build a fresh McpServer for a single request. Both legs are per-request by
+  // construction, so a server instance is never shared between two exchanges.
+  private buildServer(): McpServer {
+    const server = new McpServer(SERVER_INFO, {
+      capabilities: { tools: {}, resources: {} },
+      cacheHints: CACHE_HINTS,
     });
-    const toolHandles = new Map<string, { remove: () => void }>();
     for (const spec of this.resourceSpecs) {
-      server.resource(spec.name, spec.uri, spec.meta, spec.handler);
+      server.registerResource(spec.name, spec.uri, spec.meta, spec.handler);
     }
     for (const spec of this.toolSpecs.values()) {
-      toolHandles.set(spec.name, server.tool(spec.name, spec.description, spec.schema, spec.annotations, spec.callback));
+      server.registerTool(
+        spec.name,
+        {
+          description: spec.description,
+          inputSchema: spec.inputSchema,
+          annotations: spec.annotations,
+        },
+        spec.callback,
+      );
     }
-    return { server, toolHandles };
+    return server;
   }
 
-  private addResourceSpec(name: string, uri: string, meta: unknown, handler: (uri: URL) => Promise<unknown>): void {
+  private logHandlerError(error: Error): void {
+    if (this.settings.enableVerboseLogging) {
+      console.debug(`[MCP] request rejected: ${error.message}`);
+    }
+  }
+
+  private addResourceSpec(name: string, uri: string, meta: { mimeType?: string; description?: string }, handler: (uri: URL) => Promise<ReadResourceResult>): void {
     this.resourceSpecs.push({ name, uri, meta, handler });
   }
 
-  // Args is inferred from the callback's own parameter annotation; the schema is kept
-  // opaque rather than tied to Args via z.objectOutputType to avoid the same SDK type
-  // evaluation blowup described on MinimalMcpServer above.
+  // Args is inferred from the callback's own parameter annotation; the zod shape is
+  // adapted to the SDK's Standard Schema here, at registration time.
   private tool<Args>(name: string, description: string, schema: Record<string, z.ZodTypeAny>, annotations: ToolAnnotations, callback: (args: Args) => Promise<CallToolResult>): { remove: () => void } {
     const spec: ToolSpec = {
       name,
       description,
-      schema,
+      inputSchema: toStandardSchema(schema),
       annotations,
       callback: async (args: unknown) => {
         try {
@@ -135,18 +178,11 @@ export class McpHandler {
       },
     };
     this.toolSpecs.set(spec.name, spec);
-    for (const session of this.sessions.values()) {
-      session.toolHandles.set(spec.name, session.server.tool(spec.name, spec.description, spec.schema, spec.annotations, spec.callback));
-    }
+    this.modernHandler.notify.toolsChanged();
     return {
       remove: () => {
-        this.toolSpecs.delete(spec.name);
-        for (const session of this.sessions.values()) {
-          const handle = session.toolHandles.get(spec.name);
-          if (handle) {
-            handle.remove();
-            session.toolHandles.delete(spec.name);
-          }
+        if (this.toolSpecs.delete(spec.name)) {
+          this.modernHandler.notify.toolsChanged();
         }
       },
     };
@@ -170,34 +206,36 @@ export class McpHandler {
     return () => registered.remove();
   }
 
+  /**
+   * Serve one request on the MCP endpoint.
+   *
+   * Classification is the SDK's own — `isLegacyRequest` runs exactly the code
+   * `createMcpHandler` runs — so the two legs can never disagree about who owns a
+   * request. Anything carrying the 2026-07-28 `_meta` envelope claim (including a claim
+   * naming a revision we do not serve, or a malformed one) belongs to the modern leg,
+   * which owns those error answers; everything else is 2025-era traffic.
+   */
   async handleRequest(
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
-
-    if (!sessionId) {
-      const { server, toolHandles } = this.buildServer();
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (id) => {
-          this.sessions.set(id, { server, transport, toolHandles });
-        },
-      });
-      transport.onclose = () => {
-        if (transport.sessionId) this.sessions.delete(transport.sessionId);
-      };
-      await server.connect(transport);
-      await transport.handleRequest(req, res, req.body);
+    // `req.body` is already parsed by the router's express.json(), so it is handed over
+    // explicitly: the Node stream is drained by then and cannot be read a second time.
+    const classifiable = await toWebRequest(req, req.body);
+    if (await isLegacyRequest(classifiable)) {
+      await this.legacyNodeHandler(req, res, req.body);
       return;
     }
+    await this.modernNodeHandler(req, res, req.body);
+  }
 
-    const session = this.sessions.get(sessionId);
-    if (!session) {
-      res.status(404).json({ error: "Session not found" });
-      return;
-    }
-    await session.transport.handleRequest(req, res, req.body);
+  /** Tears down the modern leg's in-flight exchanges. Called when the plugin unloads. */
+  public close(): void {
+    void this.modernHandler.close().catch((e: unknown) => {
+      if (this.settings.enableVerboseLogging) {
+        console.debug(`[MCP] shutdown failed: ${e instanceof Error ? e.message : "unknown error"}`);
+      }
+    });
   }
 
   private text(data: unknown) {
