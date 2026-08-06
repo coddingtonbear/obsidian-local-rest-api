@@ -20,7 +20,9 @@ Requests must also carry the standard headers — `MCP-Protocol-Version`, `Mcp-M
 
 Call `server/discover` to learn the supported revisions, capabilities, and server identity in one request. Results carry `resultType`, and the cacheable ones (`server/discover`, `tools/list`, `resources/list`, `resources/templates/list`, `resources/read`) also carry the `ttlMs` and `cacheScope` freshness hints.
 
-**Legacy revisions.** Clients that open with an `initialize` request are served the revision they negotiate, exactly as before. Serving is stateless, so no session ID is returned and none is expected on later requests. The `GET` stream and `DELETE` session-termination operations of those revisions are answered with `405 Method Not Allowed`; MCP SDK clients treat that as "no server-initiated stream" and carry on.
+**Legacy revisions.** Clients that open with an `initialize` request are served the revision they negotiate, exactly as before — including sessions. The server returns a session ID in the `Mcp-Session-Id` response header; include it on every later request, use `GET /mcp/` with it to open the server-to-client notification stream, and `DELETE /mcp/` with it to end the session. A request naming a session that no longer exists is answered `404 Not Found`, which means the client should hand-shake again.
+
+Sessions exist only on this path. They are what makes the `tools.listChanged` / `resources.listChanged` capabilities the handshake advertises true: when another plugin registers or removes an MCP tool, every live legacy session is told over its notification stream. Modern clients get the same news from a `subscriptions/listen` stream instead.
 
 Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `400 Bad Request`.
 

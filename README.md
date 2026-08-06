@@ -168,7 +168,7 @@ Any MCP client that supports the Streamable HTTP transport can connect to `https
 | `/tags/` | GET | List all tags with usage counts |
 | `/open/{path}` | POST | Open a file in the Obsidian UI |
 | `/` | GET | Server status and authentication check |
-| `/mcp/` | POST | MCP (Model Context Protocol) server — connect AI agents directly to your vault |
+| `/mcp/` | GET POST | MCP (Model Context Protocol) server — connect AI agents directly to your vault |
 
 For full request/response details, see the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/).
 
@@ -292,7 +292,7 @@ The endpoint serves the `2026-07-28` revision plus the legacy revisions from `20
 
 The `2026-07-28` revision is stateless: there is no `initialize` handshake and no session, so the plugin neither issues nor reads the `Mcp-Session-Id` header. Each request carries its own protocol version and client identity in `params._meta`, repeats them in the `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` headers, and is answered on its own. Clients can call `server/discover` to learn the supported revisions and capabilities up front.
 
-Clients that still open with an `initialize` request keep working unchanged — they are served the legacy revision they negotiate, statelessly. The `GET` stream and `DELETE` session-termination operations those revisions defined are answered with `405 Method Not Allowed`; MCP SDK clients treat that as "no server-initiated stream" and carry on.
+Clients that still open with an `initialize` request keep working unchanged — they are served the legacy revision they negotiate, sessions and all: the handshake returns an `Mcp-Session-Id`, `GET /mcp/` opens that session's notification stream, and `DELETE /mcp/` ends it. Sessions exist only on this path, and they are what keeps the handshake's `listChanged` capabilities honest: when another plugin registers or removes an MCP tool, every live legacy session is notified, while modern clients hear about it on a `subscriptions/listen` stream.
 
 ### Connecting a client
 

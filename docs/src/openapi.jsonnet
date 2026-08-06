@@ -804,11 +804,87 @@ std.manifestYamlDoc(
         },
       },
       '/mcp/': {
+        get: {
+          tags: ['MCP'],
+          summary: 'Open a server-sent events stream for an existing legacy MCP session.\n',
+          description: 'Opens a long-lived SSE stream so the server can push messages to the client for an existing session. Requires the session ID returned by the `initialize` response. This is a session operation of the legacy protocol revisions (`2024-10-07` through `2025-11-25`); the `2026-07-28` revision removed it, and clients on that revision open a `subscriptions/listen` stream over POST instead.\n',
+          parameters: [
+            {
+              name: 'Mcp-Session-Id',
+              'in': 'header',
+              description: 'Session ID returned by the server on initialization.',
+              required: true,
+              schema: {
+                type: 'string',
+              },
+            },
+            {
+              name: 'MCP-Protocol-Version',
+              'in': 'header',
+              description: 'MCP protocol version negotiated during initialization (e.g. `2025-06-18`). Unrecognised values are rejected with 400.',
+              required: false,
+              schema: {
+                type: 'string',
+              },
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'SSE stream opened. The server pushes JSON-RPC messages as server-sent events.',
+              content: {
+                'text/event-stream': {
+                  schema: {
+                    type: 'string',
+                  },
+                },
+              },
+            },
+            '400': {
+              description: 'Unsupported MCP-Protocol-Version.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                },
+              },
+            },
+            '404': {
+              description: 'Session not found.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                },
+              },
+            },
+            '401': {
+              description: 'API key required.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                },
+              },
+            },
+          },
+        },
         post: {
           tags: ['MCP'],
           summary: 'Send a JSON-RPC 2.0 message to the MCP server.\n',
           description: importstr 'lib/descriptions/mcp.md',
           parameters: [
+            {
+              name: 'Mcp-Session-Id',
+              'in': 'header',
+              description: 'Session ID returned by the server on initialization. A session operation of the legacy protocol revisions: omit it for the initial `initialize` request, send it on every later request of that session, and expect 404 if the session has ended. The `2026-07-28` revision has no sessions — the header is neither issued nor read there.',
+              required: false,
+              schema: {
+                type: 'string',
+              },
+            },
             {
               name: 'MCP-Protocol-Version',
               'in': 'header',
@@ -956,7 +1032,15 @@ std.manifestYamlDoc(
           },
           responses: {
             '200': {
-              description: 'Message handled. The body is either a single JSON-RPC response (`application/json`) or a server-sent event stream carrying request-scoped notifications followed by the response (`text/event-stream`); notifications are answered with `202 Accepted` and no body. No session ID is issued — every request is served on its own.',
+              description: 'Message handled. The body is either a single JSON-RPC response (`application/json`) or a server-sent event stream carrying request-scoped notifications followed by the response (`text/event-stream`); notifications are answered with `202 Accepted` and no body. On a legacy `initialize` the `Mcp-Session-Id` response header carries the new session ID; `2026-07-28` requests are served without one.',
+              headers: {
+                'Mcp-Session-Id': {
+                  description: 'Session ID assigned by the server. Present only on a legacy `initialize` response.',
+                  schema: {
+                    type: 'string',
+                  },
+                },
+              },
             },
             '400': {
               description: 'Unsupported `MCP-Protocol-Version`, or — on the `2026-07-28` revision — a JSON-RPC error response carrying `-32020` (headers disagree with the body), `-32022` (unsupported protocol version), or `-32602` (malformed `_meta` envelope).',
@@ -978,8 +1062,8 @@ std.manifestYamlDoc(
                 },
               },
             },
-            '405': {
-              description: 'Method not allowed. The `2026-07-28` revision removed the GET stream endpoint and session termination, so only POST is served.',
+            '404': {
+              description: 'Session not found. The `Mcp-Session-Id` header names a legacy session that has ended; hand-shake again with `initialize`.',
               content: {
                 'application/json': {
                   schema: {

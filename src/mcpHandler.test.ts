@@ -1220,6 +1220,20 @@ describe("McpHandler", () => {
       expect(res.body.error.code).toBe(-32602);
     });
 
+    test("ignores a stale Mcp-Session-Id header rather than routing on it", async () => {
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", "tools/list")
+        .set("Mcp-Session-Id", "a-session-that-never-existed")
+        .send(modernRequest(1, "tools/list"))
+        .expect(200);
+
+      expect(res.body.result.tools).toHaveLength(16);
+      expect(res.headers["mcp-session-id"]).toBeUndefined();
+    });
+
     test("tools registered after construction are served on the next request", async () => {
       mcp.registerTool("extension_tool", "From an extension", {}, async () => "hi");
       const res = await request(app)
@@ -1256,7 +1270,7 @@ describe("McpHandler", () => {
       return JSON.parse(line.slice("data: ".length));
     }
 
-    test("still answers the initialize handshake for pre-2026 clients", async () => {
+    async function initialize(): Promise<{ sessionId: string; result: any }> {
       const res = await request(app)
         .post("/mcp/")
         .set("Accept", "application/json, text/event-stream")
@@ -1271,20 +1285,39 @@ describe("McpHandler", () => {
           },
         })
         .expect(200);
+      return { sessionId: res.headers["mcp-session-id"], result: sseResult(res.text).result };
+    }
 
-      const message = sseResult(res.text);
-      expect(message.result.protocolVersion).toBe(LEGACY_VERSION);
-      expect(message.result.serverInfo.name).toBe("obsidian-local-rest-api");
+    test("still answers the initialize handshake for pre-2026 clients", async () => {
+      const { result } = await initialize();
+      expect(result.protocolVersion).toBe(LEGACY_VERSION);
+      expect(result.serverInfo.name).toBe("obsidian-local-rest-api");
       // 2025-era results carry no 2026 wire fields.
-      expect(message.result.resultType).toBeUndefined();
-      expect(message.result.ttlMs).toBeUndefined();
+      expect(result.resultType).toBeUndefined();
+      expect(result.ttlMs).toBeUndefined();
     });
 
-    test("serves tools/call for a legacy client without a session id", async () => {
+    test("initialize opens a session and hands back its id", async () => {
+      const { sessionId } = await initialize();
+      expect(typeof sessionId).toBe("string");
+      expect(sessionId.length).toBeGreaterThan(0);
+    });
+
+    test("advertises listChanged capabilities it can actually honour", async () => {
+      // The legacy leg is sessionful precisely so that this advertisement stays true: a
+      // client told `listChanged: true` waits for notifications instead of re-polling.
+      const { result } = await initialize();
+      expect(result.capabilities.tools.listChanged).toBe(true);
+      expect(result.capabilities.resources.listChanged).toBe(true);
+    });
+
+    test("serves tools/call on an established session", async () => {
+      const { sessionId } = await initialize();
       const res = await request(app)
         .post("/mcp/")
         .set("Accept", "application/json, text/event-stream")
         .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
         .send({
           jsonrpc: "2.0",
           id: 2,
@@ -1293,16 +1326,17 @@ describe("McpHandler", () => {
         })
         .expect(200);
 
-      expect(res.headers["mcp-session-id"]).toBeUndefined();
       const message = sseResult(res.text);
       expect(JSON.parse(message.result.content[0].text).files).toEqual(["file1.md", "folder/"]);
     });
 
     test("advertises the same tool list as the modern path", async () => {
+      const { sessionId } = await initialize();
       const res = await request(app)
         .post("/mcp/")
         .set("Accept", "application/json, text/event-stream")
         .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
         .send({ jsonrpc: "2.0", id: 3, method: "tools/list", params: {} })
         .expect(200);
 
@@ -1317,22 +1351,102 @@ describe("McpHandler", () => {
       });
     });
 
-    test("answers the removed GET stream and DELETE session operations with 405", async () => {
-      await request(app).get("/mcp/").set("Accept", "text/event-stream").expect(405);
-      await request(app).delete("/mcp/").expect(405);
+    test("a tool registered after the handshake is visible to the live session", async () => {
+      const { sessionId } = await initialize();
+      mcp.registerTool("extension_tool", "From an extension", {}, async () => "hi");
+
+      const listed = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({ jsonrpc: "2.0", id: 4, method: "tools/list", params: {} })
+        .expect(200);
+
+      const names = (sseResult(listed.text).result.tools as { name: string }[]).map((t) => t.name);
+      expect(names).toContain("extension_tool");
+
+      const called = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({
+          jsonrpc: "2.0",
+          id: 5,
+          method: "tools/call",
+          params: { name: "extension_tool", arguments: {} },
+        })
+        .expect(200);
+      expect(sseResult(called.text).result.content[0].text).toBe("hi");
     });
 
-    test("no longer routes on Mcp-Session-Id — an unknown session id is served, not 404ed", async () => {
+    test("registering a tool notifies live legacy sessions", async () => {
+      const { sessionId } = await initialize();
+      const session = [...(mcp as unknown as {
+        legacySessions: Map<string, { server: { sendToolListChanged: () => void } }>;
+      }).legacySessions.values()][0];
+      const sendToolListChanged = jest.spyOn(session.server, "sendToolListChanged");
+
+      mcp.registerTool("notifying_tool", "From an extension", {}, async () => "hi");
+
+      expect(sendToolListChanged).toHaveBeenCalled();
+      expect(sessionId).toBeTruthy();
+    });
+
+    test("a tool removed after the handshake disappears from the live session", async () => {
+      const { sessionId } = await initialize();
+      const cleanup = mcp.registerTool("temporary_tool", "Goes away", {}, async () => "hi");
+      cleanup();
+
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({ jsonrpc: "2.0", id: 6, method: "tools/list", params: {} })
+        .expect(200);
+
+      const names = (sseResult(res.text).result.tools as { name: string }[]).map((t) => t.name);
+      expect(names).not.toContain("temporary_tool");
+    });
+
+    test("an unknown session id is rejected with 404", async () => {
       const res = await request(app)
         .post("/mcp/")
         .set("Accept", "application/json, text/event-stream")
         .set("MCP-Protocol-Version", LEGACY_VERSION)
         .set("Mcp-Session-Id", "a-session-that-never-existed")
-        .send({ jsonrpc: "2.0", id: 4, method: "tools/list", params: {} })
-        .expect(200);
+        .send({ jsonrpc: "2.0", id: 7, method: "tools/list", params: {} })
+        .expect(404);
 
-      const message = sseResult(res.text);
-      expect(message.result.tools).toHaveLength(16);
+      expect(res.body.error).toMatch(/Session not found/);
+    });
+
+    test("DELETE terminates the session, and later requests on it are 404ed", async () => {
+      const { sessionId } = await initialize();
+      await request(app).delete("/mcp/").set("Mcp-Session-Id", sessionId).expect(200);
+
+      await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({ jsonrpc: "2.0", id: 8, method: "tools/list", params: {} })
+        .expect(404);
+    });
+
+    test("close() drops every open session", async () => {
+      const { sessionId } = await initialize();
+      mcp.close();
+
+      await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({ jsonrpc: "2.0", id: 9, method: "tools/list", params: {} })
+        .expect(404);
     });
   });
 

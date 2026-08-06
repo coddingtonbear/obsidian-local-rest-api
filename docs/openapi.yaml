@@ -1359,6 +1359,51 @@ paths:
       tags:
         - "Commands"
   /mcp/:
+    get:
+      description: |
+        Opens a long-lived SSE stream so the server can push messages to the client for an existing session. Requires the session ID returned by the `initialize` response. This is a session operation of the legacy protocol revisions (`2024-10-07` through `2025-11-25`); the `2026-07-28` revision removed it, and clients on that revision open a `subscriptions/listen` stream over POST instead.
+      parameters:
+        - description: "Session ID returned by the server on initialization."
+          in: "header"
+          name: "Mcp-Session-Id"
+          required: true
+          schema:
+            type: "string"
+        - description: "MCP protocol version negotiated during initialization (e.g. `2025-06-18`). Unrecognised values are rejected with 400."
+          in: "header"
+          name: "MCP-Protocol-Version"
+          required: false
+          schema:
+            type: "string"
+      responses:
+        "200":
+          content:
+            text/event-stream:
+              schema:
+                type: "string"
+          description: "SSE stream opened. The server pushes JSON-RPC messages as server-sent events."
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Unsupported MCP-Protocol-Version."
+        "401":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "API key required."
+        "404":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Session not found."
+      summary: |
+        Open a server-sent events stream for an existing legacy MCP session.
+      tags:
+        - "MCP"
     post:
       description: |
         Interact with this plugin's MCP server using the [Streamable HTTP transport](https://modelcontextprotocol.io/docs/concepts/transports#streamable-http).
@@ -1383,7 +1428,9 @@ paths:
         
         Call `server/discover` to learn the supported revisions, capabilities, and server identity in one request. Results carry `resultType`, and the cacheable ones (`server/discover`, `tools/list`, `resources/list`, `resources/templates/list`, `resources/read`) also carry the `ttlMs` and `cacheScope` freshness hints.
         
-        **Legacy revisions.** Clients that open with an `initialize` request are served the revision they negotiate, exactly as before. Serving is stateless, so no session ID is returned and none is expected on later requests. The `GET` stream and `DELETE` session-termination operations of those revisions are answered with `405 Method Not Allowed`; MCP SDK clients treat that as "no server-initiated stream" and carry on.
+        **Legacy revisions.** Clients that open with an `initialize` request are served the revision they negotiate, exactly as before — including sessions. The server returns a session ID in the `Mcp-Session-Id` response header; include it on every later request, use `GET /mcp/` with it to open the server-to-client notification stream, and `DELETE /mcp/` with it to end the session. A request naming a session that no longer exists is answered `404 Not Found`, which means the client should hand-shake again.
+        
+        Sessions exist only on this path. They are what makes the `tools.listChanged` / `resources.listChanged` capabilities the handshake advertises true: when another plugin registers or removes an MCP tool, every live legacy session is told over its notification stream. Modern clients get the same news from a `subscriptions/listen` stream instead.
         
         Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `400 Bad Request`.
         
@@ -1414,6 +1461,12 @@ paths:
         |---|---|
         | `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API |
       parameters:
+        - description: "Session ID returned by the server on initialization. A session operation of the legacy protocol revisions: omit it for the initial `initialize` request, send it on every later request of that session, and expect 404 if the session has ended. The `2026-07-28` revision has no sessions — the header is neither issued nor read there."
+          in: "header"
+          name: "Mcp-Session-Id"
+          required: false
+          schema:
+            type: "string"
         - description: "Protocol revision this request speaks. Required on every request on the `2026-07-28` revision, where it must match `params._meta[\"io.modelcontextprotocol/protocolVersion\"]`; on the legacy revisions it carries the version negotiated during `initialize` (e.g. `2025-06-18`). Unrecognised values are rejected with 400."
           in: "header"
           name: "MCP-Protocol-Version"
@@ -1532,7 +1585,12 @@ paths:
         required: true
       responses:
         "200":
-          description: "Message handled. The body is either a single JSON-RPC response (`application/json`) or a server-sent event stream carrying request-scoped notifications followed by the response (`text/event-stream`); notifications are answered with `202 Accepted` and no body. No session ID is issued — every request is served on its own."
+          description: "Message handled. The body is either a single JSON-RPC response (`application/json`) or a server-sent event stream carrying request-scoped notifications followed by the response (`text/event-stream`); notifications are answered with `202 Accepted` and no body. On a legacy `initialize` the `Mcp-Session-Id` response header carries the new session ID; `2026-07-28` requests are served without one."
+          headers:
+            Mcp-Session-Id:
+              description: "Session ID assigned by the server. Present only on a legacy `initialize` response."
+              schema:
+                type: "string"
         "400":
           content:
             application/json:
@@ -1545,12 +1603,12 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "API key required."
-        "405":
+        "404":
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Method not allowed. The `2026-07-28` revision removed the GET stream endpoint and session termination, so only POST is served."
+          description: "Session not found. The `Mcp-Session-Id` header names a legacy session that has ended; hand-shake again with `initialize`."
       summary: |
         Send a JSON-RPC 2.0 message to the MCP server.
       tags:

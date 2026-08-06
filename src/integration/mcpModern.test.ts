@@ -230,17 +230,25 @@ describe("MCP 2026-07-28 header and version validation", () => {
   });
 });
 
-describe("MCP 2026-07-28 removed session operations", () => {
-  test("GET no longer opens a standalone stream", async () => {
-    const res = await authedFetch(MCP_PATH, {
-      method: "GET",
-      headers: { Accept: "text/event-stream" },
-    });
-    expect(res.status).toBe(405);
+describe("MCP 2026-07-28 session handling", () => {
+  test("the modern leg never issues a session id", async () => {
+    for (const method of ["server/discover", "tools/list", "resources/list"]) {
+      const { sessionId } = await call(method);
+      expect(sessionId).toBeNull();
+    }
   });
 
-  test("DELETE no longer terminates a session", async () => {
-    const res = await authedFetch(MCP_PATH, { method: "DELETE" });
-    expect(res.status).toBe(405);
+  test("a body-less session operation with an unknown version keeps the plain rejection", async () => {
+    // The endpoint's version filter still guards the 2025-era session operations, which
+    // carry no body for the SDK to classify.
+    for (const method of ["GET", "DELETE"]) {
+      const res = await authedFetch(MCP_PATH, {
+        method,
+        headers: { "MCP-Protocol-Version": "9999-01-01" },
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: unknown };
+      expect(typeof body.error).toBe("string");
+    }
   });
 });

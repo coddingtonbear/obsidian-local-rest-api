@@ -1,15 +1,17 @@
-import { McpServer, createMcpHandler, isLegacyRequest, legacyStatelessFallback } from "@modelcontextprotocol/server";
+import { McpServer, createMcpHandler, isLegacyRequest } from "@modelcontextprotocol/server";
 import type {
   CacheHint,
   CallToolResult,
   McpHttpHandler,
   ReadResourceResult,
+  RegisteredTool,
   StandardSchemaWithJSON,
   ToolAnnotations,
 } from "@modelcontextprotocol/server";
-import { toNodeHandler, toWebRequest } from "@modelcontextprotocol/node";
+import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from "@modelcontextprotocol/node";
 import type { NodeMcpRequestHandler } from "@modelcontextprotocol/node";
 import { posix } from "path";
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import express from "express";
 import { TFile } from "obsidian";
@@ -85,6 +87,17 @@ interface ResourceSpec {
   handler: (uri: URL) => Promise<ReadResourceResult>;
 }
 
+/**
+ * A live 2025-era session: one client's `initialize` handshake, the server instance
+ * pinned to it, and the handles needed to add or drop tools on that instance while it
+ * is connected. Modern requests never produce one of these.
+ */
+interface LegacySession {
+  server: McpServer;
+  transport: NodeStreamableHTTPServerTransport;
+  toolHandles: Map<string, RegisteredTool>;
+}
+
 export class McpHandler {
   // The tool and resource registries are this handler's application state: the 2026-07-28
   // revision has no protocol-level session to hang anything off, so everything a request
@@ -98,31 +111,36 @@ export class McpHandler {
   // 2025-era traffic is handed to the separate legacy leg below by `handleRequest`.
   private readonly modernHandler: McpHttpHandler;
   private readonly modernNodeHandler: NodeMcpRequestHandler;
+
   // The legacy (2024-10-07 … 2025-11-25) leg, kept deliberately separate from the modern
-  // one so that older clients — which still open with an `initialize` handshake — keep
-  // working unchanged. It is the SDK's own stateless 2025-era serving, so it too holds no
-  // per-session state; the `Mcp-Session-Id` routing this handler used to do is gone.
-  private readonly legacyNodeHandler: NodeMcpRequestHandler;
+  // one. It stays *sessionful*, because that is what those revisions are: a client opens
+  // with `initialize`, the server answers with an `Mcp-Session-Id`, and the capabilities
+  // it advertises — including `tools.listChanged` — promise a live notification channel
+  // for the rest of the session. Serving those clients statelessly would make that
+  // promise a lie and leave a tool an extension registers invisible until the client
+  // happened to re-poll. The session map therefore lives here and only here; the modern
+  // leg neither issues nor reads `Mcp-Session-Id`.
+  private readonly legacySessions: Map<string, LegacySession> = new Map();
 
   constructor(
     private readonly ops: VaultOperations,
     private readonly settings: LocalRestApiSettings,
   ) {
-    const factory = () => this.buildServer();
     const onerror = (error: Error) => this.logHandlerError(error);
-    this.modernHandler = createMcpHandler(factory, { legacy: "reject", onerror });
+    this.modernHandler = createMcpHandler(() => this.buildServer().server, {
+      legacy: "reject",
+      onerror,
+    });
     this.modernNodeHandler = toNodeHandler(this.modernHandler, { onerror });
-    this.legacyNodeHandler = toNodeHandler(
-      { fetch: legacyStatelessFallback(factory, onerror) },
-      { onerror },
-    );
     this.registerResources();
     this.registerTools();
   }
 
-  // Build a fresh McpServer for a single request. Both legs are per-request by
-  // construction, so a server instance is never shared between two exchanges.
-  private buildServer(): McpServer {
+  // Build a fresh McpServer from the current specs. The modern leg discards the tool
+  // handles (it builds one server per request, so nothing outlives the exchange); the
+  // legacy leg keeps them, because its server stays connected for a whole session and
+  // has to learn about tools registered after the handshake.
+  private buildServer(): { server: McpServer; toolHandles: Map<string, RegisteredTool> } {
     const server = new McpServer(SERVER_INFO, {
       capabilities: { tools: {}, resources: {} },
       cacheHints: CACHE_HINTS,
@@ -130,18 +148,23 @@ export class McpHandler {
     for (const spec of this.resourceSpecs) {
       server.registerResource(spec.name, spec.uri, spec.meta, spec.handler);
     }
+    const toolHandles = new Map<string, RegisteredTool>();
     for (const spec of this.toolSpecs.values()) {
-      server.registerTool(
-        spec.name,
-        {
-          description: spec.description,
-          inputSchema: spec.inputSchema,
-          annotations: spec.annotations,
-        },
-        spec.callback,
-      );
+      toolHandles.set(spec.name, this.registerToolOn(server, spec));
     }
-    return server;
+    return { server, toolHandles };
+  }
+
+  private registerToolOn(server: McpServer, spec: ToolSpec): RegisteredTool {
+    return server.registerTool(
+      spec.name,
+      {
+        description: spec.description,
+        inputSchema: spec.inputSchema,
+        annotations: spec.annotations,
+      },
+      spec.callback,
+    );
   }
 
   private logHandlerError(error: Error): void {
@@ -178,11 +201,20 @@ export class McpHandler {
       },
     };
     this.toolSpecs.set(spec.name, spec);
+    // Modern clients learn about the change through a `subscriptions/listen` stream;
+    // legacy sessions are live server instances, so the tool is registered on each of
+    // them, which is what emits `notifications/tools/list_changed` on their stream.
     this.modernHandler.notify.toolsChanged();
+    for (const session of this.legacySessions.values()) {
+      session.toolHandles.set(spec.name, this.registerToolOn(session.server, spec));
+    }
     return {
       remove: () => {
-        if (this.toolSpecs.delete(spec.name)) {
-          this.modernHandler.notify.toolsChanged();
+        if (!this.toolSpecs.delete(spec.name)) return;
+        this.modernHandler.notify.toolsChanged();
+        for (const session of this.legacySessions.values()) {
+          session.toolHandles.get(spec.name)?.remove();
+          session.toolHandles.delete(spec.name);
         }
       },
     };
@@ -207,33 +239,92 @@ export class McpHandler {
   }
 
   /**
-   * Serve one request on the MCP endpoint.
+   * Whether a request belongs to the modern (2026-07-28) leg.
    *
    * Classification is the SDK's own — `isLegacyRequest` runs exactly the code
-   * `createMcpHandler` runs — so the two legs can never disagree about who owns a
-   * request. Anything carrying the 2026-07-28 `_meta` envelope claim (including a claim
-   * naming a revision we do not serve, or a malformed one) belongs to the modern leg,
-   * which owns those error answers; everything else is 2025-era traffic.
+   * `createMcpHandler` runs — so nothing that branches on this can disagree with the
+   * entry about who owns a request. Anything carrying the 2026-07-28 `_meta` envelope
+   * claim is modern, including a claim naming a revision this server does not serve or a
+   * malformed one: the modern leg owns those error answers (`-32022` / `-32602`).
+   * Everything else — `initialize` handshakes, session GET/DELETE — is 2025-era traffic.
+   *
+   * `req.body` is passed explicitly because the router's `express.json()` has already
+   * drained the Node stream, which cannot be read a second time.
    */
+  public async isModernRequest(req: express.Request): Promise<boolean> {
+    return !(await isLegacyRequest(await toWebRequest(req, req.body)));
+  }
+
+  /** Serve one request on the MCP endpoint. */
   async handleRequest(
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    // `req.body` is already parsed by the router's express.json(), so it is handed over
-    // explicitly: the Node stream is drained by then and cannot be read a second time.
-    const classifiable = await toWebRequest(req, req.body);
-    if (await isLegacyRequest(classifiable)) {
-      await this.legacyNodeHandler(req, res, req.body);
+    if (await this.isModernRequest(req)) {
+      await this.modernNodeHandler(req, res, req.body);
       return;
     }
-    await this.modernNodeHandler(req, res, req.body);
+    await this.handleLegacyRequest(req, res);
   }
 
-  /** Tears down the modern leg's in-flight exchanges. Called when the plugin unloads. */
+  /**
+   * The 2025-era leg: a client opens with `initialize` and is handed an `Mcp-Session-Id`
+   * to send back on every later request, exactly as it was before the 2026-07-28
+   * migration. Requests naming a session that has since gone away are answered 404 so the
+   * client knows to hand-shake again.
+   */
+  private async handleLegacyRequest(
+    req: express.Request,
+    res: express.Response,
+  ): Promise<void> {
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+
+    if (!sessionId) {
+      const { server, toolHandles } = this.buildServer();
+      const transport = new NodeStreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (id) => {
+          this.legacySessions.set(id, { server, transport, toolHandles });
+        },
+        onsessionclosed: (id) => {
+          this.legacySessions.delete(id);
+        },
+      });
+      transport.onclose = () => {
+        if (transport.sessionId) this.legacySessions.delete(transport.sessionId);
+      };
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+      return;
+    }
+
+    const session = this.legacySessions.get(sessionId);
+    if (!session) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+    await session.transport.handleRequest(req, res, req.body);
+  }
+
+  /**
+   * Tears down the modern leg's in-flight exchanges and every open legacy session.
+   * Called when the plugin unloads.
+   */
   public close(): void {
-    void this.modernHandler.close().catch((e: unknown) => {
-      if (this.settings.enableVerboseLogging) {
-        console.debug(`[MCP] shutdown failed: ${e instanceof Error ? e.message : "unknown error"}`);
+    const closing: Promise<unknown>[] = [this.modernHandler.close()];
+    for (const session of [...this.legacySessions.values()]) {
+      closing.push(session.transport.close());
+    }
+    this.legacySessions.clear();
+    void Promise.allSettled(closing).then((results) => {
+      if (!this.settings.enableVerboseLogging) return;
+      for (const result of results) {
+        if (result.status === "rejected") {
+          const reason: unknown = result.reason;
+          console.debug(
+            `[MCP] shutdown failed: ${reason instanceof Error ? reason.message : "unknown error"}`,
+          );
+        }
       }
     });
   }
