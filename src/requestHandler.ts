@@ -37,7 +37,7 @@ import type {
   PublicMap,
   ReadTarget,
 } from "markdown-patch-2";
-import { SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/sdk/types.js";
+import { SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/server";
 
 import {
   CannedResponse,
@@ -56,6 +56,7 @@ import {
   CERT_NAME,
   ContentTypes,
   ERROR_CODE_MESSAGES,
+  MCP_MODERN_PROTOCOL_VERSION,
   MaximumRequestSize,
 } from "./constants";
 import {
@@ -2250,15 +2251,36 @@ export default class RequestHandler {
       }
       next();
     });
+    // Body parsing runs before the version filter: deciding what an unrecognised version
+    // header means requires knowing whether the request is modern- or legacy-shaped, and
+    // that is a property of the body.
+    mcpRouter.use(express.json({ limit: MaximumRequestSize }));
     mcpRouter.use((req, res, next) => {
       const version = req.headers["mcp-protocol-version"] as string | undefined;
-      if (version !== undefined && !SUPPORTED_PROTOCOL_VERSIONS.includes(version)) {
-        res.status(400).json({ error: `Unsupported MCP-Protocol-Version: ${version}` });
+      if (
+        version === undefined ||
+        version === MCP_MODERN_PROTOCOL_VERSION ||
+        SUPPORTED_PROTOCOL_VERSIONS.includes(version)
+      ) {
+        next();
         return;
       }
-      next();
+      // An unrecognised version on a modern-shaped request is the MCP handler's to
+      // answer: it replies with JSON-RPC `-32022` naming the revisions it does serve,
+      // which is how a modern client learns what to fall back to. Answering here with a
+      // bare `{error}` body would strand that client. Legacy-shaped requests keep the
+      // plain rejection they have always had.
+      this.mcpHandler
+        .isModernRequest(req)
+        .then((isModern) => {
+          if (isModern) {
+            next();
+            return;
+          }
+          res.status(400).json({ error: `Unsupported MCP-Protocol-Version: ${version}` });
+        })
+        .catch(next);
     });
-    mcpRouter.use(express.json({ limit: MaximumRequestSize }));
     mcpRouter.all("/", (req, res, next) => {
       this.mcpHandler.handleRequest(req, res).catch(next);
     });

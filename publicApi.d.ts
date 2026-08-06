@@ -34,7 +34,7 @@ export declare const LOCAL_REST_API_PLUGIN_ID = "obsidian-local-rest-api";
 /**
  * Behavior hints attached to a registered MCP tool.
  *
- * Structurally identical to `ToolAnnotations` from `@modelcontextprotocol/sdk`, but
+ * Structurally identical to `ToolAnnotations` from `@modelcontextprotocol/server`, but
  * declared here so that consuming this package's types does not require the SDK to be
  * installed. The host passes whatever it receives straight through to the SDK.
  */

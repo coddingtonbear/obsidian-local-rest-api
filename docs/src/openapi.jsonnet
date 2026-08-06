@@ -806,8 +806,8 @@ std.manifestYamlDoc(
       '/mcp/': {
         get: {
           tags: ['MCP'],
-          summary: 'Open a server-sent events stream for an existing MCP session.\n',
-          description: 'Opens a long-lived SSE stream so the server can push messages to the client for an existing session. Requires the session ID returned by the `initialize` response.\n',
+          summary: 'Open a server-sent events stream for an existing legacy MCP session.\n',
+          description: 'Opens a long-lived SSE stream so the server can push messages to the client for an existing session. Requires the session ID returned by the `initialize` response. This is a session operation of the legacy protocol revisions (`2024-10-07` through `2025-11-25`); the `2026-07-28` revision removed it, and clients on that revision open a `subscriptions/listen` stream over POST instead.\n',
           parameters: [
             {
               name: 'Mcp-Session-Id',
@@ -821,7 +821,7 @@ std.manifestYamlDoc(
             {
               name: 'MCP-Protocol-Version',
               'in': 'header',
-              description: 'MCP protocol version negotiated during initialization (e.g. `2025-06-18`). Required on all requests after initialization. Unrecognised values are rejected with 400.',
+              description: 'MCP protocol version negotiated during initialization (e.g. `2025-06-18`). Unrecognised values are rejected with 400.',
               required: false,
               schema: {
                 type: 'string',
@@ -879,7 +879,7 @@ std.manifestYamlDoc(
             {
               name: 'Mcp-Session-Id',
               'in': 'header',
-              description: 'Session ID returned by the server on initialization. Omit for the initial `initialize` request; required for all subsequent requests.',
+              description: 'Session ID returned by the server on initialization. A session operation of the legacy protocol revisions: omit it for the initial `initialize` request, send it on every later request of that session, and expect 404 if the session has ended. The `2026-07-28` revision has no sessions — the header is neither issued nor read there.',
               required: false,
               schema: {
                 type: 'string',
@@ -888,7 +888,25 @@ std.manifestYamlDoc(
             {
               name: 'MCP-Protocol-Version',
               'in': 'header',
-              description: 'MCP protocol version negotiated during initialization (e.g. `2025-06-18`). Required on all requests after initialization. Unrecognised values are rejected with 400.',
+              description: 'Protocol revision this request speaks. Required on every request on the `2026-07-28` revision, where it must match `params._meta["io.modelcontextprotocol/protocolVersion"]`; on the legacy revisions it carries the version negotiated during `initialize` (e.g. `2025-06-18`). Unrecognised values are rejected with 400.',
+              required: false,
+              schema: {
+                type: 'string',
+              },
+            },
+            {
+              name: 'Mcp-Method',
+              'in': 'header',
+              description: 'The JSON-RPC method named in the request body. Required on `2026-07-28` requests; a value that disagrees with the body is rejected with 400 and JSON-RPC error `-32020`.',
+              required: false,
+              schema: {
+                type: 'string',
+              },
+            },
+            {
+              name: 'Mcp-Name',
+              'in': 'header',
+              description: 'The primary subject named in the request body — `params.name` for `tools/call` and `prompts/get`, `params.uri` for `resources/read`. Required on `2026-07-28` requests that carry one; a value that disagrees with the body is rejected with 400 and JSON-RPC error `-32020`.',
               required: false,
               schema: {
                 type: 'string',
@@ -917,6 +935,7 @@ std.manifestYamlDoc(
                       type: 'string',
                       description: 'MCP method to invoke.',
                       enum: [
+                        'server/discover',
                         'initialize',
                         'tools/list',
                         'tools/call',
@@ -934,13 +953,34 @@ std.manifestYamlDoc(
                   },
                 },
                 examples: {
-                  list_tools: {
-                    summary: 'List all available MCP tools',
+                  discover: {
+                    summary: 'Discover the supported protocol revisions and capabilities (2026-07-28)',
                     value: {
                       jsonrpc: '2.0',
                       id: 1,
+                      method: 'server/discover',
+                      params: {
+                        _meta: {
+                          'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+                          'io.modelcontextprotocol/clientInfo': { name: 'my-client', version: '1.0.0' },
+                          'io.modelcontextprotocol/clientCapabilities': {},
+                        },
+                      },
+                    },
+                  },
+                  list_tools: {
+                    summary: 'List all available MCP tools (2026-07-28)',
+                    value: {
+                      jsonrpc: '2.0',
+                      id: 2,
                       method: 'tools/list',
-                      params: {},
+                      params: {
+                        _meta: {
+                          'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+                          'io.modelcontextprotocol/clientInfo': { name: 'my-client', version: '1.0.0' },
+                          'io.modelcontextprotocol/clientCapabilities': {},
+                        },
+                      },
                     },
                   },
                   call_vault_read: {
@@ -992,10 +1032,10 @@ std.manifestYamlDoc(
           },
           responses: {
             '200': {
-              description: 'Message handled. Response body contains the JSON-RPC result, or may be empty for notifications. On session initialization the `Mcp-Session-Id` response header contains the new session ID.',
+              description: 'Message handled. The body is either a single JSON-RPC response (`application/json`) or a server-sent event stream carrying request-scoped notifications followed by the response (`text/event-stream`); notifications are answered with `202 Accepted` and no body. On a legacy `initialize` the `Mcp-Session-Id` response header carries the new session ID; `2026-07-28` requests are served without one.',
               headers: {
                 'Mcp-Session-Id': {
-                  description: 'Session ID assigned by the server. Present only on the `initialize` response.',
+                  description: 'Session ID assigned by the server. Present only on a legacy `initialize` response.',
                   schema: {
                     type: 'string',
                   },
@@ -1003,17 +1043,7 @@ std.manifestYamlDoc(
               },
             },
             '400': {
-              description: 'Unsupported MCP-Protocol-Version.',
-              content: {
-                'application/json': {
-                  schema: {
-                    '$ref': '#/components/schemas/Error',
-                  },
-                },
-              },
-            },
-            '404': {
-              description: 'Session not found.',
+              description: 'Unsupported `MCP-Protocol-Version`, or — on the `2026-07-28` revision — a JSON-RPC error response carrying `-32020` (headers disagree with the body), `-32022` (unsupported protocol version), or `-32602` (malformed `_meta` envelope).',
               content: {
                 'application/json': {
                   schema: {
@@ -1024,6 +1054,16 @@ std.manifestYamlDoc(
             },
             '401': {
               description: 'API key required.',
+              content: {
+                'application/json': {
+                  schema: {
+                    '$ref': '#/components/schemas/Error',
+                  },
+                },
+              },
+            },
+            '404': {
+              description: 'Session not found. The `Mcp-Session-Id` header names a legacy session that has ended; hand-shake again with `initialize`.',
               content: {
                 'application/json': {
                   schema: {

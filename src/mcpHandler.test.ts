@@ -1,14 +1,4 @@
 // jest.mock calls are hoisted before imports by ts-jest's babel transform.
-// Variables prefixed with "mock" are also hoisted, so they can be safely
-// referenced inside the factory functions below.
-
-const mockRemove = jest.fn();
-const mockTool = jest.fn().mockReturnValue({ remove: mockRemove });
-const mockConnect = jest.fn().mockResolvedValue(undefined);
-const mockTransportHandleRequest = jest.fn().mockResolvedValue(undefined);
-const mockNewSessionId = "new-session-id";
-
-const mockResource = jest.fn();
 
 // Prevent ts-jest from compiling vaultOperations.ts (which pulls in json-logic-js
 // with a deeply recursive RulesLogic type that OOMs TypeScript 4.7). The real
@@ -18,31 +8,23 @@ jest.mock("./vaultOperations", () => ({
   VaultOperations: jest.fn(),
 }));
 
-jest.mock("@modelcontextprotocol/sdk/server/mcp.js", () => ({
-  McpServer: jest.fn().mockImplementation(() => ({
-    tool: mockTool,
-    resource: mockResource,
-    connect: mockConnect,
-  })),
-}));
-
-jest.mock("@modelcontextprotocol/sdk/server/streamableHttp.js", () => ({
-  StreamableHTTPServerTransport: jest.fn().mockImplementation((opts: { onsessioninitialized?: (id: string) => void }) => {
-    const transport = {
-      sessionId: mockNewSessionId,
-      handleRequest: mockTransportHandleRequest,
-      onclose: undefined as (() => void) | undefined,
-    };
-    // Defer so the outer `const transport = new ...` assignment completes first,
-    // matching the real SDK which only calls this after processing the initialize message.
-    void Promise.resolve().then(() => opts?.onsessioninitialized?.(mockNewSessionId));
-    return transport;
-  }),
-}));
+import express from "express";
+import request from "supertest";
+import { McpServer } from "@modelcontextprotocol/server";
 
 import { McpHandler } from "./mcpHandler";
 import { DEFAULT_SETTINGS } from "./constants";
 import { TFile } from "../mocks/obsidian";
+
+const MODERN_VERSION = "2026-07-28";
+const LEGACY_VERSION = "2025-06-18";
+
+// The real McpServer is used throughout: the 2026-07-28 serving entries build one per
+// request from McpHandler's factory, so there is nothing to substitute. Registrations are
+// observed by spying on the prototype and then building a server directly.
+let registerTool: jest.SpyInstance;
+let registerResource: jest.SpyInstance;
+
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -118,24 +100,19 @@ function makeMockOps() {
 
 // Returns the callback registered for the named tool.
 function getToolCallback(toolName: string) {
-  const call = mockTool.mock.calls.find(
-    (c: unknown[]) => c[0] === toolName,
-  );
+  const call = registerTool.mock.calls.find((c: unknown[]) => c[0] === toolName);
   if (!call) throw new Error(`Tool "${toolName}" was not registered`);
-  // tool(name, description, schema, annotations, callback) — callback is always last
-  return call[call.length - 1] as (args: Record<string, unknown>) => Promise<{
+  // registerTool(name, config, callback)
+  return call[2] as (args: Record<string, unknown>) => Promise<{
     content: Array<{ type: string; text: string }>;
   }>;
 }
 
 // Returns the annotations object registered for the named tool.
 function getToolAnnotations(toolName: string) {
-  const call = mockTool.mock.calls.find(
-    (c: unknown[]) => c[0] === toolName,
-  );
+  const call = registerTool.mock.calls.find((c: unknown[]) => c[0] === toolName);
   if (!call) throw new Error(`Tool "${toolName}" was not registered`);
-  // tool(name, description, schema, annotations, callback) — annotations is second-to-last
-  return call[call.length - 2] as Record<string, boolean>;
+  return (call[1] as { annotations: Record<string, boolean> }).annotations;
 }
 
 function parseText(result: { content: Array<{ type: string; text: string }> }) {
@@ -149,6 +126,43 @@ function parseText(result: { content: Array<{ type: string; text: string }> }) {
 }
 
 // ---------------------------------------------------------------------------
+// HTTP helpers — the endpoint is exercised through the same express wiring the
+// request handler mounts, so the SDK's Streamable HTTP behavior is under test too.
+// ---------------------------------------------------------------------------
+
+function makeApp(mcp: McpHandler) {
+  const app = express();
+  app.use(express.json());
+  app.all("/mcp/", (req, res, next) => {
+    mcp.handleRequest(req, res).catch(next);
+  });
+  return app;
+}
+
+function modernEnvelope(overrides: Record<string, unknown> = {}) {
+  return {
+    "io.modelcontextprotocol/protocolVersion": MODERN_VERSION,
+    "io.modelcontextprotocol/clientInfo": { name: "unit-test", version: "1.0.0" },
+    "io.modelcontextprotocol/clientCapabilities": {},
+    ...overrides,
+  };
+}
+
+function modernRequest(
+  id: number,
+  method: string,
+  params: Record<string, unknown> = {},
+  envelopeOverrides: Record<string, unknown> = {},
+) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method,
+    params: { ...params, _meta: modernEnvelope(envelopeOverrides) },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -156,29 +170,30 @@ describe("McpHandler", () => {
    
   let ops: any;
 
-  // Each session now gets its own McpServer, so tool/resource registration runs when
-  // a session is built (not at construction). Trigger one build so the McpServer mock
-  // captures the registrations that getToolCallback() reads.
-  async function buildSession(mcp: McpHandler): Promise<void> {
-    // @ts-ignore: partial mock
-    await mcp.handleRequest(
-      { headers: {}, body: { jsonrpc: "2.0", id: 0, method: "initialize" } },
-      { status: jest.fn().mockReturnThis(), json: jest.fn() },
-    );
+  // Every request builds a fresh McpServer from the handler's specs, so tool and
+  // resource registration is observed by building one server directly.
+  function buildServer(mcp: McpHandler): void {
+    // @ts-ignore: buildServer is private — the test observes what a request would build.
+    mcp.buildServer();
   }
 
-  beforeEach(async () => {
-    jest.clearAllMocks();
+  beforeEach(() => {
+    registerTool = jest.spyOn(McpServer.prototype, "registerTool");
+    registerResource = jest.spyOn(McpServer.prototype, "registerResource");
     ops = makeMockOps();
-    // Construction records specs; building a session registers them on a server.
-    await buildSession(new McpHandler(ops, DEFAULT_SETTINGS));
+    // Construction records specs; building a server registers them.
+    buildServer(new McpHandler(ops, DEFAULT_SETTINGS));
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   // ---- resource registration ----------------------------------------------
 
   test("registers the openapi-spec resource", () => {
-    expect(mockResource).toHaveBeenCalledTimes(1);
-    const [name, uri] = mockResource.mock.calls[0] as [string, string];
+    expect(registerResource).toHaveBeenCalledTimes(1);
+    const [name, uri] = registerResource.mock.calls[0] as [string, string];
     expect(name).toBe("openapi-spec");
     expect(uri).toBe("obsidian://local-rest-api/openapi.yaml");
   });
@@ -186,8 +201,8 @@ describe("McpHandler", () => {
   // ---- tool registration --------------------------------------------------
 
   test("registers all 16 tools", () => {
-    expect(mockTool).toHaveBeenCalledTimes(16);
-    const names = mockTool.mock.calls.map((c: unknown[]) => c[0]);
+    expect(registerTool).toHaveBeenCalledTimes(16);
+    const names = registerTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
         "vault_list",
@@ -242,8 +257,8 @@ describe("McpHandler", () => {
     });
 
     test("no tool is annotated openWorldHint true", () => {
-      for (const call of mockTool.mock.calls) {
-        const annotations = call[call.length - 2] as Record<string, boolean>;
+      for (const call of registerTool.mock.calls) {
+        const { annotations } = call[1] as { annotations: Record<string, boolean> };
         expect(annotations.openWorldHint).toBe(false);
       }
     });
@@ -1032,73 +1047,422 @@ describe("McpHandler", () => {
 
   // ---- handleRequest ------------------------------------------------------
 
-  describe("handleRequest", () => {
-    // Reset mock counts polluted by the outer beforeEach session build.
-    beforeEach(() => jest.clearAllMocks());
+  describe("handleRequest — modern (2026-07-28) path", () => {
+    let mcp: McpHandler;
+    let app: express.Express;
 
-    test("returns 404 when session ID is unknown", async () => {
-      const mcp = new McpHandler(ops, DEFAULT_SETTINGS);
-      const mockRes = {
-        status: jest.fn().mockReturnThis(),
-        json: jest.fn(),
-      };
-      // @ts-ignore: using partial mock
-      await mcp.handleRequest(
-        { headers: { "mcp-session-id": "unknown" } },
-        mockRes,
-      );
-      expect(mockRes.status).toHaveBeenCalledWith(404);
+    beforeEach(() => {
+      mcp = new McpHandler(ops, DEFAULT_SETTINGS);
+      app = makeApp(mcp);
     });
 
-    test("creates new transport and delegates when no session ID header", async () => {
-      const { StreamableHTTPServerTransport } = jest.requireMock(
-        "@modelcontextprotocol/sdk/server/streamableHttp.js",
-      );
-      const mcp = new McpHandler(ops, DEFAULT_SETTINGS);
-
-      const mockReq = { headers: {}, body: { jsonrpc: "2.0", method: "initialize" } };
-      const mockRes = {};
-      // @ts-ignore
-      await mcp.handleRequest(mockReq, mockRes);
-
-      expect(StreamableHTTPServerTransport).toHaveBeenCalledTimes(1);
-      expect(mockConnect).toHaveBeenCalledTimes(1);
-      const transport = StreamableHTTPServerTransport.mock.results[0].value;
-      expect(transport.handleRequest).toHaveBeenCalledWith(mockReq, mockRes, mockReq.body);
+    afterEach(() => {
+      mcp.close();
     });
 
-    test("delegates to existing transport when session ID matches", async () => {
-      const { StreamableHTTPServerTransport } = jest.requireMock(
-        "@modelcontextprotocol/sdk/server/streamableHttp.js",
+    test("answers tools/call without any session, and mints no session id", async () => {
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", "tools/call")
+        .set("Mcp-Name", "vault_list")
+        .send(modernRequest(1, "tools/call", { name: "vault_list", arguments: { path: "some/dir" } }))
+        .expect(200);
+
+      expect(res.headers["mcp-session-id"]).toBeUndefined();
+      expect(res.body.error).toBeUndefined();
+      expect(res.body.result.resultType).toBe("complete");
+      expect(JSON.parse(res.body.result.content[0].text).files).toEqual(["file1.md", "folder/"]);
+      expect(ops.listVaultDirectory).toHaveBeenCalledWith("some/dir");
+    });
+
+    test("serves consecutive requests independently — no initialize, no session state", async () => {
+      const send = (id: number) =>
+        request(app)
+          .post("/mcp/")
+          .set("Accept", "application/json, text/event-stream")
+          .set("MCP-Protocol-Version", MODERN_VERSION)
+          .set("Mcp-Method", "tools/list")
+          .send(modernRequest(id, "tools/list"))
+          .expect(200);
+
+      const first = await send(1);
+      const second = await send(2);
+      expect(first.body.result.tools).toHaveLength(16);
+      expect(second.body.result.tools).toHaveLength(16);
+      expect(first.headers["mcp-session-id"]).toBeUndefined();
+      expect(second.headers["mcp-session-id"]).toBeUndefined();
+    });
+
+    test("server/discover advertises the modern revision, capabilities, and server identity", async () => {
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", "server/discover")
+        .send(modernRequest(1, "server/discover"))
+        .expect(200);
+
+      expect(res.body.result.supportedVersions).toContain(MODERN_VERSION);
+      expect(res.body.result.capabilities.tools).toBeDefined();
+      expect(res.body.result.capabilities.resources).toBeDefined();
+      expect(res.body.result.resultType).toBe("complete");
+      expect(res.body.result._meta["io.modelcontextprotocol/serverInfo"]).toEqual({
+        name: "obsidian-local-rest-api",
+        version: "1.0.0",
+      });
+    });
+
+    test("cacheable results carry the required ttlMs and cacheScope fields", async () => {
+      const discover = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", "server/discover")
+        .send(modernRequest(1, "server/discover"))
+        .expect(200);
+      expect(discover.body.result.ttlMs).toBe(300_000);
+      expect(discover.body.result.cacheScope).toBe("private");
+
+      const tools = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", "tools/list")
+        .send(modernRequest(2, "tools/list"))
+        .expect(200);
+      expect(tools.body.result.ttlMs).toBe(60_000);
+      expect(tools.body.result.cacheScope).toBe("private");
+
+      const resources = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", "resources/list")
+        .send(modernRequest(3, "resources/list"))
+        .expect(200);
+      expect(resources.body.result.ttlMs).toBe(60_000);
+      expect(resources.body.result.cacheScope).toBe("private");
+    });
+
+    test("reads the openapi-spec resource", async () => {
+      const uri = "obsidian://local-rest-api/openapi.yaml";
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", "resources/read")
+        .set("Mcp-Name", uri)
+        .send(modernRequest(1, "resources/read", { uri }))
+        .expect(200);
+
+      expect(res.body.result.contents[0].mimeType).toBe("application/yaml");
+      expect(res.body.result.ttlMs).toBe(60_000);
+    });
+
+    test("rejects a request whose Mcp-Method header disagrees with the body (-32020)", async () => {
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", "tools/call")
+        .send(modernRequest(1, "tools/list"))
+        .expect(400);
+
+      expect(res.body.error.code).toBe(-32020);
+    });
+
+    test("rejects a request with no Mcp-Method header (-32020)", async () => {
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .send(modernRequest(1, "tools/list"))
+        .expect(400);
+
+      expect(res.body.error.code).toBe(-32020);
+    });
+
+    test("rejects an unsupported protocol version with -32022 and names what it serves", async () => {
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", "2027-01-01")
+        .set("Mcp-Method", "tools/list")
+        .send(
+          modernRequest(1, "tools/list", {}, {
+            "io.modelcontextprotocol/protocolVersion": "2027-01-01",
+          }),
+        )
+        .expect(400);
+
+      expect(res.body.error.code).toBe(-32022);
+      expect(res.body.error.data.supported).toContain(MODERN_VERSION);
+    });
+
+    test("rejects a malformed _meta envelope with -32602", async () => {
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", "tools/list")
+        .send({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+          params: {
+            _meta: { "io.modelcontextprotocol/protocolVersion": MODERN_VERSION },
+          },
+        })
+        .expect(400);
+
+      expect(res.body.error.code).toBe(-32602);
+    });
+
+    test("ignores a stale Mcp-Session-Id header rather than routing on it", async () => {
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", "tools/list")
+        .set("Mcp-Session-Id", "a-session-that-never-existed")
+        .send(modernRequest(1, "tools/list"))
+        .expect(200);
+
+      expect(res.body.result.tools).toHaveLength(16);
+      expect(res.headers["mcp-session-id"]).toBeUndefined();
+    });
+
+    test("tools registered after construction are served on the next request", async () => {
+      mcp.registerTool("extension_tool", "From an extension", {}, async () => "hi");
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", "tools/list")
+        .send(modernRequest(1, "tools/list"))
+        .expect(200);
+
+      const names = (res.body.result.tools as { name: string }[]).map((t) => t.name);
+      expect(names).toContain("extension_tool");
+    });
+  });
+
+  describe("handleRequest — legacy (2025-era) path", () => {
+    let mcp: McpHandler;
+    let app: express.Express;
+
+    beforeEach(() => {
+      mcp = new McpHandler(ops, DEFAULT_SETTINGS);
+      app = makeApp(mcp);
+    });
+
+    afterEach(() => {
+      mcp.close();
+    });
+
+    // The legacy leg answers on an SSE stream, so responses are read out of the
+    // `event: message` frames rather than from a JSON body.
+    function sseResult(text: string) {
+      const line = text.split("\n").find((l) => l.startsWith("data: "));
+      if (!line) throw new Error(`No SSE data frame in response: ${text}`);
+      return JSON.parse(line.slice("data: ".length));
+    }
+
+    async function initialize(): Promise<{ sessionId: string; result: any }> {
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .send({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: LEGACY_VERSION,
+            capabilities: {},
+            clientInfo: { name: "legacy-client", version: "1.0.0" },
+          },
+        })
+        .expect(200);
+      return { sessionId: res.headers["mcp-session-id"], result: sseResult(res.text).result };
+    }
+
+    test("still answers the initialize handshake for pre-2026 clients", async () => {
+      const { result } = await initialize();
+      expect(result.protocolVersion).toBe(LEGACY_VERSION);
+      expect(result.serverInfo.name).toBe("obsidian-local-rest-api");
+      // 2025-era results carry no 2026 wire fields.
+      expect(result.resultType).toBeUndefined();
+      expect(result.ttlMs).toBeUndefined();
+    });
+
+    test("initialize opens a session and hands back its id", async () => {
+      const { sessionId } = await initialize();
+      expect(typeof sessionId).toBe("string");
+      expect(sessionId.length).toBeGreaterThan(0);
+    });
+
+    test("advertises listChanged capabilities it can actually honour", async () => {
+      // The legacy leg is sessionful precisely so that this advertisement stays true: a
+      // client told `listChanged: true` waits for notifications instead of re-polling.
+      const { result } = await initialize();
+      expect(result.capabilities.tools.listChanged).toBe(true);
+      expect(result.capabilities.resources.listChanged).toBe(true);
+    });
+
+    test("serves tools/call on an established session", async () => {
+      const { sessionId } = await initialize();
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: { name: "vault_list", arguments: { path: "some/dir" } },
+        })
+        .expect(200);
+
+      const message = sseResult(res.text);
+      expect(JSON.parse(message.result.content[0].text).files).toEqual(["file1.md", "folder/"]);
+    });
+
+    test("advertises the same tool list as the modern path", async () => {
+      const { sessionId } = await initialize();
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({ jsonrpc: "2.0", id: 3, method: "tools/list", params: {} })
+        .expect(200);
+
+      const message = sseResult(res.text);
+      expect(message.result.tools).toHaveLength(16);
+      const vaultList = (message.result.tools as { name: string; inputSchema: unknown }[]).find(
+        (t) => t.name === "vault_list",
       );
-      const mcp = new McpHandler(ops, DEFAULT_SETTINGS);
+      expect(vaultList?.inputSchema).toMatchObject({
+        type: "object",
+        properties: { path: { type: "string" } },
+      });
+    });
 
-      // Initialize: POST without session ID registers the transport via onsessioninitialized
-      const initReq = { headers: {}, body: undefined };
-      const initRes = {};
-      // @ts-ignore
-      await mcp.handleRequest(initReq, initRes);
+    test("a tool registered after the handshake is visible to the live session", async () => {
+      const { sessionId } = await initialize();
+      mcp.registerTool("extension_tool", "From an extension", {}, async () => "hi");
 
-      // Subsequent request with the assigned session ID
-      const mockReq2 = { headers: { "mcp-session-id": mockNewSessionId } };
-      const mockRes2 = {};
-      // @ts-ignore
-      await mcp.handleRequest(mockReq2, mockRes2);
+      const listed = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({ jsonrpc: "2.0", id: 4, method: "tools/list", params: {} })
+        .expect(200);
 
-      const transport = StreamableHTTPServerTransport.mock.results[0].value;
-      expect(transport.handleRequest).toHaveBeenCalledTimes(2);
-      expect(transport.handleRequest).toHaveBeenLastCalledWith(mockReq2, mockRes2, undefined);
+      const names = (sseResult(listed.text).result.tools as { name: string }[]).map((t) => t.name);
+      expect(names).toContain("extension_tool");
+
+      const called = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({
+          jsonrpc: "2.0",
+          id: 5,
+          method: "tools/call",
+          params: { name: "extension_tool", arguments: {} },
+        })
+        .expect(200);
+      expect(sseResult(called.text).result.content[0].text).toBe("hi");
+    });
+
+    test("registering a tool notifies live legacy sessions", async () => {
+      const { sessionId } = await initialize();
+      const session = [...(mcp as unknown as {
+        legacySessions: Map<string, { server: { sendToolListChanged: () => void } }>;
+      }).legacySessions.values()][0];
+      const sendToolListChanged = jest.spyOn(session.server, "sendToolListChanged");
+
+      mcp.registerTool("notifying_tool", "From an extension", {}, async () => "hi");
+
+      expect(sendToolListChanged).toHaveBeenCalled();
+      expect(sessionId).toBeTruthy();
+    });
+
+    test("a tool removed after the handshake disappears from the live session", async () => {
+      const { sessionId } = await initialize();
+      const cleanup = mcp.registerTool("temporary_tool", "Goes away", {}, async () => "hi");
+      cleanup();
+
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({ jsonrpc: "2.0", id: 6, method: "tools/list", params: {} })
+        .expect(200);
+
+      const names = (sseResult(res.text).result.tools as { name: string }[]).map((t) => t.name);
+      expect(names).not.toContain("temporary_tool");
+    });
+
+    test("an unknown session id is rejected with 404", async () => {
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", "a-session-that-never-existed")
+        .send({ jsonrpc: "2.0", id: 7, method: "tools/list", params: {} })
+        .expect(404);
+
+      expect(res.body.error).toMatch(/Session not found/);
+    });
+
+    test("DELETE terminates the session, and later requests on it are 404ed", async () => {
+      const { sessionId } = await initialize();
+      await request(app).delete("/mcp/").set("Mcp-Session-Id", sessionId).expect(200);
+
+      await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({ jsonrpc: "2.0", id: 8, method: "tools/list", params: {} })
+        .expect(404);
+    });
+
+    test("close() drops every open session", async () => {
+      const { sessionId } = await initialize();
+      mcp.close();
+
+      await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({ jsonrpc: "2.0", id: 9, method: "tools/list", params: {} })
+        .expect(404);
     });
   });
 
   // ---- registerTool -------------------------------------------------------
 
   describe("registerTool", () => {
-    test("registers a tool and returns a cleanup function", async () => {
+    test("registers a tool and returns a cleanup function", () => {
       const mcp = new McpHandler(ops, DEFAULT_SETTINGS);
       const cleanup = mcp.registerTool("my_tool", "Does something", {}, async () => "result");
-      await buildSession(mcp);
-      expect(mockTool).toHaveBeenCalledWith("my_tool", "Does something", {}, {}, expect.any(Function));
+      registerTool.mockClear();
+      buildServer(mcp);
+      expect(registerTool).toHaveBeenCalledWith(
+        "my_tool",
+        expect.objectContaining({ description: "Does something", annotations: {} }),
+        expect.any(Function),
+      );
       expect(typeof cleanup).toBe("function");
     });
 
@@ -1117,7 +1481,7 @@ describe("McpHandler", () => {
       ).toThrow(/already registered/);
     });
 
-    test("cleanup removes the tool and frees the name for re-registration", async () => {
+    test("cleanup removes the tool and frees the name for re-registration", () => {
       const mcp = new McpHandler(ops, DEFAULT_SETTINGS);
       const cleanup = mcp.registerTool("removable_tool", "Desc", {}, async () => "");
       cleanup();
@@ -1126,9 +1490,9 @@ describe("McpHandler", () => {
         mcp.registerTool("removable_tool", "Desc", {}, async () => ""),
       ).not.toThrow();
       // ...and the cleaned-up spec is not double-registered on a fresh server.
-      jest.clearAllMocks();
-      await buildSession(mcp);
-      const removableCalls = mockTool.mock.calls.filter((c: unknown[]) => c[0] === "removable_tool");
+      registerTool.mockClear();
+      buildServer(mcp);
+      const removableCalls = registerTool.mock.calls.filter((c: unknown[]) => c[0] === "removable_tool");
       expect(removableCalls).toHaveLength(1);
     });
   });
