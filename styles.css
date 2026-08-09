@@ -30,6 +30,7 @@ div.obsidian-local-rest-api-content pre {
   background-color: var(--background-modifier-cover);
   font-family: monospace;
   user-select: all;
+  overflow-x: auto;
 }
 
 div.obsidian-local-rest-api-content p {
