@@ -604,8 +604,11 @@ export class VaultOperations {
                 source: "content",
               },
               context: cachedContents.slice(
-                Math.max(match[0] - positionOffset - contextLength, 0),
-                match[1] - positionOffset + contextLength,
+                ...this.adjustContextBounds(
+                  cachedContents,
+                  Math.max(match[0] - positionOffset - contextLength, 0),
+                  match[1] - positionOffset + contextLength,
+                ),
               ),
             });
           }
@@ -653,6 +656,31 @@ export class VaultOperations {
     if (Array.isArray(value)) return value.length > 0;
     if (typeof value === "object") return Object.keys(value).length > 0;
     return Boolean(value);
+  }
+
+  // String.slice works on UTF-16 code units, so a context boundary can land
+  // between the two halves of a surrogate pair (e.g. an emoji). Adjust the
+  // bounds so the returned context never contains an unpaired surrogate.
+  private adjustContextBounds(
+    cachedContents: string,
+    start: number,
+    end: number,
+  ): [number, number] {
+    let adjustedStart = start;
+    if (adjustedStart > 0 && adjustedStart < cachedContents.length) {
+      const codeUnit = cachedContents.charCodeAt(adjustedStart);
+      if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+        adjustedStart -= 1;
+      }
+    }
+    let adjustedEnd = end;
+    if (adjustedEnd > 0 && adjustedEnd < cachedContents.length) {
+      const codeUnit = cachedContents.charCodeAt(adjustedEnd - 1);
+      if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+        adjustedEnd += 1;
+      }
+    }
+    return [adjustedStart, adjustedEnd];
   }
 
   getAllTags(): Array<{ name: string; count: number }> {
