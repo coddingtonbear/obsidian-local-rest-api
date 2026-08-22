@@ -1,4 +1,4 @@
-import { App, TFile } from "../mocks/obsidian";
+import { App, TFile, _prepareSimpleSearchMock } from "../mocks/obsidian";
 import { VaultOperations } from "./vaultOperations";
 import { LocalRestApiSettings } from "./types";
 
@@ -77,5 +77,72 @@ describe("writes go through the Vault API", () => {
     const { app, ops } = setup("");
     await ops.writeFileContent("image.png", Buffer.from([1, 2, 3]));
     expect(app.vault.adapter._writeBinary?.[0]).toBe("image.png");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// simpleSearch context slicing must not split UTF-16 surrogate pairs.
+//
+// Obsidian's prepareSimpleSearch reports matches as UTF-16 code-unit offsets,
+// and the context window is produced with String.prototype.slice, which also
+// works in code units. When a contextLength boundary lands between the two
+// halves of a surrogate pair (e.g. the emoji 🔌 = U+D83D U+DD0C), the returned
+// context can contain an unpaired surrogate. See
+// https://github.com/coddingtonbear/obsidian-local-rest-api/issues/330.
+// ---------------------------------------------------------------------------
+
+describe("simpleSearch surrogate handling", () => {
+  function searchSetup(content: string, contextLength: number): {
+    ops: VaultOperations;
+    results: () => Promise<{ context: string }[]>;
+  } {
+    const query = "needle";
+    const file = new TFile();
+    file.basename = "note";
+    file.path = "note.md";
+
+    const app = new App();
+    app.vault._markdownFiles = [file];
+    app.vault._cachedRead = content;
+    // "note\n\n" is prepended as the filename prefix, so the first 6 code units
+    // are the prefix; the content starts at offset 6.
+    _prepareSimpleSearchMock.behavior = (query: string) => {
+      const queryLength = query.length;
+      return (text: string) => {
+        const index = text.indexOf(query, 6);
+        if (index === -1) return null;
+        return {
+          score: 1,
+          matches: [[index, index + queryLength]],
+        };
+      };
+    };
+
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    return {
+      ops,
+      results: async () =>
+        (await ops.simpleSearch(query, contextLength)).flatMap((r) =>
+          r.matches.map((m) => ({ context: m.context })),
+        ),
+    };
+  }
+
+  afterEach(() => {
+    _prepareSimpleSearchMock.behavior = null;
+  });
+
+  test("start boundary splits a surrogate pair (issue #330 repro)", async () => {
+    // 🔌 (U+D83D U+DD0C) precedes the match; a contextLength of 2 slices from
+    // code-unit 1, between the two surrogate halves.
+    const { results } = searchSetup("🔌xneedle", 2);
+    expect(await results()).toEqual([{ context: "🔌xneedle" }]);
+  });
+
+  test("end boundary splits a surrogate pair", async () => {
+    // The match ends at code-unit 7; a contextLength of 1 slices up to code-unit
+    // 8, which sits between the surrogate halves of the trailing 🔌.
+    const { results } = searchSetup("xneedle🔌", 1);
+    expect(await results()).toEqual([{ context: "xneedle🔌" }]);
   });
 });
