@@ -12,10 +12,10 @@ import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/typ
 import { McpHandler } from "./mcpHandler";
 import { DEFAULT_SETTINGS } from "./constants";
 
-// End-to-end interoperability with a real pre-2026 MCP client, driven by the v1 SDK — the
-// same client the integration suite uses, and the shape every currently-shipping MCP host
-// speaks. The 2026-07-28 migration must not change anything this client observes, so the
-// whole legacy session lifecycle is exercised here: handshake, session id, tool calls, and
+// End-to-end interoperability with a sessionful (pre-2026) MCP client, driven by the v1
+// SDK — the same client the integration suite uses. The v1 SDK is a test-only
+// devDependency: no non-test module may import it. The whole sessionful lifecycle such a
+// client observes is exercised here: handshake, session id, tool calls, and
 // the `tools/list_changed` notification an extension registering a tool has to produce.
 
 jest.setTimeout(20000);
@@ -29,7 +29,7 @@ async function waitFor(condition: () => boolean, what: string): Promise<void> {
   throw new Error(`Timed out waiting for ${what}`);
 }
 
-describe("legacy MCP client interoperability", () => {
+describe("sessionful MCP client interoperability", () => {
   let mcp: McpHandler;
   let server: http.Server;
   let client: Client;
@@ -57,7 +57,7 @@ describe("legacy MCP client interoperability", () => {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 
     const { port } = server.address() as { port: number };
-    client = new Client({ name: "v1-legacy-client", version: "1.0.0" });
+    client = new Client({ name: "v1-sessionful-client", version: "1.0.0" });
     transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp/`));
   });
 
@@ -118,7 +118,7 @@ describe("legacy MCP client interoperability", () => {
     const sessionId = transport.sessionId;
     await transport.terminateSession();
 
-    const sessions = (mcp as unknown as { legacySessions: Map<string, unknown> }).legacySessions;
+    const sessions = (mcp as unknown as { sessions: Map<string, unknown> }).sessions;
     expect(sessionId).toEqual(expect.any(String));
     expect(sessions.size).toBe(0);
   });

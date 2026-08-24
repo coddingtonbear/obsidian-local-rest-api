@@ -8,7 +8,7 @@ import { App, PluginManifest } from "../mocks/obsidian";
 // The mounted `/mcp/` endpoint, wired through the real RequestHandler *and* the real
 // McpHandler. requestHandler.test.ts mocks McpHandler, which means it cannot show what
 // the router's middleware order does to a real request: whether an unrecognised protocol
-// version is answered by the router or reaches the SDK, and whether the modern and legacy
+// version is answered by the router or reaches the SDK, and whether the sessionless and sessionful
 // legs are picked correctly, are both decided by that order.
 
 const API_KEY = "my api key";
@@ -24,7 +24,7 @@ function envelope(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function modernBody(
+function sessionlessBody(
   id: number,
   method: string,
   params: Record<string, unknown> = {},
@@ -38,7 +38,7 @@ function modernBody(
   };
 }
 
-// Read the JSON-RPC message out of a legacy SSE response.
+// Read the JSON-RPC message out of a sessionful-leg SSE response.
 function sseResult(text: string) {
   const line = text.split("\n").find((l) => l.startsWith("data: "));
   if (!line) throw new Error(`No SSE data frame in response: ${text}`);
@@ -79,16 +79,16 @@ describe("mounted /mcp/ endpoint", () => {
       await request(server)
         .post("/mcp/")
         .set("MCP-Protocol-Version", "9999-01-01")
-        .send(modernBody(1, "tools/list"))
+        .send(sessionlessBody(1, "tools/list"))
         .expect(401);
     });
 
-    test("an unrecognised version on a modern-shaped request is answered by the SDK with -32022", async () => {
+    test("an unrecognised version on a sessionless-shaped request is answered by the SDK with -32022", async () => {
       const res = await authed("post")
         .set("MCP-Protocol-Version", "2026-07-29")
         .set("Mcp-Method", "tools/list")
         .send(
-          modernBody(1, "tools/list", {}, {
+          sessionlessBody(1, "tools/list", {}, {
             "io.modelcontextprotocol/protocolVersion": "2026-07-29",
           }),
         )
@@ -100,7 +100,7 @@ describe("mounted /mcp/ endpoint", () => {
 
     test("an unrecognised version on a POST reaches the SDK, which names what is missing", async () => {
       // The SDK classifies any POST whose version header it does not recognise as
-      // modern-shaped, so that the modern validation ladder — not a bare `{error}` body —
+      // sessionless-shaped, so that the SDK's validation ladder — not a bare `{error}` body —
       // gets to answer. A body with no envelope is -32602; one claiming the unknown
       // revision is -32022 (covered above).
       const res = await authed("post")
@@ -124,14 +124,14 @@ describe("mounted /mcp/ endpoint", () => {
     });
   });
 
-  describe("modern leg", () => {
+  describe("sessionless leg", () => {
     test("serves tools/call with no session and mints no session id", async () => {
       const res = await authed("post")
         .set("Accept", "application/json, text/event-stream")
         .set("MCP-Protocol-Version", MODERN_VERSION)
         .set("Mcp-Method", "tools/call")
         .set("Mcp-Name", "tag_list")
-        .send(modernBody(1, "tools/call", { name: "tag_list", arguments: {} }))
+        .send(sessionlessBody(1, "tools/call", { name: "tag_list", arguments: {} }))
         .expect(200);
 
       expect(res.headers["mcp-session-id"]).toBeUndefined();
@@ -143,14 +143,14 @@ describe("mounted /mcp/ endpoint", () => {
         .set("Accept", "application/json, text/event-stream")
         .set("MCP-Protocol-Version", MODERN_VERSION)
         .set("Mcp-Method", "server/discover")
-        .send(modernBody(1, "server/discover"))
+        .send(sessionlessBody(1, "server/discover"))
         .expect(200);
 
       expect(res.body.result.supportedVersions).toContain(MODERN_VERSION);
     });
   });
 
-  describe("legacy leg", () => {
+  describe("sessionful leg", () => {
     async function initialize(): Promise<string> {
       const res = await authed("post")
         .set("Accept", "application/json, text/event-stream")
@@ -161,7 +161,7 @@ describe("mounted /mcp/ endpoint", () => {
           params: {
             protocolVersion: LEGACY_VERSION,
             capabilities: {},
-            clientInfo: { name: "legacy-client", version: "1.0.0" },
+            clientInfo: { name: "sessionful-client", version: "1.0.0" },
           },
         })
         .expect(200);

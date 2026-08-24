@@ -13,8 +13,8 @@ import { TEST_DIR, TEST_PATH, FIXTURE_DOCUMENT } from "./fixtures";
 // revision's contract is a set of wire-level requirements — the per-request `_meta`
 // envelope, the standard `MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name` headers, and
 // the `resultType` / `ttlMs` / `cacheScope` fields on results — and asserting them
-// directly is the only way to prove a real client would see them. The 2025-era client
-// path is covered by mcp.test.ts, which drives the SDK's `initialize` handshake.
+// directly is the only way to prove a real client would see them. The sessionful client
+// path is covered by mcp.test.ts, which drives the v1 SDK's `initialize` handshake.
 
 const MODERN_VERSION = "2026-07-28";
 const MCP_PATH = "/mcp/";
@@ -35,7 +35,7 @@ function envelope(overrides: Record<string, unknown> = {}) {
   };
 }
 
-interface ModernCallOptions {
+interface SessionlessCallOptions {
   params?: Record<string, unknown>;
   headers?: Record<string, string>;
   envelopeOverrides?: Record<string, unknown>;
@@ -45,7 +45,7 @@ let nextId = 1;
 
 async function call(
   method: string,
-  { params = {}, headers = {}, envelopeOverrides = {} }: ModernCallOptions = {},
+  { params = {}, headers = {}, envelopeOverrides = {} }: SessionlessCallOptions = {},
 ): Promise<{ status: number; sessionId: string | null; body: JsonRpcResponse }> {
   const id = nextId++;
   const res = await authedFetch(MCP_PATH, {
@@ -81,7 +81,7 @@ afterAll(async () => {
 });
 
 describe("MCP 2026-07-28 discovery", () => {
-  test("server/discover reports the modern revision, capabilities, and identity", async () => {
+  test("server/discover reports the 2026-07-28 revision, capabilities, and identity", async () => {
     const { status, body } = await call("server/discover");
     expect(status).toBe(200);
     expect(body.error).toBeUndefined();
@@ -210,7 +210,7 @@ describe("MCP 2026-07-28 header and version validation", () => {
     expect(res.status).toBe(400);
   });
 
-  test("a modern request without authentication is rejected", async () => {
+  test("a sessionless request without authentication is rejected", async () => {
     const res = await unauthFetch(MCP_PATH, {
       method: "POST",
       headers: {
@@ -231,7 +231,7 @@ describe("MCP 2026-07-28 header and version validation", () => {
 });
 
 describe("MCP 2026-07-28 session handling", () => {
-  test("the modern leg never issues a session id", async () => {
+  test("the sessionless leg never issues a session id", async () => {
     for (const method of ["server/discover", "tools/list", "resources/list"]) {
       const { sessionId } = await call(method);
       expect(sessionId).toBeNull();
@@ -239,7 +239,7 @@ describe("MCP 2026-07-28 session handling", () => {
   });
 
   test("a body-less session operation with an unknown version keeps the plain rejection", async () => {
-    // The endpoint's version filter still guards the 2025-era session operations, which
+    // The endpoint's version filter guards the sessionful session operations, which
     // carry no body for the SDK to classify.
     for (const method of ["GET", "DELETE"]) {
       const res = await authedFetch(MCP_PATH, {

@@ -56,7 +56,7 @@ import {
   CERT_NAME,
   ContentTypes,
   ERROR_CODE_MESSAGES,
-  MCP_MODERN_PROTOCOL_VERSION,
+  MCP_SESSIONLESS_PROTOCOL_VERSION,
   MaximumRequestSize,
 } from "./constants";
 import {
@@ -2252,28 +2252,29 @@ export default class RequestHandler {
       next();
     });
     // Body parsing runs before the version filter: deciding what an unrecognised version
-    // header means requires knowing whether the request is modern- or legacy-shaped, and
+    // header means requires knowing whether the request is sessionless- or sessionful-shaped, and
     // that is a property of the body.
     mcpRouter.use(express.json({ limit: MaximumRequestSize }));
     mcpRouter.use((req, res, next) => {
       const version = req.headers["mcp-protocol-version"] as string | undefined;
       if (
         version === undefined ||
-        version === MCP_MODERN_PROTOCOL_VERSION ||
+        version === MCP_SESSIONLESS_PROTOCOL_VERSION ||
         SUPPORTED_PROTOCOL_VERSIONS.includes(version)
       ) {
         next();
         return;
       }
-      // An unrecognised version on a modern-shaped request is the MCP handler's to
-      // answer: it replies with JSON-RPC `-32022` naming the revisions it does serve,
-      // which is how a modern client learns what to fall back to. Answering here with a
-      // bare `{error}` body would strand that client. Legacy-shaped requests keep the
-      // plain rejection they have always had.
+      // An unrecognised version on a sessionless-shaped request (one carrying the
+      // `_meta` envelope) is the MCP handler's to answer: it replies with JSON-RPC
+      // `-32022` naming the revisions it does serve, which is how such a client learns
+      // what to fall back to. Answering here with a bare `{error}` body would strand
+      // that client. A sessionful-shaped request carries nothing the SDK can classify,
+      // so it is rejected here with a plain `{error}` body.
       this.mcpHandler
-        .isModernRequest(req)
-        .then((isModern) => {
-          if (isModern) {
+        .isSessionlessRequest(req)
+        .then((isSessionless) => {
+          if (isSessionless) {
             next();
             return;
           }

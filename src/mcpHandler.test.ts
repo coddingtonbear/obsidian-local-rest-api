@@ -139,7 +139,7 @@ function makeApp(mcp: McpHandler) {
   return app;
 }
 
-function modernEnvelope(overrides: Record<string, unknown> = {}) {
+function sessionlessEnvelope(overrides: Record<string, unknown> = {}) {
   return {
     "io.modelcontextprotocol/protocolVersion": MODERN_VERSION,
     "io.modelcontextprotocol/clientInfo": { name: "unit-test", version: "1.0.0" },
@@ -148,7 +148,7 @@ function modernEnvelope(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function modernRequest(
+function sessionlessRequest(
   id: number,
   method: string,
   params: Record<string, unknown> = {},
@@ -158,7 +158,7 @@ function modernRequest(
     jsonrpc: "2.0",
     id,
     method,
-    params: { ...params, _meta: modernEnvelope(envelopeOverrides) },
+    params: { ...params, _meta: sessionlessEnvelope(envelopeOverrides) },
   };
 }
 
@@ -1047,7 +1047,7 @@ describe("McpHandler", () => {
 
   // ---- handleRequest ------------------------------------------------------
 
-  describe("handleRequest — modern (2026-07-28) path", () => {
+  describe("handleRequest — sessionless (2026-07-28) path", () => {
     let mcp: McpHandler;
     let app: express.Express;
 
@@ -1067,7 +1067,7 @@ describe("McpHandler", () => {
         .set("MCP-Protocol-Version", MODERN_VERSION)
         .set("Mcp-Method", "tools/call")
         .set("Mcp-Name", "vault_list")
-        .send(modernRequest(1, "tools/call", { name: "vault_list", arguments: { path: "some/dir" } }))
+        .send(sessionlessRequest(1, "tools/call", { name: "vault_list", arguments: { path: "some/dir" } }))
         .expect(200);
 
       expect(res.headers["mcp-session-id"]).toBeUndefined();
@@ -1084,7 +1084,7 @@ describe("McpHandler", () => {
           .set("Accept", "application/json, text/event-stream")
           .set("MCP-Protocol-Version", MODERN_VERSION)
           .set("Mcp-Method", "tools/list")
-          .send(modernRequest(id, "tools/list"))
+          .send(sessionlessRequest(id, "tools/list"))
           .expect(200);
 
       const first = await send(1);
@@ -1095,13 +1095,13 @@ describe("McpHandler", () => {
       expect(second.headers["mcp-session-id"]).toBeUndefined();
     });
 
-    test("server/discover advertises the modern revision, capabilities, and server identity", async () => {
+    test("server/discover advertises the 2026-07-28 revision, capabilities, and server identity", async () => {
       const res = await request(app)
         .post("/mcp/")
         .set("Accept", "application/json, text/event-stream")
         .set("MCP-Protocol-Version", MODERN_VERSION)
         .set("Mcp-Method", "server/discover")
-        .send(modernRequest(1, "server/discover"))
+        .send(sessionlessRequest(1, "server/discover"))
         .expect(200);
 
       expect(res.body.result.supportedVersions).toContain(MODERN_VERSION);
@@ -1120,7 +1120,7 @@ describe("McpHandler", () => {
         .set("Accept", "application/json, text/event-stream")
         .set("MCP-Protocol-Version", MODERN_VERSION)
         .set("Mcp-Method", "server/discover")
-        .send(modernRequest(1, "server/discover"))
+        .send(sessionlessRequest(1, "server/discover"))
         .expect(200);
       expect(discover.body.result.ttlMs).toBe(300_000);
       expect(discover.body.result.cacheScope).toBe("private");
@@ -1130,7 +1130,7 @@ describe("McpHandler", () => {
         .set("Accept", "application/json, text/event-stream")
         .set("MCP-Protocol-Version", MODERN_VERSION)
         .set("Mcp-Method", "tools/list")
-        .send(modernRequest(2, "tools/list"))
+        .send(sessionlessRequest(2, "tools/list"))
         .expect(200);
       expect(tools.body.result.ttlMs).toBe(60_000);
       expect(tools.body.result.cacheScope).toBe("private");
@@ -1140,7 +1140,7 @@ describe("McpHandler", () => {
         .set("Accept", "application/json, text/event-stream")
         .set("MCP-Protocol-Version", MODERN_VERSION)
         .set("Mcp-Method", "resources/list")
-        .send(modernRequest(3, "resources/list"))
+        .send(sessionlessRequest(3, "resources/list"))
         .expect(200);
       expect(resources.body.result.ttlMs).toBe(60_000);
       expect(resources.body.result.cacheScope).toBe("private");
@@ -1154,7 +1154,7 @@ describe("McpHandler", () => {
         .set("MCP-Protocol-Version", MODERN_VERSION)
         .set("Mcp-Method", "resources/read")
         .set("Mcp-Name", uri)
-        .send(modernRequest(1, "resources/read", { uri }))
+        .send(sessionlessRequest(1, "resources/read", { uri }))
         .expect(200);
 
       expect(res.body.result.contents[0].mimeType).toBe("application/yaml");
@@ -1167,7 +1167,7 @@ describe("McpHandler", () => {
         .set("Accept", "application/json, text/event-stream")
         .set("MCP-Protocol-Version", MODERN_VERSION)
         .set("Mcp-Method", "tools/call")
-        .send(modernRequest(1, "tools/list"))
+        .send(sessionlessRequest(1, "tools/list"))
         .expect(400);
 
       expect(res.body.error.code).toBe(-32020);
@@ -1178,7 +1178,7 @@ describe("McpHandler", () => {
         .post("/mcp/")
         .set("Accept", "application/json, text/event-stream")
         .set("MCP-Protocol-Version", MODERN_VERSION)
-        .send(modernRequest(1, "tools/list"))
+        .send(sessionlessRequest(1, "tools/list"))
         .expect(400);
 
       expect(res.body.error.code).toBe(-32020);
@@ -1191,7 +1191,7 @@ describe("McpHandler", () => {
         .set("MCP-Protocol-Version", "2027-01-01")
         .set("Mcp-Method", "tools/list")
         .send(
-          modernRequest(1, "tools/list", {}, {
+          sessionlessRequest(1, "tools/list", {}, {
             "io.modelcontextprotocol/protocolVersion": "2027-01-01",
           }),
         )
@@ -1227,7 +1227,7 @@ describe("McpHandler", () => {
         .set("MCP-Protocol-Version", MODERN_VERSION)
         .set("Mcp-Method", "tools/list")
         .set("Mcp-Session-Id", "a-session-that-never-existed")
-        .send(modernRequest(1, "tools/list"))
+        .send(sessionlessRequest(1, "tools/list"))
         .expect(200);
 
       expect(res.body.result.tools).toHaveLength(16);
@@ -1241,7 +1241,7 @@ describe("McpHandler", () => {
         .set("Accept", "application/json, text/event-stream")
         .set("MCP-Protocol-Version", MODERN_VERSION)
         .set("Mcp-Method", "tools/list")
-        .send(modernRequest(1, "tools/list"))
+        .send(sessionlessRequest(1, "tools/list"))
         .expect(200);
 
       const names = (res.body.result.tools as { name: string }[]).map((t) => t.name);
@@ -1249,7 +1249,7 @@ describe("McpHandler", () => {
     });
   });
 
-  describe("handleRequest — legacy (2025-era) path", () => {
+  describe("handleRequest — sessionful (2024-10-07 … 2025-11-25) path", () => {
     let mcp: McpHandler;
     let app: express.Express;
 
@@ -1262,7 +1262,7 @@ describe("McpHandler", () => {
       mcp.close();
     });
 
-    // The legacy leg answers on an SSE stream, so responses are read out of the
+    // The sessionful leg answers on an SSE stream, so responses are read out of the
     // `event: message` frames rather than from a JSON body.
     function sseResult(text: string) {
       const line = text.split("\n").find((l) => l.startsWith("data: "));
@@ -1281,18 +1281,18 @@ describe("McpHandler", () => {
           params: {
             protocolVersion: LEGACY_VERSION,
             capabilities: {},
-            clientInfo: { name: "legacy-client", version: "1.0.0" },
+            clientInfo: { name: "sessionful-client", version: "1.0.0" },
           },
         })
         .expect(200);
       return { sessionId: res.headers["mcp-session-id"], result: sseResult(res.text).result };
     }
 
-    test("still answers the initialize handshake for pre-2026 clients", async () => {
+    test("answers the initialize handshake for sessionful clients", async () => {
       const { result } = await initialize();
       expect(result.protocolVersion).toBe(LEGACY_VERSION);
       expect(result.serverInfo.name).toBe("obsidian-local-rest-api");
-      // 2025-era results carry no 2026 wire fields.
+      // Sessionful-leg results carry none of the 2026-07-28 wire fields.
       expect(result.resultType).toBeUndefined();
       expect(result.ttlMs).toBeUndefined();
     });
@@ -1304,7 +1304,7 @@ describe("McpHandler", () => {
     });
 
     test("advertises listChanged capabilities it can actually honour", async () => {
-      // The legacy leg is sessionful precisely so that this advertisement stays true: a
+      // The sessionful leg keeps sessions precisely so that this advertisement stays true: a
       // client told `listChanged: true` waits for notifications instead of re-polling.
       const { result } = await initialize();
       expect(result.capabilities.tools.listChanged).toBe(true);
@@ -1330,7 +1330,7 @@ describe("McpHandler", () => {
       expect(JSON.parse(message.result.content[0].text).files).toEqual(["file1.md", "folder/"]);
     });
 
-    test("advertises the same tool list as the modern path", async () => {
+    test("advertises the same tool list as the sessionless leg", async () => {
       const { sessionId } = await initialize();
       const res = await request(app)
         .post("/mcp/")
@@ -1381,11 +1381,11 @@ describe("McpHandler", () => {
       expect(sseResult(called.text).result.content[0].text).toBe("hi");
     });
 
-    test("registering a tool notifies live legacy sessions", async () => {
+    test("registering a tool notifies live sessions", async () => {
       const { sessionId } = await initialize();
       const session = [...(mcp as unknown as {
-        legacySessions: Map<string, { server: { sendToolListChanged: () => void } }>;
-      }).legacySessions.values()][0];
+        sessions: Map<string, { server: { sendToolListChanged: () => void } }>;
+      }).sessions.values()][0];
       const sendToolListChanged = jest.spyOn(session.server, "sendToolListChanged");
 
       mcp.registerTool("notifying_tool", "From an extension", {}, async () => "hi");

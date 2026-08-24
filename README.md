@@ -288,11 +288,11 @@ The plugin includes a built-in MCP server at `/mcp/` so AI agents and MCP-compat
 
 ### Protocol revisions
 
-The endpoint serves the `2026-07-28` revision plus the legacy revisions from `2024-10-07` through `2025-11-25`, choosing per request, so new and old clients can share it at the same time.
+The endpoint serves the `2026-07-28` revision plus the sessionful revisions from `2024-10-07` through `2025-11-25`, choosing per request, so clients on either can share it.
 
 The `2026-07-28` revision is stateless: there is no `initialize` handshake and no session, so the plugin neither issues nor reads the `Mcp-Session-Id` header. Each request carries its own protocol version and client identity in `params._meta`, repeats them in the `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` headers, and is answered on its own. Clients can call `server/discover` to learn the supported revisions and capabilities up front.
 
-Clients that still open with an `initialize` request keep working unchanged — they are served the legacy revision they negotiate, sessions and all: the handshake returns an `Mcp-Session-Id`, `GET /mcp/` opens that session's notification stream, and `DELETE /mcp/` ends it. Sessions exist only on this path, and they are what keeps the handshake's `listChanged` capabilities honest: when another plugin registers or removes an MCP tool, every live legacy session is notified, while modern clients hear about it on a `subscriptions/listen` stream.
+Clients that open with an `initialize` request are served the sessionful revision they negotiate: the handshake returns an `Mcp-Session-Id`, `GET /mcp/` opens that session's notification stream, and `DELETE /mcp/` ends it. Sessions exist only on this path, and they are what keeps the handshake's `listChanged` capabilities honest: when another plugin registers or removes an MCP tool, every live session is notified, while `2026-07-28` clients hear about it on a `subscriptions/listen` stream.
 
 ### Connecting a client
 

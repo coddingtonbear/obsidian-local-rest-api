@@ -19,9 +19,11 @@ const toJsonSchema = zodToJsonSchema as unknown as (
  * and cannot be moved without breaking every extension author.
  *
  * This adapter closes that gap: validation is delegated to zod 3's own Standard Schema
- * implementation, and the JSON Schema is produced by `zod-to-json-schema` with the very
- * options the v1 SDK used, so the shapes advertised in `tools/list` are byte-for-byte what
- * MCP clients received before the 2026-07-28 migration.
+ * implementation, and the JSON Schema is produced by `zod-to-json-schema` with the same
+ * options SDK v1 used, so `tools/list` advertises identical shapes under either SDK.
+ *
+ * Delete this file once the project's own schemas are zod 4, which implements
+ * `~standard.jsonSchema` natively.
  */
 export function toStandardSchema(
   shape: Record<string, z.ZodTypeAny>,

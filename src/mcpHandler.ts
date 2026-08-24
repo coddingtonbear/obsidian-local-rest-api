@@ -88,11 +88,11 @@ interface ResourceSpec {
 }
 
 /**
- * A live 2025-era session: one client's `initialize` handshake, the server instance
+ * A live sessionful-leg session: one client's `initialize` handshake, the server instance
  * pinned to it, and the handles needed to add or drop tools on that instance while it
- * is connected. Modern requests never produce one of these.
+ * is connected. The sessionless leg never produces one of these.
  */
-interface LegacySession {
+interface Session {
   server: McpServer;
   transport: NodeStreamableHTTPServerTransport;
   toolHandles: Map<string, RegisteredTool>;
@@ -106,39 +106,41 @@ export class McpHandler {
   private readonly toolSpecs: Map<string, ToolSpec> = new Map();
   private readonly resourceSpecs: ResourceSpec[] = [];
 
-  // The modern (2026-07-28) leg. `legacy: "reject"` keeps it strictly modern: every
-  // request is answered on its own, with no session id and no cross-request state, and
-  // 2025-era traffic is handed to the separate legacy leg below by `handleRequest`.
-  private readonly modernHandler: McpHttpHandler;
-  private readonly modernNodeHandler: NodeMcpRequestHandler;
+  // The sessionless leg, serving protocol revision 2026-07-28. `legacy: "reject"` keeps
+  // it strictly sessionless: every request is answered on its own, with no session id
+  // and no cross-request state. `handleRequest` routes `initialize`-based traffic to the
+  // separate sessionful leg below.
+  private readonly sessionlessHandler: McpHttpHandler;
+  private readonly sessionlessNodeHandler: NodeMcpRequestHandler;
 
-  // The legacy (2024-10-07 … 2025-11-25) leg, kept deliberately separate from the modern
-  // one. It stays *sessionful*, because that is what those revisions are: a client opens
+  // The sessionful leg, serving protocol revisions 2024-10-07 through 2025-11-25, kept
+  // deliberately separate from the sessionless one. Those revisions are sessionful by
+  // definition: a client opens
   // with `initialize`, the server answers with an `Mcp-Session-Id`, and the capabilities
   // it advertises — including `tools.listChanged` — promise a live notification channel
   // for the rest of the session. Serving those clients statelessly would make that
   // promise a lie and leave a tool an extension registers invisible until the client
-  // happened to re-poll. The session map therefore lives here and only here; the modern
-  // leg neither issues nor reads `Mcp-Session-Id`.
-  private readonly legacySessions: Map<string, LegacySession> = new Map();
+  // happened to re-poll. The session map therefore lives here and only here; the
+  // sessionless leg neither issues nor reads `Mcp-Session-Id`.
+  private readonly sessions: Map<string, Session> = new Map();
 
   constructor(
     private readonly ops: VaultOperations,
     private readonly settings: LocalRestApiSettings,
   ) {
     const onerror = (error: Error) => this.logHandlerError(error);
-    this.modernHandler = createMcpHandler(() => this.buildServer().server, {
+    this.sessionlessHandler = createMcpHandler(() => this.buildServer().server, {
       legacy: "reject",
       onerror,
     });
-    this.modernNodeHandler = toNodeHandler(this.modernHandler, { onerror });
+    this.sessionlessNodeHandler = toNodeHandler(this.sessionlessHandler, { onerror });
     this.registerResources();
     this.registerTools();
   }
 
-  // Build a fresh McpServer from the current specs. The modern leg discards the tool
+  // Build a fresh McpServer from the current specs. The sessionless leg discards the tool
   // handles (it builds one server per request, so nothing outlives the exchange); the
-  // legacy leg keeps them, because its server stays connected for a whole session and
+  // sessionful leg keeps them, because its server stays connected for a whole session and
   // has to learn about tools registered after the handshake.
   private buildServer(): { server: McpServer; toolHandles: Map<string, RegisteredTool> } {
     const server = new McpServer(SERVER_INFO, {
@@ -201,18 +203,18 @@ export class McpHandler {
       },
     };
     this.toolSpecs.set(spec.name, spec);
-    // Modern clients learn about the change through a `subscriptions/listen` stream;
-    // legacy sessions are live server instances, so the tool is registered on each of
+    // Sessionless clients learn about the change through a `subscriptions/listen` stream;
+    // sessionful sessions are live server instances, so the tool is registered on each of
     // them, which is what emits `notifications/tools/list_changed` on their stream.
-    this.modernHandler.notify.toolsChanged();
-    for (const session of this.legacySessions.values()) {
+    this.sessionlessHandler.notify.toolsChanged();
+    for (const session of this.sessions.values()) {
       session.toolHandles.set(spec.name, this.registerToolOn(session.server, spec));
     }
     return {
       remove: () => {
         if (!this.toolSpecs.delete(spec.name)) return;
-        this.modernHandler.notify.toolsChanged();
-        for (const session of this.legacySessions.values()) {
+        this.sessionlessHandler.notify.toolsChanged();
+        for (const session of this.sessions.values()) {
           session.toolHandles.get(spec.name)?.remove();
           session.toolHandles.delete(spec.name);
         }
@@ -239,19 +241,20 @@ export class McpHandler {
   }
 
   /**
-   * Whether a request belongs to the modern (2026-07-28) leg.
+   * Whether a request belongs to the sessionless (2026-07-28) leg.
    *
    * Classification is the SDK's own — `isLegacyRequest` runs exactly the code
    * `createMcpHandler` runs — so nothing that branches on this can disagree with the
    * entry about who owns a request. Anything carrying the 2026-07-28 `_meta` envelope
-   * claim is modern, including a claim naming a revision this server does not serve or a
-   * malformed one: the modern leg owns those error answers (`-32022` / `-32602`).
-   * Everything else — `initialize` handshakes, session GET/DELETE — is 2025-era traffic.
+   * claim is sessionless, including a claim naming a revision this server does not serve
+   * or a malformed one: the sessionless leg owns those error answers (`-32022` / `-32602`).
+   * Everything else — `initialize` handshakes, session GET/DELETE — belongs to the
+   * sessionful leg.
    *
    * `req.body` is passed explicitly because the router's `express.json()` has already
    * drained the Node stream, which cannot be read a second time.
    */
-  public async isModernRequest(req: express.Request): Promise<boolean> {
+  public async isSessionlessRequest(req: express.Request): Promise<boolean> {
     return !(await isLegacyRequest(await toWebRequest(req, req.body)));
   }
 
@@ -260,20 +263,20 @@ export class McpHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    if (await this.isModernRequest(req)) {
-      await this.modernNodeHandler(req, res, req.body);
+    if (await this.isSessionlessRequest(req)) {
+      await this.sessionlessNodeHandler(req, res, req.body);
       return;
     }
-    await this.handleLegacyRequest(req, res);
+    await this.handleSessionfulRequest(req, res);
   }
 
   /**
-   * The 2025-era leg: a client opens with `initialize` and is handed an `Mcp-Session-Id`
-   * to send back on every later request, exactly as it was before the 2026-07-28
-   * migration. Requests naming a session that has since gone away are answered 404 so the
+   * The sessionful leg, for protocol revisions 2024-10-07 through 2025-11-25: a client
+   * opens with `initialize` and is handed an `Mcp-Session-Id` to send back on every later
+   * request. Requests naming a session that has since gone away are answered 404 so the
    * client knows to hand-shake again.
    */
-  private async handleLegacyRequest(
+  private async handleSessionfulRequest(
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
@@ -284,21 +287,21 @@ export class McpHandler {
       const transport = new NodeStreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
-          this.legacySessions.set(id, { server, transport, toolHandles });
+          this.sessions.set(id, { server, transport, toolHandles });
         },
         onsessionclosed: (id) => {
-          this.legacySessions.delete(id);
+          this.sessions.delete(id);
         },
       });
       transport.onclose = () => {
-        if (transport.sessionId) this.legacySessions.delete(transport.sessionId);
+        if (transport.sessionId) this.sessions.delete(transport.sessionId);
       };
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
       return;
     }
 
-    const session = this.legacySessions.get(sessionId);
+    const session = this.sessions.get(sessionId);
     if (!session) {
       res.status(404).json({ error: "Session not found" });
       return;
@@ -307,15 +310,15 @@ export class McpHandler {
   }
 
   /**
-   * Tears down the modern leg's in-flight exchanges and every open legacy session.
+   * Tears down the sessionless leg's in-flight exchanges and every open session.
    * Called when the plugin unloads.
    */
   public close(): void {
-    const closing: Promise<unknown>[] = [this.modernHandler.close()];
-    for (const session of [...this.legacySessions.values()]) {
+    const closing: Promise<unknown>[] = [this.sessionlessHandler.close()];
+    for (const session of [...this.sessions.values()]) {
       closing.push(session.transport.close());
     }
-    this.legacySessions.clear();
+    this.sessions.clear();
     void Promise.allSettled(closing).then((results) => {
       if (!this.settings.enableVerboseLogging) return;
       for (const result of results) {

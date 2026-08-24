@@ -27,9 +27,9 @@ import {
   TERM_SUB,
 } from "./fixtures";
 
-// Legacy-era coverage: this suite drives the v1 MCP SDK client, which opens with the
-// `initialize` handshake and therefore exercises the endpoint's legacy path end to end.
-// The 2026-07-28 path is covered by mcpModern.test.ts.
+// Sessionful-leg coverage: this suite drives the v1 MCP SDK client, which opens with the
+// `initialize` handshake and therefore exercises the endpoint's sessionful leg end to end.
+// The sessionless (2026-07-28) leg is covered by mcpSessionless.test.ts.
 
 // A separate temp path so vault_write / vault_delete tests don't touch the shared fixture.
 const TEMP_PATH = `${TEST_DIR}/mcp-temp.md`;
@@ -87,11 +87,11 @@ afterAll(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Session lifecycle — the 2025-era revisions are sessionful, and the capabilities the
+// Session lifecycle — revisions 2024-10-07 through 2025-11-25 are sessionful, and the capabilities the
 // handshake advertises (tools.listChanged) only hold while a session is live.
 // ---------------------------------------------------------------------------
 
-describe("MCP legacy session lifecycle", () => {
+describe("MCP sessionful lifecycle", () => {
   async function initialize(): Promise<{ sessionId: string | null; result: any }> {
     const res = await authedFetch("/mcp/", {
       method: "POST",
@@ -106,7 +106,7 @@ describe("MCP legacy session lifecycle", () => {
         params: {
           protocolVersion: "2025-06-18",
           capabilities: {},
-          clientInfo: { name: "integration-test-legacy", version: "1.0.0" },
+          clientInfo: { name: "integration-test-sessionful", version: "1.0.0" },
         },
       }),
     });
