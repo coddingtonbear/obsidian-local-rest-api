@@ -604,7 +604,7 @@ export class VaultOperations {
                 source: "content",
               },
               context: cachedContents.slice(
-                ...this.adjustContextBounds(
+                ...this.widenToCodePointBoundaries(
                   cachedContents,
                   Math.max(match[0] - positionOffset - contextLength, 0),
                   match[1] - positionOffset + contextLength,
@@ -658,29 +658,52 @@ export class VaultOperations {
     return Boolean(value);
   }
 
-  // String.slice works on UTF-16 code units, so a context boundary can land
-  // between the two halves of a surrogate pair (e.g. an emoji). Adjust the
-  // bounds so the returned context never contains an unpaired surrogate.
-  private adjustContextBounds(
-    cachedContents: string,
+  /**
+   * Widen a `[start, end)` UTF-16 code-unit range in `text` so that neither
+   * end falls between the two halves of a surrogate pair. `String.prototype.slice`
+   * works in code units, so a window computed from `contextLength` can bisect a
+   * non-BMP character such as an emoji and hand back an unpaired surrogate
+   * (e.g. `\udd0c`), which cannot be encoded as UTF-8. The range is only ever
+   * grown, by at most one code unit per side: a `start` on a low surrogate
+   * moves back to include its high surrogate, and an `end` just past a high
+   * surrogate moves forward to include its low surrogate. Out-of-range bounds
+   * and boundaries already on a whole code point are returned unchanged.
+   * Lone surrogates already present in `text` are not repaired.
+   *
+   * This is deliberately not `String.prototype.toWellFormed()` (ES2024). That
+   * method operates on an already-sliced string, so the missing half of the
+   * pair is gone by the time it runs and the character cannot be recovered;
+   * it substitutes U+FFFD (`\ufffd`) for each lone surrogate instead, which
+   * would put a visible replacement character into user-facing search context
+   * where the original emoji belongs. Widening the range before slicing keeps
+   * the whole character.
+   *
+   * @param text The string the range indexes into.
+   * @param start Inclusive start offset, in UTF-16 code units.
+   * @param end Exclusive end offset, in UTF-16 code units.
+   * @returns The `[start, end)` pair, widened where necessary, suitable for
+   *   spreading into `text.slice`.
+   */
+  private widenToCodePointBoundaries(
+    text: string,
     start: number,
     end: number,
   ): [number, number] {
-    let adjustedStart = start;
-    if (adjustedStart > 0 && adjustedStart < cachedContents.length) {
-      const codeUnit = cachedContents.charCodeAt(adjustedStart);
+    let widenedStart = start;
+    if (widenedStart > 0 && widenedStart < text.length) {
+      const codeUnit = text.charCodeAt(widenedStart);
       if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
-        adjustedStart -= 1;
+        widenedStart -= 1;
       }
     }
-    let adjustedEnd = end;
-    if (adjustedEnd > 0 && adjustedEnd < cachedContents.length) {
-      const codeUnit = cachedContents.charCodeAt(adjustedEnd - 1);
+    let widenedEnd = end;
+    if (widenedEnd > 0 && widenedEnd < text.length) {
+      const codeUnit = text.charCodeAt(widenedEnd - 1);
       if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
-        adjustedEnd += 1;
+        widenedEnd += 1;
       }
     }
-    return [adjustedStart, adjustedEnd];
+    return [widenedStart, widenedEnd];
   }
 
   getAllTags(): Array<{ name: string; count: number }> {
