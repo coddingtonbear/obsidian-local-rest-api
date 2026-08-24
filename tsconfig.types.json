@@ -15,8 +15,10 @@
     "skipLibCheck": true,
     "module": "CommonJS",
     "moduleResolution": "node",
-    // Matches esbuild.config.mjs's target, so the shim is no newer than the bundle
-    // the plugin itself ships.
+    // Deliberately older than the plugin bundle's es2024 esbuild target. These files
+    // are compiled into other plugins by whatever bundler and target those authors
+    // use, so the shim stays at a conservative baseline; raising it would also change
+    // the emitted class-field shape of ApiVersionUnsupportedError for every consumer.
     "target": "ES2020",
     "rootDir": "src",
     "outDir": ".",

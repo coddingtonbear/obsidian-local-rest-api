@@ -44,7 +44,7 @@ const buildOptions = {
     ...builtinModules,
   ],
   format: "cjs",
-  target: "es2020",
+  target: "es2024",
   logLevel: "info",
   sourcemap: prod ? false : "inline",
   treeShaking: true,

@@ -40,7 +40,7 @@ import { PluginManifest } from "obsidian";
 import { configureHttpServerTimeouts } from "./serverTimeouts";
 
 export default class LocalRestApi extends Plugin {
-  settings: LocalRestApiSettings;
+  declare settings: LocalRestApiSettings;
   secureServer: https.Server | null = null;
   insecureServer: http.Server | null = null;
   requestHandler: RequestHandler;

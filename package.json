@@ -2,6 +2,9 @@
   "name": "obsidian-local-rest-api",
   "version": "5.1.0",
   "description": "A secure REST API and Model Context Protocol (MCP) server for Obsidian.",
+  "engines": {
+    "node": ">=22"
+  },
   "main": "publicApi.js",
   "types": "publicApi.d.ts",
   "files": [
@@ -35,7 +38,7 @@
     "@types/glob-to-regexp": "^0.4.1",
     "@types/jest": "^29",
     "@types/mime-types": "^2.1.1",
-    "@types/node": "^18",
+    "@types/node": "^20",
     "@types/node-forge": "^1.0.0",
     "@types/response-time": "^2.3.9",
     "@types/supertest": "^2.0.11",
