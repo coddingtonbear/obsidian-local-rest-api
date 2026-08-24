@@ -1,8 +1,30 @@
 Interact with this plugin's MCP server using the [Streamable HTTP transport](https://modelcontextprotocol.io/docs/concepts/transports#streamable-http).
 
-Point any MCP-compatible client (Claude Code, Cursor, or any MCP SDK client that supports the Streamable HTTP transport) at this endpoint and pass your API key as a bearer token. Send an `initialize` request via `POST /mcp/` to start a session; the server returns a session ID in the `Mcp-Session-Id` response header. Include that header on all subsequent requests.
+Point any MCP-compatible client (Claude Code, Cursor, or any MCP SDK client that supports the Streamable HTTP transport) at this endpoint and pass your API key as a bearer token.
 
-Include the `MCP-Protocol-Version` header on all requests after initialization, set to the protocol version negotiated during the `initialize` exchange (e.g. `2025-06-18`). Requests with an unrecognized version value are rejected with `400 Bad Request`.
+## Protocol revisions
+
+The endpoint serves the `2026-07-28` revision and, alongside it, the sessionful revisions from `2024-10-07` through `2025-11-25`. Which one a request gets is decided per request, from the request itself — there are no sessions and the `Mcp-Session-Id` header is neither issued nor read.
+
+**`2026-07-28` (recommended).** Every request stands alone: there is no `initialize` handshake, and each request carries its own protocol version and client identity in `params._meta`:
+
+```json
+{
+  "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+  "io.modelcontextprotocol/clientInfo": { "name": "my-client", "version": "1.0.0" },
+  "io.modelcontextprotocol/clientCapabilities": {}
+}
+```
+
+Requests must also carry the standard headers — `MCP-Protocol-Version`, `Mcp-Method`, and (where the body names one) `Mcp-Name` — and each must agree with the body; a disagreement is answered with `400 Bad Request` and JSON-RPC error `-32020`. A protocol version the server does not serve is answered with `-32022`, and a malformed `_meta` envelope with `-32602`.
+
+Call `server/discover` to learn the supported revisions, capabilities, and server identity in one request. Results carry `resultType`, and the cacheable ones (`server/discover`, `tools/list`, `resources/list`, `resources/templates/list`, `resources/read`) also carry the `ttlMs` and `cacheScope` freshness hints.
+
+**Sessionful revisions (`2024-10-07` through `2025-11-25`).** Clients that open with an `initialize` request are served the revision they negotiate, including sessions. The server returns a session ID in the `Mcp-Session-Id` response header; include it on every later request, use `GET /mcp/` with it to open the server-to-client notification stream, and `DELETE /mcp/` with it to end the session. A request naming a session that no longer exists is answered `404 Not Found`, which means the client should hand-shake again.
+
+Sessions exist only on this path. They are what makes the `tools.listChanged` / `resources.listChanged` capabilities the handshake advertises true: when another plugin registers or removes an MCP tool, every live session is told over its notification stream. `2026-07-28` clients get the same news from a `subscriptions/listen` stream instead.
+
+Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `400 Bad Request`.
 
 ## Available tools
 

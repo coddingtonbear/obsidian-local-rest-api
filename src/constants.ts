@@ -4,6 +4,15 @@ export const CERT_NAME = "obsidian-local-rest-api.crt";
 
 export const BUILT_IN_ROUTES = ["/", "/openapi.yaml", `/${CERT_NAME}`];
 
+/**
+ * The MCP protocol revision served by the `/mcp/` endpoint's sessionless leg.
+ *
+ * The SDK's `SUPPORTED_PROTOCOL_VERSIONS` lists only the sessionful revisions
+ * (2024-10-07 through 2025-11-25) and exports no constant for this one, so it is named
+ * here: the `MCP-Protocol-Version` header filter accepts both sets.
+ */
+export const MCP_SESSIONLESS_PROTOCOL_VERSION = "2026-07-28";
+
 export const DEFAULT_SETTINGS: LocalRestApiSettings = {
   port: 27124,
   insecurePort: 27123,

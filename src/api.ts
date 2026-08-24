@@ -1,6 +1,6 @@
 import express from "express";
 import { z } from "zod";
-import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import type { ToolAnnotations } from "@modelcontextprotocol/server";
 import { BUILT_IN_ROUTES } from "./constants";
 import { McpHandler } from "./mcpHandler";
 import type { LocalRestApiPublicApi } from "./publicApi";

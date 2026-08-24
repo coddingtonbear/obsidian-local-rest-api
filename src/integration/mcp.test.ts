@@ -4,6 +4,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import {
   API_KEY,
   BASE_URL,
+  authedFetch,
   ensureServerReachable,
   resetFixture,
   deleteFixture,
@@ -25,6 +26,10 @@ import {
   FM_PRIORITY,
   TERM_SUB,
 } from "./fixtures";
+
+// Sessionful-leg coverage: this suite drives the v1 MCP SDK client, which opens with the
+// `initialize` handshake and therefore exercises the endpoint's sessionful leg end to end.
+// The sessionless (2026-07-28) leg is covered by mcpSessionless.test.ts.
 
 // A separate temp path so vault_write / vault_delete tests don't touch the shared fixture.
 const TEMP_PATH = `${TEST_DIR}/mcp-temp.md`;
@@ -79,6 +84,71 @@ afterAll(async () => {
   await deleteFixture(TEST_PATH);
   // Best-effort cleanup of the temp path used by write/delete tests.
   await deleteFixture(TEMP_PATH).catch((_e: unknown): void => {});
+});
+
+// ---------------------------------------------------------------------------
+// Session lifecycle — revisions 2024-10-07 through 2025-11-25 are sessionful, and the capabilities the
+// handshake advertises (tools.listChanged) only hold while a session is live.
+// ---------------------------------------------------------------------------
+
+describe("MCP sessionful lifecycle", () => {
+  async function initialize(): Promise<{ sessionId: string | null; result: any }> {
+    const res = await authedFetch("/mcp/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "integration-test-sessionful", version: "1.0.0" },
+        },
+      }),
+    });
+    const text = await res.text();
+    const line = text.split("\n").find((l) => l.startsWith("data: "));
+    if (!line) throw new Error(`No SSE data frame in initialize response: ${text}`);
+    return {
+      sessionId: res.headers.get("mcp-session-id"),
+      result: JSON.parse(line.slice("data: ".length)).result,
+    };
+  }
+
+  test("initialize hands back a session id and listChanged capabilities", async () => {
+    const { sessionId, result } = await initialize();
+    expect(typeof sessionId).toBe("string");
+    expect(result.protocolVersion).toBe("2025-06-18");
+    expect(result.capabilities.tools.listChanged).toBe(true);
+    expect(result.capabilities.resources.listChanged).toBe(true);
+  });
+
+  test("an unknown session id is rejected with 404", async () => {
+    const res = await authedFetch("/mcp/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "MCP-Protocol-Version": "2025-06-18",
+        "Mcp-Session-Id": "a-session-that-never-existed",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  test("DELETE terminates a session", async () => {
+    const { sessionId } = await initialize();
+    const res = await authedFetch("/mcp/", {
+      method: "DELETE",
+      headers: { "Mcp-Session-Id": sessionId ?? "" },
+    });
+    expect(res.status).toBe(200);
+  });
 });
 
 // ---------------------------------------------------------------------------

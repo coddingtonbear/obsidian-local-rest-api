@@ -8,7 +8,11 @@ jest.mock("./mcpHandler", () => ({
     handleRequest: jest.fn().mockImplementation((_req: unknown, res: { status: (c: number) => { json: (b: unknown) => void } }) => {
       res.status(200).json({ ok: true });
     }),
+    // Classification is exercised for real in mcpEndpoint.test.ts; here it stands in for
+    // a sessionful-shaped request so the router's version filter applies its plain rejection.
+    isSessionlessRequest: jest.fn().mockResolvedValue(false),
     registerTool: jest.fn().mockReturnValue(jest.fn()),
+    close: jest.fn(),
   })),
 }));
 
@@ -3893,6 +3897,49 @@ describe("requestHandler", () => {
         .post("/mcp/")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("MCP-Protocol-Version", "2025-03-26")
+        .expect(200);
+    });
+
+    test("POST /mcp/ with an unrecognised version reaches the handler when the request is sessionless-shaped", async () => {
+      const mcpHandler = handler.mcpHandler as unknown as {
+        isSessionlessRequest: jest.Mock;
+        handleRequest: jest.Mock;
+      };
+      mcpHandler.isSessionlessRequest.mockResolvedValueOnce(true);
+
+      // The router must not answer this itself: only the MCP handler can reply with the
+      // JSON-RPC -32022 that names the revisions it serves.
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MCP-Protocol-Version", "2026-07-29")
+        .expect(200);
+
+      expect(mcpHandler.handleRequest).toHaveBeenCalled();
+    });
+
+    test("POST /mcp/ with an unrecognised version is rejected by the router when the request is sessionful-shaped", async () => {
+      const mcpHandler = handler.mcpHandler as unknown as {
+        isSessionlessRequest: jest.Mock;
+        handleRequest: jest.Mock;
+      };
+      mcpHandler.isSessionlessRequest.mockResolvedValueOnce(false);
+
+      const res = await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MCP-Protocol-Version", "2026-07-29")
+        .expect(400);
+
+      expect(res.body.error).toMatch(/Unsupported MCP-Protocol-Version/);
+      expect(mcpHandler.handleRequest).not.toHaveBeenCalled();
+    });
+
+    test("POST /mcp/ with MCP-Protocol-Version 2026-07-28 passes through", async () => {
+      await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("MCP-Protocol-Version", "2026-07-28")
         .expect(200);
     });
 
