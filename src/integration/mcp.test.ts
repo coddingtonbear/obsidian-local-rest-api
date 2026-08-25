@@ -92,7 +92,9 @@ afterAll(async () => {
 // ---------------------------------------------------------------------------
 
 describe("MCP sessionful lifecycle", () => {
-  async function initialize(): Promise<{ sessionId: string | null; result: any }> {
+  async function initializeAt(
+    version: string,
+  ): Promise<{ sessionId: string | null; result: any }> {
     const res = await authedFetch("/mcp/", {
       method: "POST",
       headers: {
@@ -104,7 +106,7 @@ describe("MCP sessionful lifecycle", () => {
         id: 1,
         method: "initialize",
         params: {
-          protocolVersion: "2025-06-18",
+          protocolVersion: version,
           capabilities: {},
           clientInfo: { name: "integration-test-sessionful", version: "1.0.0" },
         },
@@ -119,12 +121,37 @@ describe("MCP sessionful lifecycle", () => {
     };
   }
 
+  async function initialize(): Promise<{ sessionId: string | null; result: any }> {
+    return initializeAt("2025-06-18");
+  }
+
   test("initialize hands back a session id and listChanged capabilities", async () => {
     const { sessionId, result } = await initialize();
     expect(typeof sessionId).toBe("string");
     expect(result.protocolVersion).toBe("2025-06-18");
     expect(result.capabilities.tools.listChanged).toBe(true);
     expect(result.capabilities.resources.listChanged).toBe(true);
+  });
+
+  test("initialize at 2025-11-25 is answered, and negotiates that revision unchanged", async () => {
+    // Against the live plugin, since that is the configuration issue #329 reported as
+    // hanging: a real socket to a real Obsidian, not the in-process express app. The
+    // hardcoded literal is deliberate — see mcpEndpoint.test.ts.
+    const { sessionId, result } = await initializeAt("2025-11-25");
+    try {
+      expect(typeof sessionId).toBe("string");
+      expect(result.protocolVersion).toBe("2025-11-25");
+      expect(result.capabilities.tools.listChanged).toBe(true);
+    } finally {
+      // Terminate rather than leak. Every live session is a subscriber the plugin pushes
+      // `listChanged` notifications to on each vault write, so a session left open here
+      // slows down every write-then-read-back test further down the file — enough to have
+      // made the vault_patch frontmatter read-back race intermittently.
+      await authedFetch("/mcp/", {
+        method: "DELETE",
+        headers: { "Mcp-Session-Id": sessionId ?? "" },
+      });
+    }
   });
 
   test("an unknown session id is rejected with 404", async () => {

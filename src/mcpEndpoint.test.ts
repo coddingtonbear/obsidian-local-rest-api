@@ -14,6 +14,13 @@ import { App, PluginManifest } from "../mocks/obsidian";
 const API_KEY = "my api key";
 const MODERN_VERSION = "2026-07-28";
 const LEGACY_VERSION = "2025-06-18";
+// The newest sessionful revision, which `src/constants.ts`, `src/mcpHandler.ts`, and the
+// Readme all promise to serve. Deliberately a literal rather than the SDK's
+// `LATEST_PROTOCOL_VERSION`: it happens to be the SDK's latest today, so reading the
+// constant would make these assertions tautological and they would keep passing if a
+// future SDK bump dropped this revision out of `SUPPORTED_PROTOCOL_VERSIONS` and started
+// negotiating clients down from it. Pinning the literal is what makes that visible.
+const NEWEST_SESSIONFUL_VERSION = "2025-11-25";
 
 function envelope(overrides: Record<string, unknown> = {}) {
   return {
@@ -151,7 +158,9 @@ describe("mounted /mcp/ endpoint", () => {
   });
 
   describe("sessionful leg", () => {
-    async function initialize(): Promise<string> {
+    async function initializeAt(
+      version: string,
+    ): Promise<{ sessionId: string; result: any }> {
       const res = await authed("post")
         .set("Accept", "application/json, text/event-stream")
         .send({
@@ -159,7 +168,7 @@ describe("mounted /mcp/ endpoint", () => {
           id: 1,
           method: "initialize",
           params: {
-            protocolVersion: LEGACY_VERSION,
+            protocolVersion: version,
             capabilities: {},
             clientInfo: { name: "sessionful-client", version: "1.0.0" },
           },
@@ -167,8 +176,36 @@ describe("mounted /mcp/ endpoint", () => {
         .expect(200);
       const sessionId = res.headers["mcp-session-id"];
       expect(typeof sessionId).toBe("string");
-      return sessionId;
+      return { sessionId, result: sseResult(res.text).result };
     }
+
+    async function initialize(): Promise<string> {
+      return (await initializeAt(LEGACY_VERSION)).sessionId;
+    }
+
+    test("initialize at the newest sessionful revision negotiates it unchanged", async () => {
+      // Regression cover for issue #329, which reported that `initialize` at 2025-11-25
+      // never gets an answer. It does — but nothing pinned that, so the "through
+      // 2025-11-25" promise rested entirely on the pinned SDK's own version list.
+      const { sessionId, result } = await initializeAt(NEWEST_SESSIONFUL_VERSION);
+      expect(result.protocolVersion).toBe(NEWEST_SESSIONFUL_VERSION);
+      expect(sessionId.length).toBeGreaterThan(0);
+    });
+
+    test("the newest sessionful revision passes the router's version filter", async () => {
+      // The filter at requestHandler.ts's `/mcp/` mount rejects any version it does not
+      // know with a plain 400 before the SDK ever sees it, so a revision dropping out of
+      // that list would fail here rather than at the handshake.
+      const { sessionId } = await initializeAt(NEWEST_SESSIONFUL_VERSION);
+      const res = await authed("post")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", NEWEST_SESSIONFUL_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })
+        .expect(200);
+
+      expect(sseResult(res.text).result.tools).toHaveLength(16);
+    });
 
     test("initialize opens a session and later requests reuse it", async () => {
       const sessionId = await initialize();

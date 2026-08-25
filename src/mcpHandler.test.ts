@@ -18,6 +18,10 @@ import { TFile } from "../mocks/obsidian";
 
 const MODERN_VERSION = "2026-07-28";
 const LEGACY_VERSION = "2025-06-18";
+// The newest sessionful revision. Held as a literal on purpose — see the note on the same
+// constant in mcpEndpoint.test.ts: reading the SDK's `LATEST_PROTOCOL_VERSION` instead
+// would make the assertion agree with the SDK by construction.
+const NEWEST_SESSIONFUL_VERSION = "2025-11-25";
 
 // The real McpServer is used throughout: the 2026-07-28 serving entries build one per
 // request from McpHandler's factory, so there is nothing to substitute. Registrations are
@@ -1270,7 +1274,9 @@ describe("McpHandler", () => {
       return JSON.parse(line.slice("data: ".length));
     }
 
-    async function initialize(): Promise<{ sessionId: string; result: any }> {
+    async function initializeAt(
+      version: string,
+    ): Promise<{ sessionId: string; result: any }> {
       const res = await request(app)
         .post("/mcp/")
         .set("Accept", "application/json, text/event-stream")
@@ -1279,13 +1285,17 @@ describe("McpHandler", () => {
           id: 1,
           method: "initialize",
           params: {
-            protocolVersion: LEGACY_VERSION,
+            protocolVersion: version,
             capabilities: {},
             clientInfo: { name: "sessionful-client", version: "1.0.0" },
           },
         })
         .expect(200);
       return { sessionId: res.headers["mcp-session-id"], result: sseResult(res.text).result };
+    }
+
+    async function initialize(): Promise<{ sessionId: string; result: any }> {
+      return initializeAt(LEGACY_VERSION);
     }
 
     test("answers the initialize handshake for sessionful clients", async () => {
@@ -1301,6 +1311,17 @@ describe("McpHandler", () => {
       const { sessionId } = await initialize();
       expect(typeof sessionId).toBe("string");
       expect(sessionId.length).toBeGreaterThan(0);
+    });
+
+    test("negotiates the newest sessionful revision unchanged rather than downgrading", async () => {
+      // The upper end of this describe's stated range. A client asking for a revision the
+      // handler cannot serve is answered with an older one it can, so a silent downgrade —
+      // not an error — is how losing 2025-11-25 would present. Asserting the echo is what
+      // separates the two.
+      const { sessionId, result } = await initializeAt(NEWEST_SESSIONFUL_VERSION);
+      expect(result.protocolVersion).toBe(NEWEST_SESSIONFUL_VERSION);
+      expect(result.serverInfo.name).toBe("obsidian-local-rest-api");
+      expect(typeof sessionId).toBe("string");
     });
 
     test("advertises listChanged capabilities it can actually honour", async () => {
