@@ -575,6 +575,68 @@ describe("vault_write and vault_delete tools", () => {
 });
 
 // ---------------------------------------------------------------------------
+// vault_read_binary + vault_write_binary
+//
+// The point of these tools is byte fidelity, so the fixture is deliberately a real PNG:
+// its 0x89 lead byte is not valid UTF-8, so any path that decodes it as text loses it.
+// The round trip below therefore fails if the bytes ever go through a string.
+// ---------------------------------------------------------------------------
+
+describe("vault_read_binary and vault_write_binary tools", () => {
+  const BINARY_PATH = `${TEST_DIR}/mcp-temp-pixel.png`;
+  const PIXEL_BASE64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  afterAll(async () => {
+    await deleteFixture(BINARY_PATH).catch((_e: unknown): void => {});
+  });
+
+  test("round-trips a PNG through write and read without corrupting a byte", async () => {
+    const writeResult = await client.callTool({
+      name: "vault_write_binary",
+      arguments: { path: BINARY_PATH, content: PIXEL_BASE64 },
+    });
+    expect(jsonOf<any>(writeResult).message).toBe("OK");
+
+    // Give Obsidian's index a moment to register the new file.
+    await new Promise((r) => setTimeout(r, 300));
+
+    const readResult = await client.callTool({
+      name: "vault_read_binary",
+      arguments: { path: BINARY_PATH },
+    });
+    const body = jsonOf<any>(readResult);
+    expect(body.content).toBe(PIXEL_BASE64);
+    expect(body.encoding).toBe("base64");
+    expect(body.mimeType).toBe("image/png");
+    expect(body.size).toBe(Buffer.from(PIXEL_BASE64, "base64").byteLength);
+  });
+
+  test("the same bytes are served over REST, so the two layers agree", async () => {
+    const response = await authedFetch(`/vault/${BINARY_PATH}`);
+    expect(response.status).toBe(200);
+    const overRest = Buffer.from(await response.arrayBuffer());
+    expect(overRest.toString("base64")).toBe(PIXEL_BASE64);
+  });
+
+  test("rejects a payload that is not canonical base64 rather than writing it", async () => {
+    const result = await client.callTool({
+      name: "vault_write_binary",
+      arguments: { path: BINARY_PATH, content: "not-valid-base64!" },
+    });
+    expect(result.isError).toBe(true);
+  });
+
+  test("vault_read_binary reports a missing file as an error", async () => {
+    const result = await client.callTool({
+      name: "vault_read_binary",
+      arguments: { path: `${TEST_DIR}/definitely-not-here.png` },
+    });
+    expect(result.isError).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // vault_append
 // ---------------------------------------------------------------------------
 

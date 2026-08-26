@@ -204,7 +204,7 @@ describe("mounted /mcp/ endpoint", () => {
         .send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })
         .expect(200);
 
-      expect(sseResult(res.text).result.tools).toHaveLength(16);
+      expect(sseResult(res.text).result.tools).toHaveLength(18);
     });
 
     test("initialize opens a session and later requests reuse it", async () => {
@@ -216,7 +216,7 @@ describe("mounted /mcp/ endpoint", () => {
         .send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })
         .expect(200);
 
-      expect(sseResult(res.text).result.tools).toHaveLength(16);
+      expect(sseResult(res.text).result.tools).toHaveLength(18);
     });
 
     test("an unknown session id is rejected with 404", async () => {

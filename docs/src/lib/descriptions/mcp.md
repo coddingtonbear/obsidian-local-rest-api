@@ -32,7 +32,9 @@ Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `40
 |---|---|
 | `vault_list` | List files and subdirectories inside a vault directory |
 | `vault_read` | Read a file's full content, frontmatter, tags, and stat |
+| `vault_read_binary` | Read a file as raw bytes, base64-encoded, for attachments `vault_read` would corrupt |
 | `vault_write` | Create or overwrite a vault file |
+| `vault_write_binary` | Create or overwrite a vault file from base64-encoded raw bytes |
 | `vault_append` | Append content to the end of a vault file |
 | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
 | `vault_delete` | Delete a vault file (moves to trash by default) |
@@ -46,6 +48,12 @@ Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `40
 | `command_list` | List all registered Obsidian commands |
 | `command_execute` | Execute an Obsidian command by ID |
 | `open_file` | Open a file in the Obsidian UI |
+
+### Binary files
+
+`vault_read` and `vault_write` are text tools: they decode and encode UTF-8, which is lossy for anything that is not text, so reading an attachment through `vault_read` and writing the result back destroys the file. Use `vault_read_binary` and `vault_write_binary` for attachments instead. Both carry the file as standard base64 (not base64url), and `vault_write_binary` rejects a payload that is not the canonical encoding of the bytes it decodes to rather than writing mangled ones.
+
+Base64 in a tool argument or result passes through the model's context at roughly 0.35-0.45 tokens per byte, so both tools refuse files over 1 MiB. That is a context guard rather than a storage limit: `GET` and `PUT /vault/{filename}` carry raw bytes of any size at no context cost, and are the right way to move a large attachment.
 
 ## Available resources
 

@@ -362,6 +362,18 @@ export class VaultOperations {
     return this.app.vault.read(file);
   }
 
+  // Reads a file as raw bytes rather than decoding it as UTF-8, which is what
+  // `readFileContent` above (and `cachedRead` behind `getFileMetadataObject`) does. The
+  // REST layer reaches for `adapter.readBinary` directly; MCP goes through here so the
+  // "does this file exist" answer is the same one `vault_read` gives.
+  async readBinaryFileContent(filePath: string): Promise<ArrayBuffer> {
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    if (!(file instanceof TFile)) {
+      throw new Error(`File not found: ${filePath}`);
+    }
+    return this.app.vault.adapter.readBinary(filePath);
+  }
+
   async writeFileContent(
     filePath: string,
     content: string | Buffer,

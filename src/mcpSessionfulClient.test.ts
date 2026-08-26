@@ -73,7 +73,7 @@ describe("sessionful MCP client interoperability", () => {
 
     expect(transport.sessionId).toEqual(expect.any(String));
     expect(client.getServerCapabilities()?.tools?.listChanged).toBe(true);
-    expect((await client.listTools()).tools).toHaveLength(16);
+    expect((await client.listTools()).tools).toHaveLength(18);
 
     const result = await client.callTool({ name: "tag_list", arguments: {} });
     expect(JSON.parse((result.content as { text: string }[])[0].text)).toEqual({

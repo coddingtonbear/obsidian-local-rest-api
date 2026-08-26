@@ -80,6 +80,26 @@ describe("writes go through the Vault API", () => {
   });
 });
 
+describe("readBinaryFileContent", () => {
+  test("returns the adapter's bytes rather than a decoded string", async () => {
+    const { app, ops } = setup("");
+    // 0x89 leads a PNG and is not valid UTF-8, so a decoded read could not produce it.
+    const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
+    app.vault.adapter._readBinary = bytes.buffer;
+
+    const read = await ops.readBinaryFileContent(MD_PATH);
+
+    expect(new Uint8Array(read)).toEqual(bytes);
+  });
+
+  test("throws for a path that is not a file, matching the text read", async () => {
+    const { ops } = setup("", false);
+    await expect(ops.readBinaryFileContent(MD_PATH)).rejects.toThrow(
+      `File not found: ${MD_PATH}`,
+    );
+  });
+});
+
 // ---------------------------------------------------------------------------
 // simpleSearch context slicing must not split UTF-16 surrogate pairs.
 //
