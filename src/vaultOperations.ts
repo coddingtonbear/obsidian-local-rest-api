@@ -57,7 +57,32 @@ import { toArrayBuffer } from "./utils";
  * step with the write instead of racing it.
  */
 export class VaultOperations {
+  private cachedBacklinksIndex: Record<string, string[]> | null = null;
+
+  /**
+   * Dropped whenever Obsidian says the link graph has moved.
+   *
+   * Deliberately one handler for every announcement rather than a targeted
+   * update per event: rebuilding is the same work the uncached code did on
+   * every request, so an invalidation too many costs a scan we were paying for
+   * anyway, while one too few serves a client stale backlinks.
+   */
+  private readonly invalidateBacklinksIndex = (): void => {
+    this.cachedBacklinksIndex = null;
+  };
+
   constructor(readonly app: App, readonly settings: LocalRestApiSettings) {
+    // `resolve` fires per file as its links are re-resolved and `resolved` once
+    // the batch finishes; `deleted` covers a file leaving the graph. Renames are
+    // watched on the vault instead, because metadataCache documents that it does
+    // not announce them -- and resolvedLinks is keyed by path, so a rename moves
+    // both a key and every link that pointed at it.
+    this.app.metadataCache.on("resolve", this.invalidateBacklinksIndex);
+    this.app.metadataCache.on("resolved", this.invalidateBacklinksIndex);
+    this.app.metadataCache.on("deleted", this.invalidateBacklinksIndex);
+    this.app.vault.on("rename", this.invalidateBacklinksIndex);
+    this.app.vault.on("delete", this.invalidateBacklinksIndex);
+
     jsonLogic.add_operation(
       "glob",
       (pattern: string | undefined, field: string | undefined) => {
@@ -76,6 +101,21 @@ export class VaultOperations {
         return false;
       },
     );
+  }
+
+  /**
+   * Releases the link-graph listeners registered in the constructor.
+   *
+   * This object lives as long as the plugin does, so this matters only at
+   * unload -- but a listener left behind holds the whole instance alive and
+   * goes on invalidating a cache nobody will read again.
+   */
+  dispose(): void {
+    this.app.metadataCache.off("resolve", this.invalidateBacklinksIndex);
+    this.app.metadataCache.off("resolved", this.invalidateBacklinksIndex);
+    this.app.metadataCache.off("deleted", this.invalidateBacklinksIndex);
+    this.app.vault.off("rename", this.invalidateBacklinksIndex);
+    this.app.vault.off("delete", this.invalidateBacklinksIndex);
   }
 
   private waitForFileCache(
@@ -195,6 +235,19 @@ export class VaultOperations {
     return content.substring(entry.content.start, entry.content.end);
   }
 
+  /**
+   * The vault-wide "who links here" index, built at most once per link-graph
+   * change.
+   *
+   * Callers doing bulk work should build one snapshot with this and thread it
+   * through their loop (see `getFileMetadataObject`'s second argument), so that
+   * every row of a result set describes the same moment even if the graph moves
+   * mid-loop.
+   */
+  getBacklinksIndex(): Record<string, string[]> {
+    return (this.cachedBacklinksIndex ??= this.buildBacklinksIndex());
+  }
+
   buildBacklinksIndex(): Record<string, string[]> {
     const index: Record<string, string[]> = {};
     for (const [sourcePath, targets] of Object.entries(
@@ -235,8 +288,11 @@ export class VaultOperations {
       this.app.metadataCache.unresolvedLinks[file.path] ?? {},
     );
 
-    const index = backlinksIndex ?? this.buildBacklinksIndex();
-    const backlinks = index[file.path] ?? [];
+    const index = backlinksIndex ?? this.getBacklinksIndex();
+    // Copied rather than handed out: the cached index outlives the response
+    // built from it, so one caller mutating what it was given would otherwise
+    // reach every caller after it.
+    const backlinks = [...(index[file.path] ?? [])];
 
     return {
       tags: filteredTags,
@@ -630,7 +686,7 @@ export class VaultOperations {
     query: unknown,
   ): Promise<SearchJsonResponseItem[]> {
     const results: SearchJsonResponseItem[] = [];
-    const backlinksIndex = this.buildBacklinksIndex();
+    const backlinksIndex = this.getBacklinksIndex();
     const includeContent = JSON.stringify(query).includes('"content"');
 
     for (const file of this.app.vault.getMarkdownFiles()) {

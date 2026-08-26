@@ -249,6 +249,7 @@ export default class LocalRestApi extends Plugin {
 
   onunload() {
     this.requestHandler?.mcpHandler.close();
+    this.requestHandler?.operations.dispose();
     if (this.secureServer) {
       this.secureServer.closeAllConnections();
       this.secureServer.close();
