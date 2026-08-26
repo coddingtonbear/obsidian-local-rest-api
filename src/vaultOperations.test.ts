@@ -146,3 +146,135 @@ describe("simpleSearch surrogate handling", () => {
     expect(await results()).toEqual([{ context: "xneedle🔌" }]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// A single-note read must not rescan the whole vault link graph.
+//
+// buildBacklinksIndex walks every entry of metadataCache.resolvedLinks and every
+// target within it -- the entire vault link graph -- to answer "which files link
+// here". The bulk search path builds it once and threads it through its loop, but
+// every single-note metadata read (GET /vault/<path> as note+json, and the MCP
+// vault_read tool) used to pay for a fresh whole-graph scan and then discard all
+// but one entry of the result.
+//
+// Caching it makes correctness the interesting question rather than cost: a
+// cached graph that outlives a change to the real one serves stale backlinks.
+// Obsidian announces every such change, so each announcement is tested here.
+// ---------------------------------------------------------------------------
+
+describe("backlinks index caching", () => {
+  function backlinksSetup(): {
+    app: App;
+    ops: VaultOperations;
+    file: TFile;
+    build: jest.SpyInstance;
+    backlinks: () => Promise<string[]>;
+  } {
+    const app = new App();
+    const file = new TFile();
+    file.path = "note.md";
+    app.vault._getAbstractFileByPath = file;
+    app.metadataCache.resolvedLinks = { "a.md": { "note.md": 1 } };
+
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    const build = jest.spyOn(ops, "buildBacklinksIndex");
+
+    return {
+      app,
+      ops,
+      file,
+      build,
+      backlinks: async () => (await ops.getFileMetadataObject(file)).backlinks,
+    };
+  }
+
+  test("repeated single-note reads scan the link graph once", async () => {
+    const { build, backlinks } = backlinksSetup();
+
+    expect(await backlinks()).toEqual(["a.md"]);
+    expect(await backlinks()).toEqual(["a.md"]);
+    expect(await backlinks()).toEqual(["a.md"]);
+
+    expect(build).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    // Fired for each file whose links have been re-resolved.
+    [
+      "metadataCache resolve",
+      (app: App) => app.metadataCache._emit("resolve", new TFile()),
+    ],
+    // Fired once after a batch of re-resolutions completes.
+    [
+      "metadataCache resolved",
+      (app: App) => app.metadataCache._emit("resolved"),
+    ],
+    // A deleted file drops out of the graph, along with the links it made.
+    [
+      "metadataCache deleted",
+      (app: App) => app.metadataCache._emit("deleted", new TFile(), null),
+    ],
+    // resolvedLinks is keyed by path, so a rename re-keys it -- and Obsidian
+    // documents that renames deliberately do not fire the cache's own events.
+    [
+      "vault rename",
+      (app: App) => app.vault._emit("rename", new TFile(), "old.md"),
+    ],
+    ["vault delete", (app: App) => app.vault._emit("delete", new TFile())],
+  ])("%s invalidates the cached index", async (_name, fire) => {
+    const { app, build, backlinks } = backlinksSetup();
+
+    expect(await backlinks()).toEqual(["a.md"]);
+
+    app.metadataCache.resolvedLinks = {
+      "a.md": { "note.md": 1 },
+      "b.md": { "note.md": 1 },
+    };
+    fire(app);
+
+    expect(await backlinks()).toEqual(["a.md", "b.md"]);
+    expect(build).toHaveBeenCalledTimes(2);
+  });
+
+  test("a caller that mutates the backlinks it was handed cannot corrupt the cache", async () => {
+    // The cached index outlives the response built from it, so handing out its
+    // own arrays would let one client's mutation reach the next client.
+    const { ops, file, backlinks } = backlinksSetup();
+
+    const first = (await ops.getFileMetadataObject(file)).backlinks;
+    first.push("injected.md");
+
+    expect(await backlinks()).toEqual(["a.md"]);
+  });
+
+  test("an explicitly supplied index still wins over the cache", async () => {
+    // Bulk callers pass one snapshot through their whole loop deliberately, so
+    // that every row of a result set describes the same moment.
+    const { ops, file, build } = backlinksSetup();
+
+    const supplied = { "note.md": ["snapshot.md"] };
+    const meta = await ops.getFileMetadataObject(file, supplied);
+
+    expect(meta.backlinks).toEqual(["snapshot.md"]);
+    expect(build).not.toHaveBeenCalled();
+  });
+
+  test("dispose unregisters the invalidation listeners", async () => {
+    // VaultOperations lives as long as the plugin, and its listeners must not
+    // outlive it: one left behind holds the old instance alive and goes on
+    // writing to a cache nobody reads.
+    const { app, ops, build, backlinks } = backlinksSetup();
+
+    await backlinks();
+    ops.dispose();
+
+    app.metadataCache._emit("resolved");
+    app.metadataCache._emit("resolve", new TFile());
+    app.metadataCache._emit("deleted", new TFile(), null);
+    app.vault._emit("rename", new TFile(), "old.md");
+    app.vault._emit("delete", new TFile());
+
+    await backlinks();
+    expect(build).toHaveBeenCalledTimes(1);
+  });
+});
