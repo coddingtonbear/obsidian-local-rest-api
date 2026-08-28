@@ -105,6 +105,13 @@ div.obsidian-local-rest-api-content div.certificate-regeneration-recommended {
   border: 2px solid #ffff00;
 }
 
+/* Informational, not a warning: the certificate still works, an update exists. */
+div.obsidian-local-rest-api-content div.certificate-update-available {
+  padding: 10px 20px;
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
 div.obsidian-local-rest-api-content table.api-urls tr {
   width: 100%;
 }
