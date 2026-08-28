@@ -197,6 +197,18 @@ export function renewServerCertificateIfNeeded(
   };
 }
 
+/**
+ * The PEM chain the HTTPS server presents: the server certificate followed
+ * by the CA that signed it, so a client that trusts the CA can build the
+ * chain without having seen it before. Legacy material has no CA and
+ * presents its self-signed certificate alone.
+ */
+export function buildServerCertificateChain(crypto: CryptoSettings): string {
+  return [crypto.cert, crypto.caCert]
+    .filter((pem): pem is string => Boolean(pem))
+    .join("\n");
+}
+
 export function getCertificateValidityDays(
   certificate: pki.Certificate,
   now: Date = new Date(),

@@ -24,6 +24,7 @@ import {
 } from "./constants";
 import {
   CertificateStandardsIssue,
+  buildServerCertificateChain,
   generateCryptoSettings,
   getCertificateStandardsIssue,
   getCertificateValidityDays,
@@ -134,15 +135,10 @@ export default class LocalRestApi extends Plugin {
       this.secureServer = null;
     }
     if ((this.settings.enableSecureServer ?? true) && this.settings.crypto) {
-      // Present the CA alongside the server certificate so that clients that
-      // trust the CA can build the chain without having seen it before.
-      const chain = [this.settings.crypto.cert, this.settings.crypto.caCert]
-        .filter((pem): pem is string => Boolean(pem))
-        .join("\n");
       this.secureServer = https.createServer(
         {
           key: this.settings.crypto.privateKey,
-          cert: chain,
+          cert: buildServerCertificateChain(this.settings.crypto),
         },
         this.requestHandler.api
       );

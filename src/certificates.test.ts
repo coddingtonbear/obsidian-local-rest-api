@@ -1,9 +1,14 @@
+import * as https from "https";
+import * as tls from "tls";
+import { AddressInfo } from "net";
+
 import forge from "node-forge";
 
 import {
   CA_VALIDITY_DAYS,
   LEAF_RENEWAL_WINDOW_DAYS,
   LEAF_VALIDITY_DAYS,
+  buildServerCertificateChain,
   generateCryptoSettings,
   getCertificateStandardsIssue,
   renewServerCertificateIfNeeded,
@@ -313,5 +318,86 @@ describe("renewServerCertificateIfNeeded", () => {
     const now = new Date(issuedAt.getTime() + (LEAF_VALIDITY_DAYS + 10) * 24 * 3600 * 1000);
     const broken: CryptoSettings = { ...crypto, caPrivateKey: "not a key" };
     expect(renewServerCertificateIfNeeded(broken, { now, keySize: TEST_KEY_SIZE })).toBeNull();
+  });
+});
+
+describe("buildServerCertificateChain", () => {
+  test("legacy material presents the self-signed certificate alone", () => {
+    expect(buildServerCertificateChain({ cert: "LEAF", privateKey: "k", publicKey: "p" })).toEqual("LEAF");
+  });
+
+  test("CA-backed material presents the leaf followed by the CA", () => {
+    expect(
+      buildServerCertificateChain({ cert: "LEAF\n", privateKey: "k", publicKey: "p", caCert: "CA\n" }),
+    ).toEqual("LEAF\n\nCA\n");
+  });
+
+  // The end-to-end claim: a client that trusts only the downloadable CA
+  // completes a fully verified TLS handshake with a server presenting the
+  // generated chain, addressed by an IP subjectAltName.
+  test("a client trusting only the CA verifies a handshake with the served chain", async () => {
+    const crypto = generateCryptoSettings({ keySize: TEST_KEY_SIZE });
+    const server = https.createServer(
+      { key: crypto.privateKey, cert: buildServerCertificateChain(crypto) },
+      (_req, res) => res.end("ok"),
+    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      const peerChain = await new Promise<{ subject: string; issuer: string; authorized: boolean }>(
+        (resolve, reject) => {
+          const socket = tls.connect(
+            { host: "127.0.0.1", port, ca: crypto.caCert, rejectUnauthorized: true },
+            () => {
+              const peer = socket.getPeerCertificate(true);
+              const result = {
+                subject: peer.subject.CN,
+                issuer: peer.issuer.CN,
+                authorized: socket.authorized,
+              };
+              socket.end();
+              resolve(result);
+            },
+          );
+          socket.on("error", reject);
+        },
+      );
+      expect(peerChain).toEqual({
+        subject: "Obsidian Local REST API",
+        issuer: "Obsidian Local REST API CA",
+        authorized: true,
+      });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("a client trusting the CA rejects a leaf it did not sign", async () => {
+    const served = generateCryptoSettings({ keySize: TEST_KEY_SIZE });
+    const other = generateCryptoSettings({ keySize: TEST_KEY_SIZE });
+    const server = https.createServer(
+      { key: served.privateKey, cert: buildServerCertificateChain(served) },
+      (_req, res) => res.end("ok"),
+    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+
+    try {
+      await expect(
+        new Promise<void>((resolve, reject) => {
+          const socket = tls.connect(
+            { host: "127.0.0.1", port, ca: other.caCert, rejectUnauthorized: true },
+            () => {
+              socket.end();
+              resolve();
+            },
+          );
+          socket.on("error", reject);
+        }),
+      ).rejects.toThrow(/unable to verify|self.signed|certificate/i);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });
