@@ -40,6 +40,26 @@ function extension<T>(cert: forge.pki.Certificate, name: string): T | undefined 
   return cert.getExtension(name) as T | undefined;
 }
 
+// node-forge parses an IP SAN with both the raw `value` bytes and the dotted
+// `ip`; the tests only care about the latter.
+function altNamesOf(cert: forge.pki.Certificate): { type: number; ip?: string; value?: string }[] {
+  return (extension<SubjectAltName>(cert, "subjectAltName")?.altNames ?? []).map((altName) =>
+    altName.type === 7 ? { type: altName.type, ip: altName.ip } : { type: altName.type, value: altName.value },
+  );
+}
+
+// node-forge does not decode authorityKeyIdentifier when parsing, so read the
+// keyIdentifier ([0] IMPLICIT OCTET STRING) out of the extension's DER value.
+function authorityKeyIdentifierOf(cert: forge.pki.Certificate): string | undefined {
+  const ext = cert.getExtension("authorityKeyIdentifier") as { value?: string } | undefined;
+  if (!ext?.value) return undefined;
+  const sequence = forge.asn1.fromDer(ext.value);
+  const keyIdentifier = (sequence.value as forge.asn1.Asn1[]).find(
+    (child) => child.tagClass === forge.asn1.Class.CONTEXT_SPECIFIC && Number(child.type) === 0,
+  );
+  return keyIdentifier ? forge.util.bytesToHex(keyIdentifier.value as string) : undefined;
+}
+
 function daysBetween(from: Date, to: Date): number {
   return (to.getTime() - from.getTime()) / (1000 * 3600 * 24);
 }
@@ -97,7 +117,7 @@ describe("generateCryptoSettings", () => {
       now,
       keySize: TEST_KEY_SIZE,
     });
-    ca = parse(crypto.caCert as string);
+    ca = parse(crypto.caCert);
     leaf = parse(crypto.cert);
   });
 
@@ -116,7 +136,7 @@ describe("generateCryptoSettings", () => {
     expect(keyUsage?.cRLSign).toBe(true);
     expect(ca.isIssuer(ca)).toBe(true);
     expect(ca.verify(ca)).toBe(true);
-    expect(extension<SubjectAltName>(ca, "subjectAltName")).toBeUndefined();
+    expect(ca.getExtension("subjectAltName")).toBeFalsy();
   });
 
   test("the leaf is an end-entity certificate, not a CA", () => {
@@ -128,7 +148,7 @@ describe("generateCryptoSettings", () => {
     const extKeyUsage = extension<ExtKeyUsage>(leaf, "extKeyUsage");
     expect(extKeyUsage?.serverAuth).toBe(true);
     expect(extKeyUsage?.codeSigning).toBeFalsy();
-    expect(leaf.getExtension("nsCertType")).toBeUndefined();
+    expect(leaf.getExtension("nsCertType")).toBeFalsy();
   });
 
   test("the leaf is issued and signed by the CA and chains to it", () => {
@@ -175,8 +195,7 @@ describe("generateCryptoSettings", () => {
   });
 
   test("subject alternative names cover the loopback address, binding host, and configured hostnames", () => {
-    const altNames = extension<SubjectAltName>(leaf, "subjectAltName")?.altNames ?? [];
-    expect(altNames).toEqual([
+    expect(altNamesOf(leaf)).toEqual([
       { type: 7, ip: "127.0.0.1" },
       { type: 7, ip: "192.168.1.10" },
       { type: 2, value: "obsidian.local" },
@@ -187,17 +206,14 @@ describe("generateCryptoSettings", () => {
   test("the binding host is not repeated when it is the loopback address, and 0.0.0.0 is not a name", () => {
     for (const bindingHost of ["127.0.0.1", "0.0.0.0", undefined]) {
       const generated = generateCryptoSettings({ bindingHost, keySize: TEST_KEY_SIZE });
-      const altNames =
-        extension<SubjectAltName>(parse(generated.cert), "subjectAltName")?.altNames ?? [];
-      expect(altNames).toEqual([{ type: 7, ip: "127.0.0.1" }]);
+      expect(altNamesOf(parse(generated.cert))).toEqual([{ type: 7, ip: "127.0.0.1" }]);
     }
   });
 
   test("the leaf carries an authority key identifier matching the CA's subject key identifier", () => {
     const caSki = ca.getExtension("subjectKeyIdentifier") as { subjectKeyIdentifier?: string } | undefined;
-    const leafAki = leaf.getExtension("authorityKeyIdentifier") as { keyIdentifier?: string } | undefined;
     expect(caSki?.subjectKeyIdentifier).toBeTruthy();
-    expect(leafAki?.keyIdentifier).toEqual(caSki?.subjectKeyIdentifier);
+    expect(authorityKeyIdentifierOf(leaf)).toEqual(caSki?.subjectKeyIdentifier);
   });
 });
 
@@ -212,7 +228,7 @@ describe("getCertificateStandardsIssue", () => {
     // leaf, but must not be mistaken for a legacy certificate by callers that
     // inspect it for validity display.
     const crypto = generateCryptoSettings({ keySize: TEST_KEY_SIZE });
-    expect(getCertificateStandardsIssue(parse(crypto.caCert as string), { role: "ca" })).toBeNull();
+    expect(getCertificateStandardsIssue(parse(crypto.caCert), { role: "ca" })).toBeNull();
   });
 
   test("the legacy single self-signed certificate is reported as a CA used as a leaf", () => {
@@ -261,12 +277,12 @@ describe("renewServerCertificateIfNeeded", () => {
     expect(renewed.cert).not.toEqual(crypto.cert);
     expect(renewed.privateKey).not.toEqual(crypto.privateKey);
 
-    const ca = parse(renewed.caCert as string);
+    const ca = parse(renewed.caCert);
     const leaf = parse(renewed.cert);
     expect(ca.verify(leaf)).toBe(true);
     expect(leaf.validity.notBefore).toEqual(now);
     expect(daysBetween(now, leaf.validity.notAfter)).toBeCloseTo(LEAF_VALIDITY_DAYS, 5);
-    expect(extension<SubjectAltName>(leaf, "subjectAltName")?.altNames).toEqual([
+    expect(altNamesOf(leaf)).toEqual([
       { type: 7, ip: "127.0.0.1" },
       { type: 7, ip: "10.0.0.5" },
       { type: 2, value: "renamed.local" },
