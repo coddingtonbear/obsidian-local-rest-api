@@ -1080,7 +1080,12 @@ std.manifestYamlDoc(
           tags: [
             'System',
           ],
-          summary: 'Returns the certificate in use by this API.\n',
+          summary: 'Returns the certificate to trust in order to connect to this API.\n',
+          description: |||
+            Returns, in PEM format, the certificate authority that signed the certificate the HTTPS server presents; import this as a trusted authority in your OS, browser, or HTTP client to connect without certificate warnings.
+
+            Installations still running certificate material generated before the plugin began issuing a separate certificate authority return their single self-signed certificate instead. The authenticated `GET /` response's `certificateInfo.regenerateReason` reports `ca-used-as-leaf` in that case.
+          |||,
           responses: {
             '200': {
               description: 'Success',
