@@ -9,7 +9,7 @@ import forge from "node-forge";
 
 import express from "express";
 import http from "http";
-import cors from "cors";
+import cors, { CorsOptions } from "cors";
 import mime from "mime-types";
 import responseTime from "response-time";
 import queryString from "query-string";
@@ -108,8 +108,14 @@ export const MARKDOWN_PATCH_V1_SUNSET = "6.0";
  *   explicit list at the same time.
  * - Safari only honoured the wildcard from 15.4 (March 2022). Older clients fall back
  *   to the safelist -- no worse off than before this was set.
+ *
+ * The `CorsOptions` annotation is load-bearing rather than decorative: `cors()` accepts
+ * any object structurally, so an untyped literal would take `exposeHeaders` or
+ * `exposedHeader` without complaint and silently drop back to the safelist. Annotated,
+ * a misspelled key is a typecheck error -- which is the only place a mistake here can
+ * be caught, since a wrong key produces no runtime error, just a missing header.
  */
-const CorsOptions = {
+const corsOptions: CorsOptions = {
   methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE", "COPY"],
   exposedHeaders: "*",
 };
@@ -2264,10 +2270,10 @@ export default class RequestHandler {
       next();
     });
     this.api.use(responseTime());
-    this.api.use(cors(CorsOptions));
+    this.api.use(cors(corsOptions));
 
     const mcpRouter = express.Router();
-    mcpRouter.use(cors(CorsOptions));
+    mcpRouter.use(cors(corsOptions));
     mcpRouter.use((req, res, next) => {
       if (!this.requestIsAuthenticated(req)) {
         this.returnCannedResponse(res, {
