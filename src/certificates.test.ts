@@ -383,6 +383,65 @@ describe("renewServerCertificateIfNeeded", () => {
     const broken: CryptoSettings = { ...crypto, caPrivateKey: "not a key" };
     expect(renewServerCertificateIfNeeded(broken, { now, keySize: TEST_KEY_SIZE })).toBeNull();
   });
+
+  // Material the user brought themselves need not have been made by this
+  // plugin (or by node-forge), so the renewal path must not assume anything
+  // about the CA beyond what its certificate says.
+  describe("with a user-supplied certificate authority", () => {
+    const CUSTOM_SKI = "0102030405060708090a0b0c0d0e0f1011121314";
+    const now = new Date(issuedAt.getTime() + (LEAF_VALIDITY_DAYS + 10) * 24 * 3600 * 1000);
+    let byo: CryptoSettings;
+
+    beforeAll(() => {
+      // A CA whose subjectKeyIdentifier is not the SHA-1 of its public key
+      // (RFC 5280 permits any unique value), signed with its own key.
+      const keypair = forge.pki.rsa.generateKeyPair(TEST_KEY_SIZE);
+      const attrs = [{ name: "commonName", value: "Bring Your Own CA" }];
+      const ca = forge.pki.createCertificate();
+      ca.serialNumber = "03";
+      ca.publicKey = keypair.publicKey;
+      ca.setIssuer(attrs);
+      ca.setSubject(attrs);
+      ca.validity.notBefore = issuedAt;
+      ca.validity.notAfter = new Date(issuedAt.getTime() + CA_VALIDITY_DAYS * 24 * 3600 * 1000);
+      ca.setExtensions([
+        { name: "basicConstraints", cA: true, critical: true },
+        { name: "keyUsage", keyCertSign: true, cRLSign: true, critical: true },
+        {
+          id: "2.5.29.14",
+          name: "customSubjectKeyIdentifier",
+          value: forge.asn1.create(
+            forge.asn1.Class.UNIVERSAL,
+            forge.asn1.Type.OCTETSTRING,
+            false,
+            forge.util.hexToBytes(CUSTOM_SKI),
+          ),
+        },
+      ]);
+      ca.sign(keypair.privateKey, forge.md.sha256.create());
+      byo = {
+        ...crypto,
+        caCert: forge.pki.certificateToPem(ca),
+        caPrivateKey: forge.pki.privateKeyToPem(keypair.privateKey),
+      };
+    });
+
+    test("the renewed leaf names the CA's actual subject key identifier as its authority", async () => {
+      const renewed = renewServerCertificateIfNeeded(byo, { now, keySize: TEST_KEY_SIZE });
+      expect(renewed).not.toBeNull();
+      if (!renewed) return;
+      expect(authorityKeyIdentifierOf(parse(renewed.cert))).toEqual(CUSTOM_SKI);
+      expect(parse(byo.caCert).verify(parse(renewed.cert))).toBe(true);
+      await expect(handshakeWith(renewed, byo.caCert)).resolves.toBe(true);
+    });
+
+    test("refuses to renew when the stored CA key does not belong to the CA certificate", () => {
+      // Signing with the wrong key would mint a leaf no verifier accepts and
+      // silently replace one that worked.
+      const mismatched: CryptoSettings = { ...byo, caPrivateKey: crypto.caPrivateKey };
+      expect(renewServerCertificateIfNeeded(mismatched, { now, keySize: TEST_KEY_SIZE })).toBeNull();
+    });
+  });
 });
 
 // A leaf the CA signed for names it does not permit: what an attacker who
