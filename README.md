@@ -25,6 +25,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
   * [Protocol revisions](#protocol-revisions)
   * [Connecting a client](#connecting-a-client)
   * [Available tools](#available-tools)
+  * [Binary files and attachments](#binary-files-and-attachments)
   * [Available resources](#available-resources)
 - [API Extensions](#api-extensions)
   * [Typed extension API](#typed-extension-api)
@@ -323,7 +324,9 @@ The exact config syntax varies by client; see the [Quick start](#mcp-clients) ex
 |---|---|
 | `vault_list` | List files and subdirectories inside a vault directory |
 | `vault_read` | Read a file's content, frontmatter, tags, and stat |
+| `vault_read_binary` | Read a file as raw bytes, base64-encoded, for attachments `vault_read` would corrupt |
 | `vault_write` | Create or overwrite a vault file |
+| `vault_write_binary` | Create or overwrite a vault file from base64-encoded raw bytes |
 | `vault_append` | Append content to the end of a vault file |
 | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
 | `vault_delete` | Delete a vault file (moves to trash by default) |
@@ -337,6 +340,16 @@ The exact config syntax varies by client; see the [Quick start](#mcp-clients) ex
 | `command_list` | List all registered Obsidian commands |
 | `command_execute` | Execute an Obsidian command by ID |
 | `open_file` | Open a file in the Obsidian UI |
+
+### Binary files and attachments
+
+The REST API has always handled binary content: `GET /vault/<path>` returns raw bytes with a `Content-Type` derived from the file extension, and `PUT /vault/<path>` accepts a body of any content type and stores it byte-for-byte. Neither has a practical size limit.
+
+MCP tools are a different story, because a tool's arguments and results pass through the model. `vault_read` and `vault_write` are text tools — they decode and encode UTF-8, which is lossy for anything that is not text — so reading an attachment with `vault_read` and writing the result back destroys the file. `vault_read_binary` and `vault_write_binary` exist for those files, and carry the bytes base64-encoded.
+
+`vault_write_binary` refuses a payload it cannot decode cleanly rather than writing the bytes it managed to salvage.
+
+Because base64 costs roughly 0.35-0.45 tokens per byte of context, both binary tools refuse files over 1 MiB. That ceiling is a context guard, not a storage limit — move larger attachments over the REST endpoints above.
 
 ### Available resources
 

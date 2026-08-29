@@ -13,7 +13,7 @@ import request from "supertest";
 import { McpServer } from "@modelcontextprotocol/server";
 
 import { McpHandler } from "./mcpHandler";
-import { DEFAULT_SETTINGS } from "./constants";
+import { DEFAULT_SETTINGS, MaximumMcpBinaryBytes } from "./constants";
 import { TFile } from "../mocks/obsidian";
 
 const MODERN_VERSION = "2026-07-28";
@@ -78,6 +78,7 @@ function makeMockOps() {
     readFileSectionMdp2: jest
       .fn()
       .mockResolvedValue({ kind: "heading", content: "section content" }),
+    readBinaryFileContent: jest.fn().mockResolvedValue(new ArrayBuffer(0)),
     writeFileContent: jest.fn().mockResolvedValue(undefined),
     appendFileContent: jest.fn().mockResolvedValue(undefined),
     patchFileSection: jest.fn().mockResolvedValue("patched content"),
@@ -204,14 +205,16 @@ describe("McpHandler", () => {
 
   // ---- tool registration --------------------------------------------------
 
-  test("registers all 16 tools", () => {
-    expect(registerTool).toHaveBeenCalledTimes(16);
+  test("registers all 18 tools", () => {
+    expect(registerTool).toHaveBeenCalledTimes(18);
     const names = registerTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
         "vault_list",
         "vault_read",
+        "vault_read_binary",
         "vault_write",
+        "vault_write_binary",
         "vault_append",
         "vault_patch",
         "vault_delete",
@@ -236,6 +239,7 @@ describe("McpHandler", () => {
       for (const name of [
         "vault_list",
         "vault_read",
+        "vault_read_binary",
         "vault_get_document_map",
         "active_file_get_path",
         "search_query",
@@ -503,6 +507,120 @@ describe("McpHandler", () => {
     const result = await cb({ path: "out.md", content: "hello" });
     expect(ops.writeFileContent).toHaveBeenCalledWith("out.md", "hello");
     expect(parseText(result).message).toBe("OK");
+  });
+
+  // ---- vault_read_binary / vault_write_binary ------------------------------
+
+  describe("binary tools", () => {
+    // A one-pixel PNG: real bytes, with a 0x89 lead byte that is not valid UTF-8, so a
+    // round trip through the text tools could not produce it.
+    const PNG_BASE64 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const PNG_BYTES = Buffer.from(PNG_BASE64, "base64");
+
+    function arrayBufferOf(buffer: Buffer): ArrayBuffer {
+      return buffer.buffer.slice(
+        buffer.byteOffset,
+        buffer.byteOffset + buffer.byteLength,
+      ) as ArrayBuffer;
+    }
+
+    test("vault_read_binary returns the bytes base64-encoded with a mime type and size", async () => {
+      ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(PNG_BYTES));
+      const cb = getToolCallback("vault_read_binary");
+      const result = await cb({ path: "attachments/pixel.png" });
+      expect(ops.readBinaryFileContent).toHaveBeenCalledWith("attachments/pixel.png");
+      expect(parseText(result)).toEqual({
+        path: "attachments/pixel.png",
+        mimeType: "image/png",
+        size: PNG_BYTES.byteLength,
+        encoding: "base64",
+        content: PNG_BASE64,
+      });
+    });
+
+    test("vault_read_binary falls back to application/octet-stream for an unknown extension", async () => {
+      ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(Buffer.from([0, 1, 2])));
+      const cb = getToolCallback("vault_read_binary");
+      expect(parseText(await cb({ path: "data.zzz" })).mimeType).toBe(
+        "application/octet-stream",
+      );
+    });
+
+    test("vault_read_binary refuses a file over the ceiling instead of returning it", async () => {
+      ops.readBinaryFileContent.mockResolvedValue(
+        new ArrayBuffer(MaximumMcpBinaryBytes + 1),
+      );
+      const cb = getToolCallback("vault_read_binary");
+      await expect(cb({ path: "big.bin" })).rejects.toThrow(
+        /Refusing to read .* GET or PUT \/vault/s,
+      );
+    });
+
+    test("vault_write_binary decodes base64 and hands writeFileContent a Buffer", async () => {
+      const cb = getToolCallback("vault_write_binary");
+      const result = await cb({ path: "attachments/pixel.png", content: PNG_BASE64 });
+      expect(ops.writeFileContent).toHaveBeenCalledTimes(1);
+      const [writtenPath, writtenContent] = ops.writeFileContent.mock.calls[0];
+      expect(writtenPath).toBe("attachments/pixel.png");
+      expect(Buffer.isBuffer(writtenContent)).toBe(true);
+      // The bytes must survive intact — this is the whole point of the tool.
+      expect((writtenContent as Buffer).equals(PNG_BYTES)).toBe(true);
+      expect(parseText(result)).toEqual({ message: "OK", size: PNG_BYTES.byteLength });
+    });
+
+    test("vault_write_binary tolerates whitespace-wrapped base64", async () => {
+      const cb = getToolCallback("vault_write_binary");
+      const wrapped = PNG_BASE64.replace(/(.{40})/g, "$1\n");
+      await cb({ path: "attachments/pixel.png", content: wrapped });
+      const [, writtenContent] = ops.writeFileContent.mock.calls[0];
+      expect((writtenContent as Buffer).equals(PNG_BYTES)).toBe(true);
+    });
+
+    test.each([
+      ["a bad length", "iVBOR"],
+      ["a character outside the alphabet", "iVBO*w0KGgo="],
+      ["base64url input", "-_-_"],
+      ["a non-canonical encoding", "QR=="],
+    ])(
+      "vault_write_binary rejects %s rather than writing mangled bytes",
+      async (_label: string, content: string) => {
+        const cb = getToolCallback("vault_write_binary");
+        await expect(cb({ path: "attachments/pixel.png", content })).rejects.toThrow(
+          /must be base64-encoded bytes/,
+        );
+        expect(ops.writeFileContent).not.toHaveBeenCalled();
+      },
+    );
+
+    // The base64url hint is worth its space only for a caller who actually used base64url;
+    // on every other failure it is a paragraph about an encoding nobody reached for.
+    test("vault_write_binary names base64url only when the payload looks like it", async () => {
+      const cb = getToolCallback("vault_write_binary");
+      await expect(
+        cb({ path: "attachments/pixel.png", content: "-_-_" }),
+      ).rejects.toThrow(/base64url/);
+      await expect(
+        cb({ path: "attachments/pixel.png", content: "iVBOR" }),
+      ).rejects.not.toThrow(/base64url/);
+    });
+
+    test("vault_write_binary refuses a payload over the ceiling", async () => {
+      const cb = getToolCallback("vault_write_binary");
+      const oversized = Buffer.alloc(MaximumMcpBinaryBytes + 3).toString("base64");
+      await expect(
+        cb({ path: "big.bin", content: oversized }),
+      ).rejects.toThrow(/Refusing to write/);
+      expect(ops.writeFileContent).not.toHaveBeenCalled();
+    });
+
+    test("vault_write_binary writes an empty file for an empty payload", async () => {
+      const cb = getToolCallback("vault_write_binary");
+      const result = await cb({ path: "empty.bin", content: "" });
+      const [, writtenContent] = ops.writeFileContent.mock.calls[0];
+      expect((writtenContent as Buffer).byteLength).toBe(0);
+      expect(parseText(result).size).toBe(0);
+    });
   });
 
   // ---- vault_append -------------------------------------------------------
@@ -1093,8 +1211,8 @@ describe("McpHandler", () => {
 
       const first = await send(1);
       const second = await send(2);
-      expect(first.body.result.tools).toHaveLength(16);
-      expect(second.body.result.tools).toHaveLength(16);
+      expect(first.body.result.tools).toHaveLength(18);
+      expect(second.body.result.tools).toHaveLength(18);
       expect(first.headers["mcp-session-id"]).toBeUndefined();
       expect(second.headers["mcp-session-id"]).toBeUndefined();
     });
@@ -1234,7 +1352,7 @@ describe("McpHandler", () => {
         .send(sessionlessRequest(1, "tools/list"))
         .expect(200);
 
-      expect(res.body.result.tools).toHaveLength(16);
+      expect(res.body.result.tools).toHaveLength(18);
       expect(res.headers["mcp-session-id"]).toBeUndefined();
     });
 
@@ -1362,7 +1480,7 @@ describe("McpHandler", () => {
         .expect(200);
 
       const message = sseResult(res.text);
-      expect(message.result.tools).toHaveLength(16);
+      expect(message.result.tools).toHaveLength(18);
       const vaultList = (message.result.tools as { name: string; inputSchema: unknown }[]).find(
         (t) => t.name === "vault_list",
       );

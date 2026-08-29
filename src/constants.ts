@@ -97,3 +97,11 @@ export const LicenseUrl =
   "https://raw.githubusercontent.com/coddingtonbear/obsidian-local-rest-api/main/LICENSE";
 
 export const MaximumRequestSize = "1024mb";
+
+// Ceiling on the bytes `vault_read_binary` and `vault_write_binary` will carry. This is a
+// context guard, not a storage limit: base64 in a tool argument or result passes through
+// the model's context at roughly 0.35-0.45 tokens per byte, so a file a REST client would
+// not think twice about is a five-figure token bill for an agent. Anything larger belongs
+// on `GET`/`PUT /vault/<path>`, which carry raw bytes and are bounded only by
+// `MaximumRequestSize` above.
+export const MaximumMcpBinaryBytes = 1024 * 1024;

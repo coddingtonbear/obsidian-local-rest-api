@@ -14,6 +14,7 @@ import { posix } from "path";
 import { randomUUID } from "crypto";
 import { z } from "zod";
 import express from "express";
+import mime from "mime-types";
 import { TFile } from "obsidian";
 import { dedent } from "ts-dedent";
 
@@ -22,6 +23,7 @@ import type { InstructionInput, ReadTarget } from "markdown-patch-2";
 import { InstructionInputObjectSchema } from "markdown-patch-2";
 import openapiYaml from "../docs/openapi.yaml";
 import { toStandardSchema } from "./mcpSchema";
+import { MaximumMcpBinaryBytes } from "./constants";
 import { LocalRestApiSettings } from "./types";
 
 const SERVER_INFO = { name: "obsidian-local-rest-api", version: "1.0.0" };
@@ -79,6 +81,47 @@ function parseStringHeadingTarget(target: string): string[] | null | undefined {
 
 const HEADING_TARGET_STRING_HINT =
   "received a string that is not the JSON encoding of an array — if you did pass an array, your MCP client may not support anyOf-typed tool parameters";
+
+const BASE64_ALPHABET = /^[A-Za-z0-9+/]*={0,2}$/;
+
+// `Buffer.from(s, "base64")` discards anything it cannot decode instead of failing, so a
+// mangled payload would be written to the vault as silently-wrong bytes. Validate the
+// alphabet and padding, then re-encode and compare: a value that does not survive the
+// round trip is not the encoding of the bytes we would have written.
+function decodeBase64Strict(value: string): Buffer {
+  const compact = value.replace(/\s+/g, "");
+  // RFC 4648 defines two alphabets, and the URL-safe one is common enough that a caller
+  // can arrive with it by accident. Name it only when the payload actually looks like it,
+  // so the usual failure is not buried under a paragraph about an encoding nobody used.
+  const looksLikeBase64Url = /[-_]/.test(compact);
+  const rejected = (why: string): Error =>
+    new Error(
+      `content must be base64-encoded bytes (${why})` +
+        (looksLikeBase64Url
+          ? ". This looks like base64url; use '+' and '/' rather than '-' and '_'."
+          : "."),
+    );
+  if (compact.length % 4 !== 0) {
+    throw rejected("length is not a multiple of 4");
+  }
+  if (!BASE64_ALPHABET.test(compact)) {
+    throw rejected("contains characters outside the base64 alphabet");
+  }
+  const decoded = Buffer.from(compact, "base64");
+  if (decoded.toString("base64") !== compact) {
+    throw rejected("it does not survive a decode/re-encode round trip");
+  }
+  return decoded;
+}
+
+// Both binary tools refuse the same way, so the ceiling reads identically whichever
+// direction a client hit it from.
+function assertWithinBinaryCeiling(byteLength: number, verb: string): void {
+  if (byteLength <= MaximumMcpBinaryBytes) return;
+  throw new Error(
+    `Refusing to ${verb} ${byteLength} bytes over MCP: the limit is ${MaximumMcpBinaryBytes} bytes, because base64 costs roughly 0.35-0.45 tokens per byte of context. Use the REST API instead — GET or PUT /vault/<path> carries raw bytes.`,
+  );
+}
 
 interface ResourceSpec {
   name: string;
@@ -467,6 +510,52 @@ export class McpHandler {
       async ({ path, content }: { path: string; content: string }) => {
         await this.ops.writeFileContent(path, content);
         return this.text({ message: "OK" });
+      },
+    );
+
+    this.tool(
+      "vault_read_binary",
+      dedent`
+        Read a vault file as raw bytes, returned base64-encoded. Use this for anything that is not text — images, PDFs, audio, any attachment. vault_read decodes a file as UTF-8 and will hand back a lossy, unusable string for those, so writing the result of a vault_read back to a binary file destroys it.
+
+        Returns a JSON object with: path, mimeType (guessed from the file extension), size (the file's size in bytes, before encoding), encoding (always "base64"), and content (the base64 payload). Throws if the file does not exist.
+
+        Base64 costs roughly 0.35-0.45 tokens per byte of file, so this is only practical for small files: a 1 MB attachment is several hundred thousand tokens of context. Files over ${MaximumMcpBinaryBytes} bytes are refused outright — fetch those with the REST API's GET /vault/<path>, which carries raw bytes at no context cost.
+      `,
+      { path: z.string().describe("File path relative to vault root") },
+      READ_ONLY_ANNOTATIONS,
+      async ({ path }: { path: string }) => {
+        const bytes = await this.ops.readBinaryFileContent(path);
+        assertWithinBinaryCeiling(bytes.byteLength, "read");
+        return this.text({
+          path,
+          mimeType: mime.lookup(path) || "application/octet-stream",
+          size: bytes.byteLength,
+          encoding: "base64",
+          content: Buffer.from(bytes).toString("base64"),
+        });
+      },
+    );
+
+    this.tool(
+      "vault_write_binary",
+      dedent`
+        Create or overwrite a vault file with raw bytes supplied base64-encoded. Use this for anything that is not text — images, PDFs, audio, any attachment. Creates any missing parent directories automatically, and overwrites without warning if the file already exists.
+
+        content is base64. A payload that cannot be decoded cleanly is rejected rather than written, since a silently corrupted attachment is worse than a failed call.
+
+        Files over ${MaximumMcpBinaryBytes} bytes are refused — upload those with the REST API's PUT /vault/<path>, which accepts raw bytes of any content type.
+      `,
+      {
+        path: z.string().describe("File path relative to vault root"),
+        content: z.string().describe("Full file content, base64-encoded"),
+      },
+      { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+      async ({ path, content }: { path: string; content: string }) => {
+        const bytes = decodeBase64Strict(content);
+        assertWithinBinaryCeiling(bytes.byteLength, "write");
+        await this.ops.writeFileContent(path, bytes);
+        return this.text({ message: "OK", size: bytes.byteLength });
       },
     );
 

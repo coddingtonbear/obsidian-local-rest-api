@@ -268,7 +268,7 @@ std.manifestYamlDoc(
             'Vault Files',
           ],
           summary: 'Create a new file in your vault or update the content of an existing one.\n',
-          description: 'Creates a new file in your vault or updates the content of an existing one if the specified file already exists.\n\n' + PutShared,
+          description: 'Creates a new file in your vault or updates the content of an existing one if the specified file already exists.\n\nAny content type is accepted: a request body that is not text or JSON is stored as raw bytes, so attachments -- images, PDFs, audio -- can be uploaded here as well as notes. There is no size limit beyond the request-size cap.\n\n' + PutShared,
           parameters: [ParamPath] + super.parameters,
         },
         post: Post {
