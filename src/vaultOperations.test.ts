@@ -305,12 +305,11 @@ describe("backlinks index caching", () => {
   });
 
   test("the index ages out even when nothing announces the change", async () => {
-    // The listener list covers every event Obsidian declares today, but this
-    // cache's correctness must not rest on that list still being complete after
-    // an Obsidian upgrade. An event nobody here has heard of, or an internal
-    // path that rewrites resolvedLinks without announcing anything, would
-    // otherwise leave a stale index in place for the lifetime of the plugin.
-    // Ageing it out bounds that at BACKLINKS_INDEX_MAX_AGE_MS instead.
+    // Interception covers every event Obsidian announces, whatever it is
+    // called, but an announcement is still something Obsidian has to make. An
+    // internal path that rewrote resolvedLinks in silence would otherwise leave
+    // a stale index in place for the lifetime of the plugin; ageing it out
+    // bounds that at BACKLINKS_INDEX_MAX_AGE_MS instead.
     jest.useFakeTimers();
     try {
       const { app, build, backlinks } = backlinksSetup();
@@ -321,7 +320,7 @@ describe("backlinks index caching", () => {
         "a.md": { "note.md": 1 },
         "b.md": { "note.md": 1 },
       };
-      // Deliberately no event: this is the case the listeners cannot cover.
+      // Deliberately no event: this is the case interception cannot cover.
       jest.advanceTimersByTime(BACKLINKS_INDEX_MAX_AGE_MS);
 
       expect(await backlinks()).toEqual(["a.md", "b.md"]);
@@ -375,9 +374,12 @@ describe("backlinks index caching", () => {
     // VaultOperations lives as long as the plugin, but the objects it intercepts
     // outlive it: a wrapper left behind on a shared emitter holds the old
     // instance alive and goes on writing to a cache nobody reads.
-    const { app, ops } = backlinksSetup();
+    const app = new App();
     const metadataCacheTrigger = app.metadataCache.trigger;
     const vaultTrigger = app.vault.trigger;
+
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    expect(app.metadataCache.trigger).not.toBe(metadataCacheTrigger);
 
     ops.dispose();
 

@@ -8,6 +8,7 @@ import {
   prepareSimpleSearch,
   TFile,
 } from "obsidian";
+import type { Events } from "obsidian";
 import path from "path";
 import {
   applyPatch,
@@ -47,45 +48,24 @@ import {
 import { toArrayBuffer } from "./utils";
 
 /**
- * Every event Obsidian's metadata cache publicly declares, and every event its
- * vault publicly declares.
- *
- * Deliberately the whole surface rather than the subset that looks like it moves
- * the link graph. `resolvedLinks` is Obsidian's own derived state, and which of
- * its events happen to precede an update to it is an implementation detail of a
- * dependency -- betting a cache's correctness on having read that detail right
- * is a bet nobody can win permanently. Subscribing to everything removes the
- * judgement call, and costs only a rebuild the uncached code performed on every
- * single read anyway.
- *
- * `src/vaultOperations.test.ts` reads these names back out of the installed
- * obsidian typings and fails if the two ever disagree, so an Obsidian upgrade
- * that adds an event is a red test rather than a cache that quietly goes stale.
- */
-export const METADATA_CACHE_EVENTS = [
-  "changed",
-  "deleted",
-  "resolve",
-  "resolved",
-] as const;
-export const VAULT_EVENTS = ["create", "modify", "delete", "rename"] as const;
-
-/**
  * How long a built backlinks index may be served before it is rebuilt anyway.
  *
- * The listeners above cover everything Obsidian announces, but "everything it
- * announces" is not the same as "everything that happens": an event added in a
- * future release, or an internal path that rewrites `resolvedLinks` without
- * saying so, would otherwise leave a stale index in place for as long as the
- * plugin runs. Ageing the index out turns that unbounded failure into a bounded
- * one, without depending on any part of Obsidian's API being what we think.
+ * Trigger interception (see `interceptTriggers`) covers everything Obsidian
+ * announces, whatever the announcement is called. What it cannot cover is a
+ * change that announces nothing at all -- an internal path that rewrites
+ * `resolvedLinks` in silence -- which would otherwise leave a stale index in
+ * place for as long as the plugin runs. Ageing the index out turns that
+ * unbounded failure into a bounded one without depending on any part of
+ * Obsidian's API being what we think it is.
  *
- * A second is chosen so the ceiling costs nothing that matters: the behaviour
- * this cache replaced rebuilt the index on *every* read, so even the worst case
- * here -- one rebuild per second -- stays far below what the endpoint used to
- * pay, while the burst of reads the cache exists for still scans once.
+ * The ceiling is the backstop, not the mechanism, so it is set where it costs
+ * least: a rebuild scans the vault's whole link graph, measured at ~5 ms for a
+ * 9,000-note vault and ~16 ms at four times that, and it runs on the same
+ * thread as Obsidian's UI. A minute keeps that off the critical path of a
+ * sustained read load entirely, while still bounding a silent change at a
+ * minute rather than a session.
  */
-export const BACKLINKS_INDEX_MAX_AGE_MS = 1000;
+export const BACKLINKS_INDEX_MAX_AGE_MS = 60_000;
 
 /**
  * Writes go through Vault.modify/Vault.create rather than Vault.adapter.write.
@@ -101,6 +81,8 @@ export class VaultOperations {
   private cachedBacklinksIndex: Record<string, string[]> | null = null;
   private cachedBacklinksIndexBuiltAt = 0;
 
+  private readonly restoreTriggers: (() => void)[] = [];
+
   /**
    * Dropped whenever Obsidian says anything at all has happened.
    *
@@ -114,18 +96,8 @@ export class VaultOperations {
   };
 
   constructor(readonly app: App, readonly settings: LocalRestApiSettings) {
-    // Obsidian types `on` as one overload per literal event name, so iterating a
-    // union of them needs a cast to any single literal to typecheck. The handler
-    // takes no arguments, which every one of those callback signatures accepts.
-    for (const event of METADATA_CACHE_EVENTS) {
-      this.app.metadataCache.on(
-        event as "resolved",
-        this.invalidateBacklinksIndex,
-      );
-    }
-    for (const event of VAULT_EVENTS) {
-      this.app.vault.on(event as "modify", this.invalidateBacklinksIndex);
-    }
+    this.interceptTriggers(this.app.metadataCache);
+    this.interceptTriggers(this.app.vault);
 
     jsonLogic.add_operation(
       "glob",
@@ -148,19 +120,70 @@ export class VaultOperations {
   }
 
   /**
-   * Releases the link-graph listeners registered in the constructor.
+   * Drops the cached backlinks index on any event the emitter publishes, named
+   * or not.
+   *
+   * Subscribing with `on` can only name events that exist when the name is
+   * written, which makes the subscription list a bet that no future Obsidian
+   * release adds an event that moves `resolvedLinks` -- a bet that loses
+   * silently, by serving backlinks from a graph that no longer exists.
+   * `Events.trigger` is the one point every published event passes through on
+   * its way to those subscribers, so wrapping it is the same coverage with no
+   * list to keep correct.
+   *
+   * Two constraints come with replacing a method on an object the whole
+   * application shares. The wrapper must be transparent -- same arguments, same
+   * return, and it cannot throw, which is why the work it does is a single
+   * assignment. And it must unwind politely: another plugin may wrap the same
+   * method afterwards, so `dispose` only restores while ours is still the
+   * outermost wrapper (see below).
+   *
+   * The wrapper is an own property of the instance, so nothing else deriving
+   * from `Events` is affected.
+   */
+  private interceptTriggers(emitter: Events): void {
+    const hadOwnTrigger = Object.hasOwn(emitter, "trigger");
+
+    // The method reference below is held only to be reinstalled, and is invoked
+    // through .call(emitter), so the `this` the rule guards against losing is
+    // supplied explicitly. Binding it instead would satisfy the linter, but this
+    // project compiles without strictBindCallApply, under which bind() returns
+    // `any` -- trading one suppressed rule for three unsafe-any errors.
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const original = emitter.trigger;
+    const wrapped = (name: string, ...data: unknown[]): void => {
+      this.invalidateBacklinksIndex();
+      original.call(emitter, name, ...data);
+    };
+    emitter.trigger = wrapped;
+
+    this.restoreTriggers.push(() => {
+      // Someone else's wrapper on top of ours: unwinding would take theirs with
+      // it, and leaving ours in place is the lesser of those two.
+      if (emitter.trigger !== wrapped) return;
+
+      if (hadOwnTrigger) {
+        emitter.trigger = original;
+      } else {
+        // Deleting rather than assigning leaves the object exactly as found,
+        // with `trigger` resolving to the prototype again.
+        delete (emitter as { trigger?: Events["trigger"] }).trigger;
+      }
+    });
+  }
+
+  /**
+   * Puts back the `trigger` methods intercepted in the constructor.
    *
    * This object lives as long as the plugin does, so this matters only at
-   * unload -- but a listener left behind holds the whole instance alive and
-   * goes on invalidating a cache nobody will read again.
+   * unload -- but the emitters outlive it, and a wrapper left on one holds the
+   * whole instance alive and goes on invalidating a cache nobody will read.
    */
   dispose(): void {
-    for (const event of METADATA_CACHE_EVENTS) {
-      this.app.metadataCache.off(event, this.invalidateBacklinksIndex);
+    for (const restore of this.restoreTriggers) {
+      restore();
     }
-    for (const event of VAULT_EVENTS) {
-      this.app.vault.off(event, this.invalidateBacklinksIndex);
-    }
+    this.restoreTriggers.length = 0;
   }
 
   private waitForFileCache(
@@ -284,7 +307,7 @@ export class VaultOperations {
    * The vault-wide "who links here" index, built at most once per link-graph
    * change and, failing that, at most once per BACKLINKS_INDEX_MAX_AGE_MS.
    *
-   * The age check is the half that does not trust Obsidian: the listeners drop
+   * The age check is the half that does not trust Obsidian: interception drops
    * the index the moment anything is announced, and the ceiling makes sure an
    * announcement that never comes cannot keep a wrong answer in circulation.
    *
