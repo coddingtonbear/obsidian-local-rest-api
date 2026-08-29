@@ -27,7 +27,7 @@ import {
   buildServerCertificateChain,
   generateCryptoSettings,
   getCertificateStandardsIssue,
-  getCertificateValidityDays,
+  getReportedValidityDays,
   renewServerCertificateIfNeeded,
 } from "./certificates";
 import type { LocalRestApiPublicApi } from "./publicApi";
@@ -210,12 +210,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
   }
 
   /**
-   * Summarises the stored certificate material for the settings UI.
-   *
-   * With CA-backed material the server certificate renews itself on load, so
-   * the expiry that matters to the user is the CA's: that is what they
-   * imported, and what they will have to import again. Legacy material has
-   * only the one certificate, so its expiry is reported directly.
+   * Summarises the stored certificate material for the settings UI. See
+   * getReportedValidityDays for which certificate's expiry is reported.
    */
   private getCertificateStatus(): {
     remainingCertificateValidityDays: number | null;
@@ -225,18 +221,16 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     if (!crypto) {
       return { remainingCertificateValidityDays: null, standardsIssue: null };
     }
+    let standardsIssue: CertificateStandardsIssue | null = null;
     try {
-      const served = forge.pki.certificateFromPem(crypto.cert);
-      const trusted = crypto.caCert
-        ? forge.pki.certificateFromPem(crypto.caCert)
-        : served;
-      return {
-        remainingCertificateValidityDays: getCertificateValidityDays(trusted),
-        standardsIssue: getCertificateStandardsIssue(served),
-      };
+      standardsIssue = getCertificateStandardsIssue(forge.pki.certificateFromPem(crypto.cert));
     } catch {
-      return { remainingCertificateValidityDays: null, standardsIssue: null };
+      // Unparseable material: nothing to say about its standards either.
     }
+    return {
+      remainingCertificateValidityDays: getReportedValidityDays(crypto),
+      standardsIssue,
+    };
   }
 
   /**

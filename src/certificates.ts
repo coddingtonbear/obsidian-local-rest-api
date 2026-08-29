@@ -431,6 +431,31 @@ export function getCertificateValidityDays(
 }
 
 /**
+ * The number of days of validity the settings page should report, or null
+ * when the material does not parse.
+ *
+ * With CA-backed material the leaf renews itself on load, so the expiry
+ * the user has to act on is the CA's: that is what they imported and will
+ * have to import again. A leaf still inside its renewal window after load
+ * means renewal was refused (the names changed since the CA was minted, or
+ * the CA material is unusable); its expiry is what the server will
+ * actually deliver, so report that instead. Legacy material has only the
+ * one certificate.
+ */
+export function getReportedValidityDays(
+  crypto: CryptoSettings,
+  now: Date = new Date(),
+): number | null {
+  try {
+    const leafDays = getCertificateValidityDays(pki.certificateFromPem(crypto.cert), now);
+    if (!crypto.caCert || leafDays <= LEAF_RENEWAL_WINDOW_DAYS) return leafDays;
+    return getCertificateValidityDays(pki.certificateFromPem(crypto.caCert), now);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Report whether a certificate was generated in a shape that current
  * verifiers reject. `role` says what the certificate is used as: the CA bit
  * is only a problem on the certificate the server presents.
