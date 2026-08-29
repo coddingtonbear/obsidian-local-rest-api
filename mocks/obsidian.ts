@@ -117,6 +117,34 @@ export class Vault {
     file.basename = (path.split("/").pop() ?? path).replace(/\.md$/, "");
     return file;
   }
+
+  _listeners: Map<string, ((...data: unknown[]) => unknown)[]> = new Map();
+
+  on(event: string, callback: (...data: unknown[]) => unknown): void {
+    if (!this._listeners.has(event)) {
+      this._listeners.set(event, []);
+    }
+    this._listeners.get(event)!.push(callback);
+  }
+
+  off(event: string, callback: (...data: unknown[]) => unknown): void {
+    const listeners = this._listeners.get(event);
+    if (listeners) {
+      const index = listeners.indexOf(callback);
+      if (index !== -1) {
+        listeners.splice(index, 1);
+      }
+    }
+  }
+
+  // Helper method for tests to simulate vault events -- `rename`, `delete` --
+  // with whatever arguments Obsidian would pass.
+  _emit(event: string, ...data: unknown[]): void {
+    const listeners = this._listeners.get(event);
+    if (listeners) {
+      listeners.forEach((cb) => cb(...data));
+    }
+  }
 }
 
 class FileManager {
@@ -198,9 +226,15 @@ export class MetadataCache {
   // file's new content as the second argument, which callers use to tell an update
   // for their own write apart from one for an unrelated revision.
   _emitChanged(file: TFile, data = ""): void {
-    const listeners = this._listeners.get("changed");
+    this._emit("changed", file, data);
+  }
+
+  // Fires any other cache event by name -- `resolve`, `resolved`, `deleted` --
+  // with whatever arguments Obsidian would pass.
+  _emit(event: string, ...data: unknown[]): void {
+    const listeners = this._listeners.get(event);
     if (listeners) {
-      listeners.forEach((cb) => cb(file, data));
+      listeners.forEach((cb) => cb(...data));
     }
   }
 }
