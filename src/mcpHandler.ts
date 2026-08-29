@@ -114,24 +114,29 @@ function decodeBase64Strict(value: string): Buffer {
   return decoded;
 }
 
-// A file that is not text still "reads": Obsidian decodes it as UTF-8 and substitutes
-// U+FFFD for every malformed byte sequence rather than failing, so `vault_read` on a PNG
-// hands back a lossy string and reports success. Write that string back through
-// `vault_write` and the file is destroyed, with nothing along the way looking like an
-// error.
+// A file that is not text still "reads" through Obsidian's own reader: it decodes as
+// UTF-8 and substitutes U+FFFD for every malformed byte sequence rather than failing, so
+// `vault_read` on a PNG hands back a lossy string and reports success. Write that string
+// back through `vault_write` and the file is destroyed, with nothing along the way
+// looking like an error.
 //
-// U+FFFD in the decoded text is the only trace that substitution happened — but it is not
-// proof of it, because a text file may contain the character deliberately. So it is used
-// as a cheap trigger rather than a verdict: text without it decoded losslessly and costs
-// nothing beyond the scan, and only text with it pays for re-reading the raw bytes to
-// answer the question exactly, by the same decode/re-encode round trip
-// `decodeBase64Strict` uses above.
-// Spelled by code point rather than as a literal: the character itself renders as an
-// unidentifiable box in most editors, which is a poor thing to have to recognise here.
-const REPLACEMENT_CHARACTER = String.fromCodePoint(0xfffd);
-
-function survivesUtf8RoundTrip(bytes: Buffer): boolean {
-  return Buffer.from(bytes.toString("utf-8"), "utf-8").equals(bytes);
+// So `vault_read` decodes the bytes itself, with a decoder that throws instead of
+// substituting. That is the exact question the tool needs answered — would handing this
+// back as a string lose bytes? — rather than a guess at what the file is, and it is one
+// read: the same bytes then serve the content, which is why every read path below takes
+// the text it produced instead of reading the file again.
+//
+// `ignoreBOM` keeps a leading U+FEFF in the string rather than swallowing it, so what a
+// caller reads is byte-for-byte what a `vault_write` of it would put back, and so a
+// BOM-carrying note reads exactly as it did before this check existed.
+function decodeUtf8Strict(bytes: ArrayBuffer, path: string): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    throw new Error(
+      `Refusing to read ${path} as text: its bytes are not valid UTF-8, so decoding them loses data and the content returned here could not be written back without destroying the file. Read it with vault_read_binary, or fetch the raw bytes over the REST API with GET /vault/<path>.`,
+    );
+  }
 }
 
 // Both binary tools refuse the same way, so the ceiling reads identically whichever
@@ -413,16 +418,10 @@ export class McpHandler {
     return file;
   }
 
-  // Refuses text that only exists because bytes were mangled on the way in. See
-  // REPLACEMENT_CHARACTER above for why the cheap check comes first and what the raw-byte
-  // read is settling.
-  private async assertDecodedLosslessly(path: string, decoded: string): Promise<void> {
-    if (!decoded.includes(REPLACEMENT_CHARACTER)) return;
-    const bytes = Buffer.from(await this.ops.readBinaryFileContent(path));
-    if (survivesUtf8RoundTrip(bytes)) return;
-    throw new Error(
-      `Refusing to read ${path} as text: its bytes are not valid UTF-8, so decoding them loses data and the content returned here could not be written back without destroying the file. Read it with vault_read_binary, or fetch the raw bytes over the REST API with GET /vault/<path>.`,
-    );
+  // The one read behind every `vault_read`: raw bytes, decoded strictly. See
+  // `decodeUtf8Strict` above for why the read is a binary one.
+  private async readTextStrict(path: string): Promise<string> {
+    return decodeUtf8Strict(await this.ops.readBinaryFileContent(path), path);
   }
 
   private registerResources(): void {
@@ -505,6 +504,10 @@ export class McpHandler {
         if (scope !== undefined && (targetType == null || target == null)) {
           throw new Error("scope requires targetType and target");
         }
+        // Read once, up front, and hand the text to whichever path answers: a malformed
+        // argument should not cost a file read, but neither should a targeted read of a
+        // file this tool is about to refuse.
+        const content = await this.readTextStrict(path);
         if (targetType && target != null) {
           let address: ReadTarget;
           if (targetType === "heading") {
@@ -525,19 +528,10 @@ export class McpHandler {
           if (scope !== undefined) {
             address.scope = scope;
           }
-          const result = await this.ops.readFileSectionMdp2(file, address);
-          const section = result.kind === "frontmatter" ? result.value : result.content;
-          // A targeted read only ever sees its own section, so this guards what is
-          // actually being handed back rather than the whole file. In practice a binary
-          // file has no headings, blocks, or frontmatter to address, so the refusal a
-          // caller meets here is usually the target lookup's own.
-          if (typeof section === "string") {
-            await this.assertDecodedLosslessly(path, section);
-          }
-          return this.text(section);
+          const result = await this.ops.readFileSectionMdp2(file, address, content);
+          return this.text(result.kind === "frontmatter" ? result.value : result.content);
         }
-        const meta = await this.ops.getFileMetadataObject(file);
-        await this.assertDecodedLosslessly(path, meta.content);
+        const meta = await this.ops.getFileMetadataObject(file, undefined, true, content);
         return this.text(meta);
       },
     );

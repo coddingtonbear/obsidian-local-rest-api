@@ -639,18 +639,18 @@ describe("vault_read_binary and vault_write_binary tools", () => {
 // ---------------------------------------------------------------------------
 // vault_read's refusal of non-text files
 //
-// The unit tests hand the handler a decoded string and mock what a re-read returns; only
-// here does a real file go through Obsidian's own reader, which is what decides whether
-// U+FFFD actually shows up in the decoded text. Both directions are covered, because the
-// guard is only worth having if it separates them.
+// The unit tests hand the handler bytes through a mocked ops layer; only here do a real
+// file's bytes come back from Obsidian's own adapter and get decoded. Both directions are
+// covered, because the guard is only worth having if it separates them.
 // ---------------------------------------------------------------------------
 
 describe("vault_read on a non-text file", () => {
   const PNG_PATH = `${TEST_DIR}/mcp-temp-refused.png`;
   const PIXEL_BASE64 =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-  // A note whose text genuinely contains the replacement character — the false positive
-  // the cheap check would produce on its own.
+  // A note whose text genuinely contains the replacement character: its own bytes are
+  // valid UTF-8, so it must read normally. This is the file a check that looked for the
+  // character itself would wrongly refuse.
   const MARKER_PATH = `${TEST_DIR}/mcp-temp-marker.md`;
   const MARKER_BODY = `# Marker\n\nA pasted glyph survived as ${String.fromCodePoint(0xfffd)} here.\n`;
 
@@ -680,6 +680,18 @@ describe("vault_read on a non-text file", () => {
     expect(result.isError).toBe(true);
     expect(textOf(result)).toMatch(/not valid UTF-8/);
     expect(textOf(result)).toMatch(/vault_read_binary/);
+  });
+
+  // The refusal is on the file's bytes, so it lands before the target is looked up: a
+  // targeted read of an attachment says the file is not text, rather than that the
+  // heading was not found in it.
+  test("refuses a targeted read of the PNG for the same reason", async () => {
+    const result = await client.callTool({
+      name: "vault_read",
+      arguments: { path: PNG_PATH, targetType: "heading", target: ["Anything"] },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toMatch(/not valid UTF-8/);
   });
 
   test("still reads a text file containing a literal replacement character", async () => {

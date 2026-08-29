@@ -23,6 +23,10 @@ const LEGACY_VERSION = "2025-06-18";
 // would make the assertion agree with the SDK by construction.
 const NEWEST_SESSIONFUL_VERSION = "2025-11-25";
 
+// What the mock vault holds at `test.md`. `vault_read` reads a file's raw bytes and
+// decodes them itself, so this is what every read of that path hands on to the ops layer.
+const NOTE_TEXT = "# Alpha\n\nsection content\n";
+
 // The real McpServer is used throughout: the 2026-07-28 serving entries build one per
 // request from McpHandler's factory, so there is nothing to substitute. Registrations are
 // observed by spying on the prototype and then building a server directly.
@@ -39,6 +43,17 @@ function makeMockFile(path = "test.md"): TFile {
   f.path = path;
   f.basename = path.replace(/\.md$/, "");
   return f;
+}
+
+function arrayBufferOf(buffer: Buffer): ArrayBuffer {
+  return buffer.buffer.slice(
+    buffer.byteOffset,
+    buffer.byteOffset + buffer.byteLength,
+  ) as ArrayBuffer;
+}
+
+function bytesOf(text: string): ArrayBuffer {
+  return arrayBufferOf(Buffer.from(text, "utf-8"));
 }
 
 function makeMockOps() {
@@ -78,7 +93,7 @@ function makeMockOps() {
     readFileSectionMdp2: jest
       .fn()
       .mockResolvedValue({ kind: "heading", content: "section content" }),
-    readBinaryFileContent: jest.fn().mockResolvedValue(new ArrayBuffer(0)),
+    readBinaryFileContent: jest.fn().mockResolvedValue(bytesOf(NOTE_TEXT)),
     writeFileContent: jest.fn().mockResolvedValue(undefined),
     appendFileContent: jest.fn().mockResolvedValue(undefined),
     patchFileSection: jest.fn().mockResolvedValue("patched content"),
@@ -320,6 +335,7 @@ describe("McpHandler", () => {
       expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
         expect.objectContaining({ path: "test.md" }),
         { targetType: "heading", target: ["Alpha", "Subsection"] },
+        NOTE_TEXT,
       );
       expect(ops.getFileMetadataObject).not.toHaveBeenCalled();
       expect(parseText(result)).toBe("section content");
@@ -340,6 +356,7 @@ describe("McpHandler", () => {
           target: ["Alpha"],
           scope: "markerAndContent",
         },
+        NOTE_TEXT,
       );
     });
 
@@ -361,6 +378,7 @@ describe("McpHandler", () => {
       expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
         expect.anything(),
         { targetType: "heading", target: [disambiguated] },
+        NOTE_TEXT,
       );
     });
 
@@ -384,6 +402,7 @@ describe("McpHandler", () => {
       expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
         expect.anything(),
         { targetType: "heading", target: ["Parent", "Child"] },
+        NOTE_TEXT,
       );
     });
 
@@ -409,6 +428,7 @@ describe("McpHandler", () => {
       expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
         expect.anything(),
         { targetType: "block", target: "beta-block" },
+        NOTE_TEXT,
       );
     });
 
@@ -419,6 +439,7 @@ describe("McpHandler", () => {
       expect(ops.readFileSectionMdp2).toHaveBeenCalledWith(
         expect.anything(),
         { targetType: "block", target: disambiguated },
+        NOTE_TEXT,
       );
     });
 
@@ -460,69 +481,78 @@ describe("McpHandler", () => {
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
         "base64",
       );
-      // What Obsidian hands back for those bytes, rather than a hand-written stand-in.
-      const PNG_AS_LOSSY_TEXT = PNG_BYTES.toString("utf-8");
-
-      function arrayBufferOf(buffer: Buffer): ArrayBuffer {
-        return buffer.buffer.slice(
-          buffer.byteOffset,
-          buffer.byteOffset + buffer.byteLength,
-        ) as ArrayBuffer;
-      }
-
-      function readsBack(text: string, bytes: Buffer) {
-        ops.getFileMetadataObject.mockResolvedValue({
-          content: text,
-          tags: [],
-          frontmatter: {},
-          stat: { ctime: 0, mtime: 0, size: bytes.byteLength },
-          path: "attachments/pixel.png",
-          links: [],
-          backlinks: [],
-          unresolvedLinks: [],
-        });
-        ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(bytes));
-      }
 
       test("refuses a file whose bytes are not valid UTF-8, naming vault_read_binary", async () => {
-        readsBack(PNG_AS_LOSSY_TEXT, PNG_BYTES);
+        ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(PNG_BYTES));
         const cb = getToolCallback("vault_read");
         await expect(cb({ path: "attachments/pixel.png" })).rejects.toThrow(
           /not valid UTF-8.*vault_read_binary/s,
         );
+        expect(ops.getFileMetadataObject).not.toHaveBeenCalled();
       });
 
-      // The replacement character is a hint, not a verdict: a note that contains one is
-      // still a note, and refusing it would be a regression for its author.
-      test("returns a text file that contains a literal replacement character", async () => {
+      // The replacement character is not the test: a note that contains one is still a
+      // note, because its own bytes are perfectly good UTF-8. Refusing it would be a
+      // regression for its author.
+      test("reads a text file that contains a literal replacement character", async () => {
         const text = `# Notes\n\nA pasted glyph survived as � here.\n`;
-        readsBack(text, Buffer.from(text, "utf-8"));
+        ops.readBinaryFileContent.mockResolvedValue(bytesOf(text));
         const cb = getToolCallback("vault_read");
-        expect(parseText(await cb({ path: "notes.md" })).content).toBe(text);
+        await cb({ path: "notes.md" });
+        expect(ops.getFileMetadataObject).toHaveBeenCalledWith(
+          expect.anything(),
+          undefined,
+          true,
+          text,
+        );
       });
 
-      test("does not re-read the bytes of an ordinary text file", async () => {
+      // The whole point of decoding the bytes here rather than checking the text Obsidian
+      // decoded: the file is read once, and the ops layer is handed what that read
+      // produced instead of reading it again behind `cachedRead`.
+      test("reads the file once and hands the decoded text to the metadata read", async () => {
         const cb = getToolCallback("vault_read");
         await cb({ path: "test.md" });
-        expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
+        expect(ops.readBinaryFileContent).toHaveBeenCalledTimes(1);
+        expect(ops.readBinaryFileContent).toHaveBeenCalledWith("test.md");
+        expect(ops.getFileMetadataObject).toHaveBeenCalledWith(
+          expect.anything(),
+          undefined,
+          true,
+          NOTE_TEXT,
+        );
       });
 
-      test("refuses a targeted read whose section decoded lossily", async () => {
-        ops.readFileSectionMdp2.mockResolvedValue({
-          kind: "heading",
-          content: PNG_AS_LOSSY_TEXT,
-        });
+      // A byte order mark is content: keeping it is what makes the string a caller reads
+      // the same bytes a write of it would put back.
+      test("keeps a leading byte order mark", async () => {
+        // Spelled by code point: a literal BOM is invisible in an editor and would read
+        // as an ordinary heading line.
+        const text = `${String.fromCodePoint(0xfeff)}# Notes\n`;
+        ops.readBinaryFileContent.mockResolvedValue(bytesOf(text));
+        const cb = getToolCallback("vault_read");
+        await cb({ path: "notes.md" });
+        expect(ops.getFileMetadataObject).toHaveBeenCalledWith(
+          expect.anything(),
+          undefined,
+          true,
+          text,
+        );
+      });
+
+      test("refuses a targeted read of a file whose bytes are not valid UTF-8", async () => {
         ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(PNG_BYTES));
         const cb = getToolCallback("vault_read");
         await expect(
           cb({ path: "attachments/pixel.png", targetType: "heading", target: ["Alpha"] }),
         ).rejects.toThrow(/not valid UTF-8/);
+        expect(ops.readFileSectionMdp2).not.toHaveBeenCalled();
       });
 
       // A frontmatter read can return a number, an array, an object — anything YAML
-      // parses to. Only a string can carry the marker, and the rest must not crash on
-      // the way past.
-      test("leaves a non-string frontmatter value alone", async () => {
+      // parses to. The guard is on the file's bytes rather than on what was extracted
+      // from them, so a non-string value passes through untouched.
+      test("returns a non-string frontmatter value untouched", async () => {
         ops.readFileSectionMdp2.mockResolvedValue({ kind: "frontmatter", value: 3 });
         const cb = getToolCallback("vault_read");
         const result = await cb({
@@ -531,6 +561,13 @@ describe("McpHandler", () => {
           target: "priority",
         });
         expect(parseText(result)).toBe(3);
+      });
+
+      test("does not read the file when the arguments are malformed", async () => {
+        const cb = getToolCallback("vault_read");
+        await expect(cb({ path: "test.md", targetType: "heading" })).rejects.toThrow(
+          "targetType and target must be provided together",
+        );
         expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
       });
     });

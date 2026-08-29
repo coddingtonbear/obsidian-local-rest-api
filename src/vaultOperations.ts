@@ -232,13 +232,19 @@ export class VaultOperations {
    * address — a heading path array, a bare block id, or a frontmatter key — and
    * return the section body (headings/blocks) or parsed value (frontmatter).
    * Throws {@link TargetNotFoundError} when the address does not resolve.
+   *
+   * `content` lets a caller that has already read the file supply what it read,
+   * rather than paying for a second read — MCP's `vault_read` decodes the raw
+   * bytes itself so it can refuse a file that is not valid UTF-8, and passes the
+   * result through here.
    */
   async readFileSectionMdp2(
     file: TFile,
     target: ReadTarget,
+    content?: string,
   ): Promise<ReadResult> {
-    const content = await this.app.vault.adapter.read(file.path);
-    return readTarget(content, target);
+    const text = content ?? (await this.app.vault.adapter.read(file.path));
+    return readTarget(text, target);
   }
 
   async readFileSection(
@@ -309,10 +315,16 @@ export class VaultOperations {
     return index;
   }
 
+  /**
+   * `content`, like {@link readFileSectionMdp2}'s, is content the caller has
+   * already read: supplying it skips the `cachedRead` below. Ignored when
+   * `includeContent` is false, since then nothing is read at all.
+   */
   async getFileMetadataObject(
     file: TFile,
     backlinksIndex?: Record<string, string[]>,
     includeContent = true,
+    content?: string,
   ): Promise<FileMetadataObject> {
     const cache = await this.waitForFileCache(file);
 
@@ -348,7 +360,9 @@ export class VaultOperations {
       frontmatter: frontmatter,
       stat: file.stat,
       path: file.path,
-      content: includeContent ? await this.app.vault.cachedRead(file) : "",
+      content: includeContent
+        ? (content ?? (await this.app.vault.cachedRead(file)))
+        : "",
       links,
       backlinks,
       unresolvedLinks,
