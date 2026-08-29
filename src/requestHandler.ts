@@ -89,6 +89,32 @@ export const MARKDOWN_PATCH_VERSION_HEADER = "Markdown-Patch-Version";
 export const MARKDOWN_PATCH_V1_SUNSET = "6.0";
 
 /**
+ * CORS options shared by the main API router and the MCP router.
+ *
+ * `exposedHeaders: "*"` is what lets a browser client read any of the response
+ * headers this API sets to tell it something -- `Content-Location`, `Deprecation`,
+ * `Markdown-Patch-Warnings`, `Content-Disposition`, `ETag`, `X-Response-Time`, and
+ * `Mcp-Session-Id`. Without it the `cors` package omits Access-Control-Expose-Headers
+ * altogether and only the seven CORS-safelisted headers are readable from JavaScript.
+ *
+ * The wildcard is used rather than an enumerated list so a header added later cannot
+ * be forgotten here. Two caveats come with it, and both are satisfied today:
+ *
+ * - Per the Fetch standard the wildcard is only special for requests made *without*
+ *   credentials; in a credentialed request it is read as the literal header name `*`.
+ *   This API sends `Access-Control-Allow-Origin: *` and never
+ *   `Access-Control-Allow-Credentials`, so a credentialed request already cannot
+ *   succeed here. Should the origin policy ever gain credentials, this must become an
+ *   explicit list at the same time.
+ * - Safari only honoured the wildcard from 15.4 (March 2022). Older clients fall back
+ *   to the safelist -- no worse off than before this was set.
+ */
+const CorsOptions = {
+  methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE", "COPY"],
+  exposedHeaders: "*",
+};
+
+/**
  * Resolve which markdown-patch engine a request selects via the
  * {@link MARKDOWN_PATCH_VERSION_HEADER} header. The 2.0 format is the default:
  * an absent header or an explicit `"2"` selects it; `"1"` opts back into the
@@ -2238,10 +2264,10 @@ export default class RequestHandler {
       next();
     });
     this.api.use(responseTime());
-    this.api.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE", "COPY"] }));
+    this.api.use(cors(CorsOptions));
 
     const mcpRouter = express.Router();
-    mcpRouter.use(cors({ methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "MOVE", "COPY"] }));
+    mcpRouter.use(cors(CorsOptions));
     mcpRouter.use((req, res, next) => {
       if (!this.requestIsAuthenticated(req)) {
         this.returnCannedResponse(res, {

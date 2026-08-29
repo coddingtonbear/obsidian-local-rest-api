@@ -3844,6 +3844,51 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("cors", () => {
+    // Without `exposedHeaders`, the `cors` package omits Access-Control-Expose-Headers
+    // entirely, and a browser may then read only the seven CORS-safelisted response
+    // headers. Every header this API sets to tell a client something -- Content-Location,
+    // Deprecation, Markdown-Patch-Warnings, Mcp-Session-Id -- is on the wire but
+    // unreadable from JavaScript. These tests pin the directive onto both routers.
+
+    test("GET / exposes every response header to browser clients", async () => {
+      const response = await request(server)
+        .get("/")
+        .set("Origin", "https://example.com")
+        .expect(200);
+
+      expect(response.headers["access-control-expose-headers"]).toEqual("*");
+    });
+
+    test("the /mcp/ router exposes every response header to browser clients", async () => {
+      // Mcp-Session-Id rides this router, and the MCP SDK's own browser client reads it
+      // off the response to complete a sessionful handshake.
+      const response = await request(server)
+        .post("/mcp/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Origin", "https://example.com")
+        .expect(200);
+
+      expect(response.headers["access-control-expose-headers"]).toEqual("*");
+    });
+
+    test("a preflight still reflects the headers the request asked for", async () => {
+      // The request direction was never broken -- `cors` reflects
+      // Access-Control-Request-Headers by default. Pinned so a change to the response
+      // direction cannot quietly cost us the request direction.
+      const response = await request(server)
+        .options("/")
+        .set("Origin", "https://example.com")
+        .set("Access-Control-Request-Method", "GET")
+        .set("Access-Control-Request-Headers", "authorization, content-type")
+        .expect(204);
+
+      expect(response.headers["access-control-allow-headers"]).toEqual(
+        "authorization, content-type"
+      );
+    });
+  });
+
   describe("/mcp/ routes", () => {
     test("GET /mcp/ without auth returns 401", async () => {
       await request(server).get("/mcp/").expect(401);

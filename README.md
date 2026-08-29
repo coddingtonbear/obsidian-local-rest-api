@@ -16,6 +16,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
     + [Cursor](#cursor)
     + [Other clients](#other-clients)
 - [API overview](#api-overview)
+  * [Browser clients and response headers](#browser-clients-and-response-headers)
 - [Patching notes](#patching-notes)
   * [Raw-content mode](#raw-content-mode)
 - [Targeting specific sections](#targeting-specific-sections)
@@ -171,6 +172,12 @@ Any MCP client that supports the Streamable HTTP transport can connect to `https
 | `/mcp/` | GET POST | MCP (Model Context Protocol) server — connect AI agents directly to your vault |
 
 For full request/response details, see the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/).
+
+### Browser clients and response headers
+
+Several endpoints answer in a response header rather than in the body: `Content-Location` tells you where a write actually landed, `Markdown-Patch-Warnings` reports what a `PATCH` had to work around, `Deprecation` warns that a format is sunsetting, and `Mcp-Session-Id` carries the session for a sessionful MCP connection.
+
+Browsers hide response headers from JavaScript unless the server opts them in, so the API sends `Access-Control-Expose-Headers: *` and all of them are readable with `response.headers.get(...)`. Safari honours the wildcard from 15.4 onward; older browsers see only the [CORS-safelisted headers](https://developer.mozilla.org/en-US/docs/Glossary/CORS-safelisted_response_header). Requests made with `credentials: "include"` are not supported — the API authenticates with a bearer token and sends `Access-Control-Allow-Origin: *`, which browsers reject for credentialed requests.
 
 ## Patching notes
 
