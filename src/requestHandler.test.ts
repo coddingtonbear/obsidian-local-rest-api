@@ -4053,9 +4053,9 @@ describe("requestHandler", () => {
       // Start with null cache
       app.metadataCache._getFileCache = null;
 
-      // Counted rather than compared against zero: what this test is about is
-      // waitForFileCache leaving nothing of its own behind, which stays true
-      // however many listeners anything else has registered.
+      // Counted rather than compared against zero: VaultOperations keeps its own
+      // permanent `changed` listener for the backlinks index, and what this test
+      // is about is waitForFileCache leaving nothing of its own behind.
       const before = (app.metadataCache._listeners.get("changed") || []).length;
 
       // @ts-ignore: Accessing private method for testing

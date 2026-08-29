@@ -137,21 +137,13 @@ export class Vault {
     }
   }
 
-  // Every event Obsidian publishes goes out through Events.trigger, which is what
-  // makes it interceptable by name -- including names this plugin has never heard
-  // of. Dispatching through it here rather than reaching for the listener map
-  // directly is what lets tests exercise that interception.
-  trigger(event: string, ...data: unknown[]): void {
+  // Helper method for tests to simulate vault events -- `rename`, `delete` --
+  // with whatever arguments Obsidian would pass.
+  _emit(event: string, ...data: unknown[]): void {
     const listeners = this._listeners.get(event);
     if (listeners) {
       listeners.forEach((cb) => cb(...data));
     }
-  }
-
-  // Helper method for tests to simulate vault events -- `rename`, `delete` --
-  // with whatever arguments Obsidian would pass.
-  _emit(event: string, ...data: unknown[]): void {
-    this.trigger(event, ...data);
   }
 }
 
@@ -237,19 +229,13 @@ export class MetadataCache {
     this._emit("changed", file, data);
   }
 
-  // See Vault.trigger: the single dispatch point every published event passes
-  // through, whatever its name.
-  trigger(event: string, ...data: unknown[]): void {
+  // Fires any other cache event by name -- `resolve`, `resolved`, `deleted` --
+  // with whatever arguments Obsidian would pass.
+  _emit(event: string, ...data: unknown[]): void {
     const listeners = this._listeners.get(event);
     if (listeners) {
       listeners.forEach((cb) => cb(...data));
     }
-  }
-
-  // Fires any other cache event by name -- `resolve`, `resolved`, `deleted` --
-  // with whatever arguments Obsidian would pass.
-  _emit(event: string, ...data: unknown[]): void {
-    this.trigger(event, ...data);
   }
 }
 
