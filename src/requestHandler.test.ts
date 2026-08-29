@@ -4053,6 +4053,11 @@ describe("requestHandler", () => {
       // Start with null cache
       app.metadataCache._getFileCache = null;
 
+      // Counted rather than compared against zero: VaultOperations keeps its own
+      // permanent `changed` listener for the backlinks index, and what this test
+      // is about is waitForFileCache leaving nothing of its own behind.
+      const before = (app.metadataCache._listeners.get("changed") || []).length;
+
       // @ts-ignore: Accessing private method for testing
       const cachePromise = handler.operations.waitForFileCache(testFile, 5000);
 
@@ -4070,7 +4075,7 @@ describe("requestHandler", () => {
 
       // Check that the listener was removed
       const listeners = app.metadataCache._listeners.get("changed") || [];
-      expect(listeners.length).toBe(0);
+      expect(listeners.length).toBe(before);
     });
 
     test("cleans up event listener on timeout", async () => {
@@ -4080,12 +4085,14 @@ describe("requestHandler", () => {
       // Start with null cache
       app.metadataCache._getFileCache = null;
 
+      const before = (app.metadataCache._listeners.get("changed") || []).length;
+
       // @ts-ignore: Accessing private method for testing
       await handler.operations.waitForFileCache(testFile, 100);
 
       // Check that the listener was removed after timeout
       const listeners = app.metadataCache._listeners.get("changed") || [];
-      expect(listeners.length).toBe(0);
+      expect(listeners.length).toBe(before);
     });
   });
 

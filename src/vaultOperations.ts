@@ -47,6 +47,47 @@ import {
 import { toArrayBuffer } from "./utils";
 
 /**
+ * Every event Obsidian's metadata cache publicly declares, and every event its
+ * vault publicly declares.
+ *
+ * Deliberately the whole surface rather than the subset that looks like it moves
+ * the link graph. `resolvedLinks` is Obsidian's own derived state, and which of
+ * its events happen to precede an update to it is an implementation detail of a
+ * dependency -- betting a cache's correctness on having read that detail right
+ * is a bet nobody can win permanently. Subscribing to everything removes the
+ * judgement call, and costs only a rebuild the uncached code performed on every
+ * single read anyway.
+ *
+ * `src/vaultOperations.test.ts` reads these names back out of the installed
+ * obsidian typings and fails if the two ever disagree, so an Obsidian upgrade
+ * that adds an event is a red test rather than a cache that quietly goes stale.
+ */
+export const METADATA_CACHE_EVENTS = [
+  "changed",
+  "deleted",
+  "resolve",
+  "resolved",
+] as const;
+export const VAULT_EVENTS = ["create", "modify", "delete", "rename"] as const;
+
+/**
+ * How long a built backlinks index may be served before it is rebuilt anyway.
+ *
+ * The listeners above cover everything Obsidian announces, but "everything it
+ * announces" is not the same as "everything that happens": an event added in a
+ * future release, or an internal path that rewrites `resolvedLinks` without
+ * saying so, would otherwise leave a stale index in place for as long as the
+ * plugin runs. Ageing the index out turns that unbounded failure into a bounded
+ * one, without depending on any part of Obsidian's API being what we think.
+ *
+ * A second is chosen so the ceiling costs nothing that matters: the behaviour
+ * this cache replaced rebuilt the index on *every* read, so even the worst case
+ * here -- one rebuild per second -- stays far below what the endpoint used to
+ * pay, while the burst of reads the cache exists for still scans once.
+ */
+export const BACKLINKS_INDEX_MAX_AGE_MS = 1000;
+
+/**
  * Writes go through Vault.modify/Vault.create rather than Vault.adapter.write.
  *
  * The adapter writes straight to disk, behind Obsidian's back: the change is only
@@ -58,9 +99,10 @@ import { toArrayBuffer } from "./utils";
  */
 export class VaultOperations {
   private cachedBacklinksIndex: Record<string, string[]> | null = null;
+  private cachedBacklinksIndexBuiltAt = 0;
 
   /**
-   * Dropped whenever Obsidian says the link graph has moved.
+   * Dropped whenever Obsidian says anything at all has happened.
    *
    * Deliberately one handler for every announcement rather than a targeted
    * update per event: rebuilding is the same work the uncached code did on
@@ -72,16 +114,18 @@ export class VaultOperations {
   };
 
   constructor(readonly app: App, readonly settings: LocalRestApiSettings) {
-    // `resolve` fires per file as its links are re-resolved and `resolved` once
-    // the batch finishes; `deleted` covers a file leaving the graph. Renames are
-    // watched on the vault instead, because metadataCache documents that it does
-    // not announce them -- and resolvedLinks is keyed by path, so a rename moves
-    // both a key and every link that pointed at it.
-    this.app.metadataCache.on("resolve", this.invalidateBacklinksIndex);
-    this.app.metadataCache.on("resolved", this.invalidateBacklinksIndex);
-    this.app.metadataCache.on("deleted", this.invalidateBacklinksIndex);
-    this.app.vault.on("rename", this.invalidateBacklinksIndex);
-    this.app.vault.on("delete", this.invalidateBacklinksIndex);
+    // Obsidian types `on` as one overload per literal event name, so iterating a
+    // union of them needs a cast to any single literal to typecheck. The handler
+    // takes no arguments, which every one of those callback signatures accepts.
+    for (const event of METADATA_CACHE_EVENTS) {
+      this.app.metadataCache.on(
+        event as "resolved",
+        this.invalidateBacklinksIndex,
+      );
+    }
+    for (const event of VAULT_EVENTS) {
+      this.app.vault.on(event as "modify", this.invalidateBacklinksIndex);
+    }
 
     jsonLogic.add_operation(
       "glob",
@@ -111,11 +155,12 @@ export class VaultOperations {
    * goes on invalidating a cache nobody will read again.
    */
   dispose(): void {
-    this.app.metadataCache.off("resolve", this.invalidateBacklinksIndex);
-    this.app.metadataCache.off("resolved", this.invalidateBacklinksIndex);
-    this.app.metadataCache.off("deleted", this.invalidateBacklinksIndex);
-    this.app.vault.off("rename", this.invalidateBacklinksIndex);
-    this.app.vault.off("delete", this.invalidateBacklinksIndex);
+    for (const event of METADATA_CACHE_EVENTS) {
+      this.app.metadataCache.off(event, this.invalidateBacklinksIndex);
+    }
+    for (const event of VAULT_EVENTS) {
+      this.app.vault.off(event, this.invalidateBacklinksIndex);
+    }
   }
 
   private waitForFileCache(
@@ -237,7 +282,11 @@ export class VaultOperations {
 
   /**
    * The vault-wide "who links here" index, built at most once per link-graph
-   * change.
+   * change and, failing that, at most once per BACKLINKS_INDEX_MAX_AGE_MS.
+   *
+   * The age check is the half that does not trust Obsidian: the listeners drop
+   * the index the moment anything is announced, and the ceiling makes sure an
+   * announcement that never comes cannot keep a wrong answer in circulation.
    *
    * Callers doing bulk work should build one snapshot with this and thread it
    * through their loop (see `getFileMetadataObject`'s second argument), so that
@@ -245,7 +294,15 @@ export class VaultOperations {
    * mid-loop.
    */
   getBacklinksIndex(): Record<string, string[]> {
-    return (this.cachedBacklinksIndex ??= this.buildBacklinksIndex());
+    const now = Date.now();
+    if (
+      this.cachedBacklinksIndex === null ||
+      now - this.cachedBacklinksIndexBuiltAt >= BACKLINKS_INDEX_MAX_AGE_MS
+    ) {
+      this.cachedBacklinksIndex = this.buildBacklinksIndex();
+      this.cachedBacklinksIndexBuiltAt = now;
+    }
+    return this.cachedBacklinksIndex;
   }
 
   buildBacklinksIndex(): Record<string, string[]> {
