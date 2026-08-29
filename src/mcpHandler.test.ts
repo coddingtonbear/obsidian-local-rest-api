@@ -587,11 +587,23 @@ describe("McpHandler", () => {
       async (_label: string, content: string) => {
         const cb = getToolCallback("vault_write_binary");
         await expect(cb({ path: "attachments/pixel.png", content })).rejects.toThrow(
-          /must be standard base64/,
+          /must be base64-encoded bytes/,
         );
         expect(ops.writeFileContent).not.toHaveBeenCalled();
       },
     );
+
+    // The base64url hint is worth its space only for a caller who actually used base64url;
+    // on every other failure it is a paragraph about an encoding nobody reached for.
+    test("vault_write_binary names base64url only when the payload looks like it", async () => {
+      const cb = getToolCallback("vault_write_binary");
+      await expect(
+        cb({ path: "attachments/pixel.png", content: "-_-_" }),
+      ).rejects.toThrow(/base64url/);
+      await expect(
+        cb({ path: "attachments/pixel.png", content: "iVBOR" }),
+      ).rejects.not.toThrow(/base64url/);
+    });
 
     test("vault_write_binary refuses a payload over the ceiling", async () => {
       const cb = getToolCallback("vault_write_binary");

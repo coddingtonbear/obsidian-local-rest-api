@@ -87,12 +87,19 @@ const BASE64_ALPHABET = /^[A-Za-z0-9+/]*={0,2}$/;
 // `Buffer.from(s, "base64")` discards anything it cannot decode instead of failing, so a
 // mangled payload would be written to the vault as silently-wrong bytes. Validate the
 // alphabet and padding, then re-encode and compare: a value that does not survive the
-// round trip is not the canonical encoding of the bytes we would have written.
+// round trip is not the encoding of the bytes we would have written.
 function decodeBase64Strict(value: string): Buffer {
   const compact = value.replace(/\s+/g, "");
+  // RFC 4648 defines two alphabets, and the URL-safe one is common enough that a caller
+  // can arrive with it by accident. Name it only when the payload actually looks like it,
+  // so the usual failure is not buried under a paragraph about an encoding nobody used.
+  const looksLikeBase64Url = /[-_]/.test(compact);
   const rejected = (why: string): Error =>
     new Error(
-      `content must be standard base64-encoded bytes (${why}). Note that base64url — '-' and '_' in place of '+' and '/' — is not accepted.`,
+      `content must be base64-encoded bytes (${why})` +
+        (looksLikeBase64Url
+          ? ". This looks like base64url; use '+' and '/' rather than '-' and '_'."
+          : "."),
     );
   if (compact.length % 4 !== 0) {
     throw rejected("length is not a multiple of 4");
@@ -102,7 +109,7 @@ function decodeBase64Strict(value: string): Buffer {
   }
   const decoded = Buffer.from(compact, "base64");
   if (decoded.toString("base64") !== compact) {
-    throw rejected("value is not the canonical encoding of the bytes it decodes to");
+    throw rejected("it does not survive a decode/re-encode round trip");
   }
   return decoded;
 }
@@ -535,7 +542,7 @@ export class McpHandler {
       dedent`
         Create or overwrite a vault file with raw bytes supplied base64-encoded. Use this for anything that is not text — images, PDFs, audio, any attachment. Creates any missing parent directories automatically, and overwrites without warning if the file already exists.
 
-        content must be standard base64 (not base64url): a payload that is not the canonical encoding of the bytes it decodes to is rejected rather than written, since a silently mangled attachment is worse than a failed call.
+        content is base64. A payload that cannot be decoded cleanly is rejected rather than written, since a silently corrupted attachment is worse than a failed call.
 
         Files over ${MaximumMcpBinaryBytes} bytes are refused — upload those with the REST API's PUT /vault/<path>, which accepts raw bytes of any content type.
       `,
