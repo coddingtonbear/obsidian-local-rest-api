@@ -1618,6 +1618,8 @@ paths:
       description: |
         Returns, in PEM format, the certificate authority that signed the certificate the HTTPS server presents; import this as a trusted authority in your OS, browser, or HTTP client to connect without certificate warnings.
         
+        The authority carries a critical `nameConstraints` extension permitting only `127.0.0.1`, `localhost`, the configured binding host, and the configured subject alternative names, so trusting it grants it no authority over other hostnames.
+        
         Installations still running certificate material generated before the plugin began issuing a separate certificate authority return their single self-signed certificate instead. The authenticated `GET /` response's `certificateInfo.regenerateReason` reports `ca-used-as-leaf` in that case.
       responses:
         "200":

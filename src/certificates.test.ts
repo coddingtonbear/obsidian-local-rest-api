@@ -325,7 +325,7 @@ describe("renewServerCertificateIfNeeded", () => {
     for (const options of [
       { bindingHost: "10.0.0.5" },
       { subjectAltNames: "obsidian.local\nrenamed.local" },
-      { bindingHost: "localhost" },
+      { bindingHost: "vault.lan" },
     ]) {
       expect(
         renewServerCertificateIfNeeded(crypto, { ...options, now, keySize: TEST_KEY_SIZE }),
@@ -338,9 +338,9 @@ describe("renewServerCertificateIfNeeded", () => {
     // renewal must keep working for it rather than treating it as forbidding
     // everything.
     const unconstrained = generateCryptoSettings({ now: issuedAt, keySize: TEST_KEY_SIZE });
-    const ca = parse(unconstrained.caCert as string);
+    const ca = parse(unconstrained.caCert);
     ca.setExtensions(ca.extensions.filter((ext: { name?: string }) => ext.name !== "nameConstraints"));
-    ca.sign(forge.pki.privateKeyFromPem(unconstrained.caPrivateKey as string), forge.md.sha256.create());
+    ca.sign(forge.pki.privateKeyFromPem(unconstrained.caPrivateKey), forge.md.sha256.create());
     const material = { ...unconstrained, caCert: forge.pki.certificateToPem(ca) };
     expect(readPermittedNames(ca)).toBeNull();
 
@@ -391,7 +391,7 @@ function signLeafWithCa(
   crypto: CryptoSettings,
   altNames: { type: number; ip?: string; value?: string }[],
 ): { cert: string; privateKey: string } {
-  const ca = parse(crypto.caCert as string);
+  const ca = parse(crypto.caCert);
   const keypair = forge.pki.rsa.generateKeyPair(TEST_KEY_SIZE);
   const certificate = forge.pki.createCertificate();
   certificate.serialNumber = "02";
@@ -406,7 +406,7 @@ function signLeafWithCa(
     { name: "extKeyUsage", serverAuth: true },
     { name: "subjectAltName", altNames },
   ]);
-  certificate.sign(forge.pki.privateKeyFromPem(crypto.caPrivateKey as string), forge.md.sha256.create());
+  certificate.sign(forge.pki.privateKeyFromPem(crypto.caPrivateKey), forge.md.sha256.create());
   return {
     cert: forge.pki.certificateToPem(certificate),
     privateKey: forge.pki.privateKeyToPem(keypair.privateKey),
@@ -450,7 +450,7 @@ describe("CA name constraints", () => {
       subjectAltNames: "obsidian.local\n\nvault.example.com\n",
       keySize: TEST_KEY_SIZE,
     });
-    const ca = parse(crypto.caCert as string);
+    const ca = parse(crypto.caCert);
     const ext = ca.getExtension("nameConstraints") as { critical?: boolean } | undefined;
     expect(ext?.critical).toBe(true);
     expect(readPermittedNames(ca)).toEqual([
@@ -464,12 +464,12 @@ describe("CA name constraints", () => {
 
   test("a hostname binding host is permitted once, and an IPv6 one is permitted as an address", () => {
     const local = generateCryptoSettings({ bindingHost: "localhost", keySize: TEST_KEY_SIZE });
-    expect(readPermittedNames(parse(local.caCert as string))).toEqual([
+    expect(readPermittedNames(parse(local.caCert))).toEqual([
       { type: 7, ip: "127.0.0.1" },
       { type: 2, value: "localhost" },
     ]);
     const v6 = generateCryptoSettings({ bindingHost: "::1", keySize: TEST_KEY_SIZE });
-    expect(readPermittedNames(parse(v6.caCert as string))).toEqual([
+    expect(readPermittedNames(parse(v6.caCert))).toEqual([
       { type: 7, ip: "127.0.0.1" },
       { type: 7, ip: "::1" },
       { type: 2, value: "localhost" },
@@ -485,7 +485,7 @@ describe("CA name constraints", () => {
       subjectAltNames: "obsidian.local",
       keySize: TEST_KEY_SIZE,
     });
-    await expect(handshakeWith(crypto, crypto.caCert as string)).resolves.toBe(true);
+    await expect(handshakeWith(crypto, crypto.caCert)).resolves.toBe(true);
   });
 
   test("a client trusting the CA rejects a leaf the CA signed for a hostname outside its constraints", async () => {
@@ -495,7 +495,7 @@ describe("CA name constraints", () => {
       { type: 2, value: "bank.example.com" },
     ]);
     await expect(
-      handshakeWith({ ...forged, caCert: crypto.caCert }, crypto.caCert as string),
+      handshakeWith({ ...forged, caCert: crypto.caCert }, crypto.caCert),
     ).rejects.toThrow(/permitted subtree violation/i);
   });
 
@@ -503,7 +503,7 @@ describe("CA name constraints", () => {
     const crypto = generateCryptoSettings({ keySize: TEST_KEY_SIZE });
     const forged = signLeafWithCa(crypto, [{ type: 7, ip: "127.0.0.1" }, { type: 7, ip: "10.0.0.1" }]);
     await expect(
-      handshakeWith({ ...forged, caCert: crypto.caCert }, crypto.caCert as string),
+      handshakeWith({ ...forged, caCert: crypto.caCert }, crypto.caCert),
     ).rejects.toThrow(/permitted subtree violation/i);
   });
 });

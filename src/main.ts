@@ -843,7 +843,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       },
       {
         name: "Certificate hostnames",
-        desc: 'List of extra hostnames to add to your certificate\'s `subjectAltName` field. One hostname per line. You must click the "Re-generate certificates" button above after changing this value for this to have an effect.  This is useful for situations in which you are accessing Obsidian from a hostname other than the host on which it is running.',
+        desc: 'List of extra hostnames to add to your certificate\'s `subjectAltName` field. One hostname per line. You must click the "Re-generate certificates" button above after changing this value for this to have an effect: the certificate authority only permits the hostnames it was generated with, so the server certificate cannot be renewed for new ones.  This is useful for situations in which you are accessing Obsidian from a hostname other than the host on which it is running.',
         control: { type: "textarea", key: "subjectAltNames" },
       },
       {

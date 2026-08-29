@@ -78,7 +78,7 @@ curl -k -X PATCH \
   https://127.0.0.1:27124/vault/path/to/note.md
 ```
 
-To avoid certificate warnings, you can download the plugin's certificate authority from `https://127.0.0.1:27124/obsidian-local-rest-api.crt` and trust it in your OS or browser, or point your HTTP client at it directly (for example `curl --cacert obsidian-local-rest-api.crt ...`). The plugin generates its own certificate authority on first run and serves a server certificate signed by it, so the download is a CA certificate rather than the server certificate itself.
+To avoid certificate warnings, you can download the plugin's certificate authority from `https://127.0.0.1:27124/obsidian-local-rest-api.crt` and trust it in your OS or browser, or point your HTTP client at it directly (for example `curl --cacert obsidian-local-rest-api.crt ...`). The plugin generates its own certificate authority on first run and serves a server certificate signed by it, so the download is a CA certificate rather than the server certificate itself. That CA is name-constrained: it can only vouch for `127.0.0.1`, `localhost`, your configured binding host, and the hostnames you list under **Subject alternative names**, so trusting it does not let it (or anyone who obtains its key) impersonate other sites.
 
 ### MCP clients
 

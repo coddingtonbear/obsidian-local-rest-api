@@ -97,6 +97,168 @@ function buildSubjectAltNames(options: SubjectAltNameOptions): AltName[] {
   return altNames;
 }
 
+const LOCALHOST = "localhost";
+
+/**
+ * The names the CA is allowed to certify: everything the leaf will carry,
+ * plus `localhost`, which is how people most often type the address of a
+ * server bound to loopback. Nothing else, so that a stolen CA key is useless
+ * for impersonating any other site.
+ */
+function buildPermittedNames(options: SubjectAltNameOptions): AltName[] {
+  const names = buildSubjectAltNames(options);
+  const ips = names.filter((name) => name.type === 7);
+  const dns = names.filter((name) => name.type === 2);
+  if (!dns.some((name) => name.value === LOCALHOST)) {
+    dns.unshift({ type: 2, value: LOCALHOST });
+  }
+  return [...ips, ...dns];
+}
+
+const { asn1 } = forge;
+const GENERAL_NAME_DNS = 2;
+const GENERAL_NAME_IP = 7;
+const PERMITTED_SUBTREES_TAG = 0;
+
+/**
+ * Encode RFC 5280 NameConstraints with only permittedSubtrees:
+ *
+ *   NameConstraints ::= SEQUENCE { permittedSubtrees [0] GeneralSubtrees }
+ *   GeneralSubtree  ::= SEQUENCE { base GeneralName }   -- minimum 0, no maximum
+ *
+ * An iPAddress GeneralName in a constraint is address followed by mask; every
+ * entry here is a single host, so the mask is all ones.
+ */
+// node-forge knows this OID for parsing but not for building, so name it.
+const NAME_CONSTRAINTS_OID = "2.5.29.30";
+
+function nameConstraintsExtension(names: AltName[]): {
+  id: string;
+  name: string;
+  critical: boolean;
+  value: forge.asn1.Asn1;
+} {
+  const subtrees = names.map((name) => {
+    let generalName: forge.asn1.Asn1;
+    if (name.type === GENERAL_NAME_IP && name.ip) {
+      const address = forge.util.bytesFromIP(name.ip);
+      if (address === null) throw new Error(`Not an IP address: ${name.ip}`);
+      const mask = "\xff".repeat(address.length);
+      generalName = asn1.create(asn1.Class.CONTEXT_SPECIFIC, GENERAL_NAME_IP, false, address + mask);
+    } else if (name.type === GENERAL_NAME_DNS && name.value) {
+      generalName = asn1.create(asn1.Class.CONTEXT_SPECIFIC, GENERAL_NAME_DNS, false, name.value);
+    } else {
+      throw new Error(`Unsupported name constraint: ${JSON.stringify(name)}`);
+    }
+    return asn1.create(asn1.Class.UNIVERSAL, asn1.Type.SEQUENCE, true, [generalName]);
+  });
+  return {
+    id: NAME_CONSTRAINTS_OID,
+    name: "nameConstraints",
+    // RFC 5280 §4.2.1.10: conforming CAs MUST mark this extension critical.
+    critical: true,
+    value: asn1.create(asn1.Class.UNIVERSAL, asn1.Type.SEQUENCE, true, [
+      asn1.create(asn1.Class.CONTEXT_SPECIFIC, PERMITTED_SUBTREES_TAG, true, subtrees),
+    ]),
+  };
+}
+
+/**
+ * A name a CA's `nameConstraints` permits. IP entries carry the constraint's
+ * mask (in address notation) only when it is narrower than a single host,
+ * which the plugin never generates but may be handed by the user.
+ */
+export interface PermittedName extends AltName {
+  mask?: string;
+}
+
+function asn1Children(node: forge.asn1.Asn1): forge.asn1.Asn1[] {
+  return Array.isArray(node.value) ? node.value : [];
+}
+
+/**
+ * The names a CA's `nameConstraints` extension permits it to certify, or
+ * null when the certificate carries no such extension (and so may certify
+ * anything). Name types the plugin does not use (email, URI, directory
+ * names) are skipped; excludedSubtrees are ignored.
+ */
+export function readPermittedNames(certificate: pki.Certificate): PermittedName[] | null {
+  const extension = certificate.getExtension("nameConstraints") as { value?: string } | undefined;
+  if (!extension?.value) return null;
+
+  const root = asn1.fromDer(extension.value);
+  const permittedSubtrees = asn1Children(root).find(
+    (child) =>
+      child.tagClass === asn1.Class.CONTEXT_SPECIFIC && Number(child.type) === PERMITTED_SUBTREES_TAG,
+  );
+  const names: PermittedName[] = [];
+  for (const subtree of permittedSubtrees ? asn1Children(permittedSubtrees) : []) {
+    const base = asn1Children(subtree)[0];
+    if (!base || base.tagClass !== asn1.Class.CONTEXT_SPECIFIC || typeof base.value !== "string") {
+      continue;
+    }
+    if (Number(base.type) === GENERAL_NAME_DNS) {
+      names.push({ type: GENERAL_NAME_DNS, value: base.value });
+    } else if (Number(base.type) === GENERAL_NAME_IP) {
+      const half = base.value.length / 2;
+      const ip = forge.util.bytesToIP(base.value.slice(0, half));
+      const maskBytes = base.value.slice(half);
+      if (ip === null) continue;
+      const isHostMask = [...maskBytes].every((byte) => byte === "\xff");
+      const mask = forge.util.bytesToIP(maskBytes);
+      names.push(
+        isHostMask || mask === null
+          ? { type: GENERAL_NAME_IP, ip }
+          : { type: GENERAL_NAME_IP, ip, mask },
+      );
+    }
+  }
+  return names;
+}
+
+function dnsNameFits(requested: string, permitted: PermittedName[]): boolean {
+  const candidate = requested.toLowerCase();
+  return permitted.some(({ value }) => {
+    if (!value) return false;
+    const base = value.toLowerCase();
+    return candidate === base || candidate.endsWith("." + base);
+  });
+}
+
+function ipFits(requested: string, permitted: PermittedName[]): boolean {
+  const address = forge.util.bytesFromIP(requested);
+  if (address === null) return false;
+  return permitted.some(({ ip, mask }) => {
+    const base = ip ? forge.util.bytesFromIP(ip) : null;
+    if (base === null || base.length !== address.length) return false;
+    const maskBytes = (mask && forge.util.bytesFromIP(mask)) || "\xff".repeat(address.length);
+    for (let i = 0; i < address.length; i++) {
+      const bit = maskBytes.charCodeAt(i);
+      if ((address.charCodeAt(i) & bit) !== (base.charCodeAt(i) & bit)) return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * Whether every requested subjectAltName is inside the CA's permitted
+ * subtrees. Per RFC 5280, a name type with no permitted entries at all is
+ * unconstrained.
+ */
+function namesFitConstraints(requested: AltName[], permitted: PermittedName[]): boolean {
+  const permittedDns = permitted.filter((name) => name.type === GENERAL_NAME_DNS);
+  const permittedIps = permitted.filter((name) => name.type === GENERAL_NAME_IP);
+  return requested.every((name) => {
+    if (name.type === GENERAL_NAME_DNS && name.value) {
+      return permittedDns.length === 0 || dnsNameFits(name.value, permittedDns);
+    }
+    if (name.type === GENERAL_NAME_IP && name.ip) {
+      return permittedIps.length === 0 || ipFits(name.ip, permittedIps);
+    }
+    return true;
+  });
+}
+
 function generateCertificateAuthority(options: GenerateOptions): GeneratedCertificate {
   const now = options.now ?? new Date();
   const keypair = pki.rsa.generateKeyPair(options.keySize ?? DEFAULT_KEY_SIZE);
@@ -112,6 +274,7 @@ function generateCertificateAuthority(options: GenerateOptions): GeneratedCertif
     { name: "basicConstraints", cA: true, critical: true },
     { name: "keyUsage", keyCertSign: true, cRLSign: true, critical: true },
     { name: "subjectKeyIdentifier" },
+    nameConstraintsExtension(buildPermittedNames(options)),
   ]);
   certificate.sign(keypair.privateKey, forge.md.sha256.create());
   return { certificate, keypair };
@@ -173,8 +336,9 @@ export function generateCryptoSettings(options: GenerateOptions = {}): CryptoSet
  * Re-issue the server certificate from the stored CA when it is inside its
  * renewal window (or already expired). Returns the replacement settings, or
  * null when nothing needs doing or nothing can be done: legacy material
- * without a CA, an expired CA, or CA material that does not parse. Renewal
- * never changes the CA, so trust already granted to it carries over.
+ * without a CA, an expired CA, CA material that does not parse, or a CA
+ * whose name constraints do not cover the currently configured names.
+ * Renewal never changes the CA, so trust already granted to it carries over.
  */
 export function renewServerCertificateIfNeeded(
   crypto: CryptoSettings,
@@ -196,6 +360,15 @@ export function renewServerCertificateIfNeeded(
 
   if (caCertificate.validity.notAfter.getTime() <= now.getTime()) return null;
   if (getCertificateValidityDays(leaf, now) > LEAF_RENEWAL_WINDOW_DAYS) return null;
+
+  // The CA only permits the names it was minted with. If the user has since
+  // changed the binding host or hostnames, a renewed leaf naming them would
+  // be rejected by every verifier that honours the constraint, so do not
+  // mint one; the expiry warning in settings leads them to regenerate.
+  const permitted = readPermittedNames(caCertificate);
+  if (permitted && !namesFitConstraints(buildSubjectAltNames(options), permitted)) {
+    return null;
+  }
 
   const renewed = generateServerCertificate(
     { certificate: caCertificate, privateKey: caPrivateKey },
@@ -256,12 +429,3 @@ export function getCertificateStandardsIssue(
   return null;
 }
 
-/**
- * The names a CA's `nameConstraints` extension permits it to certify, or
- * null when the certificate carries no such extension (and so may certify
- * anything).
- */
-export function readPermittedNames(certificate: pki.Certificate): AltName[] | null {
-  void certificate;
-  return null;
-}
