@@ -215,6 +215,22 @@ describe("generateCryptoSettings", () => {
     }
   });
 
+  test("a binding host that is a hostname rather than an address becomes a DNS name", () => {
+    const generated = generateCryptoSettings({ bindingHost: "localhost", keySize: TEST_KEY_SIZE });
+    expect(altNamesOf(parse(generated.cert))).toEqual([
+      { type: 7, ip: "127.0.0.1" },
+      { type: 2, value: "localhost" },
+    ]);
+  });
+
+  test("an IPv6 binding host is an IP name", () => {
+    const generated = generateCryptoSettings({ bindingHost: "::1", keySize: TEST_KEY_SIZE });
+    expect(altNamesOf(parse(generated.cert))).toEqual([
+      { type: 7, ip: "127.0.0.1" },
+      { type: 7, ip: "::1" },
+    ]);
+  });
+
   test("the leaf carries an authority key identifier matching the CA's subject key identifier", () => {
     const caSki = ca.getExtension("subjectKeyIdentifier") as { subjectKeyIdentifier?: string } | undefined;
     expect(caSki?.subjectKeyIdentifier).toBeTruthy();
