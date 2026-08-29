@@ -272,6 +272,10 @@ export default class RequestHandler {
       // This is fine, we just won't include that in the output
     }
 
+    const standardsIssue = certificate
+      ? getCertificateStandardsIssue(certificate)
+      : null;
+
     res.status(200).json({
       status: "OK",
       manifest: this.manifest,
@@ -285,9 +289,8 @@ export default class RequestHandler {
         this.requestIsAuthenticated(req) && certificate
           ? {
             validityDays: getCertificateValidityDays(certificate),
-            regenerateRecommended:
-              getCertificateStandardsIssue(certificate) !== null,
-            regenerateReason: getCertificateStandardsIssue(certificate),
+            regenerateRecommended: standardsIssue !== null,
+            regenerateReason: standardsIssue,
           }
           : undefined,
       apiExtensions: this.requestIsAuthenticated(req)
