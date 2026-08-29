@@ -11,6 +11,7 @@ import {
   buildServerCertificateChain,
   generateCryptoSettings,
   getCertificateStandardsIssue,
+  getReportedValidityDays,
   readPermittedNames,
   renewServerCertificateIfNeeded,
 } from "./certificates";
@@ -570,6 +571,53 @@ describe("CA name constraints", () => {
     await expect(
       handshakeWith({ ...forged, caCert: crypto.caCert }, crypto.caCert),
     ).rejects.toThrow(/permitted subtree violation/i);
+  });
+});
+
+describe("getReportedValidityDays", () => {
+  const issuedAt = new Date("2026-01-01T00:00:00Z");
+  let crypto: CryptoSettings;
+
+  beforeAll(() => {
+    crypto = generateCryptoSettings({ now: issuedAt, keySize: TEST_KEY_SIZE });
+  });
+
+  function daysAfterIssue(days: number): Date {
+    return new Date(issuedAt.getTime() + days * 24 * 3600 * 1000);
+  }
+
+  test("reports the CA's expiry while the leaf is outside its renewal window", () => {
+    // The leaf renews itself on load, so the certificate whose expiry the
+    // user has to act on is the CA they imported.
+    const now = daysAfterIssue(100);
+    expect(getReportedValidityDays(crypto, now)).toBeCloseTo(CA_VALIDITY_DAYS - 100, 5);
+  });
+
+  test("reports the leaf's expiry once it is inside the renewal window", () => {
+    // A leaf still inside the window after load means renewal was refused
+    // (names changed, unusable CA material); the countdown must say so
+    // rather than promising years of validity the server will not deliver.
+    const now = daysAfterIssue(LEAF_VALIDITY_DAYS - LEAF_RENEWAL_WINDOW_DAYS + 1);
+    expect(getReportedValidityDays(crypto, now)).toBeCloseTo(LEAF_RENEWAL_WINDOW_DAYS - 1, 5);
+  });
+
+  test("reports a negative number for an expired leaf under a valid CA", () => {
+    const now = daysAfterIssue(LEAF_VALIDITY_DAYS + 10);
+    expect(getReportedValidityDays(crypto, now)).toBeCloseTo(-10, 5);
+  });
+
+  test("reports the single certificate's expiry for legacy material", () => {
+    const legacy: CryptoSettings = {
+      cert: forge.pki.certificateToPem(generateLegacyCertificate()),
+      privateKey: "",
+      publicKey: "",
+    };
+    expect(getReportedValidityDays(legacy, new Date())).toBeCloseTo(365, 1);
+  });
+
+  test("returns null when the material does not parse", () => {
+    expect(getReportedValidityDays({ ...crypto, cert: "garbage" }, new Date())).toBeNull();
+    expect(getReportedValidityDays({ ...crypto, caCert: "garbage" }, new Date())).toBeNull();
   });
 });
 
