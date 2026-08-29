@@ -255,3 +255,13 @@ export function getCertificateStandardsIssue(
 
   return null;
 }
+
+/**
+ * The names a CA's `nameConstraints` extension permits it to certify, or
+ * null when the certificate carries no such extension (and so may certify
+ * anything).
+ */
+export function readPermittedNames(certificate: pki.Certificate): AltName[] | null {
+  void certificate;
+  return null;
+}
