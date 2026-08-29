@@ -68,14 +68,26 @@ function randomSerialNumber(): string {
   return forge.util.bytesToHex(String.fromCharCode(first) + bytes.slice(1));
 }
 
+/** Whether `host` parses as an IPv4 or IPv6 address (as opposed to a DNS name). */
+function isIpAddress(host: string): boolean {
+  return forge.util.bytesFromIP(host) !== null;
+}
+
 function buildSubjectAltNames(options: SubjectAltNameOptions): AltName[] {
   const altNames: AltName[] = [{ type: 7, ip: DefaultBindingHost }];
+  const bindingHost = options.bindingHost?.trim();
   if (
-    options.bindingHost &&
-    options.bindingHost !== DefaultBindingHost &&
-    options.bindingHost !== "0.0.0.0"
+    bindingHost &&
+    bindingHost !== DefaultBindingHost &&
+    bindingHost !== "0.0.0.0"
   ) {
-    altNames.push({ type: 7, ip: options.bindingHost });
+    // The bind address is usually an IP, but "localhost" (or any resolvable
+    // name) is a legitimate value and must be encoded as a DNS name.
+    altNames.push(
+      isIpAddress(bindingHost)
+        ? { type: 7, ip: bindingHost }
+        : { type: 2, value: bindingHost },
+    );
   }
   for (const name of (options.subjectAltNames ?? "").split("\n")) {
     if (name.trim()) {
