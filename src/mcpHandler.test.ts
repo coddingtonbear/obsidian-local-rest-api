@@ -449,6 +449,91 @@ describe("McpHandler", () => {
         "targetType and target must be provided together",
       );
     });
+
+    // A file that is not text decodes anyway, with U+FFFD standing in for every byte
+    // sequence UTF-8 could not represent — so the danger is that the read looks like it
+    // worked. These cover both sides of that: bytes that were genuinely mangled, and text
+    // that merely contains the same character.
+    describe("non-text files", () => {
+      // A one-pixel PNG: real bytes, whose 0x89 lead byte is not valid UTF-8.
+      const PNG_BYTES = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        "base64",
+      );
+      // What Obsidian hands back for those bytes, rather than a hand-written stand-in.
+      const PNG_AS_LOSSY_TEXT = PNG_BYTES.toString("utf-8");
+
+      function arrayBufferOf(buffer: Buffer): ArrayBuffer {
+        return buffer.buffer.slice(
+          buffer.byteOffset,
+          buffer.byteOffset + buffer.byteLength,
+        ) as ArrayBuffer;
+      }
+
+      function readsBack(text: string, bytes: Buffer) {
+        ops.getFileMetadataObject.mockResolvedValue({
+          content: text,
+          tags: [],
+          frontmatter: {},
+          stat: { ctime: 0, mtime: 0, size: bytes.byteLength },
+          path: "attachments/pixel.png",
+          links: [],
+          backlinks: [],
+          unresolvedLinks: [],
+        });
+        ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(bytes));
+      }
+
+      test("refuses a file whose bytes are not valid UTF-8, naming vault_read_binary", async () => {
+        readsBack(PNG_AS_LOSSY_TEXT, PNG_BYTES);
+        const cb = getToolCallback("vault_read");
+        await expect(cb({ path: "attachments/pixel.png" })).rejects.toThrow(
+          /not valid UTF-8.*vault_read_binary/s,
+        );
+      });
+
+      // The replacement character is a hint, not a verdict: a note that contains one is
+      // still a note, and refusing it would be a regression for its author.
+      test("returns a text file that contains a literal replacement character", async () => {
+        const text = `# Notes\n\nA pasted glyph survived as � here.\n`;
+        readsBack(text, Buffer.from(text, "utf-8"));
+        const cb = getToolCallback("vault_read");
+        expect(parseText(await cb({ path: "notes.md" })).content).toBe(text);
+      });
+
+      test("does not re-read the bytes of an ordinary text file", async () => {
+        const cb = getToolCallback("vault_read");
+        await cb({ path: "test.md" });
+        expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
+      });
+
+      test("refuses a targeted read whose section decoded lossily", async () => {
+        ops.readFileSectionMdp2.mockResolvedValue({
+          kind: "heading",
+          content: PNG_AS_LOSSY_TEXT,
+        });
+        ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(PNG_BYTES));
+        const cb = getToolCallback("vault_read");
+        await expect(
+          cb({ path: "attachments/pixel.png", targetType: "heading", target: ["Alpha"] }),
+        ).rejects.toThrow(/not valid UTF-8/);
+      });
+
+      // A frontmatter read can return a number, an array, an object — anything YAML
+      // parses to. Only a string can carry the marker, and the rest must not crash on
+      // the way past.
+      test("leaves a non-string frontmatter value alone", async () => {
+        ops.readFileSectionMdp2.mockResolvedValue({ kind: "frontmatter", value: 3 });
+        const cb = getToolCallback("vault_read");
+        const result = await cb({
+          path: "test.md",
+          targetType: "frontmatter",
+          target: "priority",
+        });
+        expect(parseText(result)).toBe(3);
+        expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
+      });
+    });
   });
 
   // ---- vault_get_document_map ---------------------------------------------

@@ -114,6 +114,26 @@ function decodeBase64Strict(value: string): Buffer {
   return decoded;
 }
 
+// A file that is not text still "reads": Obsidian decodes it as UTF-8 and substitutes
+// U+FFFD for every malformed byte sequence rather than failing, so `vault_read` on a PNG
+// hands back a lossy string and reports success. Write that string back through
+// `vault_write` and the file is destroyed, with nothing along the way looking like an
+// error.
+//
+// U+FFFD in the decoded text is the only trace that substitution happened — but it is not
+// proof of it, because a text file may contain the character deliberately. So it is used
+// as a cheap trigger rather than a verdict: text without it decoded losslessly and costs
+// nothing beyond the scan, and only text with it pays for re-reading the raw bytes to
+// answer the question exactly, by the same decode/re-encode round trip
+// `decodeBase64Strict` uses above.
+// Spelled by code point rather than as a literal: the character itself renders as an
+// unidentifiable box in most editors, which is a poor thing to have to recognise here.
+const REPLACEMENT_CHARACTER = String.fromCodePoint(0xfffd);
+
+function survivesUtf8RoundTrip(bytes: Buffer): boolean {
+  return Buffer.from(bytes.toString("utf-8"), "utf-8").equals(bytes);
+}
+
 // Both binary tools refuse the same way, so the ceiling reads identically whichever
 // direction a client hit it from.
 function assertWithinBinaryCeiling(byteLength: number, verb: string): void {
@@ -393,6 +413,18 @@ export class McpHandler {
     return file;
   }
 
+  // Refuses text that only exists because bytes were mangled on the way in. See
+  // REPLACEMENT_CHARACTER above for why the cheap check comes first and what the raw-byte
+  // read is settling.
+  private async assertDecodedLosslessly(path: string, decoded: string): Promise<void> {
+    if (!decoded.includes(REPLACEMENT_CHARACTER)) return;
+    const bytes = Buffer.from(await this.ops.readBinaryFileContent(path));
+    if (survivesUtf8RoundTrip(bytes)) return;
+    throw new Error(
+      `Refusing to read ${path} as text: its bytes are not valid UTF-8, so decoding them loses data and the content returned here could not be written back without destroying the file. Read it with vault_read_binary, or fetch the raw bytes over the REST API with GET /vault/<path>.`,
+    );
+  }
+
   private registerResources(): void {
     this.addResourceSpec(
       "openapi-spec",
@@ -431,6 +463,8 @@ export class McpHandler {
         Read a vault file's content and metadata. Returns a JSON object with: content (full markdown text), path, tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), stat ({ctime, mtime, size}), links (array of vault-relative paths this file links to), backlinks (array of vault-relative paths of files that link here), and unresolvedLinks (array of link text in this file that does not resolve to an existing vault file). Throws if the file does not exist.
 
         When targetType and target are both provided, returns only the matched section as a plain string (markdown) or JSON value (frontmatter) instead of the full object. To save context, call vault_get_document_map first to identify headings, block IDs, or frontmatter keys, and prefer targeted reads over full reads for anything but short files.
+
+        This tool reads text. A file whose bytes are not valid UTF-8 — an image, a PDF, any attachment — is refused rather than returned as the lossy string decoding it would produce; read those with vault_read_binary instead.
       `,
       {
         path: z.string().describe("File path relative to vault root"),
@@ -492,9 +526,18 @@ export class McpHandler {
             address.scope = scope;
           }
           const result = await this.ops.readFileSectionMdp2(file, address);
-          return this.text(result.kind === "frontmatter" ? result.value : result.content);
+          const section = result.kind === "frontmatter" ? result.value : result.content;
+          // A targeted read only ever sees its own section, so this guards what is
+          // actually being handed back rather than the whole file. In practice a binary
+          // file has no headings, blocks, or frontmatter to address, so the refusal a
+          // caller meets here is usually the target lookup's own.
+          if (typeof section === "string") {
+            await this.assertDecodedLosslessly(path, section);
+          }
+          return this.text(section);
         }
         const meta = await this.ops.getFileMetadataObject(file);
+        await this.assertDecodedLosslessly(path, meta.content);
         return this.text(meta);
       },
     );
