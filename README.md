@@ -340,7 +340,7 @@ The REST API has always handled binary content: `GET /vault/<path>` returns raw 
 
 MCP tools are a different story, because a tool's arguments and results pass through the model. `vault_read` and `vault_write` are text tools — they decode and encode UTF-8, which is lossy for anything that is not text — so reading an attachment with `vault_read` and writing the result back destroys the file. `vault_read_binary` and `vault_write_binary` exist for those files, and carry the bytes base64-encoded.
 
-`vault_write_binary` refuses a payload it cannot decode cleanly rather than writing the bytes it managed to salvage. This matters because Node's own decoder does the opposite: `Buffer.from(value, "base64")` silently drops any character it does not recognise and hands back whatever is left, so a truncated or mistyped payload would land in your vault as a corrupt file with no error anywhere.
+`vault_write_binary` refuses a payload it cannot decode cleanly rather than writing the bytes it managed to salvage.
 
 Because base64 costs roughly 0.35-0.45 tokens per byte of context, both binary tools refuse files over 1 MiB. That ceiling is a context guard, not a storage limit — move larger attachments over the REST endpoints above.
 
