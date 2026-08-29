@@ -280,6 +280,21 @@ function generateCertificateAuthority(options: GenerateOptions): GeneratedCertif
   return { certificate, keypair };
 }
 
+/**
+ * The bytes of a CA's subjectKeyIdentifier, which its leaves must echo as
+ * their authorityKeyIdentifier for verifiers to pair them up. The plugin's
+ * own CA derives it from its public key, but a user-supplied CA may carry
+ * any value, so read the extension rather than recomputing it.
+ */
+function subjectKeyIdentifierOf(certificate: pki.Certificate): string {
+  const extension = certificate.getExtension("subjectKeyIdentifier") as
+    | { subjectKeyIdentifier?: string }
+    | undefined;
+  return extension?.subjectKeyIdentifier
+    ? forge.util.hexToBytes(extension.subjectKeyIdentifier)
+    : certificate.generateSubjectKeyIdentifier().getBytes();
+}
+
 function generateServerCertificate(
   ca: { certificate: pki.Certificate; privateKey: pki.PrivateKey },
   options: GenerateOptions,
@@ -305,7 +320,7 @@ function generateServerCertificate(
     { name: "subjectKeyIdentifier" },
     {
       name: "authorityKeyIdentifier",
-      keyIdentifier: ca.certificate.generateSubjectKeyIdentifier().getBytes(),
+      keyIdentifier: subjectKeyIdentifierOf(ca.certificate),
     },
     { name: "subjectAltName", altNames: buildSubjectAltNames(options) },
   ]);
@@ -330,6 +345,17 @@ export function generateCryptoSettings(options: GenerateOptions = {}): CryptoSet
     caCert: pki.certificateToPem(ca.certificate),
     caPrivateKey: pki.privateKeyToPem(ca.keypair.privateKey),
   };
+}
+
+/** Whether `certificate`'s signature verifies under `issuer`'s public key. */
+function signedBy(issuer: pki.Certificate, certificate: pki.Certificate): boolean {
+  try {
+    return issuer.verify(certificate);
+  } catch {
+    // node-forge throws (rather than returning false) when the signature
+    // does not decrypt under the issuer's key at all.
+    return false;
+  }
 }
 
 /**
@@ -374,6 +400,9 @@ export function renewServerCertificateIfNeeded(
     { certificate: caCertificate, privateKey: caPrivateKey },
     { ...options, now },
   );
+  // A user-supplied key need not belong to the user-supplied certificate;
+  // a leaf signed by the wrong key must never replace one that works.
+  if (!signedBy(caCertificate, renewed.certificate)) return null;
   return {
     ...crypto,
     cert: pki.certificateToPem(renewed.certificate),

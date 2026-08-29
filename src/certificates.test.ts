@@ -389,7 +389,9 @@ describe("renewServerCertificateIfNeeded", () => {
   // about the CA beyond what its certificate says.
   describe("with a user-supplied certificate authority", () => {
     const CUSTOM_SKI = "0102030405060708090a0b0c0d0e0f1011121314";
-    const now = new Date(issuedAt.getTime() + (LEAF_VALIDITY_DAYS + 10) * 24 * 3600 * 1000);
+    // Renewal is exercised at the real clock (so the renewed leaf can be
+    // used in a handshake), against a stored leaf that has already expired.
+    const now = new Date();
     let byo: CryptoSettings;
 
     beforeAll(() => {
@@ -403,7 +405,7 @@ describe("renewServerCertificateIfNeeded", () => {
       ca.setIssuer(attrs);
       ca.setSubject(attrs);
       ca.validity.notBefore = issuedAt;
-      ca.validity.notAfter = new Date(issuedAt.getTime() + CA_VALIDITY_DAYS * 24 * 3600 * 1000);
+      ca.validity.notAfter = new Date(now.getTime() + CA_VALIDITY_DAYS * 24 * 3600 * 1000);
       ca.setExtensions([
         { name: "basicConstraints", cA: true, critical: true },
         { name: "keyUsage", keyCertSign: true, cRLSign: true, critical: true },
@@ -419,8 +421,12 @@ describe("renewServerCertificateIfNeeded", () => {
         },
       ]);
       ca.sign(keypair.privateKey, forge.md.sha256.create());
+      const stale = parse(crypto.cert);
+      stale.validity.notAfter = new Date(now.getTime() - 24 * 3600 * 1000);
+      stale.sign(keypair.privateKey, forge.md.sha256.create());
       byo = {
         ...crypto,
+        cert: forge.pki.certificateToPem(stale),
         caCert: forge.pki.certificateToPem(ca),
         caPrivateKey: forge.pki.privateKeyToPem(keypair.privateKey),
       };
