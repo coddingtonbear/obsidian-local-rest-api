@@ -79,14 +79,6 @@ export const VAULT_EVENTS = ["create", "modify", "delete", "rename"] as const;
  * saying so, would otherwise leave a stale index in place for as long as the
  * plugin runs. Ageing the index out turns that unbounded failure into a bounded
  * one, without depending on any part of Obsidian's API being what we think.
- *
- * A minute rather than a second, because the cost is not free: a rebuild scans
- * the vault's whole link graph -- measured at ~5 ms for a 9,000-note vault and
- * ~16 ms at four times that -- on the same thread as Obsidian's UI. At a second,
- * a client reading steadily pays that hitch every second forever, for a case
- * nobody has evidence of. A minute keeps it off the critical path of a sustained
- * read load while still bounding an unannounced change at a minute rather than a
- * session.
  */
 export const BACKLINKS_INDEX_MAX_AGE_MS = 60_000;
 
@@ -105,7 +97,7 @@ export class VaultOperations {
   private cachedBacklinksIndexBuiltAt = 0;
 
   /**
-   * Dropped whenever Obsidian says anything at all has happened.
+   * Called whenever Obsidian says anything at all has happened.
    *
    * Deliberately one handler for every announcement rather than a targeted
    * update per event: rebuilding is the same work the uncached code did on
@@ -117,9 +109,6 @@ export class VaultOperations {
   };
 
   constructor(readonly app: App, readonly settings: LocalRestApiSettings) {
-    // Obsidian types `on` as one overload per literal event name, so iterating a
-    // union of them needs a cast to any single literal to typecheck. The handler
-    // takes no arguments, which every one of those callback signatures accepts.
     for (const event of METADATA_CACHE_EVENTS) {
       this.app.metadataCache.on(
         event as "resolved",
