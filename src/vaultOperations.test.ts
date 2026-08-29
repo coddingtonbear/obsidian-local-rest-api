@@ -1,10 +1,6 @@
-import fs from "fs";
-import path from "path";
 import { App, TFile, _prepareSimpleSearchMock } from "../mocks/obsidian";
 import {
   BACKLINKS_INDEX_MAX_AGE_MS,
-  METADATA_CACHE_EVENTS,
-  VAULT_EVENTS,
   VaultOperations,
 } from "./vaultOperations";
 import { LocalRestApiSettings } from "./types";
@@ -210,10 +206,13 @@ describe("backlinks index caching", () => {
     expect(build).toHaveBeenCalledTimes(1);
   });
 
-  // Every event either emitter declares, whether or not it is one that plausibly
-  // moves the link graph. Deciding which ones matter is exactly the judgement
-  // this cache should not be resting on, and an invalidation too many only costs
-  // a rebuild the uncached code performed on every single read.
+  // Every event either emitter declares today, whether or not it is one that
+  // plausibly moves the link graph. Deciding which ones matter is exactly the
+  // judgement this cache should not be resting on, and an invalidation too many
+  // only costs a rebuild the uncached code performed on every single read.
+  //
+  // These names are documentation, not a list the implementation consults: the
+  // test below fires an event that does not exist and expects the same outcome.
   test.each([
     // Fired when a file has been indexed and its cache is available.
     [
@@ -257,6 +256,52 @@ describe("backlinks index caching", () => {
 
     expect(await backlinks()).toEqual(["a.md", "b.md"]);
     expect(build).toHaveBeenCalledTimes(2);
+  });
+
+  // The point of the whole design: a subscription list can only ever name events
+  // that exist when it is written, so a future Obsidian release that adds an
+  // invalidating event would silently stop invalidating. Nothing here knows the
+  // name of the event fired below, and it must not have to.
+  test.each([
+    [
+      "metadataCache",
+      (app: App) =>
+        app.metadataCache.trigger("an-event-added-after-this-was-written"),
+    ],
+    [
+      "vault",
+      (app: App) => app.vault.trigger("an-event-added-after-this-was-written"),
+    ],
+  ])(
+    "an unknown %s event invalidates the cached index",
+    async (_name, fire) => {
+      const { app, build, backlinks } = backlinksSetup();
+
+      expect(await backlinks()).toEqual(["a.md"]);
+
+      app.metadataCache.resolvedLinks = {
+        "a.md": { "note.md": 1 },
+        "b.md": { "note.md": 1 },
+      };
+      fire(app);
+
+      expect(await backlinks()).toEqual(["a.md", "b.md"]);
+      expect(build).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  test("intercepting an emitter leaves its events reaching everyone else", async () => {
+    // Interception replaces a method on an object the whole app shares, so the
+    // one thing it may never do is swallow an event or its arguments.
+    const { app, backlinks } = backlinksSetup();
+    const observer = jest.fn();
+    app.metadataCache.on("changed", observer);
+
+    await backlinks();
+    const file = new TFile();
+    app.metadataCache.trigger("changed", file, "contents");
+
+    expect(observer).toHaveBeenCalledWith(file, "contents");
   });
 
   test("the index ages out even when nothing announces the change", async () => {
@@ -326,64 +371,45 @@ describe("backlinks index caching", () => {
     expect(build).not.toHaveBeenCalled();
   });
 
-  test("dispose unregisters the invalidation listeners", async () => {
-    // VaultOperations lives as long as the plugin, and its listeners must not
-    // outlive it: one left behind holds the old instance alive and goes on
-    // writing to a cache nobody reads.
+  test("dispose puts the emitters' own trigger back", async () => {
+    // VaultOperations lives as long as the plugin, but the objects it intercepts
+    // outlive it: a wrapper left behind on a shared emitter holds the old
+    // instance alive and goes on writing to a cache nobody reads.
+    const { app, ops } = backlinksSetup();
+    const metadataCacheTrigger = app.metadataCache.trigger;
+    const vaultTrigger = app.vault.trigger;
+
+    ops.dispose();
+
+    expect(app.metadataCache.trigger).toBe(metadataCacheTrigger);
+    expect(app.vault.trigger).toBe(vaultTrigger);
+  });
+
+  test("dispose stops a disposed instance invalidating anything", async () => {
     const { app, ops, build, backlinks } = backlinksSetup();
 
     await backlinks();
     ops.dispose();
-
-    for (const event of METADATA_CACHE_EVENTS) {
-      app.metadataCache._emit(event, new TFile(), null);
-    }
-    for (const event of VAULT_EVENTS) {
-      app.vault._emit(event, new TFile(), "old.md");
-    }
+    app.metadataCache.trigger("resolved");
+    app.vault.trigger("modify", new TFile());
 
     await backlinks();
     expect(build).toHaveBeenCalledTimes(1);
   });
-});
 
-// ---------------------------------------------------------------------------
-// The listener set is only ever as complete as Obsidian's own event surface.
-//
-// Subscribing to every declared event answers "did we pick the right subset?",
-// but not "what if a later Obsidian release adds one?" -- a hardcoded list would
-// silently stop covering the graph the day that happens. These read the event
-// names back out of the installed typings, so an upgrade that adds or renames an
-// event is a failing test rather than a cache that quietly goes stale.
-//
-// This only sees what Obsidian declares publicly. An undocumented internal path
-// that rewrites resolvedLinks is covered by BACKLINKS_INDEX_MAX_AGE_MS instead.
-// ---------------------------------------------------------------------------
+  test("dispose leaves a wrapper installed after ours alone", async () => {
+    // app.metadataCache belongs to Obsidian, not to this plugin: another plugin
+    // may well wrap the same method after we do. Unwinding blindly would drop
+    // its wrapper on the floor, so we only unwind while ours is still outermost.
+    const { app, ops } = backlinksSetup();
+    const ours = app.metadataCache.trigger;
+    const theirs = jest.fn();
+    app.metadataCache.trigger = theirs;
 
-describe("Obsidian's declared event surface", () => {
-  function declaredEvents(className: string): string[] {
-    const typings = fs.readFileSync(
-      path.join(__dirname, "..", "node_modules", "obsidian", "obsidian.d.ts"),
-      "utf-8",
-    );
-    const start = typings.indexOf(`export class ${className} extends Events {`);
-    expect(start).toBeGreaterThanOrEqual(0);
+    ops.dispose();
 
-    const end = typings.indexOf("\nexport ", start + 1);
-    const body = typings.slice(start, end === -1 ? undefined : end);
-
-    return [...body.matchAll(/\bon\(name: '([^']+)'/g)]
-      .map((match) => match[1])
-      .sort();
-  }
-
-  test("the cache is invalidated by every metadataCache event", () => {
-    expect([...METADATA_CACHE_EVENTS].sort()).toEqual(
-      declaredEvents("MetadataCache"),
-    );
-  });
-
-  test("the cache is invalidated by every vault event", () => {
-    expect([...VAULT_EVENTS].sort()).toEqual(declaredEvents("Vault"));
+    expect(app.metadataCache.trigger).toBe(theirs);
+    expect(app.metadataCache.trigger).not.toBe(ours);
   });
 });
+
