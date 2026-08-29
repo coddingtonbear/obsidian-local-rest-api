@@ -71,19 +71,37 @@ function jsonOf<T = unknown>(result: ToolResult): T {
 // ---------------------------------------------------------------------------
 
 let client: Client;
+let transport: StreamableHTTPClientTransport;
 
 beforeAll(async () => {
   await ensureServerReachable();
   await resetFixture(FIXTURE_DOCUMENT, TEST_PATH);
   client = makeClient();
-  await client.connect(makeTransport());
+  transport = makeTransport();
+  await client.connect(transport);
 });
 
 afterAll(async () => {
-  await client?.close();
-  await deleteFixture(TEST_PATH);
-  // Best-effort cleanup of the temp path used by write/delete tests.
-  await deleteFixture(TEMP_PATH).catch((_e: unknown): void => {});
+  try {
+    // `client.close()` alone tears down only this end of the connection: the SDK's
+    // StreamableHTTPClientTransport.close() aborts its own request controller and never
+    // sends the DELETE, and the plugin drops a session from its map only on that DELETE
+    // (`onsessionclosed`, src/mcpHandler.ts). So closing without terminating leaves this
+    // file's session — and its `listChanged` subscription — live in the plugin for as long
+    // as Obsidian stays up, taxing every vault write in every integration file that runs
+    // after this one, and in the user's own editor afterwards.
+    //
+    // Order matters: terminateSession() sends its DELETE with the transport's own abort
+    // signal, so calling close() first would cancel the very request that ends the session.
+    // Not swallowed, either — a session we could not end is exactly the state this file is
+    // trying to avoid, and it should fail the run rather than pass quietly.
+    await transport?.terminateSession();
+  } finally {
+    await client?.close();
+    await deleteFixture(TEST_PATH);
+    // Best-effort cleanup of the temp path used by write/delete tests.
+    await deleteFixture(TEMP_PATH).catch((_e: unknown): void => {});
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -92,6 +110,36 @@ afterAll(async () => {
 // ---------------------------------------------------------------------------
 
 describe("MCP sessionful lifecycle", () => {
+  // Every session opened through `initializeAt` is registered here and terminated in
+  // afterEach. Each live session is a subscriber the plugin pushes `listChanged`
+  // notifications to on every vault write, so one left behind taxes each write-then-read-back
+  // test further down this file — enough, measured, to make `vault_patch` › "sets a
+  // frontmatter list from a native JSON array value" fail 2 runs in 4 where a clean run
+  // failed 0 in 4. Registering inside the helper rather than test by test is the point: the
+  // next sessionful test added here is cleaned up whether its author thought about this or
+  // not, which is what stops the flake reappearing somewhere else in the file.
+  const openSessions = new Set<string>();
+
+  // DELETE a session and take it off the cleanup list, so a test that terminates its own
+  // session does not leave afterEach to DELETE an id the plugin has already forgotten.
+  async function deleteSession(sessionId: string): Promise<Response> {
+    openSessions.delete(sessionId);
+    return authedFetch("/mcp/", {
+      method: "DELETE",
+      headers: { "Mcp-Session-Id": sessionId },
+    });
+  }
+
+  afterEach(async () => {
+    // Asserted rather than best-effort: a DELETE that does not answer 200 means the session
+    // is still in the plugin's map, which is the one thing this arrangement exists to
+    // prevent. Swallowing that would put the file back where it started, quietly.
+    for (const sessionId of [...openSessions]) {
+      const res = await deleteSession(sessionId);
+      expect(res.status).toBe(200);
+    }
+  });
+
   async function initializeAt(
     version: string,
   ): Promise<{ sessionId: string | null; result: any }> {
@@ -115,8 +163,10 @@ describe("MCP sessionful lifecycle", () => {
     const text = await res.text();
     const line = text.split("\n").find((l) => l.startsWith("data: "));
     if (!line) throw new Error(`No SSE data frame in initialize response: ${text}`);
+    const sessionId = res.headers.get("mcp-session-id");
+    if (sessionId) openSessions.add(sessionId);
     return {
-      sessionId: res.headers.get("mcp-session-id"),
+      sessionId,
       result: JSON.parse(line.slice("data: ".length)).result,
     };
   }
@@ -138,20 +188,11 @@ describe("MCP sessionful lifecycle", () => {
     // hanging: a real socket to a real Obsidian, not the in-process express app. The
     // hardcoded literal is deliberate — see mcpEndpoint.test.ts.
     const { sessionId, result } = await initializeAt("2025-11-25");
-    try {
-      expect(typeof sessionId).toBe("string");
-      expect(result.protocolVersion).toBe("2025-11-25");
-      expect(result.capabilities.tools.listChanged).toBe(true);
-    } finally {
-      // Terminate rather than leak. Every live session is a subscriber the plugin pushes
-      // `listChanged` notifications to on each vault write, so a session left open here
-      // slows down every write-then-read-back test further down the file — enough to have
-      // made the vault_patch frontmatter read-back race intermittently.
-      await authedFetch("/mcp/", {
-        method: "DELETE",
-        headers: { "Mcp-Session-Id": sessionId ?? "" },
-      });
-    }
+    expect(typeof sessionId).toBe("string");
+    expect(result.protocolVersion).toBe("2025-11-25");
+    expect(result.capabilities.tools.listChanged).toBe(true);
+    // The session this opened is terminated by the describe's afterEach, which runs whether
+    // the assertions above passed or threw — the try/finally this test used to carry.
   });
 
   test("an unknown session id is rejected with 404", async () => {
@@ -170,10 +211,8 @@ describe("MCP sessionful lifecycle", () => {
 
   test("DELETE terminates a session", async () => {
     const { sessionId } = await initialize();
-    const res = await authedFetch("/mcp/", {
-      method: "DELETE",
-      headers: { "Mcp-Session-Id": sessionId ?? "" },
-    });
+    if (!sessionId) throw new Error("initialize returned no Mcp-Session-Id");
+    const res = await deleteSession(sessionId);
     expect(res.status).toBe(200);
   });
 });
