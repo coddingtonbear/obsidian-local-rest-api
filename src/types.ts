@@ -32,13 +32,27 @@ export enum ErrorCode {
   FileOperationFailed = 50020,
 }
 
+/**
+ * The TLS material the plugin serves.
+ *
+ * `cert`/`privateKey`/`publicKey` are the leaf certificate presented by the
+ * HTTPS server and its keypair. `caCert`/`caPrivateKey` hold the certificate
+ * authority that signed the leaf; they are absent for material generated
+ * before the CA/leaf split (a single self-signed certificate that doubled as
+ * its own authority), which the plugin keeps serving unchanged until the
+ * user regenerates it.
+ */
+export interface CryptoSettings {
+  cert: string;
+  privateKey: string;
+  publicKey: string;
+  caCert?: string;
+  caPrivateKey?: string;
+}
+
 export interface LocalRestApiSettings {
   apiKey?: string;
-  crypto?: {
-    cert: string;
-    privateKey: string;
-    publicKey: string;
-  };
+  crypto?: CryptoSettings;
   port: number;
   insecurePort: number;
   enableInsecureServer: boolean;

@@ -48,7 +48,7 @@ Access your vault through the **REST API** or the **built-in [MCP server](https:
 - **Open files in Obsidian** — tell Obsidian to open a specific note in its UI
 - **Extend the API** — other plugins can register their own routes via the [API extension interface](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension)
 
-All requests are served over HTTPS with a self-signed certificate and gated behind API key authentication.
+All requests are served over HTTPS with a locally generated certificate and gated behind API key authentication.
 
 ## Quick start
 
@@ -80,11 +80,11 @@ curl -k -X PATCH \
   https://127.0.0.1:27124/vault/path/to/note.md
 ```
 
-To avoid certificate warnings, you can download and trust the certificate from `https://127.0.0.1:27124/obsidian-local-rest-api.crt`, or point your HTTP client at it directly.
+To avoid certificate warnings, you can download the plugin's certificate authority from `https://127.0.0.1:27124/obsidian-local-rest-api.crt` and trust it in your OS or browser, or point your HTTP client at it directly (for example `curl --cacert obsidian-local-rest-api.crt ...`). The plugin generates its own certificate authority on first run and serves a server certificate signed by it, so the download is a CA certificate rather than the server certificate itself. That CA is name-constrained: it can only vouch for `127.0.0.1`, `localhost`, your configured binding host, and the hostnames you list under **Subject alternative names**, so trusting it does not let it (or anyone who obtains its key) impersonate other sites.
 
 ### MCP clients
 
-The MCP server runs at `https://127.0.0.1:27124/mcp/` and requires that you provide your bearer token for authentication via an `Authorization` header (i.e. `Authorization: Bearer <your-api-key>`). Because the plugin uses a self-signed certificate, you may need to either trust the certificate in your OS/client, or use the plain HTTP endpoint at `http://127.0.0.1:27123/mcp/` (enable it under **Settings → Local REST API → Enable HTTP server**).
+The MCP server runs at `https://127.0.0.1:27124/mcp/` and requires that you provide your bearer token for authentication via an `Authorization` header (i.e. `Authorization: Bearer <your-api-key>`). Because the plugin uses a locally generated certificate authority, you may need to either trust that certificate in your OS/client, or use the plain HTTP endpoint at `http://127.0.0.1:27123/mcp/` (enable it under **Settings → Local REST API → Enable HTTP server**).
 
 #### Claude Code
 
@@ -313,9 +313,9 @@ Authorization: Bearer <your-api-key>
 The exact config syntax varies by client; see the [Quick start](#mcp-clients) examples above or consult your client's documentation for Streamable HTTP remote MCP servers.
 
 > [!WARNING]
-> To connect to the MCP server securely, your client must trust the plugin's self-signed certificate. You can download and trust it from `https://127.0.0.1:27124/obsidian-local-rest-api.crt`, or configure your client to skip TLS verification for `127.0.0.1`.
+> To connect to the MCP server securely, your client must trust the plugin's locally generated certificate authority. You can download and trust it from `https://127.0.0.1:27124/obsidian-local-rest-api.crt`, or configure your client to skip TLS verification for `127.0.0.1`.
 >
-> If trusting a self-signed certificate is not possible in your environment, you can connect insecurely using `http://127.0.0.1:27123/mcp/`
+> If trusting a locally generated certificate is not possible in your environment, you can connect insecurely using `http://127.0.0.1:27123/mcp/`
 > instead of `https://127.0.0.1:27124/mcp/` if you have enabled the HTTP endpoint under **Settings → Local REST API → Enable HTTP server**.
 
 ### Available tools

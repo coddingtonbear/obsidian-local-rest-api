@@ -49,9 +49,11 @@ import {
   SearchJsonResponseItem,
 } from "./types";
 import {
-  getCertificateIsUptoStandards,
-  getCertificateValidityDays,
 } from "./utils";
+import {
+  getCertificateStandardsIssue,
+  getCertificateValidityDays,
+} from "./certificates";
 import {
   CERT_NAME,
   ContentTypes,
@@ -302,6 +304,10 @@ export default class RequestHandler {
       // This is fine, we just won't include that in the output
     }
 
+    const standardsIssue = certificate
+      ? getCertificateStandardsIssue(certificate)
+      : null;
+
     res.status(200).json({
       status: "OK",
       manifest: this.manifest,
@@ -315,8 +321,8 @@ export default class RequestHandler {
         this.requestIsAuthenticated(req) && certificate
           ? {
             validityDays: getCertificateValidityDays(certificate),
-            regenerateRecommended:
-              !getCertificateIsUptoStandards(certificate),
+            regenerateRecommended: standardsIssue !== null,
+            regenerateReason: standardsIssue,
           }
           : undefined,
       apiExtensions: this.requestIsAuthenticated(req)
@@ -2204,7 +2210,10 @@ export default class RequestHandler {
       "Content-type",
       `application/octet-stream; filename="${CERT_NAME}"`,
     );
-    res.status(200).send(this.settings.crypto.cert);
+    // Clients import this to trust the server, so hand them the authority
+    // that signed the server certificate when there is one; material from
+    // before the CA/leaf split has only the self-signed certificate itself.
+    res.status(200).send(this.settings.crypto.caCert ?? this.settings.crypto.cert);
   }
 
   async openapiYamlGet(

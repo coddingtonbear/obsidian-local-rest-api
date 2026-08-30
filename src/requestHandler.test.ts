@@ -1,6 +1,9 @@
 import { createHash } from "crypto";
 import http from "http";
+import forge from "node-forge";
 import request from "supertest";
+
+import { generateCryptoSettings } from "./certificates";
 
 // Mock McpHandler so tests don't load the MCP SDK (which bundles ESM-only zod)
 jest.mock("./mcpHandler", () => ({
@@ -127,6 +130,86 @@ describe("requestHandler", () => {
         .expect(200);
 
       expect(result.body.toString()).toEqual(settings.crypto.cert);
+    });
+  });
+
+  describe("certificate material generated with a CA", () => {
+    // 2048-bit generation is slow under jest; the served shape is what matters.
+    const generated = generateCryptoSettings({ keySize: 1024 });
+
+    function legacySelfSignedCertificate(): string {
+      const keypair = forge.pki.rsa.generateKeyPair(1024);
+      const attrs = [{ name: "commonName", value: "Obsidian Local REST API" }];
+      const certificate = forge.pki.createCertificate();
+      certificate.setIssuer(attrs);
+      certificate.setSubject(attrs);
+      certificate.setExtensions([
+        { name: "basicConstraints", cA: true, critical: true },
+        { name: "keyUsage", keyCertSign: true, digitalSignature: true, critical: true },
+        { name: "subjectAltName", altNames: [{ type: 7, ip: "127.0.0.1" }] },
+      ]);
+      certificate.serialNumber = "1";
+      certificate.publicKey = keypair.publicKey;
+      certificate.validity.notBefore = new Date();
+      certificate.validity.notAfter = new Date(Date.now() + 365 * 24 * 3600 * 1000);
+      certificate.sign(keypair.privateKey, forge.md.sha256.create());
+      return forge.pki.certificateToPem(certificate);
+    }
+
+    test("the certificate download is the CA, not the server certificate", async () => {
+      settings.crypto = generated;
+      const result = await request(server).get(`/${CERT_NAME}`).expect(200);
+
+      expect(result.body.toString()).toEqual(generated.caCert);
+      expect(result.body.toString()).not.toEqual(generated.cert);
+    });
+
+    test("legacy material without a CA downloads the self-signed certificate", async () => {
+      settings.crypto = {
+        cert: generated.cert,
+        privateKey: generated.privateKey,
+        publicKey: generated.publicKey,
+      };
+      const result = await request(server).get(`/${CERT_NAME}`).expect(200);
+
+      expect(result.body.toString()).toEqual(generated.cert);
+    });
+
+    test("root reports a CA-signed server certificate as up to standards", async () => {
+      settings.crypto = generated;
+      const result = await request(server)
+        .get("/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.certificateInfo).toEqual({
+        validityDays: expect.any(Number),
+        regenerateRecommended: false,
+        regenerateReason: null,
+      });
+      expect(result.body.certificateInfo.validityDays).toBeGreaterThan(360);
+    });
+
+    test("root recommends regenerating a legacy CA-as-leaf certificate", async () => {
+      settings.crypto = {
+        cert: legacySelfSignedCertificate(),
+        privateKey: generated.privateKey,
+        publicKey: generated.publicKey,
+      };
+      const result = await request(server)
+        .get("/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+
+      expect(result.body.certificateInfo.regenerateRecommended).toBe(true);
+      expect(result.body.certificateInfo.regenerateReason).toBe("ca-used-as-leaf");
+    });
+
+    test("root omits certificate info without auth", async () => {
+      settings.crypto = generated;
+      const result = await request(server).get("/").expect(200);
+
+      expect(result.body.certificateInfo).toBeUndefined();
     });
   });
 

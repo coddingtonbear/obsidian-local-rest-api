@@ -26,3 +26,14 @@ declare global {
     moment(inp?: moment.MomentInput, format?: moment.MomentFormatSpecification, language?: string, strict?: boolean): moment.Moment;
   }
 }
+
+// @types/node-forge omits the IP helpers that node-forge's util module
+// actually exports (lib/util.js). Both return null for unparseable input.
+declare module "node-forge" {
+  namespace util {
+    /** Binary bytes (4 for IPv4, 16 for IPv6) of an address, or null if it is not one. */
+    function bytesFromIP(ip: string): string | null;
+    /** Dotted/colon text of 4- or 16-byte binary address, or null for any other length. */
+    function bytesToIP(bytes: string): string | null;
+  }
+}

@@ -10,7 +10,7 @@ import {
 } from "obsidian";
 import * as https from "https";
 import * as http from "http";
-import forge, { pki } from "node-forge";
+import forge from "node-forge";
 
 import RequestHandler from "./requestHandler";
 import { LocalRestApiSettings } from "./types";
@@ -23,9 +23,13 @@ import {
   LicenseUrl,
 } from "./constants";
 import {
-  getCertificateIsUptoStandards,
-  getCertificateValidityDays,
-} from "./utils";
+  CertificateStandardsIssue,
+  buildServerCertificateChain,
+  generateCryptoSettings,
+  getCertificateStandardsIssue,
+  getReportedValidityDays,
+  renewServerCertificateIfNeeded,
+} from "./certificates";
 import type { LocalRestApiPublicApi } from "./publicApi";
 // The extension API is defined in ./publicApi, which is what the generated
 // publicApi.d.ts ships to extension authors. Re-exported here so that anything
@@ -70,97 +74,26 @@ export default class LocalRestApi extends Plugin {
       await this.saveSettings();
     }
     if (!this.settings.crypto) {
-      const expiry = new Date();
-      const today = new Date();
-      expiry.setDate(today.getDate() + 365);
-
-      const keypair = forge.pki.rsa.generateKeyPair(2048);
-      const attrs = [
-        {
-          name: "commonName",
-          value: "Obsidian Local REST API",
-        },
-      ];
-      const certificate = forge.pki.createCertificate();
-      certificate.setIssuer(attrs);
-      certificate.setSubject(attrs);
-
-      const subjectAltNames: Record<string, unknown>[] = [
-        {
-          type: 7, // IP
-          ip: DefaultBindingHost,
-        },
-      ];
-      if (
-        this.settings.bindingHost &&
-        this.settings.bindingHost !== "0.0.0.0"
-      ) {
-        subjectAltNames.push({
-          type: 7, // IP
-          ip: this.settings.bindingHost,
-        });
-      }
-      if (this.settings.subjectAltNames) {
-        for (const name of this.settings.subjectAltNames.split("\n")) {
-          if (name.trim()) {
-            subjectAltNames.push({
-              type: 2,
-              value: name.trim(),
-            });
-          }
+      this.settings.crypto = generateCryptoSettings({
+        bindingHost: this.settings.bindingHost,
+        subjectAltNames: this.settings.subjectAltNames,
+      });
+      await this.saveSettings();
+    } else {
+      // Material generated with a CA can have its server certificate renewed
+      // quietly; the CA users have trusted stays the same. Legacy single
+      // self-signed certificates are left alone (see renderCertificateWarnings).
+      const renewed = renewServerCertificateIfNeeded(this.settings.crypto, {
+        bindingHost: this.settings.bindingHost,
+        subjectAltNames: this.settings.subjectAltNames,
+      });
+      if (renewed) {
+        this.settings.crypto = renewed;
+        await this.saveSettings();
+        if (this.settings.enableVerboseLogging) {
+          console.debug("[REST API] Renewed the server certificate from the stored CA");
         }
       }
-
-      certificate.setExtensions([
-        {
-          name: "basicConstraints",
-          cA: true,
-          critical: true,
-        },
-        {
-          name: "keyUsage",
-          keyCertSign: true,
-          digitalSignature: true,
-          nonRepudiation: true,
-          keyEncipherment: false,
-          dataEncipherment: false,
-          critical: true,
-        },
-        {
-          name: "extKeyUsage",
-          serverAuth: true,
-          clientAuth: true,
-          codeSigning: true,
-          emailProtection: true,
-          timeStamping: true,
-        },
-        {
-          name: "nsCertType",
-          client: true,
-          server: true,
-          email: true,
-          objsign: true,
-          sslCA: true,
-          emailCA: true,
-          objCA: true,
-        },
-        {
-          name: "subjectAltName",
-          altNames: subjectAltNames,
-        },
-      ]);
-      certificate.serialNumber = "1";
-      certificate.publicKey = keypair.publicKey;
-      certificate.validity.notAfter = expiry;
-      certificate.validity.notBefore = today;
-      certificate.sign(keypair.privateKey, forge.md.sha256.create());
-
-      this.settings.crypto = {
-        cert: pki.certificateToPem(certificate),
-        privateKey: pki.privateKeyToPem(keypair.privateKey),
-        publicKey: pki.publicKeyToPem(keypair.publicKey),
-      };
-      await this.saveSettings();
     }
 
     this.addSettingTab(new LocalRestApiSettingTab(this.app, this));
@@ -205,7 +138,7 @@ export default class LocalRestApi extends Plugin {
       this.secureServer = https.createServer(
         {
           key: this.settings.crypto.privateKey,
-          cert: this.settings.crypto.cert,
+          cert: buildServerCertificateChain(this.settings.crypto),
         },
         this.requestHandler.api
       );
@@ -277,20 +210,27 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
+  /**
+   * Summarises the stored certificate material for the settings UI. See
+   * getReportedValidityDays for which certificate's expiry is reported.
+   */
   private getCertificateStatus(): {
     remainingCertificateValidityDays: number | null;
-    shouldRegenerateCertificate: boolean;
+    standardsIssue: CertificateStandardsIssue | null;
   } {
-    const parsedCertificate = this.plugin.settings.crypto && forge.pki.certificateFromPem(
-      this.plugin.settings.crypto.cert
-    );
+    const crypto = this.plugin.settings.crypto;
+    if (!crypto) {
+      return { remainingCertificateValidityDays: null, standardsIssue: null };
+    }
+    let standardsIssue: CertificateStandardsIssue | null = null;
+    try {
+      standardsIssue = getCertificateStandardsIssue(forge.pki.certificateFromPem(crypto.cert));
+    } catch {
+      // Unparseable material: nothing to say about its standards either.
+    }
     return {
-      remainingCertificateValidityDays: parsedCertificate
-        ? getCertificateValidityDays(parsedCertificate)
-        : null,
-      shouldRegenerateCertificate: parsedCertificate
-        ? !getCertificateIsUptoStandards(parsedCertificate)
-        : false,
+      remainingCertificateValidityDays: getReportedValidityDays(crypto),
+      standardsIssue,
     };
   }
 
@@ -568,7 +508,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
   }
 
   private renderCertificateWarnings(el: HTMLElement): void {
-    const { remainingCertificateValidityDays, shouldRegenerateCertificate } =
+    const { remainingCertificateValidityDays, standardsIssue } =
       this.getCertificateStatus();
 
     if (remainingCertificateValidityDays !== null && remainingCertificateValidityDays < 0) {
@@ -589,7 +529,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         text: ' You should re-generate your certificate below by pressing the "Re-generate certificates" button below in order to continue to connect securely to this API.',
       });
     }
-    if (shouldRegenerateCertificate) {
+    if (standardsIssue === "legacy-ipv4-san") {
       const shouldRegenerateCertificateDiv = el.createDiv();
       shouldRegenerateCertificateDiv.classList.add(
         "certificate-regeneration-recommended"
@@ -599,6 +539,14 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       });
       shouldRegenerateCertificateDiv.createSpan({
         text: " Your certificate was generated using earlier standards than are currently used by Obsidian Local REST API with MCP. Some systems or tools may not accept your certificate with its current configuration, and re-generating your certificate may improve compatibility with such tools.  To re-generate your certificate, press the \"Re-generate certificates\" button below.",
+      });
+    } else if (standardsIssue === "ca-used-as-leaf") {
+      // Deliberately mild: nothing is broken for anyone this certificate
+      // already works for, and regenerating costs them a re-import.
+      const updateAvailableDiv = el.createDiv();
+      updateAvailableDiv.classList.add("certificate-update-available");
+      updateAvailableDiv.createSpan({
+        text: "Certificate generation has been updated to support the stricter verification performed by recent versions of some browsers and tools (Firefox, for example). Your current certificate will keep working everywhere it works today. If you find that a browser or tool rejects it, press \"Re-generate certificates\" below, then re-import the newly generated certificate wherever you had trusted the old one.",
       });
     }
   }
@@ -648,7 +596,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
   getSettingDefinitions(): SettingDefinitionItem[] {
     this.containerEl.classList.add("obsidian-local-rest-api-settings");
 
-    const { remainingCertificateValidityDays, shouldRegenerateCertificate } =
+    const { remainingCertificateValidityDays, standardsIssue } =
       this.getCertificateStatus();
 
     const certificateDisplayValue = (): string => {
@@ -658,7 +606,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         const days = Math.floor(remainingCertificateValidityDays);
         return `Expires in ${days} day${days === 1 ? "" : "s"}`;
       }
-      if (shouldRegenerateCertificate) return "Should be regenerated";
+      if (standardsIssue === "legacy-ipv4-san") return "Should be regenerated";
+      if (standardsIssue === "ca-used-as-leaf") return "Update available";
       return "Valid";
     };
 
@@ -737,7 +686,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             name: "Certificates",
             desc: "Regenerate certificates and edit certificate hostnames, key material, and the API key.",
             displayValue: certificateDisplayValue,
-            status: shouldRegenerateCertificate ? "warning" : null,
+            status: standardsIssue === "legacy-ipv4-san" ? "warning" : null,
             items: this.getCertificateSettingDefinitions(),
           },
           {
@@ -873,7 +822,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       },
       {
         name: "Re-generate certificates",
-        desc: "Regenerates your certificate, private key, and public key; your API key remains unchanged. This settings panel will be closed when you press this.",
+        desc: "Regenerates your certificate authority, server certificate, and their keys; your API key remains unchanged. Anything that trusted the previous certificate will need to trust the new one. This settings panel will be closed when you press this.",
         render: (setting) => {
           setting.addButton((cb) => {
             cb.setButtonText("Re-generate certificates")
@@ -889,19 +838,30 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       },
       {
         name: "Certificate hostnames",
-        desc: 'List of extra hostnames to add to your certificate\'s `subjectAltName` field. One hostname per line. You must click the "Re-generate certificates" button above after changing this value for this to have an effect.  This is useful for situations in which you are accessing Obsidian from a hostname other than the host on which it is running.',
+        desc: 'List of extra hostnames to add to your certificate\'s `subjectAltName` field. One hostname per line. You must click the "Re-generate certificates" button above after changing this value for this to have an effect: the certificate authority only permits the hostnames it was generated with, so the server certificate cannot be renewed for new ones.  This is useful for situations in which you are accessing Obsidian from a hostname other than the host on which it is running.',
         control: { type: "textarea", key: "subjectAltNames" },
       },
       {
-        name: "Certificate",
+        name: "CA certificate",
+        desc: "The certificate authority that signed the server certificate; this is what clients download and trust. Leave empty if your server certificate is self-signed.",
+        control: { type: "textarea", key: "cryptoCaCert" },
+      },
+      {
+        name: "CA private key",
+        desc: "Used to renew the server certificate automatically before it expires. Leave empty to disable automatic renewal.",
+        control: { type: "textarea", key: "cryptoCaPrivateKey" },
+      },
+      {
+        name: "Server certificate",
+        desc: "The certificate presented by the HTTPS server.",
         control: { type: "textarea", key: "cryptoCert" },
       },
       {
-        name: "Public key",
+        name: "Server public key",
         control: { type: "textarea", key: "cryptoPublicKey" },
       },
       {
-        name: "Private key",
+        name: "Server private key",
         control: { type: "textarea", key: "cryptoPrivateKey" },
       },
     ];
@@ -927,6 +887,10 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         return this.plugin.settings.crypto?.publicKey ?? "";
       case "cryptoPrivateKey":
         return this.plugin.settings.crypto?.privateKey ?? "";
+      case "cryptoCaCert":
+        return this.plugin.settings.crypto?.caCert ?? "";
+      case "cryptoCaPrivateKey":
+        return this.plugin.settings.crypto?.caPrivateKey ?? "";
       case "authorizationHeaderName":
         return (
           this.plugin.settings.authorizationHeaderName ??
@@ -993,6 +957,23 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           this.plugin.refreshServerState();
         }
         break;
+      case "cryptoCaCert":
+      case "cryptoCaPrivateKey": {
+        // An empty CA field means "none", not an empty PEM: self-signed
+        // material must not carry an empty string that later fails to parse.
+        const field = key === "cryptoCaCert" ? "caCert" : "caPrivateKey";
+        if (this.plugin.settings.crypto) {
+          const text = (value as string).trim();
+          if (text) {
+            this.plugin.settings.crypto[field] = text;
+          } else {
+            delete this.plugin.settings.crypto[field];
+          }
+          await this.plugin.saveSettings();
+          this.plugin.refreshServerState();
+        }
+        break;
+      }
       case "authorizationHeaderName":
         if (value !== DefaultBearerTokenHeaderName) {
           this.plugin.settings.authorizationHeaderName = value as string;
