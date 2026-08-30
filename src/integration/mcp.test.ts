@@ -676,6 +676,82 @@ describe("vault_read_binary and vault_write_binary tools", () => {
 });
 
 // ---------------------------------------------------------------------------
+// vault_read's refusal of non-text files
+//
+// The unit tests hand the handler bytes through a mocked ops layer; only here do a real
+// file's bytes come back from Obsidian's own adapter and get decoded. Both directions are
+// covered, because the guard is only worth having if it separates them.
+// ---------------------------------------------------------------------------
+
+describe("vault_read on a non-text file", () => {
+  const PNG_PATH = `${TEST_DIR}/mcp-temp-refused.png`;
+  const PIXEL_BASE64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  // A note whose text genuinely contains the replacement character: its own bytes are
+  // valid UTF-8, so it must read normally. This is the file a check that looked for the
+  // character itself would wrongly refuse.
+  const MARKER_PATH = `${TEST_DIR}/mcp-temp-marker.md`;
+  const MARKER_BODY = `# Marker\n\nA pasted glyph survived as ${String.fromCodePoint(0xfffd)} here.\n`;
+
+  beforeAll(async () => {
+    await client.callTool({
+      name: "vault_write_binary",
+      arguments: { path: PNG_PATH, content: PIXEL_BASE64 },
+    });
+    await client.callTool({
+      name: "vault_write",
+      arguments: { path: MARKER_PATH, content: MARKER_BODY },
+    });
+    // Give Obsidian's index a moment to register both new files.
+    await new Promise((r) => setTimeout(r, 300));
+  });
+
+  afterAll(async () => {
+    await deleteFixture(PNG_PATH).catch((_e: unknown): void => {});
+    await deleteFixture(MARKER_PATH).catch((_e: unknown): void => {});
+  });
+
+  test("refuses the PNG and points at vault_read_binary", async () => {
+    const result = await client.callTool({
+      name: "vault_read",
+      arguments: { path: PNG_PATH },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toMatch(/not valid UTF-8/);
+    expect(textOf(result)).toMatch(/vault_read_binary/);
+  });
+
+  // The refusal is on the file's bytes, so it lands before the target is looked up: a
+  // targeted read of an attachment says the file is not text, rather than that the
+  // heading was not found in it.
+  test("refuses a targeted read of the PNG for the same reason", async () => {
+    const result = await client.callTool({
+      name: "vault_read",
+      arguments: { path: PNG_PATH, targetType: "heading", target: ["Anything"] },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toMatch(/not valid UTF-8/);
+  });
+
+  test("still reads a text file containing a literal replacement character", async () => {
+    const result = await client.callTool({
+      name: "vault_read",
+      arguments: { path: MARKER_PATH },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(jsonOf<any>(result).content).toBe(MARKER_BODY);
+  });
+
+  test("the REST layer is unchanged and still serves the PNG's raw bytes", async () => {
+    const response = await authedFetch(`/vault/${PNG_PATH}`);
+    expect(response.status).toBe(200);
+    expect(Buffer.from(await response.arrayBuffer()).toString("base64")).toBe(
+      PIXEL_BASE64,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // vault_append
 // ---------------------------------------------------------------------------
 

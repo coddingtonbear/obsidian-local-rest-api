@@ -87,6 +87,82 @@ describe("writes go through the Vault API", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Content the caller has already read replaces the read these methods would do.
+//
+// MCP's vault_read reads a file's raw bytes so that it can refuse one whose bytes are
+// not valid UTF-8, and then needs exactly the text these two methods would otherwise
+// fetch for themselves. Passing it in is what keeps that guard to a single read of the
+// file; a caller that omits it reads as it always did.
+// ---------------------------------------------------------------------------
+
+describe("supplied content stands in for a second read", () => {
+  function withFile(existingContent: string): {
+    app: App;
+    ops: VaultOperations;
+    file: TFile;
+  } {
+    const { app, ops } = setup(existingContent);
+    const file = new TFile();
+    file.path = MD_PATH;
+    app.vault._getAbstractFileByPath = file;
+    return { app, ops, file };
+  }
+
+  test("readFileSectionMdp2 reads the supplied text, not the file", async () => {
+    const { app, ops, file } = withFile("# Alpha\n\nfrom disk\n");
+    const read = jest.spyOn(app.vault.adapter, "read");
+
+    const result = await ops.readFileSectionMdp2(
+      file,
+      { targetType: "heading", target: ["Alpha"] },
+      "# Alpha\n\nsupplied\n",
+    );
+
+    expect(JSON.stringify(result)).toContain("supplied");
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  test("readFileSectionMdp2 reads the file when no text is supplied", async () => {
+    const { ops, file } = withFile("# Alpha\n\nfrom disk\n");
+
+    const result = await ops.readFileSectionMdp2(file, {
+      targetType: "heading",
+      target: ["Alpha"],
+    });
+
+    expect(JSON.stringify(result)).toContain("from disk");
+  });
+
+  test("getFileMetadataObject returns the supplied text without a cachedRead", async () => {
+    const { app, ops, file } = withFile("");
+    app.vault._cachedRead = "from disk";
+    const cachedRead = jest.spyOn(app.vault, "cachedRead");
+
+    const meta = await ops.getFileMetadataObject(file, undefined, true, "supplied");
+
+    expect(meta.content).toBe("supplied");
+    expect(cachedRead).not.toHaveBeenCalled();
+  });
+
+  test("getFileMetadataObject falls back to cachedRead when no text is supplied", async () => {
+    const { app, ops, file } = withFile("");
+    app.vault._cachedRead = "from disk";
+
+    expect((await ops.getFileMetadataObject(file)).content).toBe("from disk");
+  });
+
+  // includeContent is the caller saying it does not want the body at all — a bulk search
+  // result, say — and that answer does not change because content happens to be at hand.
+  test("getFileMetadataObject still omits content when includeContent is false", async () => {
+    const { ops, file } = withFile("");
+
+    const meta = await ops.getFileMetadataObject(file, undefined, false, "supplied");
+
+    expect(meta.content).toBe("");
+  });
+});
+
 describe("readBinaryFileContent", () => {
   test("returns the adapter's bytes rather than a decoded string", async () => {
     const { app, ops } = setup("");

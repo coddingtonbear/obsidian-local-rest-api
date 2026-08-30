@@ -31,7 +31,7 @@ Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `40
 | Tool | Description |
 |---|---|
 | `vault_list` | List files and subdirectories inside a vault directory |
-| `vault_read` | Read a file's full content, frontmatter, tags, and stat |
+| `vault_read` | Read a text file's full content, frontmatter, tags, and stat; refuses anything that is not valid UTF-8 |
 | `vault_read_binary` | Read a file as raw bytes, base64-encoded, for attachments `vault_read` would corrupt |
 | `vault_write` | Create or overwrite a vault file |
 | `vault_write_binary` | Create or overwrite a vault file from base64-encoded raw bytes |
@@ -52,6 +52,10 @@ Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `40
 ### Binary files
 
 `vault_read` and `vault_write` are text tools: they decode and encode UTF-8, which is lossy for anything that is not text, so reading an attachment through `vault_read` and writing the result back destroys the file. Use `vault_read_binary` and `vault_write_binary` for attachments instead. Both carry the file base64-encoded.
+
+`vault_read` refuses a file whose bytes are not valid UTF-8 rather than handing back the lossy string decoding it produces, and the refusal names `vault_read_binary`. A text file that happens to contain a U+FFFD replacement character is still read normally: the check is whether the file's own bytes are valid UTF-8, not whether that character appears in them.
+
+`vault_write` has no equivalent guard, and cannot: it takes a string, and a string is text by construction, so there is nothing to detect. The read-side refusal is what keeps the round trip that destroys a file from starting.
 
 `vault_write_binary` refuses a payload it cannot decode cleanly rather than writing the bytes it managed to salvage.
 

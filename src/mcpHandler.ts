@@ -114,6 +114,31 @@ function decodeBase64Strict(value: string): Buffer {
   return decoded;
 }
 
+// A file that is not text still "reads" through Obsidian's own reader: it decodes as
+// UTF-8 and substitutes U+FFFD for every malformed byte sequence rather than failing, so
+// `vault_read` on a PNG hands back a lossy string and reports success. Write that string
+// back through `vault_write` and the file is destroyed, with nothing along the way
+// looking like an error.
+//
+// So `vault_read` decodes the bytes itself, with a decoder that throws instead of
+// substituting. That is the exact question the tool needs answered — would handing this
+// back as a string lose bytes? — rather than a guess at what the file is, and it is one
+// read: the same bytes then serve the content, which is why every read path below takes
+// the text it produced instead of reading the file again.
+//
+// `ignoreBOM` keeps a leading U+FEFF in the string rather than swallowing it, so what a
+// caller reads is byte-for-byte what a `vault_write` of it would put back, and so a
+// BOM-carrying note reads exactly as it did before this check existed.
+function decodeUtf8Strict(bytes: ArrayBuffer, path: string): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    throw new Error(
+      `Refusing to read ${path} as text: its bytes are not valid UTF-8, so decoding them loses data and the content returned here could not be written back without destroying the file. Read it with vault_read_binary, or fetch the raw bytes over the REST API with GET /vault/<path>.`,
+    );
+  }
+}
+
 // Both binary tools refuse the same way, so the ceiling reads identically whichever
 // direction a client hit it from.
 function assertWithinBinaryCeiling(byteLength: number, verb: string): void {
@@ -393,6 +418,12 @@ export class McpHandler {
     return file;
   }
 
+  // The one read behind every `vault_read`: raw bytes, decoded strictly. See
+  // `decodeUtf8Strict` above for why the read is a binary one.
+  private async readTextStrict(path: string): Promise<string> {
+    return decodeUtf8Strict(await this.ops.readBinaryFileContent(path), path);
+  }
+
   private registerResources(): void {
     this.addResourceSpec(
       "openapi-spec",
@@ -431,6 +462,8 @@ export class McpHandler {
         Read a vault file's content and metadata. Returns a JSON object with: content (full markdown text), path, tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), stat ({ctime, mtime, size}), links (array of vault-relative paths this file links to), backlinks (array of vault-relative paths of files that link here), and unresolvedLinks (array of link text in this file that does not resolve to an existing vault file). Throws if the file does not exist.
 
         When targetType and target are both provided, returns only the matched section as a plain string (markdown) or JSON value (frontmatter) instead of the full object. To save context, call vault_get_document_map first to identify headings, block IDs, or frontmatter keys, and prefer targeted reads over full reads for anything but short files.
+
+        This tool reads text. A file whose bytes are not valid UTF-8 — an image, a PDF, any attachment — is refused rather than returned as the lossy string decoding it would produce; read those with vault_read_binary instead.
       `,
       {
         path: z.string().describe("File path relative to vault root"),
@@ -471,6 +504,10 @@ export class McpHandler {
         if (scope !== undefined && (targetType == null || target == null)) {
           throw new Error("scope requires targetType and target");
         }
+        // Read once, up front, and hand the text to whichever path answers: a malformed
+        // argument should not cost a file read, but neither should a targeted read of a
+        // file this tool is about to refuse.
+        const content = await this.readTextStrict(path);
         if (targetType && target != null) {
           let address: ReadTarget;
           if (targetType === "heading") {
@@ -491,10 +528,10 @@ export class McpHandler {
           if (scope !== undefined) {
             address.scope = scope;
           }
-          const result = await this.ops.readFileSectionMdp2(file, address);
+          const result = await this.ops.readFileSectionMdp2(file, address, content);
           return this.text(result.kind === "frontmatter" ? result.value : result.content);
         }
-        const meta = await this.ops.getFileMetadataObject(file);
+        const meta = await this.ops.getFileMetadataObject(file, undefined, true, content);
         return this.text(meta);
       },
     );
