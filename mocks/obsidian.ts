@@ -20,9 +20,9 @@ class DataAdapter {
   _exists = true;
   _read = "";
   _readBinary = new ArrayBuffer(0);
-  _write: [string, string];
-  _writeBinary: [string, ArrayBuffer];
-  _remove: [string];
+  _write: [string, string] | undefined;
+  _writeBinary: [string, ArrayBuffer] | undefined;
+  _remove: [string] | undefined;
   _stat = new Stat();
   /** When set, stat() returns _stat only for this exact path and null for all others. */
   _statForPath?: string;
@@ -106,7 +106,7 @@ export class Vault {
     return this._markdownFiles;
   }
 
-  getAbstractFileByPath(path: string): TFile {
+  getAbstractFileByPath(path: string): TFile | null {
     return this._getAbstractFileByPath;
   }
 
@@ -158,6 +158,11 @@ class FileManager {
 export class Component {
   load(): void {}
   unload(): void {}
+}
+
+export class Plugin {
+  app?: App;
+  manifest?: PluginManifest;
 }
 
 export class MarkdownRenderer {
@@ -276,7 +281,7 @@ class InternalPluginManager {
 }
 
 export class App {
-  _executeCommandById: [string];
+  _executeCommandById: [string] | undefined;
 
   vault = new Vault();
   workspace = new Workspace();
@@ -316,7 +321,19 @@ export class PluginManifest {
   version = "";
 }
 
-export class SettingTab {}
+export class SettingTab {
+  constructor(public app?: App, public plugin?: Plugin) {}
+}
+
+export class PluginSettingTab extends SettingTab {}
+
+export const _languageMock = {
+  value: "en",
+};
+
+export function getLanguage(): string {
+  return _languageMock.value;
+}
 
 export const apiVersion = "1.0.0";
 
