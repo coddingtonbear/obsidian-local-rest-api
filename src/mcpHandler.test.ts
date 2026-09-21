@@ -2495,6 +2495,33 @@ describe("MCP vault path containment", () => {
     expect(ops.copyVaultFile).not.toHaveBeenCalled();
   });
 
+  // The binary and signed-URL tools refuse through normalizeVaultFilePath, which is a
+  // canonicaliser rather than a validator: it has to produce the one spelling that
+  // signing and verification both agree on, so it also refuses a directory or an empty
+  // path, and says so in its own words. It now shares this module's containment rule,
+  // and what matters is that the two agree on the part the advisory was about -- neither
+  // lets a path out of the vault.
+  //
+  // The absolute-path case is deliberately absent. A leading slash is refused everywhere
+  // else and stripped here, because a signature minted for "a/b.png" has to verify a
+  // request for "/a//b.png" -- a sloppy spelling of the same file, not an escape. See
+  // signedUrls.test.ts, which pins that on both sides.
+  describe("the binary and signed-URL tools refuse the same traversals", () => {
+    const traversals = escapingPaths.filter(([label]) => label !== "absolute path");
+
+    for (const tool of ["vault_read_binary", "vault_get_download_url", "vault_get_upload_url"]) {
+      for (const [label, escaping] of traversals) {
+        test(`${tool} rejects ${label} in path`, async () => {
+          const cb = getToolCallback(tool);
+          await expect(cb({ path: escaping })).rejects.toThrow(
+            "Not a file path inside the vault",
+          );
+          expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
+        });
+      }
+    }
+  });
+
   test("vault_list still lists the vault root when path is omitted", async () => {
     const cb = getToolCallback("vault_list");
     await expect(cb({})).resolves.toBeDefined();

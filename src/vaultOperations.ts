@@ -45,6 +45,7 @@ import {
   SearchResponseItem,
 } from "./types";
 import { toArrayBuffer } from "./utils";
+import { assertVaultPathIsContained } from "./vaultPath";
 
 /**
  * Every event Obsidian's metadata cache publicly declares, and every event its
@@ -153,6 +154,18 @@ export class VaultOperations {
     for (const event of VAULT_EVENTS) {
       this.app.vault.off(event, this.invalidateBacklinksIndex);
     }
+  }
+
+  /** Refuse a client-supplied path that resolves outside the vault.
+   *
+   *  Every caller -- the REST handler, the MCP tools, a plugin holding the
+   *  extension API -- funnels through this class, so the containment check lives
+   *  here as well as at each boundary. The boundaries exist to give a caller a
+   *  well-shaped error (a 400 with errorCode 40021, a legible MCP tool error);
+   *  this exists so that a boundary someone forgets to guard cannot reach the
+   *  filesystem. See ./vaultPath for why Obsidian's own API does not stop it. */
+  private assertContained(filePath: string, label = "Path"): void {
+    assertVaultPathIsContained(filePath, label);
   }
 
   private waitForFileCache(
@@ -450,6 +463,7 @@ export class VaultOperations {
   }
 
   async listVaultDirectory(dirPath: string): Promise<string[]> {
+    this.assertContained(dirPath, "Directory path");
     const normalizedPath = dirPath.endsWith("/")
       ? dirPath.slice(0, -1)
       : dirPath;
@@ -474,6 +488,7 @@ export class VaultOperations {
   }
 
   async readFileContent(filePath: string): Promise<string> {
+    this.assertContained(filePath);
     const file = this.app.vault.getAbstractFileByPath(filePath);
     if (!(file instanceof TFile)) {
       throw new Error(`File not found: ${filePath}`);
@@ -497,6 +512,7 @@ export class VaultOperations {
     filePath: string,
     content: string | Buffer,
   ): Promise<void> {
+    this.assertContained(filePath);
     try {
       await this.app.vault.createFolder(path.dirname(filePath));
     } catch {
@@ -518,6 +534,7 @@ export class VaultOperations {
   }
 
   async appendFileContent(filePath: string, content: string): Promise<void> {
+    this.assertContained(filePath);
     try {
       await this.app.vault.createFolder(path.dirname(filePath));
     } catch {
@@ -538,6 +555,7 @@ export class VaultOperations {
   }
 
   async deleteVaultFile(filePath: string, permanent = false): Promise<void> {
+    this.assertContained(filePath);
     if (permanent) {
       const pathExists = await this.app.vault.adapter.exists(filePath);
       if (!pathExists) {
@@ -559,6 +577,8 @@ export class VaultOperations {
     destinationPath: string,
     allowOverwrite = false,
   ): Promise<string> {
+    this.assertContained(sourcePath, "Source path");
+    this.assertContained(destinationPath, "Destination path");
     if (!destinationPath) {
       throw new Error("Destination path must not be empty.");
     }
@@ -600,6 +620,8 @@ export class VaultOperations {
     destinationPath: string,
     allowOverwrite = false,
   ): Promise<string> {
+    this.assertContained(sourcePath, "Source path");
+    this.assertContained(destinationPath, "Destination path");
     if (!destinationPath) {
       throw new Error("Destination path must not be empty.");
     }
@@ -654,6 +676,7 @@ export class VaultOperations {
       targetScope?: string;
     },
   ): Promise<string> {
+    this.assertContained(filePath);
     const file = this.app.vault.getAbstractFileByPath(filePath);
     if (!(file instanceof TFile)) {
       throw new FileNotFoundError(`File not found: ${filePath}`);
@@ -691,6 +714,7 @@ export class VaultOperations {
     filePath: string,
     instruction: InstructionInput,
   ): Promise<PatchResult> {
+    this.assertContained(filePath);
     const file = this.app.vault.getAbstractFileByPath(filePath);
     if (!(file instanceof TFile)) {
       throw new FileNotFoundError(`File not found: ${filePath}`);
@@ -882,6 +906,7 @@ export class VaultOperations {
   }
 
   openVaultFile(filePath: string, newLeaf = false): void {
+    this.assertContained(filePath);
     // Intentionally fire-and-forget: the caller (POST /open/) has already
     // responded by the time this settles, since a client asking Obsidian to
     // focus a file has no reason to wait on that UI action finishing. The

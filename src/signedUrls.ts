@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { vaultPathIsContained } from "./vaultPath";
 import { posix } from "path";
 
 /**
@@ -54,14 +55,29 @@ export function clampSignedUrlTtl(seconds: number | undefined): number {
  * resolved, and the leading/trailing slashes go. Returns null for a path that escapes
  * the vault root, is empty, or names a directory (ends in `/`): none of those can be a
  * file that a signature should authorize.
+ *
+ * Containment is {@link vaultPathIsContained}, the same rule the REST routes, the MCP
+ * tools and VaultOperations all refuse on, so there is one definition of what "escapes
+ * the vault" means. The conditions this function adds are the ones about being a
+ * *signable file* rather than about containment: a directory and the vault root itself
+ * are both inside the vault, and neither is a file a signature can authorize.
+ *
+ * Leading slashes are the one place the two deliberately differ. Here they are stripped
+ * rather than refused, because this is a canonical *spelling*: a signature minted for
+ * "a/b.png" has to verify a request for "/a//b.png", which is a sloppy spelling of the
+ * same file and not an escape from anywhere. Elsewhere a leading slash is refused,
+ * because nothing else needs to tolerate it. Stripping happens first, so the containment
+ * check still sees a relative path.
  */
 export function normalizeVaultFilePath(path: string): string | null {
   const slashed = path.replace(/\\/g, "/");
   if (slashed.endsWith("/")) return null;
+  const relative = slashed.replace(/^\/+/, "");
+  if (!vaultPathIsContained(relative)) return null;
   const syntheticRoot = "/vault";
-  const resolved = posix.resolve(syntheticRoot, slashed.replace(/^\/+/, ""));
-  if (!resolved.startsWith(syntheticRoot + "/")) return null;
-  const normalized = resolved.slice(syntheticRoot.length + 1);
+  const normalized = posix
+    .resolve(syntheticRoot, relative)
+    .slice(syntheticRoot.length + 1);
   return normalized.length > 0 ? normalized : null;
 }
 
