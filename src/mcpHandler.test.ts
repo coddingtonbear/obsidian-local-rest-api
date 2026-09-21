@@ -976,6 +976,11 @@ describe("McpHandler", () => {
       );
       expect(result.content[1].type).toBe("text");
       expect(result.content[1].text).toContain("[data.bin](http://127.0.0.1:27123/vault/data.bin?sig=");
+      // Deliberately thin: mimeType and size are structured fields on the resource_link
+      // block above, so the text block carries only the pasteable link and the expiry.
+      expect(result.content[1].text).toContain("link valid until");
+      expect(result.content[1].text).not.toContain("application/octet-stream");
+      expect(result.content[1].text).not.toMatch(/\d+ bytes/);
     });
 
     test("as: 'link' returns a signed link even for an image, and never reads the file", async () => {
@@ -1071,12 +1076,16 @@ describe("McpHandler", () => {
         getToolCallback("vault_get_upload_url")({ path: "attachments/new photo.jpg" }),
       );
       const body = parseText(result);
+      // `path` is the normalized target, not an echo: this tool overwrites without
+      // warning, so what the argument resolved to is worth stating.
       expect(body).toMatchObject({
-        method: "PUT",
         path: "attachments/new photo.jpg",
         contentType: "image/jpeg",
-        singleUse: true,
       });
+      // `method` and `singleUse` are constants the tool description already states, so
+      // they are deliberately absent rather than restated on every call.
+      expect(body).not.toHaveProperty("method");
+      expect(body).not.toHaveProperty("singleUse");
       expect(body.url).toMatch(/^http:\/\/127\.0\.0\.1:27123\/vault\/attachments\/new%20photo\.jpg\?sig=/);
       expect(body.command).toBe(
         `curl -X PUT -H "Content-Type: image/jpeg" --data-binary @"new photo.jpg" "${body.url}"`,

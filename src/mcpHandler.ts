@@ -374,7 +374,11 @@ export class McpHandler {
         },
         {
           type: "text",
-          text: `[${name}](${url}) — ${mimeType}, ${file.stat.size} bytes, link valid until ${expiresAt}.`,
+          // Deliberately thin: `mimeType` and `size` live on the resource_link block
+          // immediately above, so repeating them here paid twice for one fact. What is
+          // left is the markdown form of the link -- the thing an agent pastes into a
+          // reply -- and the expiry, which is what decides whether it still works.
+          text: `[${name}](${url}) — link valid until ${expiresAt}.`,
           // The fallback for clients that do not render resource_link at all. It restates
           // the block above, so it is ranked low: a client that renders both shows the
           // same link twice, and this is the copy worth dropping.
@@ -768,13 +772,17 @@ export class McpHandler {
           const normalized = this.normalizedFilePath(path);
           const mimeType = mime.lookup(normalized) || "application/octet-stream";
           const { url, expiresAt } = this.signedUrlFor("PUT", normalized);
+          // Only what varies per call, plus the ready-to-run command. `method` and
+          // `singleUse` used to be here and were dropped: both are constants this tool's
+          // own description already states, so sending them cost a client tokens on every
+          // call to be told again what it was told at registration. `path` stays because
+          // it is the *normalized* target rather than an echo of the argument -- this tool
+          // overwrites without warning, so what it resolved to is worth confirming.
           return this.text({
             url,
-            method: "PUT",
             path: normalized,
             contentType: mimeType,
             expiresAt,
-            singleUse: true,
             command: `curl -X PUT -H "Content-Type: ${mimeType}" --data-binary @${JSON.stringify(filenameOf(normalized))} "${url}"`,
           });
         },

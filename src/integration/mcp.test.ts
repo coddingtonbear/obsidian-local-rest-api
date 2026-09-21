@@ -800,8 +800,10 @@ describe("signed URL tools", () => {
       arguments: { path: UPLOAD_PATH },
     });
     expect(uploadResult.isError).toBeFalsy();
-    const upload = jsonOf<{ url: string; method: string; contentType: string; command: string }>(uploadResult);
-    expect(upload.method).toBe("PUT");
+    const upload = jsonOf<{ url: string; contentType: string; command: string }>(uploadResult);
+    // `method` and `singleUse` are not in the result: both are constants the tool
+    // description states, so they are not restated on every call. The PUT below is what
+    // actually proves the method.
     expect(upload.contentType).toBe("image/png");
     expect(upload.command).toContain("curl -X PUT");
 
