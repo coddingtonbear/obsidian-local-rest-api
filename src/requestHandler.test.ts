@@ -22,6 +22,7 @@ jest.mock("./mcpHandler", () => ({
 import RequestHandler from "./requestHandler";
 import { LocalRestApiSettings } from "./types";
 import { CERT_NAME } from "./constants";
+import { UrlSigner } from "./signedUrls";
 import {
   DestinationAlreadyExistsError,
   FileNotFoundError,
@@ -937,6 +938,121 @@ describe("requestHandler", () => {
       expect(res.body.blocks[0]).toBe("dup");
       expect(res.body.blocks[1]).not.toBe("dup");
       expect(res.body.blocks[1].startsWith("dup")).toBe(true);
+    });
+  });
+
+  // A signed URL stands in for the bearer header on exactly the request it names. These
+  // tests mint signatures with the handler's own signer — the same one the MCP tools use —
+  // and redeem them over HTTP without an Authorization header.
+  describe("signed URLs", () => {
+    const PATH = "attachments/pixel.png";
+    const BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]);
+    let clock: number;
+
+    beforeEach(() => {
+      clock = 1_700_000_000_000;
+      settings.enableSignedUrls = true;
+      // @ts-ignore: the mock App is close enough.
+      handler = new RequestHandler(app, manifest, settings, new UrlSigner(Buffer.from("secret"), () => clock));
+      handler.setupRouter();
+      server.close();
+      server = http.createServer(handler.api);
+      app.vault.adapter._readBinary = BYTES.buffer.slice(BYTES.byteOffset, BYTES.byteOffset + BYTES.byteLength);
+    });
+
+    function signedPath(method: "GET" | "PUT", path: string, query: Record<string, string> = {}): string {
+      const { sig, exp } = handler.urlSigner.sign(method, path, 300);
+      const params = new URLSearchParams({ ...query, sig, exp: String(exp) });
+      return `/vault/${path}?${params}`;
+    }
+
+    test("a signed GET serves the file without an API key, inline", async () => {
+      const result = await request(server).get(signedPath("GET", PATH)).expect(200);
+      expect(Buffer.from(result.body).equals(BYTES)).toBe(true);
+      expect(result.header["content-type"]).toBe("image/png");
+      expect(result.header["content-disposition"]).toBe(`inline; filename="${PATH}"`);
+    });
+
+    test("download=1 asks for an attachment instead", async () => {
+      const result = await request(server)
+        .get(signedPath("GET", PATH, { download: "1" }))
+        .expect(200);
+      expect(result.header["content-disposition"]).toBe(`attachment; filename="${PATH}"`);
+    });
+
+    test("an API-key request keeps the attachment disposition it always had", async () => {
+      const result = await request(server)
+        .get(`/vault/${PATH}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(result.header["content-disposition"]).toBe(`attachment; filename="${PATH}"`);
+    });
+
+    test("a GET link is reusable until it expires", async () => {
+      const path = signedPath("GET", PATH);
+      await request(server).get(path).expect(200);
+      await request(server).get(path).expect(200);
+      clock += 301_000;
+      const result = await request(server).get(path).expect(401);
+      expect(result.body.message).toMatch(/expired/);
+    });
+
+    test("a signed PUT stores the body and is spent by the request that succeeds", async () => {
+      const path = signedPath("PUT", PATH);
+      await request(server)
+        .put(path)
+        .set("Content-Type", "image/png")
+        .send(BYTES)
+        .expect(204);
+      const [writtenPath, written] = app.vault.adapter._writeBinary;
+      expect(writtenPath).toBe(PATH);
+      expect(Buffer.from(written).equals(BYTES)).toBe(true);
+
+      const replay = await request(server)
+        .put(path)
+        .set("Content-Type", "image/png")
+        .send(BYTES)
+        .expect(401);
+      expect(replay.body.message).toMatch(/already been used/);
+    });
+
+    test("a signature is bound to its method and path", async () => {
+      const get = handler.urlSigner.sign("GET", PATH, 300);
+      const query = `sig=${get.sig}&exp=${get.exp}`;
+      const put = await request(server)
+        .put(`/vault/${PATH}?${query}`)
+        .set("Content-Type", "image/png")
+        .send(BYTES)
+        .expect(401);
+      expect(put.body.message).toMatch(/not valid/);
+      await request(server).delete(`/vault/${PATH}?${query}`).expect(401);
+      await request(server).get(`/vault/other.png?${query}`).expect(401);
+      await request(server).get(`/vault/${PATH}?sig=${"0".repeat(64)}&exp=${get.exp}`).expect(401);
+    });
+
+    test("the signature covers the normalized path, so another spelling of the same file is accepted", async () => {
+      const { sig, exp } = handler.urlSigner.sign("GET", PATH, 300);
+      await request(server)
+        .get(`/vault/notes/../attachments/pixel.png?sig=${sig}&exp=${exp}`)
+        .expect(200);
+    });
+
+    test("signatures are refused outright while the setting is off", async () => {
+      const path = signedPath("GET", PATH);
+      settings.enableSignedUrls = false;
+      const result = await request(server).get(path).expect(401);
+      expect(result.body.message).toMatch(/not valid/);
+    });
+
+    test("a request with no signature is still refused as before", async () => {
+      const result = await request(server).get(`/vault/${PATH}`).expect(401);
+      expect(result.body.message).not.toMatch(/signed/i);
+    });
+
+    test("the signature parameters do not leak into the vault path", async () => {
+      // If `?sig=` were part of the path, the file would not resolve and this would 404.
+      app.vault.adapter._statForPath = PATH;
+      await request(server).get(signedPath("GET", PATH)).expect(200);
     });
   });
 

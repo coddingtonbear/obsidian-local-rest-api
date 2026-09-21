@@ -80,12 +80,25 @@ import {
   VaultOperations,
 } from "./vaultOperations";
 import { McpHandler } from "./mcpHandler";
+import { UrlSigner, isSignableMethod, normalizeVaultFilePath } from "./signedUrls";
 
 // Import openapi.yaml as a string
 import openapiYaml from "../docs/openapi.yaml";
 
 /** The header that selects which markdown-patch format a request speaks. */
 export const MARKDOWN_PATCH_VERSION_HEADER = "Markdown-Patch-Version";
+
+// Per-request state this handler attaches to the request. Kept off `res.locals` and on
+// the request itself so the handlers, which receive the request, can read it without a
+// cast at every site.
+interface RequestState {
+  signedUrl?: boolean;
+}
+function res_locals(req: express.Request): RequestState {
+  const carrier = req as express.Request & { localRestApi?: RequestState };
+  carrier.localRestApi ??= {};
+  return carrier.localRestApi;
+}
 
 /** The `sunset-version` advertised for the deprecated 1.x format (RFC 8594). */
 export const MARKDOWN_PATCH_V1_SUNSET = "6.0";
@@ -153,21 +166,27 @@ export default class RequestHandler {
 
   operations: VaultOperations;
   mcpHandler: McpHandler;
+  // One signer per handler, so the MCP tools that mint links and the REST middleware
+  // that redeems them share a secret — and that secret lives exactly as long as this
+  // handler does.
+  readonly urlSigner: UrlSigner;
 
   constructor(
     app: App,
     manifest: PluginManifest,
     settings: LocalRestApiSettings,
+    urlSigner: UrlSigner = new UrlSigner(),
   ) {
     this.app = app;
     this.manifest = manifest;
     this.api = express();
     this.settings = settings;
+    this.urlSigner = urlSigner;
 
     this.apiExtensionRouter = express.Router();
     this.publicApiExtensionRouter = express.Router();
     this.operations = new VaultOperations(this.app, this.settings);
-    this.mcpHandler = new McpHandler(this.operations, this.settings);
+    this.mcpHandler = new McpHandler(this.operations, this.settings, { signer: this.urlSigner });
 
     this.api.set("json spaces", 2);
   }
@@ -210,6 +229,39 @@ export default class RequestHandler {
     return false;
   }
 
+  /**
+   * Whether a request carries a valid signed-URL signature for its own path.
+   *
+   * Only `GET` and `PUT` on `/vault/<file>` are signable, and only while the setting is
+   * on. The path is decoded the way {@link extractVaultPath} decodes it and normalized
+   * the way the signer normalized it, so the signature covers exactly the file the
+   * request resolves to. Returns null when the request carries no signature at all;
+   * otherwise the signer's verdict.
+   */
+  private signedUrlVerdict(req: express.Request): "ok" | "expired" | "invalid" | "consumed" | null {
+    const { sig, exp } = req.query;
+    if (typeof sig !== "string" || typeof exp !== "string") return null;
+    if (!this.settings.enableSignedUrls) return "invalid";
+    if (!isSignableMethod(req.method) || !req.path.startsWith("/vault/")) return "invalid";
+    let decoded: string;
+    try {
+      decoded = req.path
+        .slice("/vault/".length)
+        .split("/")
+        .map((segment) => decodeURIComponent(segment))
+        .join("/");
+    } catch {
+      return "invalid";
+    }
+    if (normalizeVaultFilePath(decoded) === null) return "invalid";
+    return this.urlSigner.verify(req.method, decoded, exp, sig);
+  }
+
+  /** True when the request was authenticated by a signed URL rather than the API key. */
+  requestIsSigned(req: express.Request): boolean {
+    return res_locals(req).signedUrl === true;
+  }
+
   async authenticationMiddleware(
     req: express.Request,
     res: express.Response,
@@ -221,17 +273,42 @@ export default class RequestHandler {
       "/openapi.yaml",
     ];
 
-    if (
-      !authenticationExemptRoutes.includes(req.path) &&
-      !this.requestIsAuthenticated(req)
-    ) {
+    if (authenticationExemptRoutes.includes(req.path) || this.requestIsAuthenticated(req)) {
+      next();
+      return;
+    }
+
+    // A signed URL stands in for the bearer header on the one request it names. A PUT
+    // link is spent by the first request that succeeds with it, so the same link
+    // cannot overwrite the file twice.
+    const verdict = this.signedUrlVerdict(req);
+    if (verdict === "ok") {
+      res_locals(req).signedUrl = true;
+      const { sig, exp } = req.query as { sig: string; exp: string };
+      res.on("finish", () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          this.urlSigner.consume(req.method, exp, sig);
+        }
+      });
+      next();
+      return;
+    }
+    if (verdict !== null) {
+      const reason = {
+        expired: "The signed URL has expired.",
+        consumed: "The signed upload URL has already been used.",
+        invalid: "The signed URL is not valid for this request.",
+      }[verdict];
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.ApiKeyAuthorizationRequired,
+        message: reason,
       });
       return;
     }
 
-    next();
+    this.returnCannedResponse(res, {
+      errorCode: ErrorCode.ApiKeyAuthorizationRequired,
+    });
   }
 
   async getDocumentMapObject(file: TFile): Promise<DocumentMapObject> {
@@ -478,8 +555,13 @@ export default class RequestHandler {
     const content = await this.app.vault.adapter.readBinary(filePath);
     const mimeType = mime.lookup(filePath);
 
+    // A signed link is made to be opened — in a browser tab, in an <img> — so it is
+    // served inline unless the link asked for a download. API-key requests keep the
+    // attachment disposition they have always had.
+    const disposition =
+      this.requestIsSigned(req) && req.query.download !== "1" ? "inline" : "attachment";
     res.set({
-      "Content-Disposition": `attachment; filename="${encodeURI(
+      "Content-Disposition": `${disposition}; filename="${encodeURI(
         filePath,
       ).replace(",", "%2C")}"`,
       "Content-Type":
