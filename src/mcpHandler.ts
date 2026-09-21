@@ -117,7 +117,12 @@ const BINARY_MIME_TYPES: ReadonlySet<string> = new Set([
 
 function binaryMimeTypeFor(path: string): string | null {
   const type = mime.lookup(path);
-  if (!type || type === SVG_MIME_TYPE) return null;
+  if (!type) return null;
+  // SVG is exempt because it is XML, but only *uncompressed* SVG. `mime-types` maps the
+  // `.svgz` extension to image/svg+xml as well, and that is a gzip stream -- exempting by
+  // MIME type alone let `vault_write` overwrite an .svgz attachment with UTF-8 text,
+  // which is exactly the corruption this guard exists to stop. Match the extension.
+  if (type === SVG_MIME_TYPE && /\.svg$/i.test(path)) return null;
   if (BINARY_MIME_PREFIXES.some((prefix) => type.startsWith(prefix))) return type;
   return BINARY_MIME_TYPES.has(type) ? type : null;
 }
@@ -404,18 +409,23 @@ export class McpHandler {
     };
   }
 
+  /** The one refusal for a file too big to inline, raised from the stat or the bytes. */
+  private throwOversizedForEmbedding(size: number): never {
+    throw new Error(
+      `Refusing to embed ${size} bytes in the result: the limit is ${MaximumMcpBinaryBytes} bytes, because base64 costs roughly 0.35-0.45 tokens per byte of context. ` +
+        (this.signedUrlsEnabled
+          ? 'Call again with as: "link" for a signed download URL instead.'
+          : `Fetch it over the REST API with GET /vault/<path>, or enable signed URLs to get a download link here. ${SIGNED_URLS_DISABLED_HINT}`),
+    );
+  }
+
   private embeddedBytesResult(
     normalizedPath: string,
     bytes: ArrayBuffer,
     mimeType: string,
   ): CallToolResult {
     if (bytes.byteLength > MaximumMcpBinaryBytes) {
-      throw new Error(
-        `Refusing to embed ${bytes.byteLength} bytes in the result: the limit is ${MaximumMcpBinaryBytes} bytes, because base64 costs roughly 0.35-0.45 tokens per byte of context. ` +
-          (this.signedUrlsEnabled
-            ? 'Call again with as: "link" for a signed download URL instead.'
-            : `Fetch it over the REST API with GET /vault/<path>, or enable signed URLs to get a download link here. ${SIGNED_URLS_DISABLED_HINT}`),
-      );
+      this.throwOversizedForEmbedding(bytes.byteLength);
     }
     return {
       content: [
@@ -780,7 +790,7 @@ export class McpHandler {
       this.tool(
         "vault_get_upload_url",
         dedent`
-          Return a signed, single-use URL for PUT /vault/<path>, for uploading a file that exists on your host. The result includes a ready-to-run curl command. Send the file's real Content-Type: a PUT with none, or with a text/* type, is stored as text. The URL needs no API key and expires; the request that succeeds consumes it. Creates missing parent directories and overwrites an existing file without warning.
+          Return a signed, single-use URL for PUT /vault/<path>, for uploading a file that exists on your host. The result includes a ready-to-run curl command. Send the file's real Content-Type: a PUT with a text/* type is stored as text. A PUT with no Content-Type at all is treated as application/octet-stream and stored as raw bytes. The URL needs no API key and expires; the request that succeeds consumes it. Creates missing parent directories and overwrites an existing file without warning.
         `,
         { path: z.string().describe("Destination file path relative to vault root") },
         { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -799,7 +809,10 @@ export class McpHandler {
             path: normalized,
             contentType: mimeType,
             expiresAt,
-            command: `curl -X PUT -H "Content-Type: ${mimeType}" --data-binary @${shellQuote(filenameOf(normalized))} "${url}"`,
+            // Every interpolated part is shell-quoted, the URL included: `baseUrlFromRequest`
+            // takes the host from the request, so a Host header carrying a quote or `$(...)`
+            // would otherwise break out of the double quotes this used to use.
+            command: `curl -X PUT -H ${shellQuote(`Content-Type: ${mimeType}`)} --data-binary @${shellQuote(filenameOf(normalized))} ${shellQuote(url)}`,
           });
         },
       ),
@@ -948,6 +961,18 @@ export class McpHandler {
         const mayNeedBytes = mimeType === SVG_MIME_TYPE || mimeType.startsWith("image/");
         if (mode === "auto" && this.signedUrlsEnabled && !mayNeedBytes) {
           return this.downloadLinkResult(normalized);
+        }
+        // When the result can only be embedded bytes, the ceiling is knowable from the
+        // file's stat and there is no reason to read first. `embeddedBytesResult` checks
+        // too, but it checks *after* the read -- so a multi-gigabyte attachment was pulled
+        // into the renderer in full and only then refused, which is the allocation the cap
+        // exists to prevent. Its check stays for the races this one cannot see.
+        const embedsBytes = mode === "bytes" || (!this.signedUrlsEnabled && !mayNeedBytes);
+        if (embedsBytes) {
+          const file = this.existingFile(normalized);
+          if (file.stat.size > MaximumMcpBinaryBytes) {
+            this.throwOversizedForEmbedding(file.stat.size);
+          }
         }
         const bytes = await this.ops.readBinaryFileContent(normalized);
         if (mode === "auto" && mimeType === SVG_MIME_TYPE) {

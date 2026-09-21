@@ -583,9 +583,12 @@ export default class RequestHandler {
     const disposition =
       this.requestIsSigned(req) && req.query.download !== "1" ? "inline" : "attachment";
     res.set({
+      // Every comma, not just the first: a comma is a header-list separator, so one left
+      // unescaped splits the value. `replace` with a string argument replaces a single
+      // occurrence, which is what CodeQL's incomplete-sanitization rule caught here.
       "Content-Disposition": `${disposition}; filename="${encodeURI(
         filePath,
-      ).replace(",", "%2C")}"`,
+      ).replaceAll(",", "%2C")}"`,
       "Content-Type":
         `${mimeType}` +
         (mimeType == ContentTypes.markdown ? "; charset=utf-8" : ""),
@@ -2450,6 +2453,21 @@ export default class RequestHandler {
 
     this.api.use(this.publicApiExtensionRouter);
     this.api.use(this.authenticationMiddleware.bind(this));
+
+    // A body with no Content-Type matched none of the parsers below, so `req.body` kept
+    // Express's default `{}` and a PUT wrote the two bytes "{}" over the caller's file --
+    // answering 204, so nothing looked wrong until the attachment was opened. RFC 9110
+    // says a payload with no declared type may be treated as application/octet-stream, so
+    // that is what it becomes, and the raw parser takes it from there.
+    this.api.use((req, _res, next) => {
+      const hasBody =
+        req.headers["content-length"] !== undefined ||
+        req.headers["transfer-encoding"] !== undefined;
+      if (hasBody && !req.headers["content-type"]) {
+        req.headers["content-type"] = "application/octet-stream";
+      }
+      next();
+    });
     this.api.use(
       express.json({
         type: ContentTypes.json,

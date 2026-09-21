@@ -980,6 +980,18 @@ describe("requestHandler", () => {
       expect(result.header["content-disposition"]).toBe(`attachment; filename="${PATH}"`);
     });
 
+    test("every comma in a filename is escaped in Content-Disposition, not just the first", async () => {
+      const commas = "attachments/a,b,c.png";
+      app.vault.adapter._statForPath = undefined;
+      const result = await request(server).get(signedPath("GET", commas)).expect(200);
+      // A comma separates header list items, so one left unescaped splits the value.
+      // `replace` with a string argument only replaces the first -- CodeQL's
+      // incomplete-sanitization rule caught it.
+      expect(result.header["content-disposition"]).toBe(
+        'inline; filename="attachments/a%2Cb%2Cc.png"',
+      );
+    });
+
     test("an API-key request keeps the attachment disposition it always had", async () => {
       const result = await request(server)
         .get(`/vault/${PATH}`)
@@ -1041,6 +1053,21 @@ describe("requestHandler", () => {
       // The claim is taken before dispatch, so it has to be given back when the request
       // turns out not to have succeeded -- otherwise one bad attempt burns the link.
       await request(server).put(path).set("Content-Type", "image/png").send(BYTES).expect(204);
+    });
+
+    test("a PUT with no Content-Type stores the bytes, not Express's empty object", async () => {
+      // Before the octet-stream default, no parser matched a body with no declared type,
+      // `req.body` kept Express's `{}`, and the two bytes "{}" were written over the
+      // caller's file -- answered 204, so nothing looked wrong until it was opened.
+      const body = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0xff]);
+      await request(server)
+        .put(signedPath("PUT", PATH))
+        .set("Content-Type", "")
+        .send(body)
+        .expect(204);
+      const written = app.vault.adapter._writeBinary?.[1];
+      expect(written).toBeDefined();
+      expect(Buffer.from(written as ArrayBuffer).equals(body)).toBe(true);
     });
 
     test("a signed PUT stores the body and is spent by the request that succeeds", async () => {

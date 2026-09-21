@@ -8,6 +8,9 @@ jest.mock("./vaultOperations", () => ({
   VaultOperations: jest.fn(),
 }));
 
+import { execFileSync } from "child_process";
+import { existsSync } from "fs";
+
 import express from "express";
 import request from "supertest";
 import { McpServer } from "@modelcontextprotocol/server";
@@ -874,6 +877,37 @@ describe("McpHandler", () => {
       expect(result.content[0].type).toBe("image");
     });
 
+    test("an oversized file is refused from its stat, without being read", async () => {
+      build(UNSIGNED, { imageScaler: null });
+      const big = makeMockFile("attachments/huge.bin");
+      big.stat = { ctime: 0, mtime: 0, size: MaximumMcpBinaryBytes + 1 };
+      ops.app.vault.getAbstractFileByPath.mockReturnValue(big);
+      ops.readBinaryFileContent.mockClear();
+      await expect(
+        getToolCallback("vault_read_binary")({ path: "attachments/huge.bin", as: "bytes" }),
+      ).rejects.toThrow(/Refusing to embed/);
+      // The point of the fix: the refusal comes from the stat, so a multi-gigabyte file
+      // is never pulled into the renderer only to be rejected afterwards.
+      expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
+    });
+
+    test.each([
+      ["diagrams/flow.svg", null],
+      ["diagrams/flow.SVG", null],
+      ["diagrams/flow.svgz", "image/svg+xml"],
+      ["diagrams/flow.SVGZ", "image/svg+xml"],
+    ])("vault_write treats %s correctly", async (path, refusedAs) => {
+      build(DEFAULT_SETTINGS, { imageScaler: null });
+      const call = getToolCallback("vault_write")({ path, content: "<svg/>" });
+      if (refusedAs === null) {
+        await expect(call).resolves.toBeDefined();
+      } else {
+        // `mime-types` maps .svgz to image/svg+xml as well, but it is a gzip stream --
+        // exempting by MIME type alone let a text write destroy the attachment.
+        await expect(call).rejects.toThrow(/Refusing to write .* as text/);
+      }
+    });
+
     // ---- vault_read_binary: SVG -----------------------------------------------
 
     const SVG_PATH = "diagrams/flow.svg";
@@ -1086,6 +1120,31 @@ describe("McpHandler", () => {
       expect(parseText(result).command).not.toContain(`--data-binary @"`);
     });
 
+    test("a hostile Host header cannot break out of the advertised command", async () => {
+      const mcp = build(SIGNED, { signer: new UrlSigner() });
+      const result = await overHttp(
+        mcp,
+        () => getToolCallback("vault_get_upload_url")({ path: "attachments/a.png" }),
+        { headers: { host: '127.0.0.1:27123"; touch /tmp/pwned; echo "' } },
+      );
+      const { command, url } = parseText(result) as { command: string; url: string };
+      // The URL is built from the request's Host, so it is attacker-influenced. Quoting
+      // the filename alone left this half of the command exposed. Double quotes may still
+      // appear -- inside the single-quoted URL, where they are inert -- so the assertion
+      // that matters is what a shell actually parses the command into.
+      const argv = execFileSync(
+        "/bin/sh",
+        ["-c", `printf '%s\\n' ${command.replace(/^curl /, "")}`],
+        { encoding: "utf-8" },
+      )
+        .split("\n")
+        .filter(Boolean);
+      expect(argv).toContain(url);
+      expect(argv).toContain("Content-Type: image/png");
+      expect(argv.some((a) => a.includes("touch /tmp/pwned"))).toBe(true);
+      expect(existsSync("/tmp/pwned")).toBe(false);
+    });
+
     test("vault_get_upload_url returns a single-use PUT link with a ready-to-run curl command", async () => {
       const signer = new UrlSigner();
       const mcp = build(SIGNED, { signer });
@@ -1105,7 +1164,7 @@ describe("McpHandler", () => {
       expect(body).not.toHaveProperty("singleUse");
       expect(body.url).toMatch(/^http:\/\/127\.0\.0\.1:27123\/vault\/attachments\/new%20photo\.jpg\?sig=/);
       expect(body.command).toBe(
-        `curl -X PUT -H "Content-Type: image/jpeg" --data-binary @'new photo.jpg' "${body.url}"`,
+        `curl -X PUT -H 'Content-Type: image/jpeg' --data-binary @'new photo.jpg' '${body.url}'`,
       );
       expect(new Date(body.expiresAt).getTime()).toBeGreaterThan(Date.now());
       const url = new URL(body.url);
