@@ -103,17 +103,17 @@ describe("signedUrls", () => {
     test("a PUT signature is single-use once consumed; a GET signature is not", () => {
       const put = signer.sign("PUT", "a.png", 300);
       expect(signer.verify("PUT", "a.png", String(put.exp), put.sig)).toBe("ok");
-      signer.consume("PUT", String(put.exp), put.sig);
+      signer.claim("PUT", String(put.exp), put.sig);
       expect(signer.verify("PUT", "a.png", String(put.exp), put.sig)).toBe("consumed");
 
       const get = signer.sign("GET", "a.png", 300);
-      signer.consume("GET", String(get.exp), get.sig);
+      signer.claim("GET", String(get.exp), get.sig);
       expect(signer.verify("GET", "a.png", String(get.exp), get.sig)).toBe("ok");
     });
 
     test("consumed PUT signatures are forgotten once they expire", () => {
       const put = signer.sign("PUT", "a.png", 300);
-      signer.consume("PUT", String(put.exp), put.sig);
+      signer.claim("PUT", String(put.exp), put.sig);
       clock += 301_000;
       // Expired wins over consumed, and the entry has been pruned either way.
       expect(signer.verify("PUT", "a.png", String(put.exp), put.sig)).toBe("expired");

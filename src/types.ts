@@ -25,6 +25,7 @@ export enum ErrorCode {
   InvalidPatchInstruction = 40081,
   InvalidSearch = 40090,
   ApiKeyAuthorizationRequired = 40101,
+  SignedUrlIsWholeFileOnly = 40102,
   RequestMethodValidOnlyForFiles = 40510,
   DestinationAlreadyExists = 40920,
   ConflictingTargetSpecification = 42200,

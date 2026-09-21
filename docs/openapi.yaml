@@ -1476,6 +1476,10 @@ paths:
         
         On by default; can be turned off under Advanced settings, where the lifetime is also set (default 300 seconds). While enabled, `vault_get_download_url` and `vault_get_upload_url` are registered, and `vault_read_binary` links to non-image files instead of embedding them.
         
+        A signed URL authorizes a **whole-file** write to exactly the path it names. The signature covers the method, the normalized path and the expiry, and nothing else — so a request that also carries `Target-Type`/`Target` headers, or whose path continues into `/heading`, `/block` or `/frontmatter`, is refused with `40102` rather than quietly becoming a targeted edit of a document the link never named. Targeted writes need the API key.
+        
+        A `PUT` link's single use is claimed when the request is authorized, not when it finishes, so concurrent redemptions cannot all pass the check; a request that does not end in a 2xx gives the claim back, so a rejected or aborted attempt never spends the link.
+        
         A signed URL is `GET` or `PUT /vault/{filename}?sig=…&exp=…`. The signature is an HMAC-SHA256 over the method, the normalized vault path, and the expiry, under a secret generated at plugin load and held only in memory; it stands in for the `Authorization` header on that one request. Download links can be used repeatedly until they expire and are served with `Content-Disposition: inline` (`download=1` asks for an attachment). Upload links are consumed by the first request that succeeds. Links do not survive an Obsidian restart.
         
         ## Available resources

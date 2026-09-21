@@ -283,12 +283,28 @@ export default class RequestHandler {
     // cannot overwrite the file twice.
     const verdict = this.signedUrlVerdict(req);
     if (verdict === "ok") {
-      res_locals(req).signedUrl = true;
       const { sig, exp } = req.query as { sig: string; exp: string };
-      res.on("finish", () => {
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          this.urlSigner.consume(req.method, exp, sig);
-        }
+      // Claim the link here, before dispatch, rather than recording it as spent once the
+      // response finishes. The old ordering left the whole request between the check and
+      // the record, so concurrent PUTs each verified against a link none of them had yet
+      // taken: six at once produced four successful writes of a link documented as
+      // single-use. Claiming is atomic because nothing awaits between `verify` above and
+      // this call.
+      if (!this.urlSigner.claim(req.method, exp, sig)) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ApiKeyAuthorizationRequired,
+          message: "The signed upload URL has already been used.",
+        });
+        return;
+      }
+      res_locals(req).signedUrl = true;
+      // Give it back unless the request actually succeeded. `close` rather than `finish`
+      // so an aborted connection -- which never fires `finish` -- releases too, instead
+      // of stranding a link that was never redeemed.
+      res.on("close", () => {
+        const succeeded =
+          res.writableEnded && res.statusCode >= 200 && res.statusCode < 300;
+        if (!succeeded) this.urlSigner.release(req.method, sig);
       });
       next();
       return;
@@ -1016,6 +1032,15 @@ export default class RequestHandler {
         });
         return;
       }
+      // A signed URL names a file and authorizes writing that file. These path elements
+      // turn the same request into a patch of a *different* file -- an upload URL for
+      // `note.md/heading/Title` edits `note.md` rather than creating anything -- and the
+      // signature says nothing about the distinction. Refuse rather than silently do the
+      // other thing.
+      if (this.requestIsSigned(req)) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.SignedUrlIsWholeFileOnly });
+        return;
+      }
       return this._vaultPatchTargeted(
         resolved.filePath,
         resolved.targetType,
@@ -1036,6 +1061,13 @@ export default class RequestHandler {
     const headerTarget = this._getHeaderTarget(req, res);
     if (headerTarget !== undefined) {
       if (!headerTarget) return; // error already sent
+      // Same reasoning as the path-element case above, by the other route: these headers
+      // are not part of the signed material, so anyone holding the link can redirect a
+      // whole-file upload into a section edit.
+      if (this.requestIsSigned(req)) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.SignedUrlIsWholeFileOnly });
+        return;
+      }
       return this._vaultPatchTargeted(
         filePath,
         headerTarget.targetType,

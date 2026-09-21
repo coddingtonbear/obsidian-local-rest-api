@@ -779,6 +779,7 @@ describe("vault_read_binary tool", () => {
 
 describe("signed URL tools", () => {
   const UPLOAD_PATH = `${TEST_DIR}/mcp-temp-uploaded.png`;
+  const TARGETED_PATH = `${TEST_DIR}/mcp-temp-targeted.md`;
   let enabled = false;
 
   beforeAll(async () => {
@@ -788,6 +789,7 @@ describe("signed URL tools", () => {
 
   afterAll(async () => {
     await deleteFixture(UPLOAD_PATH).catch((_e: unknown): void => {});
+    await deleteFixture(TARGETED_PATH).catch((_e: unknown): void => {});
   });
 
   test("an upload link accepts one PUT without the API key, then a download link serves it back", async () => {
@@ -819,6 +821,42 @@ describe("signed URL tools", () => {
       body: new Uint8Array(PIXEL_BYTES),
     });
     expect(replay.status).toBe(401);
+    await new Promise((r) => setTimeout(r, 300));
+
+    // A signed upload URL authorizes writing the whole file it names. Neither the
+    // Target-Type/Target headers nor extra /heading path elements are covered by the
+    // signature, so both routes into a targeted edit are refused (40102). Verified live
+    // against this vault before the fix: both wrote successfully.
+    // A different path from the upload above, deliberately. A signature is an HMAC over
+    // (method, normalized path, expiry-in-seconds) with no nonce, so two links minted for
+    // the same path within the same second are byte-identical -- and the one above has
+    // already been spent, which would make this a "consumed" 40101 rather than the 40102
+    // being tested.
+    const targetedUpload = await client.callTool({
+      name: "vault_get_upload_url",
+      arguments: { path: TARGETED_PATH },
+    });
+    const targeted = jsonOf<{ url: string }>(targetedUpload);
+    const viaHeaders = await fetch(targeted.url, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "text/markdown",
+        "Markdown-Patch-Version": "1",
+        "Target-Type": "heading",
+        Target: "Alpha",
+      },
+      body: "should be refused",
+    });
+    expect(viaHeaders.status).toBe(401);
+    expect((await viaHeaders.json()).errorCode).toBe(40102);
+    // The refusal must not spend the link: the claim is released when a request does
+    // not finish 2xx, so the legitimate whole-file upload still works afterwards.
+    const afterRefusal = await fetch(targeted.url, {
+      method: "PUT",
+      headers: { "Content-Type": "text/markdown" },
+      body: "# Alpha\n\nwhole-file write after the refusal\n",
+    });
+    expect(afterRefusal.status).toBe(204);
     await new Promise((r) => setTimeout(r, 300));
 
     const downloadResult = await client.callTool({

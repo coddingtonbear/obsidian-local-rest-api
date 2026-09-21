@@ -20,7 +20,7 @@ jest.mock("./mcpHandler", () => ({
 }));
 
 import RequestHandler from "./requestHandler";
-import { LocalRestApiSettings } from "./types";
+import { ErrorCode, LocalRestApiSettings } from "./types";
 import { CERT_NAME } from "./constants";
 import { UrlSigner } from "./signedUrls";
 import {
@@ -995,6 +995,52 @@ describe("requestHandler", () => {
       clock += 301_000;
       const result = await request(server).get(path).expect(401);
       expect(result.body.message).toMatch(/expired/);
+    });
+
+    // A signed URL authorizes writing the file it names. Both of these turn the same
+    // request into an edit of part of a document -- and of a *different* file, in the
+    // path-element case -- while the signature covers neither the path elements nor the
+    // headers. Verified against a live vault before the fix: both wrote successfully.
+    test("a signed PUT refuses URL path-element targeting", async () => {
+      // The prefix must stat as a real file for the resolver to read the remaining
+      // segments as a target -- which is exactly the live condition: an upload URL for
+      // `note.md/heading/Alpha` edits `note.md` because `note.md` exists.
+      app.vault.adapter._exists = true;
+      app.vault.adapter._statForPath = PATH;
+      const { sig, exp } = handler.urlSigner.sign("PUT", `${PATH}/heading/Alpha`, 300);
+      const result = await request(server)
+        .put(`/vault/${PATH}/heading/Alpha?sig=${sig}&exp=${exp}`)
+        .set("Content-Type", "text/markdown")
+        .send("injected")
+        .expect(401);
+      expect(result.body.errorCode).toBe(ErrorCode.SignedUrlIsWholeFileOnly);
+    });
+
+    test("a signed PUT refuses Target-Type/Target header targeting", async () => {
+      const result = await request(server)
+        .put(signedPath("PUT", PATH))
+        .set("Content-Type", "text/markdown")
+        .set("Markdown-Patch-Version", "1")
+        .set("Target-Type", "heading")
+        .set("Target", "Alpha")
+        .send("injected")
+        .expect(401);
+      expect(result.body.errorCode).toBe(ErrorCode.SignedUrlIsWholeFileOnly);
+    });
+
+    test("a rejected targeted attempt does not spend the link", async () => {
+      const path = signedPath("PUT", PATH);
+      await request(server)
+        .put(path)
+        .set("Content-Type", "text/markdown")
+        .set("Markdown-Patch-Version", "1")
+        .set("Target-Type", "heading")
+        .set("Target", "Alpha")
+        .send("injected")
+        .expect(401);
+      // The claim is taken before dispatch, so it has to be given back when the request
+      // turns out not to have succeeded -- otherwise one bad attempt burns the link.
+      await request(server).put(path).set("Content-Type", "image/png").send(BYTES).expect(204);
     });
 
     test("a signed PUT stores the body and is spent by the request that succeeds", async () => {

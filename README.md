@@ -368,8 +368,10 @@ Signed URLs let an agent hand a file to something that is not the MCP client —
 While they are on, three MCP tools mint them:
 
 - `vault_get_download_url` returns a `resource_link` to `GET /vault/<path>?sig=…&exp=…`, plus a markdown link for clients that only render text. The link is valid until it expires and can be used repeatedly. Add `&download=1` to have the browser save the file instead of showing it.
-- `vault_get_upload_url` returns a `PUT /vault/<path>?sig=…&exp=…` URL and a ready-to-run `curl` command. The link is consumed by the first request that succeeds. Send the file's real `Content-Type`: a `PUT` without one, or with a `text/*` type, is stored as text.
+- `vault_get_upload_url` returns a `PUT /vault/<path>?sig=…&exp=…` URL and a ready-to-run `curl` command, with the filename quoted for a POSIX shell so a name containing `$`, backticks or spaces cannot be expanded when the command is pasted. The link is consumed by the first request that succeeds — claimed at authorization rather than at completion, so concurrent redemptions cannot all pass, and released again if the request does not end in a 2xx. Send the file's real `Content-Type`: a `PUT` without one, or with a `text/*` type, is stored as text.
 - `vault_read_binary` uses download links for non-image files, and for anything when called with `as: "link"`.
+
+A signed URL authorizes a whole-file write to the path it names, and only that: a request that also carries `Target-Type`/`Target` headers, or whose path continues into `/heading`, `/block` or `/frontmatter`, is refused rather than quietly becoming a targeted edit of a document the link never named. Use the API key for targeted writes.
 
 How they work: the signature is an HMAC over the method, the normalized vault path, and the expiry, under a secret generated fresh every time the plugin loads and kept only in memory. A link is therefore good for one file, one method, one window of time, and never survives an Obsidian restart. The host is not part of the signature, so the same link works whichever hostname on the certificate the client uses. Anyone holding a link can do what it names until it expires, so treat one as you would the file itself.
 

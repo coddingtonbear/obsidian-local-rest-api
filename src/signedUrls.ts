@@ -130,10 +130,35 @@ export class UrlSigner {
     return "ok";
   }
 
-  /** Record that a PUT link has been redeemed. A no-op for any other method. */
-  consume(method: string, exp: string, sig: string): void {
+  /**
+   * Take a PUT link's single use, returning false if someone already holds it.
+   *
+   * This is deliberately a *claim* made before the request is dispatched, not a record
+   * written once it succeeds. Verification and consumption used to sit at opposite ends
+   * of the request, so concurrent redemptions all verified against a link nobody had
+   * taken yet and all went on to write: six simultaneous PUTs with one link produced
+   * four successful writes. Nothing awaits between `verify` and this call, so on a
+   * single-threaded runtime the check and the set cannot interleave.
+   *
+   * A no-op returning true for any other method -- only PUT links are single-use; a GET
+   * link is reusable until it expires.
+   */
+  claim(method: string, exp: string, sig: string): boolean {
+    if (method !== "PUT") return true;
+    const key = sig.toLowerCase();
+    if (this.consumedPutSignatures.has(key)) return false;
+    this.consumedPutSignatures.set(key, Number(exp));
+    return true;
+  }
+
+  /**
+   * Give a claimed PUT link back, for a request that did not end up succeeding. Without
+   * this a rejected or aborted attempt would spend the link, which is worse than the
+   * race it replaces: one typo and a legitimate upload can never be retried.
+   */
+  release(method: string, sig: string): void {
     if (method !== "PUT") return;
-    this.consumedPutSignatures.set(sig.toLowerCase(), Number(exp));
+    this.consumedPutSignatures.delete(sig.toLowerCase());
   }
 
   private prune(): void {

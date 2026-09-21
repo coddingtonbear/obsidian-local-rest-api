@@ -63,6 +63,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.InvalidPatchInstruction]:
     "The patch instruction you provided was malformed or outside the supported algebra.",
   [ErrorCode.InvalidSearch]: "The search query you provided is not valid.",
+  [ErrorCode.SignedUrlIsWholeFileOnly]:
+    "A signed URL authorizes a whole-file write to exactly the path it names. This request targets part of a document instead -- through URL path elements such as /heading/, or through Target-Type/Target headers -- and the signature covers neither, so the link would not be doing what it was issued for. Use the API key for a targeted write, or request a signed URL for the file itself.",
   [ErrorCode.ConflictingTargetSpecification]:
     "Conflicting target specifications: supply the target via URL path elements, via Target-Type/Target headers, or (for PATCH) as an 'application/vnd.olrapi.patch-instruction+json' instruction body — never more than one of these.",
   [ErrorCode.ErrorPreparingSimpleSearch]:

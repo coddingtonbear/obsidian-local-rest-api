@@ -1069,6 +1069,23 @@ describe("McpHandler", () => {
 
     // ---- vault_get_upload_url -----------------------------------------------
 
+    test.each([
+      ["$(echo PWNED).png", "'$(echo PWNED).png'"],
+      ["`id`.png", "'`id`.png'"],
+      ["a b;rm -rf x.png", "'a b;rm -rf x.png'"],
+      ["it's.png", "'it'\\''s.png'"],
+      ["$HOME.png", "'$HOME.png'"],
+    ])("the advertised curl command quotes %s so a shell cannot expand it", async (name, quoted) => {
+      const mcp = build(SIGNED, { signer: new UrlSigner() });
+      const result = await overHttp(mcp, () =>
+        getToolCallback("vault_get_upload_url")({ path: `attachments/${name}` }),
+      );
+      // JSON.stringify would double-quote these, and a shell expands $, ` and $() inside
+      // double quotes -- so the ready-to-run command became code execution on paste.
+      expect(parseText(result).command).toContain(`--data-binary @${quoted} `);
+      expect(parseText(result).command).not.toContain(`--data-binary @"`);
+    });
+
     test("vault_get_upload_url returns a single-use PUT link with a ready-to-run curl command", async () => {
       const signer = new UrlSigner();
       const mcp = build(SIGNED, { signer });
@@ -1088,7 +1105,7 @@ describe("McpHandler", () => {
       expect(body).not.toHaveProperty("singleUse");
       expect(body.url).toMatch(/^http:\/\/127\.0\.0\.1:27123\/vault\/attachments\/new%20photo\.jpg\?sig=/);
       expect(body.command).toBe(
-        `curl -X PUT -H "Content-Type: image/jpeg" --data-binary @"new photo.jpg" "${body.url}"`,
+        `curl -X PUT -H "Content-Type: image/jpeg" --data-binary @'new photo.jpg' "${body.url}"`,
       );
       expect(new Date(body.expiresAt).getTime()).toBeGreaterThan(Date.now());
       const url = new URL(body.url);
