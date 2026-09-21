@@ -37,6 +37,14 @@ export const PATH_ESCAPES_VAULT_MESSAGE =
  *  root by coincidence of spelling and has nothing to do with where the vault
  *  actually lives. A vault-relative path never begins with "/".
  *
+ *  A drive-qualified path is refused for the same reason, and needs saying
+ *  separately because it does not begin with "/": "C:/outside.md" survives the
+ *  backslash fold, looks relative to `posix.resolve`, and lands inside the
+ *  synthetic root as "/vault/C:/outside.md". On Windows it is absolute --
+ *  `path.win32.resolve` reads it as the root of drive C -- and "C:outside.md"
+ *  is drive-relative, which is no better. Neither is a name a vault file can
+ *  have anyway, since Windows does not allow ":" in one.
+ *
  *  What this does not do is resolve symlinks: a vault-relative path that stays
  *  inside the vault textually can still point outside it through a symlinked
  *  folder. Obsidian's API exposes no real-path primitive to check that with, and
@@ -44,6 +52,7 @@ export const PATH_ESCAPES_VAULT_MESSAGE =
 export function vaultPathIsContained(candidate: string): boolean {
   const normalized = candidate.replace(/\\/g, "/");
   if (normalized.startsWith("/")) return false;
+  if (/^[A-Za-z]:/.test(normalized)) return false;
   const resolved = posix.resolve(SYNTHETIC_ROOT, normalized);
   return resolved === SYNTHETIC_ROOT || resolved.startsWith(SYNTHETIC_ROOT + "/");
 }

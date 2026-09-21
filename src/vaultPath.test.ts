@@ -17,6 +17,8 @@ describe("vaultPathIsContained", () => {
     ["a descent that comes back but stays inside", "folder/../other/note.md"],
     ["a backslash in a filename", "folder/a\\b.md"],
     ["a name that merely starts with '..'", "..hidden.md"],
+    ["a colon below the top level", "notes/C:not-a-drive.md"],
+    ["a colon that is not a drive letter", "CC:notes.md"],
   ] as const;
 
   const escaping = [
@@ -30,6 +32,10 @@ describe("vaultPathIsContained", () => {
     ["a windows-style traversal", "..\\..\\outside.md"],
     ["a mixed-separator traversal", "notes\\../../outside.md"],
     ["a UNC-style absolute path", "\\\\server\\share\\file.md"],
+    ["a drive-qualified path", "C:/outside.md"],
+    ["a drive-qualified path with backslashes", "C:\\outside.md"],
+    ["a lowercase drive letter", "c:/outside.md"],
+    ["a drive-relative path", "C:outside.md"],
   ] as const;
 
   for (const [label, candidate] of contained) {
