@@ -701,7 +701,7 @@ describe("vault_read_binary tool", () => {
     expect(image.mimeType).toBe("image/png");
     // A 1×1 PNG fits, so the bytes are the originals, not a re-encoding.
     expect(image.data).toBe(PIXEL_BASE64);
-    expect(image.annotations).toEqual({ audience: ["user", "assistant"] });
+    expect(image.annotations).toEqual({ audience: ["user", "assistant"], priority: 0.9 });
     expect(meta.type).toBe("text");
     expect(JSON.parse(meta.text)).toEqual({
       path: BINARY_PATH,
