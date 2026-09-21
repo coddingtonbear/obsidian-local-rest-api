@@ -58,7 +58,9 @@ Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `40
 
 The 512 KiB ceiling guards the renderer as well as the model's context: a tool result carrying roughly a megabyte or more of base64 crashes Obsidian's Electron renderer, taking this plugin's HTTP server down with it.
 
-Clients vary in how much of a tool result they show. Some do not surface a `resource_link` to the person at all, and some render a text block's markdown as raw characters, so the tool descriptions ask the agent to repeat a link in its own reply when the file is for the person rather than for itself. Note that this yields a clickable link rather than a visible picture; an image small enough to be returned as an `image` block is the only thing a client can actually display inline.
+Clients vary in how much of a tool result they show. Some do not surface a `resource_link` to the person at all, and some render a text block's markdown as raw characters, so the tool descriptions tell the agent not to leave the person with nothing when the file is for them rather than for the agent.
+
+The preferred route is for the agent to fetch the signed URL to scratch space and hand that local file to whatever its host uses to show a file. The picture then travels from the vault to the person's screen without its bytes passing through the agent's context -- no base64, no token cost for the pixels -- and it goes over `GET /vault/<path>`, which streams a large file happily, rather than through a tool result. Agents are told explicitly not to read the download back in, since that would pay exactly the cost the link exists to avoid. Where a host cannot do that, the fallback is to repeat the markdown link in the reply, which yields something clickable rather than a visible picture.
 
 There is no upload tool that carries bytes through the model. Upload a file with `PUT /vault/{filename}` — with the API key, or with a signed upload URL from `vault_get_upload_url`.
 
