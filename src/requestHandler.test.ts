@@ -19,9 +19,10 @@ jest.mock("./mcpHandler", () => ({
   })),
 }));
 
-import RequestHandler from "./requestHandler";
-import { LocalRestApiSettings } from "./types";
+import RequestHandler, { redactSignedUrl } from "./requestHandler";
+import { ErrorCode, LocalRestApiSettings } from "./types";
 import { CERT_NAME } from "./constants";
+import { UrlSigner } from "./signedUrls";
 import {
   DestinationAlreadyExistsError,
   FileNotFoundError,
@@ -937,6 +938,243 @@ describe("requestHandler", () => {
       expect(res.body.blocks[0]).toBe("dup");
       expect(res.body.blocks[1]).not.toBe("dup");
       expect(res.body.blocks[1].startsWith("dup")).toBe(true);
+    });
+  });
+
+  // A signed URL stands in for the bearer header on exactly the request it names. These
+  // tests mint signatures with the handler's own signer — the same one the MCP tools use —
+  // and redeem them over HTTP without an Authorization header.
+  describe("signed URLs", () => {
+    const PATH = "attachments/pixel.png";
+    const BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]);
+    let clock: number;
+
+    beforeEach(() => {
+      clock = 1_700_000_000_000;
+      settings.enableSignedUrls = true;
+      // @ts-ignore: the mock App is close enough.
+      handler = new RequestHandler(app, manifest, settings, new UrlSigner(Buffer.from("secret"), () => clock));
+      handler.setupRouter();
+      server.close();
+      server = http.createServer(handler.api);
+      app.vault.adapter._readBinary = BYTES.buffer.slice(BYTES.byteOffset, BYTES.byteOffset + BYTES.byteLength);
+    });
+
+    function signedPath(method: "GET" | "PUT", path: string, query: Record<string, string> = {}): string {
+      const { sig, exp, nonce } = handler.urlSigner.sign(method, path, 300);
+      const params = new URLSearchParams({ ...query, sig, exp: String(exp), n: nonce });
+      return `/vault/${path}?${params}`;
+    }
+
+    test("a signed GET serves the file without an API key, inline", async () => {
+      const result = await request(server).get(signedPath("GET", PATH)).expect(200);
+      expect(Buffer.from(result.body).equals(BYTES)).toBe(true);
+      expect(result.header["content-type"]).toBe("image/png");
+      expect(result.header["content-disposition"]).toBe(`inline; filename="${PATH}"`);
+    });
+
+    test("download=1 asks for an attachment instead", async () => {
+      const result = await request(server)
+        .get(signedPath("GET", PATH, { download: "1" }))
+        .expect(200);
+      expect(result.header["content-disposition"]).toBe(`attachment; filename="${PATH}"`);
+    });
+
+    test("every comma in a filename is escaped in Content-Disposition, not just the first", async () => {
+      const commas = "attachments/a,b,c.png";
+      app.vault.adapter._statForPath = undefined;
+      const result = await request(server).get(signedPath("GET", commas)).expect(200);
+      // A comma separates header list items, so one left unescaped splits the value.
+      // `replace` with a string argument only replaces the first -- CodeQL's
+      // incomplete-sanitization rule caught it.
+      expect(result.header["content-disposition"]).toBe(
+        'inline; filename="attachments/a%2Cb%2Cc.png"',
+      );
+    });
+
+    test("an API-key request keeps the attachment disposition it always had", async () => {
+      const result = await request(server)
+        .get(`/vault/${PATH}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(result.header["content-disposition"]).toBe(`attachment; filename="${PATH}"`);
+    });
+
+    test("a GET link is reusable until it expires", async () => {
+      const path = signedPath("GET", PATH);
+      await request(server).get(path).expect(200);
+      await request(server).get(path).expect(200);
+      clock += 301_000;
+      const result = await request(server).get(path).expect(401);
+      expect(result.body.message).toMatch(/expired/);
+    });
+
+    // A signed URL authorizes writing the file it names. Both of these turn the same
+    // request into an edit of part of a document -- and of a *different* file, in the
+    // path-element case -- while the signature covers neither the path elements nor the
+    // headers. Verified against a live vault before the fix: both wrote successfully.
+    test("the verbose log redacts the credential parts of a signed URL", async () => {
+      // `sig` and `n` are a bearer capability; console output gets pasted into bug
+      // reports. `exp` stays legible because it is useful and grants nothing alone.
+      const line = redactSignedUrl("/vault/a.png?sig=deadbeef&exp=1790000000&n=AbC-_123");
+      expect(line).toBe("/vault/a.png?sig=<redacted>&exp=1790000000&n=<redacted>");
+      expect(redactSignedUrl("/vault/a.png")).toBe("/vault/a.png");
+      expect(redactSignedUrl("/vault/a.png?download=1&sig=x&n=y")).toBe(
+        "/vault/a.png?download=1&sig=<redacted>&n=<redacted>",
+      );
+    });
+
+    test("a signed request carrying a backslash is refused", async () => {
+      // `normalizeVaultFilePath` folds `\\` into `/` when verifying, but `wholeFilePath`
+      // joins segments verbatim when dispatching, so the two layers disagree about which
+      // file `a%5Cb` names. Obsidian happens to normalize it again before the write, but
+      // a signed URL should not depend on that to address the right file.
+      const { sig, exp, nonce } = handler.urlSigner.sign("GET", PATH, 300);
+      // Every separator, so the intent is "spell this path with backslashes" rather
+      // than "swap the first slash" -- which is also what keeps CodeQL's
+      // incomplete-sanitization rule from flagging it, the same rule that caught a real
+      // Content-Disposition bug earlier in this branch.
+      const backslashed = PATH.replaceAll("/", "%5C");
+      const result = await request(server)
+        .get(`/vault/${backslashed}?sig=${sig}&exp=${exp}&n=${nonce}`)
+        .expect(401);
+      expect(result.body.message).toMatch(/not valid for this request/);
+      // The canonical spelling still works, so this rejects only the ambiguous form.
+      await request(server).get(signedPath("GET", PATH)).expect(200);
+    });
+
+    test("a signed PUT refuses URL path-element targeting", async () => {
+      // The prefix must stat as a real file for the resolver to read the remaining
+      // segments as a target -- which is exactly the live condition: an upload URL for
+      // `note.md/heading/Alpha` edits `note.md` because `note.md` exists.
+      app.vault.adapter._exists = true;
+      app.vault.adapter._statForPath = PATH;
+      const { sig, exp, nonce } = handler.urlSigner.sign("PUT", `${PATH}/heading/Alpha`, 300);
+      const result = await request(server)
+        .put(`/vault/${PATH}/heading/Alpha?sig=${sig}&exp=${exp}&n=${nonce}`)
+        .set("Content-Type", "text/markdown")
+        .send("injected")
+        .expect(401);
+      expect(result.body.errorCode).toBe(ErrorCode.SignedUrlIsWholeFileOnly);
+    });
+
+    test("a signed PUT refuses Target-Type/Target header targeting", async () => {
+      const result = await request(server)
+        .put(signedPath("PUT", PATH))
+        .set("Content-Type", "text/markdown")
+        .set("Markdown-Patch-Version", "1")
+        .set("Target-Type", "heading")
+        .set("Target", "Alpha")
+        .send("injected")
+        .expect(401);
+      expect(result.body.errorCode).toBe(ErrorCode.SignedUrlIsWholeFileOnly);
+    });
+
+    test("a rejected targeted attempt does not spend the link", async () => {
+      const path = signedPath("PUT", PATH);
+      await request(server)
+        .put(path)
+        .set("Content-Type", "text/markdown")
+        .set("Markdown-Patch-Version", "1")
+        .set("Target-Type", "heading")
+        .set("Target", "Alpha")
+        .send("injected")
+        .expect(401);
+      // The claim is taken before dispatch, so it has to be given back when the request
+      // turns out not to have succeeded -- otherwise one bad attempt burns the link.
+      await request(server).put(path).set("Content-Type", "image/png").send(BYTES).expect(204);
+    });
+
+    test.each([
+      ["application/json", '{\n  "b": 2,\n  "a": 1\n}\n'],
+      ["text/markdown", "# Title\r\n\r\ntrailing spaces   \r\n"],
+      ["text/plain", "  leading and trailing  \n\n"],
+    ])("a signed PUT sent as %s stores the bytes verbatim", async (contentType, body) => {
+      // The upload tool advertises the destination's real media type, so a `.json`
+      // destination got application/json, the JSON parser turned the file into a value
+      // and `writeFileContent` re-serialized it -- storing `{"b":2,"a":1}` for the input
+      // below, and answering 204. A signed URL authorizes writing exactly the bytes sent.
+      await request(server)
+        .put(signedPath("PUT", PATH))
+        .set("Content-Type", contentType)
+        .send(body)
+        .expect(204);
+      const written = app.vault.adapter._writeBinary?.[1];
+      expect(written).toBeDefined();
+      expect(Buffer.from(written).toString("utf-8")).toBe(body);
+    });
+
+    test("a PUT with no Content-Type stores the bytes, not Express's empty object", async () => {
+      // Before the octet-stream default, no parser matched a body with no declared type,
+      // `req.body` kept Express's `{}`, and the two bytes "{}" were written over the
+      // caller's file -- answered 204, so nothing looked wrong until it was opened.
+      const body = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0xff]);
+      await request(server)
+        .put(signedPath("PUT", PATH))
+        .set("Content-Type", "")
+        .send(body)
+        .expect(204);
+      const written = app.vault.adapter._writeBinary?.[1];
+      expect(written).toBeDefined();
+      expect(Buffer.from(written).equals(body)).toBe(true);
+    });
+
+    test("a signed PUT stores the body and is spent by the request that succeeds", async () => {
+      const path = signedPath("PUT", PATH);
+      await request(server)
+        .put(path)
+        .set("Content-Type", "image/png")
+        .send(BYTES)
+        .expect(204);
+      const [writtenPath, written] = app.vault.adapter._writeBinary;
+      expect(writtenPath).toBe(PATH);
+      expect(Buffer.from(written).equals(BYTES)).toBe(true);
+
+      const replay = await request(server)
+        .put(path)
+        .set("Content-Type", "image/png")
+        .send(BYTES)
+        .expect(401);
+      expect(replay.body.message).toMatch(/already been used/);
+    });
+
+    test("a signature is bound to its method and path", async () => {
+      const get = handler.urlSigner.sign("GET", PATH, 300);
+      const query = `sig=${get.sig}&exp=${get.exp}`;
+      const put = await request(server)
+        .put(`/vault/${PATH}?${query}`)
+        .set("Content-Type", "image/png")
+        .send(BYTES)
+        .expect(401);
+      expect(put.body.message).toMatch(/not valid/);
+      await request(server).delete(`/vault/${PATH}?${query}`).expect(401);
+      await request(server).get(`/vault/other.png?${query}`).expect(401);
+      await request(server).get(`/vault/${PATH}?sig=${"0".repeat(64)}&exp=${get.exp}`).expect(401);
+    });
+
+    test("the signature covers the normalized path, so another spelling of the same file is accepted", async () => {
+      const { sig, exp, nonce } = handler.urlSigner.sign("GET", PATH, 300);
+      await request(server)
+        .get(`/vault/notes/../attachments/pixel.png?sig=${sig}&exp=${exp}&n=${nonce}`)
+        .expect(200);
+    });
+
+    test("signatures are refused outright while the setting is off", async () => {
+      const path = signedPath("GET", PATH);
+      settings.enableSignedUrls = false;
+      const result = await request(server).get(path).expect(401);
+      expect(result.body.message).toMatch(/not valid/);
+    });
+
+    test("a request with no signature is still refused as before", async () => {
+      const result = await request(server).get(`/vault/${PATH}`).expect(401);
+      expect(result.body.message).not.toMatch(/signed/i);
+    });
+
+    test("the signature parameters do not leak into the vault path", async () => {
+      // If `?sig=` were part of the path, the file would not resolve and this would 404.
+      app.vault.adapter._statForPath = PATH;
+      await request(server).get(signedPath("GET", PATH)).expect(200);
     });
   });
 

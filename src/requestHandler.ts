@@ -80,12 +80,38 @@ import {
   VaultOperations,
 } from "./vaultOperations";
 import { McpHandler } from "./mcpHandler";
+import { UrlSigner, isSignableMethod, normalizeVaultFilePath } from "./signedUrls";
 
 // Import openapi.yaml as a string
 import openapiYaml from "../docs/openapi.yaml";
 
 /** The header that selects which markdown-patch format a request speaks. */
 export const MARKDOWN_PATCH_VERSION_HEADER = "Markdown-Patch-Version";
+
+// Per-request state this handler attaches to the request. Kept off `res.locals` and on
+// the request itself so the handlers, which receive the request, can read it without a
+// cast at every site.
+interface RequestState {
+  signedUrl?: boolean;
+}
+/**
+ * Blank the credential-bearing parts of a URL for logging.
+ *
+ * `sig` and `n` are a bearer capability: anyone holding them can redeem the link until
+ * it expires, without the API key. Verbose logging wrote the whole URL to the developer
+ * console, and console output is the sort of thing that ends up pasted into a bug report.
+ * The expiry is left legible because it is useful when reading a log and grants nothing
+ * on its own.
+ */
+export function redactSignedUrl(url: string): string {
+  return url.replace(/([?&](?:sig|n)=)[^&#]*/gi, "$1<redacted>");
+}
+
+function res_locals(req: express.Request): RequestState {
+  const carrier = req as express.Request & { localRestApi?: RequestState };
+  carrier.localRestApi ??= {};
+  return carrier.localRestApi;
+}
 
 /** The `sunset-version` advertised for the deprecated 1.x format (RFC 8594). */
 export const MARKDOWN_PATCH_V1_SUNSET = "6.0";
@@ -153,21 +179,27 @@ export default class RequestHandler {
 
   operations: VaultOperations;
   mcpHandler: McpHandler;
+  // One signer per handler, so the MCP tools that mint links and the REST middleware
+  // that redeems them share a secret — and that secret lives exactly as long as this
+  // handler does.
+  readonly urlSigner: UrlSigner;
 
   constructor(
     app: App,
     manifest: PluginManifest,
     settings: LocalRestApiSettings,
+    urlSigner: UrlSigner = new UrlSigner(),
   ) {
     this.app = app;
     this.manifest = manifest;
     this.api = express();
     this.settings = settings;
+    this.urlSigner = urlSigner;
 
     this.apiExtensionRouter = express.Router();
     this.publicApiExtensionRouter = express.Router();
     this.operations = new VaultOperations(this.app, this.settings);
-    this.mcpHandler = new McpHandler(this.operations, this.settings);
+    this.mcpHandler = new McpHandler(this.operations, this.settings, { signer: this.urlSigner });
 
     this.api.set("json spaces", 2);
   }
@@ -210,6 +242,57 @@ export default class RequestHandler {
     return false;
   }
 
+  /**
+   * Whether a request carries a valid signed-URL signature for its own path.
+   *
+   * Only `GET` and `PUT` on `/vault/<file>` are signable, and only while the setting is
+   * on. The path is decoded the way {@link extractVaultPath} decodes it and normalized
+   * the way the signer normalized it, so the signature covers exactly the file the
+   * request resolves to. Returns null when the request carries no signature at all;
+   * otherwise the signer's verdict.
+   */
+  private signedUrlVerdict(req: express.Request): "ok" | "expired" | "invalid" | "consumed" | null {
+    const { sig, exp, n } = req.query;
+    // `sig` and `exp` together are what makes this *look* like a signed request; without
+    // them it is an ordinary one and falls through to API-key auth, so the absence of
+    // either returns null rather than a rejection. A missing or malformed `n` is a
+    // different thing -- the request claims to be signed and cannot be -- so it is left
+    // to `verify`, which rejects it as invalid along with every other bad signature.
+    if (typeof sig !== "string" || typeof exp !== "string") return null;
+    const nonce = typeof n === "string" ? n : "";
+    if (!this.settings.enableSignedUrls) return "invalid";
+    if (!isSignableMethod(req.method) || !req.path.startsWith("/vault/")) return "invalid";
+    let decoded: string;
+    try {
+      decoded = req.path
+        .slice("/vault/".length)
+        .split("/")
+        .map((segment) => decodeURIComponent(segment))
+        .join("/");
+    } catch {
+      return "invalid";
+    }
+    if (normalizeVaultFilePath(decoded) === null) return "invalid";
+    // Verification folds `\` into `/` (normalizeVaultFilePath treats it as a separator,
+    // for Windows-shaped input); dispatch does not -- `wholeFilePath` only rejects a
+    // segment containing `/` and joins the rest verbatim. So a signature minted for `a/b`
+    // also verifies for `a%5Cb`, and the two layers disagree about which file that names.
+    //
+    // In practice Obsidian normalizes the separator again before the write lands, which
+    // is why a redeemed `a%5Cb` was observed writing to `a/b` rather than to a distinct
+    // file. That is somebody else's implementation detail to change, though, and a signed
+    // URL should not depend on it to name the right file. A signed request carrying a
+    // backslash is refused instead: no legitimate link needs one, because `sign`
+    // normalized the separator away before signing.
+    if (decoded.includes("\\")) return "invalid";
+    return this.urlSigner.verify(req.method, decoded, exp, sig, nonce);
+  }
+
+  /** True when the request was authenticated by a signed URL rather than the API key. */
+  requestIsSigned(req: express.Request): boolean {
+    return res_locals(req).signedUrl === true;
+  }
+
   async authenticationMiddleware(
     req: express.Request,
     res: express.Response,
@@ -221,17 +304,58 @@ export default class RequestHandler {
       "/openapi.yaml",
     ];
 
-    if (
-      !authenticationExemptRoutes.includes(req.path) &&
-      !this.requestIsAuthenticated(req)
-    ) {
+    if (authenticationExemptRoutes.includes(req.path) || this.requestIsAuthenticated(req)) {
+      next();
+      return;
+    }
+
+    // A signed URL stands in for the bearer header on the one request it names. A PUT
+    // link is spent by the first request that succeeds with it, so the same link
+    // cannot overwrite the file twice.
+    const verdict = this.signedUrlVerdict(req);
+    if (verdict === "ok") {
+      const { sig, exp } = req.query as { sig: string; exp: string };
+      // Claim the link here, before dispatch, rather than recording it as spent once the
+      // response finishes. The old ordering left the whole request between the check and
+      // the record, so concurrent PUTs each verified against a link none of them had yet
+      // taken: six at once produced four successful writes of a link documented as
+      // single-use. Claiming is atomic because nothing awaits between `verify` above and
+      // this call.
+      if (!this.urlSigner.claim(req.method, exp, sig)) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ApiKeyAuthorizationRequired,
+          message: "The signed upload URL has already been used.",
+        });
+        return;
+      }
+      res_locals(req).signedUrl = true;
+      // Give it back unless the request actually succeeded. `close` rather than `finish`
+      // so an aborted connection -- which never fires `finish` -- releases too, instead
+      // of stranding a link that was never redeemed.
+      res.on("close", () => {
+        const succeeded =
+          res.writableEnded && res.statusCode >= 200 && res.statusCode < 300;
+        if (!succeeded) this.urlSigner.release(req.method, sig);
+      });
+      next();
+      return;
+    }
+    if (verdict !== null) {
+      const reason = {
+        expired: "The signed URL has expired.",
+        consumed: "The signed upload URL has already been used.",
+        invalid: "The signed URL is not valid for this request.",
+      }[verdict];
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.ApiKeyAuthorizationRequired,
+        message: reason,
       });
       return;
     }
 
-    next();
+    this.returnCannedResponse(res, {
+      errorCode: ErrorCode.ApiKeyAuthorizationRequired,
+    });
   }
 
   async getDocumentMapObject(file: TFile): Promise<DocumentMapObject> {
@@ -478,10 +602,18 @@ export default class RequestHandler {
     const content = await this.app.vault.adapter.readBinary(filePath);
     const mimeType = mime.lookup(filePath);
 
+    // A signed link is made to be opened — in a browser tab, in an <img> — so it is
+    // served inline unless the link asked for a download. API-key requests keep the
+    // attachment disposition they have always had.
+    const disposition =
+      this.requestIsSigned(req) && req.query.download !== "1" ? "inline" : "attachment";
     res.set({
-      "Content-Disposition": `attachment; filename="${encodeURI(
+      // Every comma, not just the first: a comma is a header-list separator, so one left
+      // unescaped splits the value. `replace` with a string argument replaces a single
+      // occurrence, which is what CodeQL's incomplete-sanitization rule caught here.
+      "Content-Disposition": `${disposition}; filename="${encodeURI(
         filePath,
-      ).replace(",", "%2C")}"`,
+      ).replaceAll(",", "%2C")}"`,
       "Content-Type":
         `${mimeType}` +
         (mimeType == ContentTypes.markdown ? "; charset=utf-8" : ""),
@@ -934,6 +1066,15 @@ export default class RequestHandler {
         });
         return;
       }
+      // A signed URL names a file and authorizes writing that file. These path elements
+      // turn the same request into a patch of a *different* file -- an upload URL for
+      // `note.md/heading/Title` edits `note.md` rather than creating anything -- and the
+      // signature says nothing about the distinction. Refuse rather than silently do the
+      // other thing.
+      if (this.requestIsSigned(req)) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.SignedUrlIsWholeFileOnly });
+        return;
+      }
       return this._vaultPatchTargeted(
         resolved.filePath,
         resolved.targetType,
@@ -954,6 +1095,13 @@ export default class RequestHandler {
     const headerTarget = this._getHeaderTarget(req, res);
     if (headerTarget !== undefined) {
       if (!headerTarget) return; // error already sent
+      // Same reasoning as the path-element case above, by the other route: these headers
+      // are not part of the signed material, so anyone holding the link can redirect a
+      // whole-file upload into a section edit.
+      if (this.requestIsSigned(req)) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.SignedUrlIsWholeFileOnly });
+        return;
+      }
       return this._vaultPatchTargeted(
         filePath,
         headerTarget.targetType,
@@ -2287,7 +2435,7 @@ export default class RequestHandler {
       if (this.settings.enableVerboseLogging) {
         const originalSend = res.send;
         res.send = function (body, ...args) {
-          console.debug(`[REST API] ${req.method} ${req.url} => ${res.statusCode}`);
+          console.debug(`[REST API] ${req.method} ${redactSignedUrl(req.url)} => ${res.statusCode}`);
           return originalSend.apply(res, [body, ...args]) as ReturnType<typeof res.send>;
         };
       }
@@ -2345,6 +2493,34 @@ export default class RequestHandler {
 
     this.api.use(this.publicApiExtensionRouter);
     this.api.use(this.authenticationMiddleware.bind(this));
+
+    // A body with no Content-Type matched none of the parsers below, so `req.body` kept
+    // Express's default `{}` and a PUT wrote the two bytes "{}" over the caller's file --
+    // answering 204, so nothing looked wrong until the attachment was opened. RFC 9110
+    // says a payload with no declared type may be treated as application/octet-stream, so
+    // that is what it becomes, and the raw parser takes it from there.
+    //
+    // A *signed* PUT is routed the same way for a different reason. The upload tool
+    // advertises the destination's real media type, which for `data.json` is
+    // application/json -- so the JSON parser turned the upload into a JavaScript value
+    // and `writeFileContent` re-serialized it, storing `{"b":2,"a":1}` for a
+    // pretty-printed file and answering 204. Whitespace, key formatting and the trailing
+    // newline were simply gone. `text/*` is the same shape of problem, decoding and
+    // re-encoding bytes that were never promised to be text.
+    //
+    // A signed URL authorizes a whole-file write of exactly the bytes sent, so it does
+    // not go through a parser that can rewrite them. Doing it here rather than by
+    // changing the advertised Content-Type means the guarantee holds whatever the caller
+    // sends, instead of only when they follow the suggested command.
+    this.api.use((req, _res, next) => {
+      const hasBody =
+        req.headers["content-length"] !== undefined ||
+        req.headers["transfer-encoding"] !== undefined;
+      if (hasBody && (!req.headers["content-type"] || this.requestIsSigned(req))) {
+        req.headers["content-type"] = "application/octet-stream";
+      }
+      next();
+    });
     this.api.use(
       express.json({
         type: ContentTypes.json,

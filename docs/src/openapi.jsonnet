@@ -15,6 +15,39 @@ local PutShared = TargetingShared + '\n' + importstr 'lib/descriptions/put-share
 local PatchDescription(fileRef) =
   'Modifies ' + fileRef + ' with a single structured instruction: an operation applied to a scope of a target — a heading, block reference, or frontmatter field within that document.\n\n' + Patch.description;
 
+// Signed-URL query parameters, accepted on GET and PUT /vault/{filename} while the
+// "Enable signed URLs" setting is on. Together they stand in for the bearer header.
+local SignedUrlParams = [
+  {
+    name: 'sig',
+    'in': 'query',
+    required: false,
+    description: 'Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` tools. Together with `exp` and `n`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings.',
+    schema: { type: 'string' },
+  },
+  {
+    name: 'exp',
+    'in': 'query',
+    required: false,
+    description: 'Expiry of a signed URL as Unix seconds; part of what `sig` signs.',
+    schema: { type: 'integer' },
+  },
+  {
+    name: 'n',
+    'in': 'query',
+    required: false,
+    description: 'Random per-link nonce, minted with the URL and part of what `sig` signs. Required whenever `sig` and `exp` are given: a signed request without it cannot verify. It exists so that two links minted for the same path within the same second are distinct -- `exp` has one-second granularity, so without it they would be byte-identical, and spending one would spend the other.',
+    schema: { type: 'string' },
+  },
+];
+local DownloadParam = {
+  name: 'download',
+  'in': 'query',
+  required: false,
+  description: 'On a signed-URL request, `1` asks for `Content-Disposition: attachment` (a download) instead of the `inline` disposition signed links are otherwise served with. Ignored on API-key requests, which are always served as attachments.',
+  schema: { type: 'string', enum: ['1'] },
+};
+
 local ContentLocationHeader = {
   'Content-Location': {
     description: 'Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded.',
@@ -261,15 +294,15 @@ std.manifestYamlDoc(
           ],
           summary: 'Return the content of a single file in your vault.\n',
           description: (importstr 'lib/descriptions/vault-file-get.md') + '\n' + GetShared,
-          parameters: [ParamPath] + super.parameters,
+          parameters: [ParamPath] + super.parameters + SignedUrlParams + [DownloadParam],
         },
         put: Put {
           tags: [
             'Vault Files',
           ],
           summary: 'Create a new file in your vault or update the content of an existing one.\n',
-          description: 'Creates a new file in your vault or updates the content of an existing one if the specified file already exists.\n\nAny content type is accepted: a request body that is not text or JSON is stored as raw bytes, so attachments -- images, PDFs, audio -- can be uploaded here as well as notes. There is no size limit beyond the request-size cap.\n\n' + PutShared,
-          parameters: [ParamPath] + super.parameters,
+          description: 'Creates a new file in your vault or updates the content of an existing one if the specified file already exists.\n\nAny content type is accepted: a request body that is not text or JSON is stored as raw bytes, so attachments -- images, PDFs, audio -- can be uploaded here as well as notes. A body sent with no `Content-Type` at all is treated as `application/octet-stream` and stored as raw bytes, which is what RFC 9110 allows. There is no size limit beyond the request-size cap.\n\nA signed upload URL (`?sig=…&exp=…&n=…`, from the MCP `vault_get_upload_url` tool) authenticates a single whole-file `PUT` in place of the `Authorization` header; the link is consumed by the request that succeeds. A signed `PUT` stores exactly the bytes sent, whatever `Content-Type` it declares -- it is not routed through the JSON or text parsers, which would otherwise reparse and re-serialize the body. It authorizes a whole-file write only: a request that also targets part of the document, through `Target-Type`/`Target` headers or through `/heading`, `/block` or `/frontmatter` path elements, is refused.\n\n' + PutShared,
+          parameters: [ParamPath] + super.parameters + SignedUrlParams,
         },
         post: Post {
           tags: [

@@ -25,6 +25,7 @@ export enum ErrorCode {
   InvalidPatchInstruction = 40081,
   InvalidSearch = 40090,
   ApiKeyAuthorizationRequired = 40101,
+  SignedUrlIsWholeFileOnly = 40102,
   RequestMethodValidOnlyForFiles = 40510,
   DestinationAlreadyExists = 40920,
   ConflictingTargetSpecification = 42200,
@@ -63,6 +64,15 @@ export interface LocalRestApiSettings {
   subjectAltNames?: string;
   enableVerboseLogging?: boolean;
 
+  /**
+   * Whether `GET`/`PUT /vault/<path>` accept a signed URL in place of the bearer
+   * header, and whether the MCP tools that mint such URLs are registered. On by
+   * default (see `DEFAULT_SETTINGS`); a stored `false` turns it off. A signed link is a
+   * capability that can be pasted anywhere, which is why it can be turned off at all.
+   */
+  enableSignedUrls?: boolean;
+  /** How long a signed URL stays valid, in seconds. See `clampSignedUrlTtl`. */
+  signedUrlTtlSeconds?: number;
 }
 
 declare module "obsidian" {

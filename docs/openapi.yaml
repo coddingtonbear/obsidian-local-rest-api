@@ -1440,9 +1440,10 @@ paths:
         |---|---|
         | `vault_list` | List files and subdirectories inside a vault directory |
         | `vault_read` | Read a text file's full content, frontmatter, tags, and stat; refuses anything that is not valid UTF-8 |
-        | `vault_read_binary` | Read a file as raw bytes, base64-encoded, for attachments `vault_read` would corrupt |
-        | `vault_write` | Create or overwrite a vault file |
-        | `vault_write_binary` | Create or overwrite a vault file from base64-encoded raw bytes |
+        | `vault_read_binary` | Read an attachment: images as an image block, anything else as a signed download link or embedded bytes |
+        | `vault_get_download_url` | Mint a signed, expiring link to a file that works without the API key (only when signed URLs are enabled) |
+        | `vault_get_upload_url` | Mint a signed, single-use link for uploading a file over `PUT` (only when signed URLs are enabled) |
+        | `vault_write` | Create or overwrite a text file; refuses paths whose extension names a binary type |
         | `vault_append` | Append content to the end of a vault file |
         | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
         | `vault_delete` | Delete a vault file (moves to trash by default) |
@@ -1459,11 +1460,31 @@ paths:
         
         ### Binary files
         
-        `vault_read` and `vault_write` are text tools: they decode and encode UTF-8, which is lossy for anything that is not text, so reading an attachment through `vault_read` and writing the result back destroys the file. Use `vault_read_binary` and `vault_write_binary` for attachments instead. Both carry the file base64-encoded.
+        `vault_read` and `vault_write` are text tools: they decode and encode UTF-8, which is lossy for anything that is not text. `vault_read` refuses a file whose bytes are not valid UTF-8, and `vault_write` and `vault_append` refuse a path whose extension names a binary type (image other than SVG, audio, video, font, PDF, archive), so the read-as-text-then-write-back mistake that destroys attachments is refused at both ends.
         
-        `vault_write_binary` refuses a payload it cannot decode cleanly rather than writing the bytes it managed to salvage.
+        `vault_read_binary` reads attachments. A raster image is returned as an MCP `image` content block, downscaled to fit 1568px on its long side, with a text block giving its path, MIME type, size, and dimensions. An SVG is returned unchanged, as its source text in a `resource` block. An image still larger than 512 KiB once downscaled is returned as a `resource_link` instead, the same as any other oversized file -- or refused, with a pointer at the REST endpoint, when signed URLs are off and there is no link to give. Any other file is returned as a `resource_link` to a signed download URL when signed URLs are enabled, or embedded as base64 in a `resource` block when they are not and the file is under 512 KiB. `as: "bytes"` forces embedding; `as: "link"` forces a link.
         
-        Base64 in a tool argument or result passes through the model's context at roughly 0.35-0.45 tokens per byte, so both tools refuse files over 1 MiB. That is a context guard rather than a storage limit: `GET` and `PUT /vault/{filename}` carry raw bytes of any size at no context cost, and are the right way to move a large attachment.
+        The 512 KiB ceiling guards the renderer as well as the model's context: a tool result carrying roughly a megabyte or more of base64 crashes Obsidian's Electron renderer, taking this plugin's HTTP server down with it.
+        
+        Clients vary in how much of a tool result they show. Some do not surface a `resource_link` to the person at all, and some render a text block's markdown as raw characters, so the tool descriptions tell the agent not to leave the person with nothing when the file is for them rather than for the agent.
+        
+        The preferred route is for the agent to fetch the signed URL to scratch space and hand that local file to whatever its host uses to show a file. The picture then travels from the vault to the person's screen without its bytes passing through the agent's context -- no base64, no token cost for the pixels -- and it goes over `GET /vault/<path>`, which streams a large file happily, rather than through a tool result. Agents are told explicitly not to read the download back in, since that would pay exactly the cost the link exists to avoid. Where a host cannot do that, the fallback is to repeat the markdown link in the reply, which yields something clickable rather than a visible picture.
+        
+        There is no upload tool that carries bytes through the model. Upload a file with `PUT /vault/{filename}` — with the API key, or with a signed upload URL from `vault_get_upload_url`.
+        
+        ### Signed URLs
+        
+        On by default; can be turned off under Advanced settings, where the lifetime is also set (default 300 seconds). While enabled, `vault_get_download_url` and `vault_get_upload_url` are registered, and `vault_read_binary` links to non-image files instead of embedding them.
+        
+        A signed URL authorizes a **whole-file** write to exactly the path it names. The signature covers the method, the normalized path, the expiry and a random per-link nonce (`n`), and nothing else — so a request that also carries `Target-Type`/`Target` headers, or whose path continues into `/heading`, `/block` or `/frontmatter`, is refused with `40102` rather than quietly becoming a targeted edit of a document the link never named. Targeted writes need the API key.
+        
+        A signed `PUT` stores exactly the bytes it is sent, whatever `Content-Type` it declares: it bypasses the JSON and text parsers, which would otherwise reparse and re-serialize the body and silently reformat a pretty-printed `.json`.
+        
+        A `PUT` link's single use is claimed when the request is authorized, not when it finishes, so concurrent redemptions cannot all pass the check; a request that does not end in a 2xx gives the claim back, so a rejected or aborted attempt never spends the link.
+        
+        A signed request whose path carries a backslash is refused. Verification treats `\` as a separator and dispatch does not, so the two layers would disagree about which file `a%5Cb` names; no legitimate link needs one, since the separator is normalized away before signing. With verbose logging on, `sig` and `n` are redacted from the logged URL: they are a bearer capability, and console output gets pasted into bug reports.
+        
+        A signed URL is `GET` or `PUT /vault/{filename}?sig=…&exp=…&n=…`. The signature is an HMAC-SHA256 over the method, the normalized vault path, the expiry, and the random per-link nonce `n`, under a secret generated at plugin load and held only in memory; it stands in for the `Authorization` header on that one request. Download links can be used repeatedly until they expire and are served with `Content-Disposition: inline` (`download=1` asks for an attachment). Upload links are consumed by the first request that succeeds. Links do not survive an Obsidian restart.
         
         ## Available resources
         
@@ -2085,6 +2106,8 @@ paths:
         
         Binary files are served as raw bytes, with a `Content-Type` derived from the file extension, so this endpoint reads attachments — images, PDFs, audio — as well as notes. There is no size limit on the response.
         
+        A signed download URL (`?sig=…&exp=…&n=…`, from the MCP `vault_get_download_url` tool) authenticates the request in place of the `Authorization` header while signed URLs are enabled in the plugin settings. Such a request is served `inline` rather than as an attachment unless `download=1` is also given.
+        
         # Targeting a Sub-part of your Document
         
         You can operate on a specific section of a note instead of the whole file by embedding a target in the URL path, immediately after the note identifier. The first segment after the note is the target type, and the remaining segments address the target:
@@ -2188,6 +2211,32 @@ paths:
               - "content"
               - "marker"
               - "markerAndContent"
+            type: "string"
+        - description: "Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` tools. Together with `exp` and `n`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings."
+          in: "query"
+          name: "sig"
+          required: false
+          schema:
+            type: "string"
+        - description: "Expiry of a signed URL as Unix seconds; part of what `sig` signs."
+          in: "query"
+          name: "exp"
+          required: false
+          schema:
+            type: "integer"
+        - description: "Random per-link nonce, minted with the URL and part of what `sig` signs. Required whenever `sig` and `exp` are given: a signed request without it cannot verify. It exists so that two links minted for the same path within the same second are distinct -- `exp` has one-second granularity, so without it they would be byte-identical, and spending one would spend the other."
+          in: "query"
+          name: "n"
+          required: false
+          schema:
+            type: "string"
+        - description: "On a signed-URL request, `1` asks for `Content-Disposition: attachment` (a download) instead of the `inline` disposition signed links are otherwise served with. Ignored on API-key requests, which are always served as attachments."
+          in: "query"
+          name: "download"
+          required: false
+          schema:
+            enum:
+              - "1"
             type: "string"
       responses:
         "200":
@@ -2972,7 +3021,9 @@ paths:
       description: |
         Creates a new file in your vault or updates the content of an existing one if the specified file already exists.
         
-        Any content type is accepted: a request body that is not text or JSON is stored as raw bytes, so attachments -- images, PDFs, audio -- can be uploaded here as well as notes. There is no size limit beyond the request-size cap.
+        Any content type is accepted: a request body that is not text or JSON is stored as raw bytes, so attachments -- images, PDFs, audio -- can be uploaded here as well as notes. A body sent with no `Content-Type` at all is treated as `application/octet-stream` and stored as raw bytes, which is what RFC 9110 allows. There is no size limit beyond the request-size cap.
+        
+        A signed upload URL (`?sig=…&exp=…&n=…`, from the MCP `vault_get_upload_url` tool) authenticates a single whole-file `PUT` in place of the `Authorization` header; the link is consumed by the request that succeeds. A signed `PUT` stores exactly the bytes sent, whatever `Content-Type` it declares -- it is not routed through the JSON or text parsers, which would otherwise reparse and re-serialize the body. It authorizes a whole-file write only: a request that also targets part of the document, through `Target-Type`/`Target` headers or through `/heading`, `/block` or `/frontmatter` path elements, is refused.
         
         # Targeting a Sub-part of your Document
         
@@ -3045,6 +3096,24 @@ paths:
             enum:
               - "true"
               - "false"
+            type: "string"
+        - description: "Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` tools. Together with `exp` and `n`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings."
+          in: "query"
+          name: "sig"
+          required: false
+          schema:
+            type: "string"
+        - description: "Expiry of a signed URL as Unix seconds; part of what `sig` signs."
+          in: "query"
+          name: "exp"
+          required: false
+          schema:
+            type: "integer"
+        - description: "Random per-link nonce, minted with the URL and part of what `sig` signs. Required whenever `sig` and `exp` are given: a signed request without it cannot verify. It exists so that two links minted for the same path within the same second are distinct -- `exp` has one-second granularity, so without it they would be byte-identical, and spending one would spend the other."
+          in: "query"
+          name: "n"
+          required: false
+          schema:
             type: "string"
       requestBody:
         content:

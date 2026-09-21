@@ -35,6 +35,13 @@ variable, because each needs something of the person running them:
   because opening a file pulls Obsidian to the foreground and takes keyboard focus
   mid-run, so keystrokes meant for another window can land in the opened note.
 
+One group runs by default and opts *out* instead, because the feature it needs is on by
+default:
+
+- `OBSIDIAN_SIGNED_URLS=0` — skips the signed-URL upload/download round trip. Without it,
+  that test *fails* (naming the setting) when the running plugin has "Enable signed URLs"
+  turned off, rather than passing with nothing exercised.
+
 ### Commit message format
 
 Use a plain imperative subject line (no `type:` prefix). Always include a `Co-Authored-By` trailer crediting the AI assistant that helped author the commit.

