@@ -22,7 +22,7 @@ local SignedUrlParams = [
     name: 'sig',
     'in': 'query',
     required: false,
-    description: 'Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` tools. Together with `exp`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings.',
+    description: 'Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` tools. Together with `exp` and `n`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings.',
     schema: { type: 'string' },
   },
   {
@@ -31,6 +31,13 @@ local SignedUrlParams = [
     required: false,
     description: 'Expiry of a signed URL as Unix seconds; part of what `sig` signs.',
     schema: { type: 'integer' },
+  },
+  {
+    name: 'n',
+    'in': 'query',
+    required: false,
+    description: 'Random per-link nonce, minted with the URL and part of what `sig` signs. Required whenever `sig` and `exp` are given: a signed request without it cannot verify. It exists so that two links minted for the same path within the same second are distinct -- `exp` has one-second granularity, so without it they would be byte-identical, and spending one would spend the other.',
+    schema: { type: 'string' },
   },
 ];
 local DownloadParam = {

@@ -951,29 +951,34 @@ export class McpHandler {
           return this.downloadLinkResult(normalized);
         }
         const mimeType = mime.lookup(normalized) || "application/octet-stream";
-        // Decide before reading. Only an image or an SVG needs the bytes in hand -- one
-        // to be decoded and measured, the other to be returned as its own source -- and
-        // everything else, with signed URLs on, ends as a link. Reading first meant a
-        // multi-gigabyte video was loaded into the renderer in full and then discarded,
-        // which is both pointless and the sort of allocation that kills the renderer
-        // outright (see MaximumMcpBinaryBytes). `downloadLinkResult` still throws for a
-        // file that does not exist, so the tool's contract is unchanged.
-        const mayNeedBytes = mimeType === SVG_MIME_TYPE || mimeType.startsWith("image/");
-        if (mode === "auto" && this.signedUrlsEnabled && !mayNeedBytes) {
-          return this.downloadLinkResult(normalized);
-        }
-        // When the result can only be embedded bytes, the ceiling is knowable from the
-        // file's stat and there is no reason to read first. `embeddedBytesResult` checks
-        // too, but it checks *after* the read -- so a multi-gigabyte attachment was pulled
-        // into the renderer in full and only then refused, which is the allocation the cap
-        // exists to prevent. Its check stays for the races this one cannot see.
-        const embedsBytes = mode === "bytes" || (!this.signedUrlsEnabled && !mayNeedBytes);
-        if (embedsBytes) {
-          const file = this.existingFile(normalized);
-          if (file.stat.size > MaximumMcpBinaryBytes) {
-            this.throwOversizedForEmbedding(file.stat.size);
+        const isSvg = mimeType === SVG_MIME_TYPE;
+        const isRaster = !isSvg && mimeType.startsWith("image/");
+        // Decide from the stat wherever the stat can decide, because reading first meant
+        // pulling a multi-gigabyte file into the renderer only to discard it -- the sort
+        // of allocation that kills the renderer outright (see MaximumMcpBinaryBytes).
+        //
+        // The one thing that can come back *smaller* than it is on disk is a raster image
+        // this runtime has a scaler for, in `auto` mode. An SVG is returned as its own
+        // source, a raster image with no scaler is passed through untouched, and `bytes`
+        // mode skips the scaler entirely -- so in every other case the file's size already
+        // determines the outcome and the read buys nothing.
+        const canReduce = mode === "auto" && isRaster && this.imageScaler !== null;
+        if (!canReduce) {
+          const size = this.existingFile(normalized).stat.size;
+          if (size > MaximumMcpBinaryBytes) {
+            if (mode === "auto" && this.signedUrlsEnabled) {
+              return this.downloadLinkResult(normalized);
+            }
+            this.throwOversizedForEmbedding(size);
           }
         }
+        // Nothing but an SVG or a raster image needs the bytes in hand at all; with signed
+        // URLs on, everything else is a link.
+        if (mode === "auto" && this.signedUrlsEnabled && !isSvg && !isRaster) {
+          return this.downloadLinkResult(normalized);
+        }
+        // The post-read checks in `svgTextResult`, `imageResult` and `embeddedBytesResult`
+        // stay: they bound what the scaler actually produced, which no stat can predict.
         const bytes = await this.ops.readBinaryFileContent(normalized);
         if (mode === "auto" && mimeType === SVG_MIME_TYPE) {
           const svg = this.svgTextResult(normalized, bytes);

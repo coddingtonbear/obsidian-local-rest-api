@@ -6,10 +6,12 @@ import { posix } from "path";
  * itself — a browser, a `curl` in the agent's shell, an `<img>` tag — without also
  * handing it the API key.
  *
- * A signed URL is `GET` or `PUT /vault/<path>?sig=<hmac>&exp=<unix seconds>`. The
- * signature is an HMAC-SHA256 over `METHOD\n<normalized vault path>\n<exp>` under a
- * secret that is generated when the plugin loads and never written anywhere, so every
- * link dies when Obsidian restarts and nothing persisted can leak one. The host is
+ * A signed URL is `GET` or `PUT /vault/<path>?sig=<hmac>&exp=<unix seconds>&n=<nonce>`.
+ * The signature is an HMAC-SHA256 over `METHOD\n<normalized vault path>\n<exp>\n<nonce>`
+ * under a secret that is generated when the plugin loads and never written anywhere, so
+ * every link dies when Obsidian restarts and nothing persisted can leak one. All three
+ * query parameters are required: `n` is part of the signed material, so a URL missing it
+ * cannot verify. See `sign` for why the nonce exists. The host is
  * deliberately not part of the signed material: the same link must work whether the
  * client reaches the server as `127.0.0.1`, `localhost`, or a hostname on the
  * certificate.

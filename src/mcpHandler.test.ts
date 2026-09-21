@@ -913,9 +913,19 @@ describe("McpHandler", () => {
     const SVG_PATH = "diagrams/flow.svg";
     const SVG_SOURCE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
 
+    // An SVG is never reduced, so its size is now decided from the stat before any read
+    // -- which means these tests need the file to exist in the mock vault, not just in
+    // `readBinaryFileContent`.
+    function svgFileExists(size = SVG_SOURCE.length): void {
+      const f = makeMockFile(SVG_PATH);
+      f.stat = { ctime: 0, mtime: 0, size };
+      ops.app.vault.getAbstractFileByPath.mockReturnValue(f);
+    }
+
     test("an SVG goes through unchanged as its source text, and never touches the scaler", async () => {
       const scaler = fakeScaler();
       build(DEFAULT_SETTINGS, { imageScaler: scaler });
+      svgFileExists();
       ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(Buffer.from(SVG_SOURCE, "utf-8")));
       const result = await getToolCallback("vault_read_binary")({ path: SVG_PATH });
       expect(scaler.scale).not.toHaveBeenCalled();
@@ -950,12 +960,37 @@ describe("McpHandler", () => {
 
     test("an SVG whose bytes are not UTF-8 falls through to the non-image path", async () => {
       build(UNSIGNED);
+      svgFileExists(3);
       ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(Buffer.from([0xff, 0xfe, 0x00])));
       const result = await getToolCallback("vault_read_binary")({ path: SVG_PATH });
       expect(result.content[0]).toMatchObject({
         type: "resource",
         resource: { mimeType: "image/svg+xml", blob: Buffer.from([0xff, 0xfe, 0x00]).toString("base64") },
       });
+    });
+
+    test("an oversized SVG is decided from its stat, without being read", async () => {
+      const mcp = build(SIGNED, { imageScaler: null });
+      svgFileExists(MaximumMcpBinaryBytes + 1);
+      ops.readBinaryFileContent.mockClear();
+      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: SVG_PATH }));
+      // An SVG is returned as its own source and is never reduced, so the stat decides.
+      // Previously it was read in full, `svgTextResult` returned null at the cap, and the
+      // bytes were discarded in favour of exactly this link.
+      expect(result.content[0].type).toBe("resource_link");
+      expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
+    });
+
+    test("an oversized image with no scaler in the runtime is also decided from its stat", async () => {
+      const mcp = build(SIGNED, { imageScaler: null });
+      const f = makeMockFile(PNG_PATH);
+      f.stat = { ctime: 0, mtime: 0, size: MaximumMcpBinaryBytes + 1 };
+      ops.app.vault.getAbstractFileByPath.mockReturnValue(f);
+      ops.readBinaryFileContent.mockClear();
+      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: PNG_PATH }));
+      // Nothing can shrink it without a scaler, so there is no reason to read it first.
+      expect(result.content[0].type).toBe("resource_link");
+      expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
     });
 
     // ---- vault_read_binary: everything else ----------------------------------

@@ -2208,7 +2208,7 @@ paths:
               - "marker"
               - "markerAndContent"
             type: "string"
-        - description: "Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` tools. Together with `exp`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings."
+        - description: "Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` tools. Together with `exp` and `n`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings."
           in: "query"
           name: "sig"
           required: false
@@ -2220,6 +2220,12 @@ paths:
           required: false
           schema:
             type: "integer"
+        - description: "Random per-link nonce, minted with the URL and part of what `sig` signs. Required whenever `sig` and `exp` are given: a signed request without it cannot verify. It exists so that two links minted for the same path within the same second are distinct -- `exp` has one-second granularity, so without it they would be byte-identical, and spending one would spend the other."
+          in: "query"
+          name: "n"
+          required: false
+          schema:
+            type: "string"
         - description: "On a signed-URL request, `1` asks for `Content-Disposition: attachment` (a download) instead of the `inline` disposition signed links are otherwise served with. Ignored on API-key requests, which are always served as attachments."
           in: "query"
           name: "download"
@@ -3087,7 +3093,7 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` tools. Together with `exp`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings."
+        - description: "Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` tools. Together with `exp` and `n`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings."
           in: "query"
           name: "sig"
           required: false
@@ -3099,6 +3105,12 @@ paths:
           required: false
           schema:
             type: "integer"
+        - description: "Random per-link nonce, minted with the URL and part of what `sig` signs. Required whenever `sig` and `exp` are given: a signed request without it cannot verify. It exists so that two links minted for the same path within the same second are distinct -- `exp` has one-second granularity, so without it they would be byte-identical, and spending one would spend the other."
+          in: "query"
+          name: "n"
+          required: false
+          schema:
+            type: "string"
       requestBody:
         content:
           "*/*":
