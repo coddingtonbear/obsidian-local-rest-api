@@ -1030,7 +1030,11 @@ describe("requestHandler", () => {
       // file `a%5Cb` names. Obsidian happens to normalize it again before the write, but
       // a signed URL should not depend on that to address the right file.
       const { sig, exp, nonce } = handler.urlSigner.sign("GET", PATH, 300);
-      const backslashed = PATH.replace("/", "%5C");
+      // Every separator, so the intent is "spell this path with backslashes" rather
+      // than "swap the first slash" -- which is also what keeps CodeQL's
+      // incomplete-sanitization rule from flagging it, the same rule that caught a real
+      // Content-Disposition bug earlier in this branch.
+      const backslashed = PATH.replaceAll("/", "%5C");
       const result = await request(server)
         .get(`/vault/${backslashed}?sig=${sig}&exp=${exp}&n=${nonce}`)
         .expect(401);
