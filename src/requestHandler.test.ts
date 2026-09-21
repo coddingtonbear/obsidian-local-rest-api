@@ -1067,7 +1067,7 @@ describe("requestHandler", () => {
         .expect(204);
       const written = app.vault.adapter._writeBinary?.[1];
       expect(written).toBeDefined();
-      expect(Buffer.from(written as ArrayBuffer).equals(body)).toBe(true);
+      expect(Buffer.from(written).equals(body)).toBe(true);
     });
 
     test("a signed PUT stores the body and is spent by the request that succeeds", async () => {
