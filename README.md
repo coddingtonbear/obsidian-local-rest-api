@@ -360,7 +360,7 @@ There is no upload tool that carries bytes through the model — emitting base64
 
 ### Signed URLs
 
-Signed URLs let an agent hand a file to something that is not the MCP client — a browser tab, an `<img>` tag, a `curl` in a shell — without also handing over the API key. They are off by default; turn them on under **Settings → Local REST API → Advanced settings → Enable signed URLs**, and set their lifetime there (default 300 seconds).
+Signed URLs let an agent hand a file to something that is not the MCP client — a browser tab, an `<img>` tag, a `curl` in a shell — without also handing over the API key. They are on by default; turn them off under **Settings → Local REST API → Advanced settings → Enable signed URLs**, and set their lifetime there (default 300 seconds).
 
 While they are on, three MCP tools mint them:
 

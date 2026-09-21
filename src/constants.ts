@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS: LocalRestApiSettings = {
   port: 27124,
   insecurePort: 27123,
   enableInsecureServer: false,
+  enableSignedUrls: true,
 };
 
 export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {

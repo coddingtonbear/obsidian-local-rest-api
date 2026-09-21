@@ -922,7 +922,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       case "enableVerboseLogging":
         return this.plugin.settings.enableVerboseLogging ?? false;
       case "enableSignedUrls":
-        return this.plugin.settings.enableSignedUrls ?? false;
+        return this.plugin.settings.enableSignedUrls ?? true;
       case "signedUrlTtlSeconds":
         return clampSignedUrlTtl(this.plugin.settings.signedUrlTtlSeconds);
       default:
@@ -1022,7 +1022,9 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         await this.plugin.saveSettings();
         break;
       case "enableSignedUrls":
-        this.plugin.settings.enableSignedUrls = (value as boolean) || undefined;
+        // Stored both ways: the default is on, so an absent key means on and only an
+        // explicit false turns it off.
+        this.plugin.settings.enableSignedUrls = value as boolean;
         await this.plugin.saveSettings();
         // The REST side reads the setting per request; the MCP side registers or
         // removes its signed-URL tools to match, so connected clients see the change.

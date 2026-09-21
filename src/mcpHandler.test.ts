@@ -223,11 +223,13 @@ describe("McpHandler", () => {
 
   // ---- tool registration --------------------------------------------------
 
-  test("registers all 17 tools (the signed-URL tools join only when that setting is on)", () => {
-    expect(registerTool).toHaveBeenCalledTimes(17);
+  test("registers all 19 tools (the two signed-URL tools are there because that setting is on by default)", () => {
+    expect(registerTool).toHaveBeenCalledTimes(19);
     const names = registerTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
+        "vault_get_download_url",
+        "vault_get_upload_url",
         "vault_list",
         "vault_read",
         "vault_read_binary",
@@ -675,7 +677,9 @@ describe("McpHandler", () => {
       return mcp;
     }
 
+    // Signed URLs are on in DEFAULT_SETTINGS; these name the two states explicitly.
     const SIGNED: LocalRestApiSettings = { ...DEFAULT_SETTINGS, enableSignedUrls: true };
+    const UNSIGNED: LocalRestApiSettings = { ...DEFAULT_SETTINGS, enableSignedUrls: false };
 
     // Run a callback as though its tool call had arrived on an HTTP request: the
     // signed-URL tools read the request's scheme and Host to build their links.
@@ -708,11 +712,12 @@ describe("McpHandler", () => {
 
     // ---- registration ------------------------------------------------------
 
-    test("the signed-URL tools are registered only while the setting is on", () => {
-      build();
+    test("the signed-URL tools are registered only while the setting is on, which it is by default", () => {
+      build(UNSIGNED);
       expect(registeredNames()).not.toContain("vault_get_download_url");
       expect(registeredNames()).not.toContain("vault_get_upload_url");
-      build(SIGNED);
+      expect(registerTool).toHaveBeenCalledTimes(17);
+      build();
       expect(registeredNames()).toEqual(
         expect.arrayContaining(["vault_get_download_url", "vault_get_upload_url"]),
       );
@@ -720,7 +725,7 @@ describe("McpHandler", () => {
     });
 
     test("setSignedUrlsEnabled adds and removes the tools without rebuilding the handler", () => {
-      const mcp = build();
+      const mcp = build(UNSIGNED);
       mcp.setSignedUrlsEnabled(true);
       registerTool.mockClear();
       buildServer(mcp);
@@ -779,7 +784,7 @@ describe("McpHandler", () => {
 
     test("an image the renderer cannot decode falls through to the non-image path", async () => {
       const scaler = { scale: jest.fn().mockRejectedValue(new Error("not an image")) };
-      build(DEFAULT_SETTINGS, { imageScaler: scaler });
+      build(UNSIGNED, { imageScaler: scaler });
       const result = await getToolCallback("vault_read_binary")({ path: PNG_PATH });
       expect(result.content[0].type).toBe("resource");
     });
@@ -804,7 +809,7 @@ describe("McpHandler", () => {
     // ---- vault_read_binary: everything else ----------------------------------
 
     test("embeds a small non-image file as a resource block when signed URLs are off", async () => {
-      build();
+      build(UNSIGNED);
       ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(Buffer.from([0, 1, 2])));
       const result = await getToolCallback("vault_read_binary")({ path: "data.bin" });
       expect(result.content).toEqual([
@@ -820,7 +825,7 @@ describe("McpHandler", () => {
     });
 
     test("refuses to embed a file over the ceiling, pointing at REST and the setting when signed URLs are off", async () => {
-      build();
+      build(UNSIGNED);
       ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
       await expect(getToolCallback("vault_read_binary")({ path: "data.bin" })).rejects.toThrow(
         /limit is .* GET \/vault\/<path>.*Enable signed URLs/s,
@@ -857,7 +862,7 @@ describe("McpHandler", () => {
     });
 
     test("as: 'link' with signed URLs off fails naming the setting", async () => {
-      build();
+      build(UNSIGNED);
       await expect(
         getToolCallback("vault_read_binary")({ path: PNG_PATH, as: "link" }),
       ).rejects.toThrow(/Enable signed URLs/);
@@ -1577,8 +1582,8 @@ describe("McpHandler", () => {
 
       const first = await send(1);
       const second = await send(2);
-      expect(first.body.result.tools).toHaveLength(17);
-      expect(second.body.result.tools).toHaveLength(17);
+      expect(first.body.result.tools).toHaveLength(19);
+      expect(second.body.result.tools).toHaveLength(19);
       expect(first.headers["mcp-session-id"]).toBeUndefined();
       expect(second.headers["mcp-session-id"]).toBeUndefined();
     });
@@ -1718,7 +1723,7 @@ describe("McpHandler", () => {
         .send(sessionlessRequest(1, "tools/list"))
         .expect(200);
 
-      expect(res.body.result.tools).toHaveLength(17);
+      expect(res.body.result.tools).toHaveLength(19);
       expect(res.headers["mcp-session-id"]).toBeUndefined();
     });
 
@@ -1846,7 +1851,7 @@ describe("McpHandler", () => {
         .expect(200);
 
       const message = sseResult(res.text);
-      expect(message.result.tools).toHaveLength(17);
+      expect(message.result.tools).toHaveLength(19);
       const vaultList = (message.result.tools as { name: string; inputSchema: unknown }[]).find(
         (t) => t.name === "vault_list",
       );
