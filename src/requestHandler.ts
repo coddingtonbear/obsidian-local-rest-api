@@ -597,6 +597,9 @@ export default class RequestHandler {
       urlTargetType = resolved.targetType;
       urlTarget = resolved.target;
       urlTargetSegments = resolved.targetSegments;
+      // The URL did not name the file outright -- the resolver split it into a
+      // file plus a target. Say which file that turned out to be.
+      res.set("Content-Location", encodeURI(filePath));
     }
 
     const content = await this.app.vault.adapter.readBinary(filePath);
@@ -1075,6 +1078,7 @@ export default class RequestHandler {
         this.returnCannedResponse(res, { errorCode: ErrorCode.SignedUrlIsWholeFileOnly });
         return;
       }
+      res.set("Content-Location", encodeURI(resolved.filePath));
       return this._vaultPatchTargeted(
         resolved.filePath,
         resolved.targetType,
@@ -1294,6 +1298,7 @@ export default class RequestHandler {
         return;
       }
     } else if (resolved.targetType) {
+      res.set("Content-Location", encodeURI(resolved.filePath));
       return this._vaultPatch(resolved.filePath, req, res, {
         targetType: resolved.targetType,
         target: resolved.target,
@@ -1770,6 +1775,7 @@ export default class RequestHandler {
         });
         return;
       }
+      res.set("Content-Location", encodeURI(resolved.filePath));
       return this._vaultPatchTargeted(
         resolved.filePath,
         resolved.targetType,

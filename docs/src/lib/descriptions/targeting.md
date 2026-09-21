@@ -18,6 +18,12 @@ On `PUT` and `POST`, the `Content-Type` of your request body selects how the pay
 - A `text/markdown` body is literal markdown. Valid for `heading` and `block` targets. On a `frontmatter` target it is stored as the field's plain string value.
 - An `application/json` body is structured data. On a `block` target that addresses a table, it is a 2-D array of row cells (`[["Chicago", "16"]]`). On a `frontmatter` target it is the field's typed value (a list, dictionary, number, or string). A `heading` target has no structured form — its body is markdown text — so a JSON body there is rejected with `400 InvalidPatchInstruction` rather than being stringified into your note.
 
+## Which file did it act on?
+
+A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on (non-ASCII characters percent-encoded). A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
+
+`/active/` responses carry `Content-Location` for the same reason, whether or not a target is embedded: the file the request acted on is whichever note happened to be open.
+
 ## Deprecated: header-based targeting
 
 Earlier releases addressed a sub-part with `Target-Type`, `Target`, and `Target-Delimiter` request headers (plus `Target-Scope` and `Trim-Target-Whitespace`) rather than URL path segments. **That form is deprecated and will be removed in 6.0.** It is only processed when you also send `Markdown-Patch-Version: 1`, and responses served that way carry a `Deprecation: true; sunset-version="6.0"` header. On GET/PUT/POST, supplying those targeting headers without that version is rejected with `400 HeaderTargetingRequiresVersion1` — reach the sub-part with URL path segments instead. (On PATCH, `Target-Type`/`Target` headers also have a *non-deprecated* meaning under an explicit `Markdown-Patch-Version: 2` — raw-content mode, with a different `Target` encoding; see the PATCH documentation.) Supplying both URL-path targeting and the header form in one request fails with `422 ConflictingTargetSpecification`.
