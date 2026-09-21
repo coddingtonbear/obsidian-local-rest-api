@@ -1466,6 +1466,8 @@ paths:
         
         The 512 KiB ceiling guards the renderer as well as the model's context: a tool result carrying roughly a megabyte or more of base64 crashes Obsidian's Electron renderer, taking this plugin's HTTP server down with it.
         
+        Clients vary in how much of a tool result they show. Some do not surface a `resource_link` to the person at all, and some render a text block's markdown as raw characters, so the tool descriptions ask the agent to repeat a link in its own reply when the file is for the person rather than for itself. Note that this yields a clickable link rather than a visible picture; an image small enough to be returned as an `image` block is the only thing a client can actually display inline.
+        
         There is no upload tool that carries bytes through the model. Upload a file with `PUT /vault/{filename}` — with the API key, or with a signed upload URL from `vault_get_upload_url`.
         
         ### Signed URLs
