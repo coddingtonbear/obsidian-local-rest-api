@@ -117,6 +117,24 @@ function res_locals(req: express.Request): RequestState {
 export const MARKDOWN_PATCH_V1_SUNSET = "6.0";
 
 /**
+ * Percent-encodes a vault-relative path for a `Content-Location` response header.
+ *
+ * `encodeURI` is not enough: it deliberately leaves URI delimiters alone, so a
+ * perfectly legal vault filename containing `#`, `?` or `,` would come back
+ * verbatim. `Content-Location: notes/a#b.md` parses as the path `notes/a` plus
+ * the fragment `b.md`, and a comma is a header-list separator -- in both cases
+ * the client reads a different filename than the one the request acted on.
+ *
+ * Each segment is encoded on its own and the separators are re-joined, which is
+ * exactly the rule the request side documents for URL path targeting: a real `/`
+ * separates path components, and anything else inside a component is encoded.
+ * That makes the header safe to paste straight back into a request URL.
+ */
+export function encodeVaultPath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
+/**
  * CORS options shared by the main API router and the MCP router.
  *
  * `exposedHeaders: "*"` is what lets a browser client read any of the response
@@ -597,6 +615,9 @@ export default class RequestHandler {
       urlTargetType = resolved.targetType;
       urlTarget = resolved.target;
       urlTargetSegments = resolved.targetSegments;
+      // The URL did not name the file outright -- the resolver split it into a
+      // file plus a target. Say which file that turned out to be.
+      res.set("Content-Location", encodeVaultPath(filePath));
     }
 
     const content = await this.app.vault.adapter.readBinary(filePath);
@@ -1075,6 +1096,7 @@ export default class RequestHandler {
         this.returnCannedResponse(res, { errorCode: ErrorCode.SignedUrlIsWholeFileOnly });
         return;
       }
+      res.set("Content-Location", encodeVaultPath(resolved.filePath));
       return this._vaultPatchTargeted(
         resolved.filePath,
         resolved.targetType,
@@ -1294,6 +1316,7 @@ export default class RequestHandler {
         return;
       }
     } else if (resolved.targetType) {
+      res.set("Content-Location", encodeVaultPath(resolved.filePath));
       return this._vaultPatch(resolved.filePath, req, res, {
         targetType: resolved.targetType,
         target: resolved.target,
@@ -1770,6 +1793,7 @@ export default class RequestHandler {
         });
         return;
       }
+      res.set("Content-Location", encodeVaultPath(resolved.filePath));
       return this._vaultPatchTargeted(
         resolved.filePath,
         resolved.targetType,
@@ -1910,7 +1934,7 @@ export default class RequestHandler {
 
     try {
       const actualPath = await this.operations.moveVaultFile(path, newPath, allowOverwrite);
-      res.set("Content-Location", encodeURI(actualPath));
+      res.set("Content-Location", encodeVaultPath(actualPath));
       this.returnCannedResponse(res, { statusCode: 204 });
     } catch (error) {
       if (error instanceof FileNotFoundError) {
@@ -2001,7 +2025,7 @@ export default class RequestHandler {
 
     try {
       const actualPath = await this.operations.copyVaultFile(path, newPath, allowOverwrite);
-      res.set("Content-Location", encodeURI(actualPath));
+      res.set("Content-Location", encodeVaultPath(actualPath));
       this.returnCannedResponse(res, { statusCode: 204 });
     } catch (error) {
       if (error instanceof FileNotFoundError) {
@@ -2058,7 +2082,7 @@ export default class RequestHandler {
     ) => Promise<void>,
   ): Promise<void> {
     const path = file.path;
-    res.set("Content-Location", encodeURI(path));
+    res.set("Content-Location", encodeVaultPath(path));
 
     return handler(path, req, res);
   }
@@ -2075,7 +2099,7 @@ export default class RequestHandler {
 
     const suffixSegments = this.rawSuffixSegments(req, res);
     if (suffixSegments === null) return;
-    res.set("Content-Location", encodeURI(file.path));
+    res.set("Content-Location", encodeVaultPath(file.path));
     return this._vaultGet(
       [...file.path.split("/"), ...suffixSegments],
       req,
@@ -2106,7 +2130,7 @@ export default class RequestHandler {
           });
           return;
         }
-        res.set("Content-Location", encodeURI(file.path));
+        res.set("Content-Location", encodeVaultPath(file.path));
         return this._vaultPatchTargeted(
           resolved.filePath,
           resolved.targetType,
@@ -2121,7 +2145,7 @@ export default class RequestHandler {
     const headerTarget = this._getHeaderTarget(req, res);
     if (headerTarget !== undefined) {
       if (!headerTarget) return; // error already sent
-      res.set("Content-Location", encodeURI(file.path));
+      res.set("Content-Location", encodeVaultPath(file.path));
       return this._vaultPatchTargeted(
         file.path,
         headerTarget.targetType,
@@ -2158,7 +2182,7 @@ export default class RequestHandler {
           });
           return;
         }
-        res.set("Content-Location", encodeURI(file.path));
+        res.set("Content-Location", encodeVaultPath(file.path));
         return this._vaultPatchTargeted(
           resolved.filePath,
           resolved.targetType,
@@ -2173,7 +2197,7 @@ export default class RequestHandler {
     const headerTarget = this._getHeaderTarget(req, res);
     if (headerTarget !== undefined) {
       if (!headerTarget) return; // error already sent
-      res.set("Content-Location", encodeURI(file.path));
+      res.set("Content-Location", encodeVaultPath(file.path));
       return this._vaultPatchTargeted(
         file.path,
         headerTarget.targetType,
@@ -2204,7 +2228,7 @@ export default class RequestHandler {
         ...suffixSegments,
       ]);
       if (resolved?.targetType) {
-        res.set("Content-Location", encodeURI(file.path));
+        res.set("Content-Location", encodeVaultPath(file.path));
         return this._vaultPatch(resolved.filePath, req, res, {
           targetType: resolved.targetType,
           target: resolved.target,

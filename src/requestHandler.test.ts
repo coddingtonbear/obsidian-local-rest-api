@@ -4576,6 +4576,88 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("vault Content-Location on URL-targeted routes", () => {
+    // `/vault/notes/some file.md/heading/Heading2` is ambiguous on its face: it
+    // could address a file literally named `notes/some file.md/heading/Heading2`
+    // just as well as the `Heading2` section of `notes/some file.md`. Only the
+    // server knows which way the walk-backward resolver went, so these routes
+    // answer with Content-Location the same way `/active/` and MOVE/COPY do.
+    const filePath = "notes/some file.md";
+    const encodedPath = "notes/some%20file.md";
+    const markdown = "# Heading1\nContent\n\n# Heading2\nContent under heading2\n";
+
+    beforeEach(() => {
+      // Only the bare file path stats, so the resolver has to split the URL.
+      app.vault.adapter._statForPath = filePath;
+      app.vault._read = markdown;
+      app.vault.adapter._read = markdown;
+      app.vault.adapter._readBinary = Buffer.from(markdown);
+    });
+
+    test("GET of a URL-targeted section returns Content-Location", async () => {
+      const res = await request(server)
+        .get(`/vault/${encodedPath}/heading/Heading2`)
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(200);
+      expect(res.headers["content-location"]).toEqual(encodedPath);
+    });
+
+    test("PUT of a URL-targeted section returns Content-Location", async () => {
+      const res = await request(server)
+        .put(`/vault/${encodedPath}/heading/Heading2`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("Replaced\n");
+      expect(res.status).toBe(200);
+      expect(res.headers["content-location"]).toEqual(encodedPath);
+    });
+
+    test("PATCH of a URL-targeted section returns Content-Location", async () => {
+      const res = await request(server)
+        .patch(`/vault/${encodedPath}/heading/Heading2`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Operation", "append")
+        .set("Content-Type", "text/markdown")
+        .send("- appended\n");
+      expect(res.status).toBe(200);
+      expect(res.headers["content-location"]).toEqual(encodedPath);
+    });
+
+    test("POST to a URL-targeted section returns Content-Location", async () => {
+      const res = await request(server)
+        .post(`/vault/${encodedPath}/heading/Heading2`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("- appended\n");
+      expect(res.status).toBe(200);
+      expect(res.headers["content-location"]).toEqual(encodedPath);
+    });
+
+    test("reserved filename characters are percent-encoded", async () => {
+      // `encodeURI` would leave all three of these alone. `#` would make a
+      // client read the rest of the path as a fragment, `?` as a query, and a
+      // comma is a header-list separator -- each of which hands the client a
+      // different filename than the one the request acted on.
+      const awkward = "notes/a#b?c,d.md";
+      app.vault.adapter._statForPath = awkward;
+      const res = await request(server)
+        .get(`/vault/${encodeURIComponent(awkward).replaceAll("%2F", "/")}/heading/Heading2`)
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(200);
+      expect(res.headers["content-location"]).toEqual("notes/a%23b%3Fc%2Cd.md");
+    });
+
+    test("a whole-file request sets no Content-Location", async () => {
+      // The header reports a resolution the client could not have made itself.
+      // A URL that already names the file outright has nothing to report.
+      const res = await request(server)
+        .get(`/vault/${encodedPath}`)
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(200);
+      expect(res.headers["content-location"]).toBeUndefined();
+    });
+  });
+
   describe("active-file write handlers surface failures instead of hanging", () => {
     // Regression coverage for redirectToVaultPath's callers: they used to
     // fire the underlying _vaultPut/_vaultPost/_vaultPatch/_vaultDelete call

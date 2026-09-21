@@ -177,7 +177,7 @@ For full request/response details, see the [interactive docs](https://coddington
 
 ### Browser clients and response headers
 
-Several endpoints answer in a response header rather than in the body: `Content-Location` tells you where a write actually landed, `Markdown-Patch-Warnings` reports what a `PATCH` had to work around, `Deprecation` warns that a format is sunsetting, and `Mcp-Session-Id` carries the session for a sessionful MCP connection.
+Several endpoints answer in a response header rather than in the body: `Content-Location` tells you which file a targeted or `/active/` request actually resolved to, `Markdown-Patch-Warnings` reports what a `PATCH` had to work around, `Deprecation` warns that a format is sunsetting, and `Mcp-Session-Id` carries the session for a sessionful MCP connection.
 
 Browsers hide response headers from JavaScript unless the server opts them in, so the API sends `Access-Control-Expose-Headers: *` and all of them are readable with `response.headers.get(...)`. Safari honours the wildcard from 15.4 onward; older browsers see only the [CORS-safelisted headers](https://developer.mozilla.org/en-US/docs/Glossary/CORS-safelisted_response_header). Requests made with `credentials: "include"` are not supported — the API authenticates with a bearer token and sends `Access-Control-Allow-Origin: *`, which browsers reject for credentialed requests.
 
@@ -268,6 +268,8 @@ curl -k -X POST \
 ```
 
 Supported target types: `heading`, `block`, `frontmatter`.
+
+A targeted URL is ambiguous on its face — `/vault/notes/log.md/heading/Today` could name the `Today` section of `notes/log.md` or a file literally called `notes/log.md/heading/Today`. The server walks backwards down the path until it finds a real file and reports which one it settled on in a `Content-Location` response header, with each path component percent-encoded on its own (non-ASCII characters, and reserved characters like `#`, `?` and `,`) so it can be pasted straight back into a request URL. A request whose URL names the file outright gets no such header.
 
 On a GET, a `Target-Scope` header selects which part of the target comes back, mirroring the PATCH scopes: `content` (the default), `marker` (the label — a heading's raw text, a block's bare id, a frontmatter key), or `markerAndContent` (the whole node, in exactly the shape a PATCH `replace` at that scope consumes — a heading subtree reads back with its own line as `# Title`, levels relative to its parent):
 

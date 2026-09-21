@@ -50,12 +50,31 @@ local DownloadParam = {
 
 local ContentLocationHeader = {
   'Content-Location': {
-    description: 'Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded.',
+    description: 'Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL.',
     schema: { type: 'string', example: 'notes/file.md' },
   },
 };
 local WithContentLocation(codes) = {
-  responses+: { [c]+: { headers: ContentLocationHeader } for c in codes },
+  // `headers+:` rather than `headers:`: an operation's own response headers
+  // (`Markdown-Patch-Warnings`, say) must survive this being mixed in.
+  responses+: { [c]+: { headers+: ContentLocationHeader } for c in codes },
+};
+
+// `/vault/{filename}` only reports a Content-Location when the URL had to be
+// resolved -- a path that embeds a `/heading`, `/block` or `/frontmatter`
+// target is ambiguous with a file literally named that, and only the server
+// knows which way it went. A URL that names the file outright reports nothing.
+local ResolvedContentLocationHeader = {
+  'Content-Location': {
+    description: 'Vault-relative path of the file the URL resolved to, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL. Sent only when the URL embedded a target (`/heading/...`, `/block/...`, `/frontmatter/...`), since that is the case where the file the request acted on is not evident from the URL alone; absent on a whole-file request.',
+    required: false,
+    schema: { type: 'string', example: 'notes/file.md' },
+  },
+};
+local WithResolvedContentLocation(codes) = {
+  // `headers+:` rather than `headers:`: an operation's own response headers
+  // (`Markdown-Patch-Warnings`, say) must survive this being mixed in.
+  responses+: { [c]+: { headers+: ResolvedContentLocationHeader } for c in codes },
 };
 
 
@@ -288,7 +307,7 @@ std.manifestYamlDoc(
         },
       },
       '/vault/{filename}': {
-        get: Get {
+        get: Get + WithResolvedContentLocation(['200']) {
           tags: [
             'Vault Files',
           ],
@@ -296,7 +315,7 @@ std.manifestYamlDoc(
           description: (importstr 'lib/descriptions/vault-file-get.md') + '\n' + GetShared,
           parameters: [ParamPath] + super.parameters + SignedUrlParams + [DownloadParam],
         },
-        put: Put {
+        put: Put + WithResolvedContentLocation(['200']) {
           tags: [
             'Vault Files',
           ],
@@ -304,7 +323,7 @@ std.manifestYamlDoc(
           description: 'Creates a new file in your vault or updates the content of an existing one if the specified file already exists.\n\nAny content type is accepted: a request body that is not text or JSON is stored as raw bytes, so attachments -- images, PDFs, audio -- can be uploaded here as well as notes. A body sent with no `Content-Type` at all is treated as `application/octet-stream` and stored as raw bytes, which is what RFC 9110 allows. There is no size limit beyond the request-size cap.\n\nA signed upload URL (`?sig=…&exp=…&n=…`, from the MCP `vault_get_upload_url` tool) authenticates a single whole-file `PUT` in place of the `Authorization` header; the link is consumed by the request that succeeds. A signed `PUT` stores exactly the bytes sent, whatever `Content-Type` it declares -- it is not routed through the JSON or text parsers, which would otherwise reparse and re-serialize the body. It authorizes a whole-file write only: a request that also targets part of the document, through `Target-Type`/`Target` headers or through `/heading`, `/block` or `/frontmatter` path elements, is refused.\n\n' + PutShared,
           parameters: [ParamPath] + super.parameters + SignedUrlParams,
         },
-        post: Post {
+        post: Post + WithResolvedContentLocation(['200']) {
           tags: [
             'Vault Files',
           ],
@@ -312,7 +331,7 @@ std.manifestYamlDoc(
           description: (importstr 'lib/descriptions/vault-file-post.md') + '\n' + PostShared,
           parameters: [ParamPath] + super.parameters,
         },
-        patch: Patch {
+        patch: Patch + WithResolvedContentLocation(['200']) {
           tags: [
             'Vault Files',
           ],

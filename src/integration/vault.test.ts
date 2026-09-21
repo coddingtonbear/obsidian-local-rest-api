@@ -730,6 +730,53 @@ describe("POST /vault/{file}/heading/{name} — append to section", () => {
   });
 });
 
+describe("Content-Location on URL-targeted routes", () => {
+  // The URL is ambiguous between a section of TEST_PATH and a file literally
+  // named `<TEST_PATH>/heading/Delta`; only the server knows which way its
+  // walk-backward resolver went, so it reports the file it settled on.
+  test("GET reports the file the URL resolved to", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}/heading/Delta`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-location")).toBe(encodeURI(TEST_PATH));
+  });
+
+  test("PUT reports the file the URL resolved to", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}/heading/Delta`, {
+      method: "PUT",
+      headers: { "Content-Type": "text/markdown" },
+      body: "replaced\n",
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-location")).toBe(encodeURI(TEST_PATH));
+  });
+
+  test("POST reports the file the URL resolved to", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}/heading/Delta`, {
+      method: "POST",
+      headers: { "Content-Type": "text/markdown" },
+      body: "appended\n",
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-location")).toBe(encodeURI(TEST_PATH));
+  });
+
+  test("PATCH reports the file the URL resolved to", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}/heading/Delta`, {
+      method: "PATCH",
+      headers: { "Content-Type": "text/markdown", Operation: "append" },
+      body: "patched\n",
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-location")).toBe(encodeURI(TEST_PATH));
+  });
+
+  test("a whole-file GET reports nothing", async () => {
+    const res = await authedFetch(`/vault/${TEST_PATH}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-location")).toBeNull();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // DELETE
 // ---------------------------------------------------------------------------
