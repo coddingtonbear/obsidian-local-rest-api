@@ -277,12 +277,10 @@ interface Session {
   toolHandles: Map<string, RegisteredTool>;
 }
 
-// Every tool that takes a vault path says the same thing about it, so a client that
-// hands one a "../" gets told why before the call rather than after.
-const VAULT_PATH_DESCRIPTION =
-  "File path relative to vault root; must not escape the vault root";
-const SOURCE_VAULT_PATH_DESCRIPTION =
-  "Source file path relative to vault root; must not escape the vault root";
+// The path parameter reads the same on every tool that takes one, so it is spelled once
+// here rather than retyped per tool.
+const VAULT_PATH_DESCRIPTION = "File path relative to vault root";
+const SOURCE_VAULT_PATH_DESCRIPTION = "Source file path relative to vault root";
 
 export class McpHandler {
   // The tool and resource registries are this handler's application state: the 2026-07-28
@@ -899,7 +897,7 @@ export class McpHandler {
     this.tool(
       "vault_list",
       dedent`List files and subdirectories inside a vault directory. Returns an array of names; directory entries end with '/'. Omit path or pass an empty string to list the vault root.`,
-      { path: z.string().optional().describe("Directory path relative to vault root; must not escape the vault root (default: root)") },
+      { path: z.string().optional().describe("Directory path relative to vault root (default: root)") },
       READ_ONLY_ANNOTATIONS,
       async ({ path }: { path?: string }) => {
         const files = await this.ops.listVaultDirectory(
