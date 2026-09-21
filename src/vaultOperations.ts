@@ -501,6 +501,7 @@ export class VaultOperations {
   // REST layer reaches for `adapter.readBinary` directly; MCP goes through here so the
   // "does this file exist" answer is the same one `vault_read` gives.
   async readBinaryFileContent(filePath: string): Promise<ArrayBuffer> {
+    this.assertContained(filePath);
     const file = this.app.vault.getAbstractFileByPath(filePath);
     if (!(file instanceof TFile)) {
       throw new Error(`File not found: ${filePath}`);

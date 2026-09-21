@@ -625,6 +625,13 @@ describe("vault path containment", () => {
         );
       });
 
+      test("readBinaryFileContent refuses to read outside the vault", async () => {
+        const { ops } = opsFor();
+        await expect(ops.readBinaryFileContent(escaping)).rejects.toThrow(
+          "must not escape the vault root",
+        );
+      });
+
       test("patchFileSectionMdp2 refuses to patch outside the vault", async () => {
         const { ops } = opsFor();
         await expect(
