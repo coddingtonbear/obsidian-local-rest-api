@@ -1462,7 +1462,9 @@ paths:
         
         `vault_read` and `vault_write` are text tools: they decode and encode UTF-8, which is lossy for anything that is not text. `vault_read` refuses a file whose bytes are not valid UTF-8, and `vault_write` and `vault_append` refuse a path whose extension names a binary type (image other than SVG, audio, video, font, PDF, archive), so the read-as-text-then-write-back mistake that destroys attachments is refused at both ends.
         
-        `vault_read_binary` reads attachments. A raster image is returned as an MCP `image` content block, downscaled to fit 1568px on its long side, with a text block giving its path, MIME type, size, and dimensions. An SVG is returned unchanged, as its source text in a `resource` block. Any other file is returned as a `resource_link` to a signed download URL when signed URLs are enabled, or embedded as base64 in a `resource` block when they are not and the file is under 1 MiB. `as: "bytes"` forces embedding; `as: "link"` forces a link.
+        `vault_read_binary` reads attachments. A raster image is returned as an MCP `image` content block, downscaled to fit 1568px on its long side, with a text block giving its path, MIME type, size, and dimensions. An SVG is returned unchanged, as its source text in a `resource` block. An image still larger than 512 KiB once downscaled is returned as a `resource_link` instead, the same as any other oversized file. Any other file is returned as a `resource_link` to a signed download URL when signed URLs are enabled, or embedded as base64 in a `resource` block when they are not and the file is under 512 KiB. `as: "bytes"` forces embedding; `as: "link"` forces a link.
+        
+        The 512 KiB ceiling guards the renderer as well as the model's context: a tool result carrying roughly a megabyte or more of base64 crashes Obsidian's Electron renderer, taking this plugin's HTTP server down with it.
         
         There is no upload tool that carries bytes through the model. Upload a file with `PUT /vault/{filename}` — with the API key, or with a signed upload URL from `vault_get_upload_url`.
         

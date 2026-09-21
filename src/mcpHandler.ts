@@ -454,6 +454,18 @@ export class McpHandler {
     } else {
       return null;
     }
+    // The size guard, applied to what actually goes on the wire rather than to the file
+    // on disk. `fitWithin` only resizes an image whose long edge exceeds
+    // `MaximumImageEdge`, so a large-but-not-wide image -- a detailed 1536x864 screenshot,
+    // say -- comes back from the scaler as its original bytes, untouched. Without this
+    // check that payload goes out at full size and takes the renderer down with it. See
+    // `MaximumMcpBinaryBytes` for what happens above the limit.
+    //
+    // Returning null rather than throwing lets the caller fall back to a signed download
+    // link, which costs the model nothing and still gets the bytes to whoever wants them.
+    if (data.byteLength > MaximumMcpBinaryBytes) {
+      return null;
+    }
     return {
       content: [
         {
@@ -863,7 +875,7 @@ export class McpHandler {
     this.tool(
       "vault_read_binary",
       dedent`
-        Read a non-text vault file: an image, PDF, audio, any attachment. A raster image comes back as an image block (downscaled to fit ${MaximumImageEdge}px) plus a text block with its path, mimeType, size, width, and height. An SVG comes back unchanged, as its source text in a resource block. Anything else comes back as a resource_link to a signed download URL when signed URLs are enabled, or embedded base64 when they are not and the file is under ${MaximumMcpBinaryBytes} bytes.
+        Read a non-text vault file: an image, PDF, audio, any attachment. A raster image comes back as an image block (downscaled to fit ${MaximumImageEdge}px) plus a text block with its path, mimeType, size, width, and height. An image still larger than ${MaximumMcpBinaryBytes} bytes once downscaled comes back as a resource_link instead, the same as any other oversized file. An SVG comes back unchanged, as its source text in a resource block. Anything else comes back as a resource_link to a signed download URL when signed URLs are enabled, or embedded base64 when they are not and the file is under ${MaximumMcpBinaryBytes} bytes.
 
         as overrides that: 'bytes' embeds the raw bytes (under ${MaximumMcpBinaryBytes} bytes only); 'link' returns a signed download URL instead of any bytes. Throws if the file does not exist.
       `,

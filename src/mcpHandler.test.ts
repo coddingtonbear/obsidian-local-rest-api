@@ -806,6 +806,74 @@ describe("McpHandler", () => {
       ]);
     });
 
+    // A scaler that mirrors CanvasImageScaler's early return: an image already inside
+    // `MaximumImageEdge` is handed straight back, original bytes and all, with nothing
+    // resized or re-encoded.
+    function passthroughScaler() {
+      return {
+        scale: jest.fn(async (bytes: ArrayBuffer, mimeType: string) => ({
+          data: Buffer.from(bytes),
+          mimeType,
+          width: 1536,
+          height: 864,
+          transformed: false,
+        })),
+      };
+    }
+
+    test("an image too large to inline comes back as a link rather than an image block", async () => {
+      // The regression this guards: a large-but-not-wide image (1536x864, well inside
+      // MaximumImageEdge) is never resized, so the scaler returns its original bytes and
+      // the result used to carry the whole file as base64 -- which killed Obsidian's
+      // renderer outright. It has to degrade to a link instead.
+      const scaler = passthroughScaler();
+      const mcp = build(SIGNED, { imageScaler: scaler });
+      ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
+      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: PNG_PATH }));
+      expect(scaler.scale).toHaveBeenCalledTimes(1);
+      expect(result.content[0].type).toBe("resource_link");
+      expect(result.content.some((c: { type: string }) => c.type === "image")).toBe(false);
+    });
+
+    test("an image still over the ceiling after downscaling comes back as a link", async () => {
+      const scaler = {
+        scale: jest.fn(async () => ({
+          data: Buffer.alloc(MaximumMcpBinaryBytes + 1),
+          mimeType: "image/png",
+          width: MaximumImageEdge,
+          height: MaximumImageEdge,
+          transformed: true,
+        })),
+      };
+      const mcp = build(SIGNED, { imageScaler: scaler });
+      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: PNG_PATH }));
+      expect(result.content[0].type).toBe("resource_link");
+    });
+
+    test("an oversized image with signed URLs off refuses rather than inlining it", async () => {
+      const scaler = passthroughScaler();
+      build(UNSIGNED, { imageScaler: scaler });
+      ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
+      await expect(getToolCallback("vault_read_binary")({ path: PNG_PATH })).rejects.toThrow(
+        /limit is .* GET \/vault\/<path>/s,
+      );
+    });
+
+    test("an image exactly at the ceiling is still inlined", async () => {
+      const scaler = {
+        scale: jest.fn(async () => ({
+          data: Buffer.alloc(MaximumMcpBinaryBytes),
+          mimeType: "image/png",
+          width: 10,
+          height: 5,
+          transformed: true,
+        })),
+      };
+      build(SIGNED, { imageScaler: scaler });
+      const result = await getToolCallback("vault_read_binary")({ path: PNG_PATH });
+      expect(result.content[0].type).toBe("image");
+    });
+
     // ---- vault_read_binary: SVG -----------------------------------------------
 
     const SVG_PATH = "diagrams/flow.svg";

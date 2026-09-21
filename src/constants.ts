@@ -99,10 +99,23 @@ export const LicenseUrl =
 
 export const MaximumRequestSize = "1024mb";
 
-// Ceiling on the bytes `vault_read_binary` and `vault_write_binary` will carry. This is a
-// context guard, not a storage limit: base64 in a tool argument or result passes through
-// the model's context at roughly 0.35-0.45 tokens per byte, so a file a REST client would
-// not think twice about is a five-figure token bill for an agent. Anything larger belongs
-// on `GET`/`PUT /vault/<path>`, which carry raw bytes and are bounded only by
-// `MaximumRequestSize` above.
-export const MaximumMcpBinaryBytes = 1024 * 1024;
+// Ceiling on the bytes `vault_read_binary` and `vault_write_binary` will carry. Two
+// separate reasons, and the second one is the binding constraint:
+//
+// 1. A context guard. base64 in a tool argument or result passes through the model's
+//    context at roughly 0.35-0.45 tokens per byte, so a file a REST client would not
+//    think twice about is a five-figure token bill for an agent.
+//
+// 2. Renderer stability. A tool result carrying roughly a megabyte or more of base64
+//    kills Obsidian's Electron renderer outright -- the process dies, taking this
+//    plugin's HTTP listener with it, and the window goes blank. It is not specific to
+//    images: a 979KB file reproduced it through `embeddedBytesResult` with no image
+//    decoding involved at all. 512KiB was verified safe by hand against a 512899-byte
+//    file (a 683865-char base64 payload); 979295 bytes crashed reproducibly. The cap is
+//    deliberately set well under the observed failure point rather than next to it,
+//    because the true threshold has not been bisected and may move with Obsidian's own
+//    renderer memory use.
+//
+// Anything larger belongs on `GET`/`PUT /vault/<path>`, which carry raw bytes and are
+// bounded only by `MaximumRequestSize` above, or on a signed URL.
+export const MaximumMcpBinaryBytes = 512 * 1024;
