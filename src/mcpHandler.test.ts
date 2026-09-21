@@ -806,6 +806,56 @@ describe("McpHandler", () => {
       ]);
     });
 
+    // ---- vault_read_binary: SVG -----------------------------------------------
+
+    const SVG_PATH = "diagrams/flow.svg";
+    const SVG_SOURCE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
+
+    test("an SVG goes through unchanged as its source text, and never touches the scaler", async () => {
+      const scaler = fakeScaler();
+      build(DEFAULT_SETTINGS, { imageScaler: scaler });
+      ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(Buffer.from(SVG_SOURCE, "utf-8")));
+      const result = await getToolCallback("vault_read_binary")({ path: SVG_PATH });
+      expect(scaler.scale).not.toHaveBeenCalled();
+      expect(result.content).toEqual([
+        {
+          type: "resource",
+          resource: {
+            uri: "obsidian://local-rest-api/vault/diagrams/flow.svg",
+            mimeType: "image/svg+xml",
+            text: SVG_SOURCE,
+          },
+        },
+        {
+          type: "text",
+          text: JSON.stringify({
+            path: SVG_PATH,
+            mimeType: "image/svg+xml",
+            size: Buffer.byteLength(SVG_SOURCE, "utf-8"),
+          }),
+        },
+      ]);
+    });
+
+    test("an SVG over the embedding ceiling falls through to the non-image path", async () => {
+      const mcp = build(SIGNED);
+      const svg = makeMockFile(SVG_PATH);
+      ops.app.vault.getAbstractFileByPath.mockImplementation((path: string) => (path === SVG_PATH ? svg : null));
+      ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
+      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: SVG_PATH }));
+      expect(result.content[0]).toMatchObject({ type: "resource_link", mimeType: "image/svg+xml" });
+    });
+
+    test("an SVG whose bytes are not UTF-8 falls through to the non-image path", async () => {
+      build(UNSIGNED);
+      ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(Buffer.from([0xff, 0xfe, 0x00])));
+      const result = await getToolCallback("vault_read_binary")({ path: SVG_PATH });
+      expect(result.content[0]).toMatchObject({
+        type: "resource",
+        resource: { mimeType: "image/svg+xml", blob: Buffer.from([0xff, 0xfe, 0x00]).toString("base64") },
+      });
+    });
+
     // ---- vault_read_binary: everything else ----------------------------------
 
     test("embeds a small non-image file as a resource block when signed URLs are off", async () => {
@@ -985,12 +1035,13 @@ describe("McpHandler", () => {
       expect(ops.appendFileContent).not.toHaveBeenCalled();
     });
 
-    test("vault_write still writes text types and unknown extensions", async () => {
+    test("vault_write still writes text types, unknown extensions, and SVG (an image type that is text)", async () => {
       build();
       await getToolCallback("vault_write")({ path: "notes/a.md", content: "# hi" });
       await getToolCallback("vault_write")({ path: "data/config.json", content: "{}" });
       await getToolCallback("vault_write")({ path: "no-extension", content: "x" });
-      expect(ops.writeFileContent).toHaveBeenCalledTimes(3);
+      await getToolCallback("vault_write")({ path: "diagrams/flow.svg", content: "<svg/>" });
+      expect(ops.writeFileContent).toHaveBeenCalledTimes(4);
     });
   });
 

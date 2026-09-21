@@ -649,11 +649,15 @@ describe("vault_read_binary tool", () => {
   const BINARY_PATH = `${TEST_DIR}/mcp-temp-pixel.png`;
   const BLOB_PATH = `${TEST_DIR}/mcp-temp-data.bin`;
   const BLOB_BYTES = Buffer.from([0, 1, 2, 3, 255]);
+  const SVG_PATH = `${TEST_DIR}/mcp-temp-drawing.svg`;
+  const SVG_SOURCE =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>';
   let signedUrlsEnabled: boolean;
 
   beforeAll(async () => {
     await putBytes(BINARY_PATH, PIXEL_BYTES, "image/png");
     await putBytes(BLOB_PATH, BLOB_BYTES, "application/octet-stream");
+    await putBytes(SVG_PATH, Buffer.from(SVG_SOURCE, "utf-8"), "image/svg+xml");
     const { tools } = await client.listTools();
     signedUrlsEnabled = tools.some((t) => t.name === "vault_get_download_url");
     if (!signedUrlsEnabled) {
@@ -666,6 +670,24 @@ describe("vault_read_binary tool", () => {
   afterAll(async () => {
     await deleteFixture(BINARY_PATH).catch((_e: unknown): void => {});
     await deleteFixture(BLOB_PATH).catch((_e: unknown): void => {});
+    await deleteFixture(SVG_PATH).catch((_e: unknown): void => {});
+  });
+
+  test("returns an SVG unchanged as its source text, not as a rasterized image", async () => {
+    const result = await client.callTool({
+      name: "vault_read_binary",
+      arguments: { path: SVG_PATH },
+    });
+    expect(result.isError).toBeFalsy();
+    const [resource, meta] = contentOf(result);
+    expect(resource.type).toBe("resource");
+    expect(resource.resource.mimeType).toBe("image/svg+xml");
+    expect(resource.resource.text).toBe(SVG_SOURCE);
+    expect(JSON.parse(meta.text)).toEqual({
+      path: SVG_PATH,
+      mimeType: "image/svg+xml",
+      size: Buffer.byteLength(SVG_SOURCE, "utf-8"),
+    });
   });
 
   test("returns a PNG as an image block the renderer decoded, with its dimensions", async () => {

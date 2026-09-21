@@ -12,6 +12,9 @@
  * `createImageBitmap` decodes, `OffscreenCanvas` resamples and re-encodes. That is the
  * only implementation; there is no Node fallback, because jest runs under plain Node
  * where none of it exists. The handler takes an `ImageScaler` so tests inject one.
+ *
+ * Only raster images come here. An SVG is text and is passed through unchanged by the
+ * handler, so it is never decoded, resized, or re-encoded.
  */
 
 /** The longest edge, in pixels, an image is downscaled to before it goes to the model. */

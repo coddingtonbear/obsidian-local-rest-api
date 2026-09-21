@@ -347,11 +347,12 @@ The exact config syntax varies by client; see the [Quick start](#mcp-clients) ex
 
 The REST API has always handled binary content: `GET /vault/<path>` returns raw bytes with a `Content-Type` derived from the file extension, and `PUT /vault/<path>` accepts a body of any content type and stores it byte-for-byte. Neither has a practical size limit.
 
-MCP tools are a different story, because a tool's arguments and results pass through the model. `vault_read` and `vault_write` are text tools — they decode and encode UTF-8, which is lossy for anything that is not text — so `vault_read` refuses a file whose bytes are not valid UTF-8, and `vault_write` and `vault_append` refuse a path whose extension names an image, audio, video, font, PDF, or archive type. Reading an attachment as text and writing the result back is the mistake that destroys attachments, and both halves of it are now refused.
+MCP tools are a different story, because a tool's arguments and results pass through the model. `vault_read` and `vault_write` are text tools — they decode and encode UTF-8, which is lossy for anything that is not text — so `vault_read` refuses a file whose bytes are not valid UTF-8, and `vault_write` and `vault_append` refuse a path whose extension names an image (other than SVG, which is text), audio, video, font, PDF, or archive type. Reading an attachment as text and writing the result back is the mistake that destroys attachments, and both halves of it are now refused.
 
 `vault_read_binary` is the tool for attachments, and what it returns depends on the file:
 
-- **Images** come back as an MCP `image` content block, downscaled to fit 1568px on the long side, plus a small text block with the file's path, MIME type, size, and dimensions. The model can actually look at the picture, and is billed for its pixels rather than its bytes: a multi-megabyte photo costs a couple of thousand tokens.
+- **Raster images** come back as an MCP `image` content block, downscaled to fit 1568px on the long side, plus a small text block with the file's path, MIME type, size, and dimensions. The model can actually look at the picture, and is billed for its pixels rather than its bytes: a multi-megabyte photo costs a couple of thousand tokens.
+- **SVGs** come back unchanged, as their source text in a `resource` block. A vector drawing is XML the model can read directly, so nothing is rasterized or resized.
 - **Everything else** comes back as a `resource_link` to a signed download URL when signed URLs are enabled (below), so the bytes never enter the conversation. When they are not enabled, a file under 1 MiB is embedded as a `resource` block with base64 bytes, and a larger one is refused with a pointer at the REST endpoint.
 
 An `as` argument overrides the default: `as: "bytes"` embeds the raw bytes (under 1 MiB), `as: "link"` returns a signed link and never reads the file.

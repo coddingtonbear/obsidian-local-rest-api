@@ -101,7 +101,8 @@ const HEADING_TARGET_STRING_HINT =
 // the extension promises, and the usual way this happens — a lossy `vault_read` of an
 // attachment written back — destroys the attachment. The list is deliberately short:
 // a false positive here blocks a legitimate write, a false negative only means the
-// guard did not fire.
+// guard did not fire. SVG is the one `image/` type that is text (XML), so it is exempt.
+const SVG_MIME_TYPE = "image/svg+xml";
 const BINARY_MIME_PREFIXES = ["image/", "audio/", "video/", "font/"];
 const BINARY_MIME_TYPES: ReadonlySet<string> = new Set([
   "application/pdf",
@@ -116,7 +117,7 @@ const BINARY_MIME_TYPES: ReadonlySet<string> = new Set([
 
 function binaryMimeTypeFor(path: string): string | null {
   const type = mime.lookup(path);
-  if (!type) return null;
+  if (!type || type === SVG_MIME_TYPE) return null;
   if (BINARY_MIME_PREFIXES.some((prefix) => type.startsWith(prefix))) return type;
   return BINARY_MIME_TYPES.has(type) ? type : null;
 }
@@ -162,9 +163,10 @@ function decodeUtf8Strict(bytes: ArrayBuffer, path: string): string {
   }
 }
 
-// How `vault_read_binary` should hand a file back. `auto` picks by type: an image
-// becomes an `image` block, anything else a signed link (when enabled) or embedded
-// bytes (when small enough).
+// How `vault_read_binary` should hand a file back. `auto` picks by type: a raster image
+// becomes an `image` block, an SVG is passed through unchanged as its source text, and
+// anything else becomes a signed link (when enabled) or embedded bytes (when small
+// enough).
 type BinaryReadMode = "auto" | "bytes" | "link";
 
 const SIGNED_URLS_DISABLED_HINT =
@@ -387,6 +389,40 @@ export class McpHandler {
             mimeType,
             blob: Buffer.from(bytes).toString("base64"),
           },
+        },
+      ],
+    };
+  }
+
+  // An SVG is a vector drawing and also plain XML, so it goes through unchanged as text
+  // rather than through the canvas: nothing is rasterized, nothing is resized, and the
+  // model reads the markup it would have to reason about anyway. (It cannot be handed
+  // over as an `image` block — the image input types are the raster ones in
+  // `ModelReadableImageTypes` — and Chromium's `createImageBitmap` refuses an SVG with
+  // no intrinsic size, so rasterizing was never a dependable path either.) Returns null
+  // when the bytes are not UTF-8 or the file is over the embedding ceiling; the caller
+  // then falls back to the link/bytes path like any other non-image file.
+  private svgTextResult(normalizedPath: string, bytes: ArrayBuffer): CallToolResult | null {
+    if (bytes.byteLength > MaximumMcpBinaryBytes) return null;
+    let text: string;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+    } catch {
+      return null;
+    }
+    return {
+      content: [
+        {
+          type: "resource",
+          resource: {
+            uri: vaultResourceUri(normalizedPath),
+            mimeType: SVG_MIME_TYPE,
+            text,
+          },
+        },
+        {
+          type: "text",
+          text: JSON.stringify({ path: normalizedPath, mimeType: SVG_MIME_TYPE, size: bytes.byteLength }),
         },
       ],
     };
@@ -827,7 +863,7 @@ export class McpHandler {
     this.tool(
       "vault_read_binary",
       dedent`
-        Read a non-text vault file: an image, PDF, audio, any attachment. An image comes back as an image block (downscaled to fit ${MaximumImageEdge}px) plus a text block with its path, mimeType, size, width, and height. Anything else comes back as a resource_link to a signed download URL when signed URLs are enabled, or embedded base64 when they are not and the file is under ${MaximumMcpBinaryBytes} bytes.
+        Read a non-text vault file: an image, PDF, audio, any attachment. A raster image comes back as an image block (downscaled to fit ${MaximumImageEdge}px) plus a text block with its path, mimeType, size, width, and height. An SVG comes back unchanged, as its source text in a resource block. Anything else comes back as a resource_link to a signed download URL when signed URLs are enabled, or embedded base64 when they are not and the file is under ${MaximumMcpBinaryBytes} bytes.
 
         as overrides that: 'bytes' embeds the raw bytes (under ${MaximumMcpBinaryBytes} bytes only); 'link' returns a signed download URL instead of any bytes. Throws if the file does not exist.
       `,
@@ -850,7 +886,10 @@ export class McpHandler {
         }
         const bytes = await this.ops.readBinaryFileContent(normalized);
         const mimeType = mime.lookup(normalized) || "application/octet-stream";
-        if (mode === "auto" && mimeType.startsWith("image/")) {
+        if (mode === "auto" && mimeType === SVG_MIME_TYPE) {
+          const svg = this.svgTextResult(normalized, bytes);
+          if (svg) return svg;
+        } else if (mode === "auto" && mimeType.startsWith("image/")) {
           const image = await this.imageResult(normalized, bytes, mimeType);
           if (image) return image;
         }

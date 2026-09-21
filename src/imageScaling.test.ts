@@ -28,8 +28,8 @@ describe("imageScaling", () => {
     test("keeps JPEG as JPEG and re-encodes everything else as PNG", () => {
       expect(outputTypeFor("image/jpeg")).toBe("image/jpeg");
       expect(outputTypeFor("image/png")).toBe("image/png");
-      expect(outputTypeFor("image/svg+xml")).toBe("image/png");
       expect(outputTypeFor("image/bmp")).toBe("image/png");
+      expect(outputTypeFor("image/tiff")).toBe("image/png");
     });
   });
 
@@ -116,7 +116,7 @@ describe("imageScaling", () => {
     });
 
     test("re-encodes a type the model cannot read even when it already fits", async () => {
-      const result = await new CanvasImageScaler(globals).scale(new ArrayBuffer(8), "image/svg+xml", 1568);
+      const result = await new CanvasImageScaler(globals).scale(new ArrayBuffer(8), "image/bmp", 1568);
       expect(drawn).toEqual([{ width: 100, height: 50 }]);
       expect(result).toMatchObject({ mimeType: "image/png", transformed: true });
     });
