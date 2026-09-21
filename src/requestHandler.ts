@@ -4,7 +4,6 @@ import {
   PluginManifest,
   TFile,
 } from "obsidian";
-import { posix } from "path";
 import forge from "node-forge";
 
 import express from "express";
@@ -79,6 +78,10 @@ import {
   FileNotFoundError,
   VaultOperations,
 } from "./vaultOperations";
+import {
+  PathTraversalError,
+  vaultPathIsContained,
+} from "./vaultPath";
 import { McpHandler } from "./mcpHandler";
 import { UrlSigner, isSignableMethod, normalizeVaultFilePath } from "./signedUrls";
 
@@ -497,13 +500,11 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { errorCode: ErrorCode.PathTraversalNotAllowed });
       return null;
     }
-    // Traversal guard: resolve the decoded path against the synthetic vault root
-    // and reject anything that escapes it. Applied to the joined form so an
-    // encoded `..%2F..%2F…` — which arrives as a single segment — is still
-    // caught after decoding.
-    const syntheticRoot = "/vault";
-    const resolved = posix.resolve(syntheticRoot, segments.join("/"));
-    if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
+    // Traversal guard: resolve the decoded path against the vault root and reject
+    // anything that escapes it. Applied to the joined form so an encoded
+    // `..%2F..%2F…` — which arrives as a single segment — is still caught after
+    // decoding. See ./vaultPath for the containment rule itself.
+    if (!vaultPathIsContained(segments.join("/"))) {
       this.returnCannedResponse(res, { errorCode: ErrorCode.PathTraversalNotAllowed });
       return null;
     }
@@ -1912,16 +1913,7 @@ export default class RequestHandler {
       return;
     }
 
-    if (normalized.startsWith("/")) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.PathTraversalNotAllowed,
-      });
-      return;
-    }
-
-    const syntheticRoot = "/vault";
-    const resolved = posix.resolve(syntheticRoot, normalized);
-    if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
+    if (!vaultPathIsContained(normalized)) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.PathTraversalNotAllowed,
       });
@@ -2003,16 +1995,7 @@ export default class RequestHandler {
       return;
     }
 
-    if (normalized.startsWith("/")) {
-      this.returnCannedResponse(res, {
-        errorCode: ErrorCode.PathTraversalNotAllowed,
-      });
-      return;
-    }
-
-    const syntheticRoot = "/vault";
-    const resolved = posix.resolve(syntheticRoot, normalized);
-    if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
+    if (!vaultPathIsContained(normalized)) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.PathTraversalNotAllowed,
       });
@@ -2436,6 +2419,15 @@ export default class RequestHandler {
     if (err instanceof SyntaxError) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.InvalidContentForContentType,
+      });
+      return;
+    }
+    // Every route that takes a vault path checks it before calling through, so
+    // this is the backstop for one that does not: VaultOperations refuses, and the
+    // client still gets 40021 rather than a 500 naming an internal error.
+    if (err instanceof PathTraversalError) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.PathTraversalNotAllowed,
       });
       return;
     }

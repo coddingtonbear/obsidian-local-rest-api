@@ -516,3 +516,172 @@ describe("openVaultFile", () => {
     consoleError.mockRestore();
   });
 });
+
+// -------------------------------------------------------------------------
+// Vault-path containment is enforced here, not only at the API boundaries.
+//
+// VaultOperations is the one place every caller funnels through — the REST
+// handler, the MCP tools, and any plugin holding the extension API — so the
+// traversal guard lives here as well as at each boundary. The boundaries give
+// the caller a good error message; this stops anything that slips past one.
+//
+// The asymmetry that made this worth doing: reads go through
+// getAbstractFileByPath, which only matches indexed vault files and so misses
+// harmlessly on "../x.md", while writes and permanent deletes go through
+// Vault.create / adapter.writeBinary / adapter.remove, which take the path to
+// the filesystem relative to the vault directory and happily leave it.
+// ---------------------------------------------------------------------------
+
+describe("vault path containment", () => {
+  const ESCAPING = [
+    ["relative traversal", "../../Ausserhalb.md"],
+    ["absolute path", "/etc/passwd"],
+    ["traversal in the middle", "notes/../../outside.md"],
+    ["windows-style traversal", "..\\..\\outside.md"],
+  ] as const;
+
+  function opsFor(): { app: App; ops: VaultOperations } {
+    return setup("original\n");
+  }
+
+  for (const [label, escaping] of ESCAPING) {
+    describe(label, () => {
+      test("writeFileContent refuses to write text outside the vault", async () => {
+        const { app, ops } = opsFor();
+        await expect(ops.writeFileContent(escaping, "pwned")).rejects.toThrow(
+          "must not escape the vault root",
+        );
+        expect(app.vault._create).toBeUndefined();
+        expect(app.vault._modify).toBeUndefined();
+        expect(app.vault.adapter._write).toBeUndefined();
+      });
+
+      test("writeFileContent refuses to write bytes outside the vault", async () => {
+        const { app, ops } = opsFor();
+        await expect(
+          ops.writeFileContent(escaping, Buffer.from([1, 2, 3])),
+        ).rejects.toThrow("must not escape the vault root");
+        expect(app.vault.adapter._writeBinary).toBeUndefined();
+      });
+
+      test("appendFileContent refuses to create outside the vault", async () => {
+        const { app, ops } = setup("", false);
+        await expect(ops.appendFileContent(escaping, "pwned")).rejects.toThrow(
+          "must not escape the vault root",
+        );
+        expect(app.vault._create).toBeUndefined();
+      });
+
+      test("deleteVaultFile refuses a permanent delete outside the vault", async () => {
+        const { app, ops } = opsFor();
+        await expect(ops.deleteVaultFile(escaping, true)).rejects.toThrow(
+          "must not escape the vault root",
+        );
+        expect(app.vault.adapter._remove).toBeUndefined();
+      });
+
+      test("deleteVaultFile refuses a trashing delete outside the vault", async () => {
+        const { app, ops } = opsFor();
+        await expect(ops.deleteVaultFile(escaping, false)).rejects.toThrow(
+          "must not escape the vault root",
+        );
+        expect(app.fileManager._trashFile).toBeUndefined();
+      });
+
+      test("moveVaultFile refuses an escaping destination", async () => {
+        const { app, ops } = opsFor();
+        await expect(ops.moveVaultFile(MD_PATH, escaping)).rejects.toThrow(
+          "must not escape the vault root",
+        );
+        expect(app.vault.adapter._remove).toBeUndefined();
+      });
+
+      test("moveVaultFile refuses an escaping source", async () => {
+        const { ops } = opsFor();
+        await expect(ops.moveVaultFile(escaping, "inside.md")).rejects.toThrow(
+          "must not escape the vault root",
+        );
+      });
+
+      test("copyVaultFile refuses an escaping destination", async () => {
+        const { app, ops } = opsFor();
+        await expect(ops.copyVaultFile(MD_PATH, escaping)).rejects.toThrow(
+          "must not escape the vault root",
+        );
+        expect(app.vault.adapter._remove).toBeUndefined();
+      });
+
+      test("copyVaultFile refuses an escaping source", async () => {
+        const { ops } = opsFor();
+        await expect(ops.copyVaultFile(escaping, "inside.md")).rejects.toThrow(
+          "must not escape the vault root",
+        );
+      });
+
+      test("readFileContent refuses to read outside the vault", async () => {
+        const { ops } = opsFor();
+        await expect(ops.readFileContent(escaping)).rejects.toThrow(
+          "must not escape the vault root",
+        );
+      });
+
+      test("readBinaryFileContent refuses to read outside the vault", async () => {
+        const { ops } = opsFor();
+        await expect(ops.readBinaryFileContent(escaping)).rejects.toThrow(
+          "must not escape the vault root",
+        );
+      });
+
+      test("patchFileSectionMdp2 refuses to patch outside the vault", async () => {
+        const { ops } = opsFor();
+        await expect(
+          ops.patchFileSectionMdp2(escaping, {
+            targetType: "frontmatter",
+            target: "title",
+            operation: "replace",
+            value: "x",
+          }),
+        ).rejects.toThrow("must not escape the vault root");
+      });
+
+      test("listVaultDirectory refuses to list outside the vault", async () => {
+        const { ops } = opsFor();
+        await expect(ops.listVaultDirectory(escaping)).rejects.toThrow(
+          "must not escape the vault root",
+        );
+      });
+
+      test("openVaultFile refuses to open outside the vault", () => {
+        const { ops } = opsFor();
+        expect(() => ops.openVaultFile(escaping)).toThrow(
+          "must not escape the vault root",
+        );
+      });
+    });
+  }
+
+  describe("paths that stay inside are untouched", () => {
+    test("a nested path still writes", async () => {
+      const { app, ops } = setup("", false);
+      await ops.writeFileContent("folder/sub/note.md", "hello");
+      expect(app.vault._create).toEqual(["folder/sub/note.md", "hello"]);
+    });
+
+    test("'..' as a filename substring is not a traversal", async () => {
+      const { app, ops } = setup("", false);
+      await ops.writeFileContent("folder/notes..md", "hello");
+      expect(app.vault._create).toEqual(["folder/notes..md", "hello"]);
+    });
+
+    test("a leading './' is not a traversal", async () => {
+      const { app, ops } = setup("", false);
+      await ops.writeFileContent("./note.md", "hello");
+      expect(app.vault._create?.[1]).toBe("hello");
+    });
+
+    test("the empty path still lists the vault root", async () => {
+      const { ops } = opsFor();
+      await expect(ops.listVaultDirectory("")).resolves.toBeDefined();
+    });
+  });
+});

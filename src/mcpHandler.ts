@@ -10,7 +10,6 @@ import type {
 } from "@modelcontextprotocol/server";
 import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from "@modelcontextprotocol/node";
 import type { NodeMcpRequestHandler } from "@modelcontextprotocol/node";
-import { posix } from "path";
 import { randomUUID } from "crypto";
 import { AsyncLocalStorage } from "async_hooks";
 import { z } from "zod";
@@ -25,6 +24,7 @@ import { InstructionInputObjectSchema } from "markdown-patch-2";
 import openapiYaml from "../docs/openapi.yaml";
 import { toStandardSchema } from "./mcpSchema";
 import { MaximumMcpBinaryBytes } from "./constants";
+import { assertVaultPathIsContained } from "./vaultPath";
 import { LocalRestApiSettings } from "./types";
 import {
   UrlSigner,
@@ -276,6 +276,11 @@ interface Session {
   transport: NodeStreamableHTTPServerTransport;
   toolHandles: Map<string, RegisteredTool>;
 }
+
+// The path parameter reads the same on every tool that takes one, so it is spelled once
+// here rather than retyped per tool.
+const VAULT_PATH_DESCRIPTION = "File path relative to vault root";
+const SOURCE_VAULT_PATH_DESCRIPTION = "Source file path relative to vault root";
 
 export class McpHandler {
   // The tool and resource registries are this handler's application state: the 2026-07-28
@@ -622,6 +627,18 @@ export class McpHandler {
     );
   }
 
+  /** A client-supplied vault path, refused if it resolves outside the vault root.
+   *
+   *  Returns the path so a call site reads as `this.ops.write(this.vaultPath(path))`
+   *  -- the guard is then part of the expression that uses the path, and a new tool
+   *  that forgets it is visibly different from every tool around it. VaultOperations
+   *  checks again before touching the filesystem; this one exists so the client gets
+   *  a refusal that names what was wrong instead of a bare failure. */
+  private vaultPath(candidate: string, label = "Path"): string {
+    assertVaultPathIsContained(candidate, label);
+    return candidate;
+  }
+
   private logHandlerError(error: Error): void {
     if (this.settings.enableVerboseLogging) {
       console.debug(`[MCP] request rejected: ${error.message}`);
@@ -883,7 +900,9 @@ export class McpHandler {
       { path: z.string().optional().describe("Directory path relative to vault root (default: root)") },
       READ_ONLY_ANNOTATIONS,
       async ({ path }: { path?: string }) => {
-        const files = await this.ops.listVaultDirectory(path ?? "");
+        const files = await this.ops.listVaultDirectory(
+          this.vaultPath(path ?? "", "Directory path"),
+        );
         return this.text({ files });
       },
     );
@@ -898,7 +917,7 @@ export class McpHandler {
         This tool reads text. A file whose bytes are not valid UTF-8 — an image, a PDF, any attachment — is refused rather than returned as the lossy string decoding it would produce; read those with vault_read_binary instead.
       `,
       {
-        path: z.string().describe("File path relative to vault root"),
+        path: z.string().describe(VAULT_PATH_DESCRIPTION),
         targetType: z
           .enum(["heading", "block", "frontmatter"])
           .optional()
@@ -928,7 +947,8 @@ export class McpHandler {
         target?: string[] | string;
         scope?: "content" | "marker" | "markerAndContent";
       }) => {
-        const file = this.ops.app.vault.getAbstractFileByPath(path);
+        const filePath = this.vaultPath(path);
+        const file = this.ops.app.vault.getAbstractFileByPath(filePath);
         if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
         if ((targetType == null) !== (target == null)) {
           throw new Error("targetType and target must be provided together");
@@ -939,7 +959,7 @@ export class McpHandler {
         // Read once, up front, and hand the text to whichever path answers: a malformed
         // argument should not cost a file read, but neither should a targeted read of a
         // file this tool is about to refuse.
-        const content = await this.readTextStrict(path);
+        const content = await this.readTextStrict(filePath);
         if (targetType && target != null) {
           let address: ReadTarget;
           if (targetType === "heading") {
@@ -972,13 +992,13 @@ export class McpHandler {
       "vault_write",
       dedent`Create or overwrite a vault file with the given content. Text only: a path whose extension names an image, audio, video, font, PDF or archive type is refused, as is content containing a NUL byte, because writing text there would corrupt the file -- upload those bytes with vault_get_upload_url, or PUT /vault/<path> over the REST API. Creates any missing parent directories automatically. Overwrites without warning if the file already exists.`,
       {
-        path: z.string().describe("File path relative to vault root"),
+        path: z.string().describe(VAULT_PATH_DESCRIPTION),
         content: z.string().describe("Full file content (markdown text)"),
       },
       { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
       async ({ path, content }: { path: string; content: string }) => {
         assertTextWrite(path, content);
-        await this.ops.writeFileContent(path, content);
+        await this.ops.writeFileContent(this.vaultPath(path), content);
         return this.text({ message: "OK" });
       },
     );
@@ -1055,13 +1075,13 @@ export class McpHandler {
       "vault_append",
       dedent`Append content to the end of a vault file. Creates the file if it does not already exist. Text only, on the same terms as vault_write: a path whose extension names a binary type is refused, as is content containing a NUL byte.`,
       {
-        path: z.string().describe("File path relative to vault root"),
+        path: z.string().describe(VAULT_PATH_DESCRIPTION),
         content: z.string().describe("Content to append"),
       },
       { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       async ({ path, content }: { path: string; content: string }) => {
         assertTextWrite(path, content);
-        await this.ops.appendFileContent(path, content);
+        await this.ops.appendFileContent(this.vaultPath(path), content);
         return this.text({ message: "OK" });
       },
     );
@@ -1080,7 +1100,7 @@ export class McpHandler {
         To continue an existing block instead of starting a new one, add 'within' (heading targets only): an index picking one of the section's top-level body blocks (0-based, negative from the end; isolated '^id' lines are not counted). 'content'-scope edits then splice literally into that block — append with '\\n- item' extends a list — and 'markerAndContent' prepend/append insert a new block beside it. Read the file first to count blocks, and pair with 'ifMatch'.
       `,
       {
-        path: z.string().describe("File path relative to vault root"),
+        path: z.string().describe(VAULT_PATH_DESCRIPTION),
         // The instruction fields (targetType, target, operation, scope,
         // content, value, destination, ifMatch, and the two flags) come
         // straight from markdown-patch-2's published schema, so the tool input,
@@ -1146,7 +1166,7 @@ export class McpHandler {
         };
         try {
           const result = await this.ops.patchFileSectionMdp2(
-            path,
+            this.vaultPath(path),
             instruction as InstructionInput,
           );
           return result.warnings.length > 0
@@ -1163,7 +1183,7 @@ export class McpHandler {
       "vault_delete",
       dedent`Delete a file from the vault. Throws if the file does not exist. By default, moves the file to trash (following the user's Obsidian "Deleted files" preference — either the ".trash" folder or the system trash) rather than deleting it permanently.`,
       {
-        path: z.string().describe("File path relative to vault root"),
+        path: z.string().describe(VAULT_PATH_DESCRIPTION),
         permanent: z
           .boolean()
           .optional()
@@ -1173,7 +1193,7 @@ export class McpHandler {
       },
       { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       async ({ path, permanent }: { path: string; permanent?: boolean }) => {
-        await this.ops.deleteVaultFile(path, permanent ?? false);
+        await this.ops.deleteVaultFile(this.vaultPath(path), permanent ?? false);
         return this.text({ message: "OK" });
       },
     );
@@ -1182,7 +1202,7 @@ export class McpHandler {
       "vault_move",
       dedent`Move (rename) a vault file to a new path. Creates any missing parent directories at the destination automatically. Preserves file history and updates internal Obsidian links. Throws if the source file does not exist.`,
       {
-        path: z.string().describe("Source file path relative to vault root"),
+        path: z.string().describe(SOURCE_VAULT_PATH_DESCRIPTION),
         destination: z
           .string()
           .describe(
@@ -1205,35 +1225,22 @@ export class McpHandler {
         destination: string;
         allowOverwrite?: boolean;
       }) => {
-        const normalized = destination
-          .trim()
-          .replace(/\\/g, "/")
-          .replace(/\/+/g, "/");
+        const source = this.vaultPath(path, "Source path");
+        const normalized = this.vaultPath(
+          destination.trim().replace(/\\/g, "/").replace(/\/+/g, "/"),
+          "Destination path",
+        );
 
-        if (normalized.startsWith("/")) {
-          throw new Error(
-            "Destination path must be relative and must not escape the vault root.",
-          );
-        }
-
-        const syntheticRoot = "/vault";
-        const resolved = posix.resolve(syntheticRoot, normalized);
-        if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
-          throw new Error(
-            "Destination path must be relative and must not escape the vault root.",
-          );
-        }
-
-        const sourceFilename = path.includes("/")
-          ? path.slice(path.lastIndexOf("/") + 1)
-          : path;
+        const sourceFilename = source.includes("/")
+          ? source.slice(source.lastIndexOf("/") + 1)
+          : source;
 
         const resolvedDestination = !normalized || normalized.endsWith("/")
           ? normalized + sourceFilename
           : normalized;
 
-        const actualPath = await this.ops.moveVaultFile(path, resolvedDestination, allowOverwrite ?? false);
-        return this.text({ message: "OK", oldPath: path, newPath: actualPath });
+        const actualPath = await this.ops.moveVaultFile(source, resolvedDestination, allowOverwrite ?? false);
+        return this.text({ message: "OK", oldPath: source, newPath: actualPath });
       },
     );
 
@@ -1241,7 +1248,7 @@ export class McpHandler {
       "vault_copy",
       dedent`Copy a vault file to a new path. Creates any missing parent directories at the destination automatically. Throws if the source file does not exist.`,
       {
-        path: z.string().describe("Source file path relative to vault root"),
+        path: z.string().describe(SOURCE_VAULT_PATH_DESCRIPTION),
         destination: z
           .string()
           .describe(
@@ -1264,35 +1271,22 @@ export class McpHandler {
         destination: string;
         allowOverwrite?: boolean;
       }) => {
-        const normalized = destination
-          .trim()
-          .replace(/\\/g, "/")
-          .replace(/\/+/g, "/");
+        const source = this.vaultPath(path, "Source path");
+        const normalized = this.vaultPath(
+          destination.trim().replace(/\\/g, "/").replace(/\/+/g, "/"),
+          "Destination path",
+        );
 
-        if (normalized.startsWith("/")) {
-          throw new Error(
-            "Destination path must be relative and must not escape the vault root.",
-          );
-        }
-
-        const syntheticRoot = "/vault";
-        const resolved = posix.resolve(syntheticRoot, normalized);
-        if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
-          throw new Error(
-            "Destination path must be relative and must not escape the vault root.",
-          );
-        }
-
-        const sourceFilename = path.includes("/")
-          ? path.slice(path.lastIndexOf("/") + 1)
-          : path;
+        const sourceFilename = source.includes("/")
+          ? source.slice(source.lastIndexOf("/") + 1)
+          : source;
 
         const resolvedDestination = !normalized || normalized.endsWith("/")
           ? normalized + sourceFilename
           : normalized;
 
-        const actualPath = await this.ops.copyVaultFile(path, resolvedDestination, allowOverwrite ?? false);
-        return this.text({ message: "OK", sourcePath: path, newPath: actualPath });
+        const actualPath = await this.ops.copyVaultFile(source, resolvedDestination, allowOverwrite ?? false);
+        return this.text({ message: "OK", sourcePath: source, newPath: actualPath });
       },
     );
 
@@ -1303,10 +1297,10 @@ export class McpHandler {
 
         headings is a nested object mirroring the document's heading nesting: each heading's text maps to an object of its child headings, and a leaf heading maps to {} (e.g. {"Overview": {"Details": {}}}). To target a heading, use the path of keys from the top level down to it (e.g. ['Overview', 'Details']) as a vault_patch or vault_read heading target. Every occurrence of a heading gets its own key, even a duplicate: the first occurrence keeps its plain text, and each later occurrence's key has an opaque, non-printable marker suffix appended by the server — given '## Log' twice, the tree is {"Log": {}, "Log<marker>": {}}, and both are separately addressable. Always copy such a key verbatim from this response into a vault_read/vault_patch target array; never retype or reconstruct one yourself. blocks are bare reference IDs (no '^'), one entry per block in document order; a duplicate block id gets the same disambiguation treatment as a heading — the first occurrence's entry is the plain id, and each later occurrence's entry carries the same kind of marker suffix, again to be copied verbatim. frontmatterFields are top-level key names. version is a content hash of the file — pass it back as vault_patch's ifMatch to make an edit conditional on the file being unchanged.
       `,
-      { path: z.string().describe("File path relative to vault root") },
+      { path: z.string().describe(VAULT_PATH_DESCRIPTION) },
       READ_ONLY_ANNOTATIONS,
       async ({ path }: { path: string }) => {
-        const file = this.ops.app.vault.getAbstractFileByPath(path);
+        const file = this.ops.app.vault.getAbstractFileByPath(this.vaultPath(path));
         if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
         const map = await this.ops.getDocumentMapV2Object(file);
         return this.text(map);
@@ -1433,12 +1427,12 @@ export class McpHandler {
       "open_file",
       dedent`Open a file in the Obsidian UI. If the file does not exist, Obsidian will create a new document at that path. Set newLeaf to true to open in a new pane rather than the current one.`,
       {
-        path: z.string().describe("File path relative to vault root"),
+        path: z.string().describe(VAULT_PATH_DESCRIPTION),
         newLeaf: z.boolean().optional().describe("Open in a new leaf/pane (default: false)"),
       },
       { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       async ({ path, newLeaf }: { path: string; newLeaf?: boolean }) => {
-        this.ops.openVaultFile(path, newLeaf);
+        this.ops.openVaultFile(this.vaultPath(path), newLeaf);
         return this.text({ message: "OK" });
       },
     );

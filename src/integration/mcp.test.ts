@@ -1412,3 +1412,71 @@ describe("multi-session routing", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Path traversal
+//
+// The live check for the advisory: a `path` argument holding "../" must be refused
+// by every tool that takes one, and nothing must appear outside the vault. The probe
+// filename is distinctive so that a regression leaves something obvious next to the
+// vault directory rather than clobbering a real file, and the traversal is kept to a
+// single level for the same reason.
+// ---------------------------------------------------------------------------
+
+describe("MCP vault path traversal", () => {
+  const PROBE = "../obsidian-local-rest-api-traversal-probe.md";
+  const ABSOLUTE_PROBE = "/tmp/obsidian-local-rest-api-traversal-probe.md";
+
+  async function expectRefused(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<void> {
+    const result = await client.callTool({ name, arguments: args });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("must not escape the vault root");
+  }
+
+  for (const probe of [PROBE, ABSOLUTE_PROBE]) {
+    const label = probe === PROBE ? "relative traversal" : "absolute path";
+
+    test(`vault_write refuses a ${label}`, async () => {
+      await expectRefused("vault_write", { path: probe, content: "traversal probe" });
+    });
+
+    test(`vault_append refuses a ${label}`, async () => {
+      await expectRefused("vault_append", { path: probe, content: "traversal probe" });
+    });
+
+    test(`vault_delete refuses a ${label}`, async () => {
+      await expectRefused("vault_delete", { path: probe });
+    });
+
+    test(`a permanent vault_delete refuses a ${label}`, async () => {
+      await expectRefused("vault_delete", { path: probe, permanent: true });
+    });
+
+    test(`vault_read refuses a ${label}`, async () => {
+      await expectRefused("vault_read", { path: probe });
+    });
+
+    test(`vault_move refuses a ${label} as destination`, async () => {
+      await expectRefused("vault_move", { path: TEST_PATH, destination: probe });
+    });
+
+    test(`vault_copy refuses a ${label} as destination`, async () => {
+      await expectRefused("vault_copy", { path: TEST_PATH, destination: probe });
+    });
+
+    test(`vault_list refuses a ${label}`, async () => {
+      await expectRefused("vault_list", { path: probe });
+    });
+  }
+
+  test("an ordinary path is still accepted after all that", async () => {
+    const result = await client.callTool({
+      name: "vault_read",
+      arguments: { path: TEST_PATH },
+    });
+    expect(result.isError).toBeFalsy();
+  });
+});

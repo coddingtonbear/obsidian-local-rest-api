@@ -2396,3 +2396,135 @@ describe("McpHandler", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Path traversal: every tool that takes a vault path.
+//
+// Obsidian's Vault API is not a sandbox. `getAbstractFileByPath` only ever matches
+// files Obsidian has indexed, so a path holding `../` simply misses and the caller
+// gets "File not found" — which made most of these tools look safe by accident. The
+// write paths do not go through that lookup: `Vault.create`, `Vault.adapter.write*`
+// and `Vault.adapter.remove` hand the path straight to the filesystem, relative to
+// the vault directory, so a `../` there lands outside the vault. Reported against
+// 5.1.0 for vault_write; vault_append and a permanent vault_delete share the hole.
+//
+// The containment check therefore belongs on every vault path a client supplies,
+// not only on vault_move/vault_copy destinations.
+// ---------------------------------------------------------------------------
+
+describe("MCP vault path containment", () => {
+   
+  let ops: any;
+
+  beforeEach(() => {
+    registerTool = jest.spyOn(McpServer.prototype, "registerTool");
+    registerResource = jest.spyOn(McpServer.prototype, "registerResource");
+    ops = makeMockOps();
+    // @ts-ignore: buildServer is private — the test observes what a request would build.
+    new McpHandler(ops, DEFAULT_SETTINGS).buildServer();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  // [tool, extra args needed to reach the path check, the ops method that must not run]
+  const pathTools: Array<[string, Record<string, unknown>, string]> = [
+    ["vault_read", {}, "getFileMetadataObject"],
+    ["vault_write", { content: "pwned" }, "writeFileContent"],
+    ["vault_append", { content: "pwned" }, "appendFileContent"],
+    [
+      "vault_patch",
+      { targetType: "heading", target: ["Hi"], operation: "replace", content: "x" },
+      "patchFileSectionMdp2",
+    ],
+    ["vault_delete", { permanent: true }, "deleteVaultFile"],
+    ["vault_delete", {}, "deleteVaultFile"],
+    ["vault_get_document_map", {}, "getDocumentMapV2Object"],
+    ["vault_list", {}, "listVaultDirectory"],
+    ["open_file", {}, "openVaultFile"],
+    ["vault_move", { destination: "ok.md" }, "moveVaultFile"],
+    ["vault_copy", { destination: "ok.md" }, "copyVaultFile"],
+  ];
+
+  const escapingPaths = [
+    ["relative traversal", "../../Ausserhalb.md"],
+    ["deep relative traversal", "../../../../some/other/writable/path/file.md"],
+    ["absolute path", "/etc/passwd"],
+    ["traversal in the middle", "notes/../../outside.md"],
+    ["windows-style traversal", "..\\..\\outside.md"],
+  ];
+
+  for (const [tool, extraArgs, opsMethod] of pathTools) {
+    describe(`${tool}${extraArgs.permanent ? " (permanent)" : ""}`, () => {
+      for (const [label, escaping] of escapingPaths) {
+        test(`rejects ${label} in path`, async () => {
+          const cb = getToolCallback(tool);
+          await expect(cb({ path: escaping, ...extraArgs })).rejects.toThrow(
+            "must not escape the vault root",
+          );
+          expect(ops[opsMethod]).not.toHaveBeenCalled();
+        });
+      }
+
+      test("allows an ordinary vault path", async () => {
+        const cb = getToolCallback(tool);
+        await expect(cb({ path: "folder/note.md", ...extraArgs })).resolves.toBeDefined();
+      });
+
+      test("allows '..' as a filename substring rather than a segment", async () => {
+        const cb = getToolCallback(tool);
+        await expect(cb({ path: "folder/notes..md", ...extraArgs })).resolves.toBeDefined();
+      });
+    });
+  }
+
+  test("vault_move rejects a traversing source even with a safe destination", async () => {
+    const cb = getToolCallback("vault_move");
+    await expect(cb({ path: "../outside.md", destination: "inside.md" })).rejects.toThrow(
+      "must not escape the vault root",
+    );
+    expect(ops.moveVaultFile).not.toHaveBeenCalled();
+  });
+
+  test("vault_copy rejects a traversing source even with a safe destination", async () => {
+    const cb = getToolCallback("vault_copy");
+    await expect(cb({ path: "../outside.md", destination: "inside.md" })).rejects.toThrow(
+      "must not escape the vault root",
+    );
+    expect(ops.copyVaultFile).not.toHaveBeenCalled();
+  });
+
+  // The binary and signed-URL tools refuse through normalizeVaultFilePath, which is a
+  // canonicaliser rather than a validator: it has to produce the one spelling that
+  // signing and verification both agree on, so it also refuses a directory or an empty
+  // path, and says so in its own words. It now shares this module's containment rule,
+  // and what matters is that the two agree on the part the advisory was about -- neither
+  // lets a path out of the vault.
+  //
+  // The absolute-path case is deliberately absent. A leading slash is refused everywhere
+  // else and stripped here, because a signature minted for "a/b.png" has to verify a
+  // request for "/a//b.png" -- a sloppy spelling of the same file, not an escape. See
+  // signedUrls.test.ts, which pins that on both sides.
+  describe("the binary and signed-URL tools refuse the same traversals", () => {
+    const traversals = escapingPaths.filter(([label]) => label !== "absolute path");
+
+    for (const tool of ["vault_read_binary", "vault_get_download_url", "vault_get_upload_url"]) {
+      for (const [label, escaping] of traversals) {
+        test(`${tool} rejects ${label} in path`, async () => {
+          const cb = getToolCallback(tool);
+          await expect(cb({ path: escaping })).rejects.toThrow(
+            "Not a file path inside the vault",
+          );
+          expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
+        });
+      }
+    }
+  });
+
+  test("vault_list still lists the vault root when path is omitted", async () => {
+    const cb = getToolCallback("vault_list");
+    await expect(cb({})).resolves.toBeDefined();
+    expect(ops.listVaultDirectory).toHaveBeenCalledWith("");
+  });
+});
