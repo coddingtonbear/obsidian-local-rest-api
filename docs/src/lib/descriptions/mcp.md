@@ -32,9 +32,10 @@ Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `40
 |---|---|
 | `vault_list` | List files and subdirectories inside a vault directory |
 | `vault_read` | Read a text file's full content, frontmatter, tags, and stat; refuses anything that is not valid UTF-8 |
-| `vault_read_binary` | Read a file as raw bytes, base64-encoded, for attachments `vault_read` would corrupt |
-| `vault_write` | Create or overwrite a vault file |
-| `vault_write_binary` | Create or overwrite a vault file from base64-encoded raw bytes |
+| `vault_read_binary` | Read an attachment: images as an image block, anything else as a signed download link or embedded bytes |
+| `vault_get_download_url` | Mint a signed, expiring link to a file that works without the API key (only when signed URLs are enabled) |
+| `vault_get_upload_url` | Mint a signed, single-use link for uploading a file over `PUT` (only when signed URLs are enabled) |
+| `vault_write` | Create or overwrite a text file; refuses paths whose extension names a binary type |
 | `vault_append` | Append content to the end of a vault file |
 | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
 | `vault_delete` | Delete a vault file (moves to trash by default) |
@@ -51,11 +52,17 @@ Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `40
 
 ### Binary files
 
-`vault_read` and `vault_write` are text tools: they decode and encode UTF-8, which is lossy for anything that is not text, so reading an attachment through `vault_read` and writing the result back destroys the file. Use `vault_read_binary` and `vault_write_binary` for attachments instead. Both carry the file base64-encoded.
+`vault_read` and `vault_write` are text tools: they decode and encode UTF-8, which is lossy for anything that is not text. `vault_read` refuses a file whose bytes are not valid UTF-8, and `vault_write` and `vault_append` refuse a path whose extension names a binary type (image, audio, video, font, PDF, archive), so the read-as-text-then-write-back mistake that destroys attachments is refused at both ends.
 
-`vault_write_binary` refuses a payload it cannot decode cleanly rather than writing the bytes it managed to salvage.
+`vault_read_binary` reads attachments. An image is returned as an MCP `image` content block, downscaled to fit 1568px on its long side, with a text block giving its path, MIME type, size, and dimensions. Any other file is returned as a `resource_link` to a signed download URL when signed URLs are enabled, or embedded as base64 in a `resource` block when they are not and the file is under 1 MiB. `as: "bytes"` forces embedding; `as: "link"` forces a link.
 
-Base64 in a tool argument or result passes through the model's context at roughly 0.35-0.45 tokens per byte, so both tools refuse files over 1 MiB. That is a context guard rather than a storage limit: `GET` and `PUT /vault/{filename}` carry raw bytes of any size at no context cost, and are the right way to move a large attachment.
+There is no upload tool that carries bytes through the model. Upload a file with `PUT /vault/{filename}` — with the API key, or with a signed upload URL from `vault_get_upload_url`.
+
+### Signed URLs
+
+Off by default; enabled under Advanced settings, where the lifetime is also set (default 300 seconds). While enabled, `vault_get_download_url` and `vault_get_upload_url` are registered, and `vault_read_binary` links to non-image files instead of embedding them.
+
+A signed URL is `GET` or `PUT /vault/{filename}?sig=…&exp=…`. The signature is an HMAC-SHA256 over the method, the normalized vault path, and the expiry, under a secret generated at plugin load and held only in memory; it stands in for the `Authorization` header on that one request. Download links can be used repeatedly until they expire and are served with `Content-Disposition: inline` (`download=1` asks for an attachment). Upload links are consumed by the first request that succeeds. Links do not survive an Obsidian restart.
 
 ## Available resources
 

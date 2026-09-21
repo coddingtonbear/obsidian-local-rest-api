@@ -614,64 +614,204 @@ describe("vault_write and vault_delete tools", () => {
 });
 
 // ---------------------------------------------------------------------------
-// vault_read_binary + vault_write_binary
+// vault_read_binary, and the signed-URL tools
 //
-// The point of these tools is byte fidelity, so the fixture is deliberately a real PNG:
-// its 0x89 lead byte is not valid UTF-8, so any path that decodes it as text loses it.
-// The round trip below therefore fails if the bytes ever go through a string.
+// The fixture is a real PNG uploaded over REST: its 0x89 lead byte is not valid UTF-8,
+// so any path that decodes it as text loses it. Reading it back as an image block is the
+// one thing the unit tests cannot show — the downscaling runs on Obsidian's own canvas —
+// so that is what is checked here against the live plugin.
+//
+// The signed-URL tools exist only while the "Enable signed URLs" setting is on in the
+// running plugin, which this suite cannot toggle. Their tests run when tools/list shows
+// them and are skipped otherwise; a skip is reported, not hidden.
 // ---------------------------------------------------------------------------
 
-describe("vault_read_binary and vault_write_binary tools", () => {
+const PIXEL_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+const PIXEL_BYTES = Buffer.from(PIXEL_BASE64, "base64");
+
+async function putBytes(path: string, bytes: Buffer, contentType: string): Promise<void> {
+  const res = await authedFetch(`/vault/${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": contentType },
+    body: new Uint8Array(bytes),
+  });
+  if (res.status !== 204) throw new Error(`PUT /vault/${path} => ${res.status}`);
+  // Give Obsidian's index a moment to register the new file.
+  await new Promise((r) => setTimeout(r, 300));
+}
+
+function contentOf(result: ToolResult): Array<Record<string, any>> {
+  return result.content as Array<Record<string, any>>;
+}
+
+describe("vault_read_binary tool", () => {
   const BINARY_PATH = `${TEST_DIR}/mcp-temp-pixel.png`;
-  const PIXEL_BASE64 =
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const BLOB_PATH = `${TEST_DIR}/mcp-temp-data.bin`;
+  const BLOB_BYTES = Buffer.from([0, 1, 2, 3, 255]);
+  let signedUrlsEnabled: boolean;
+
+  beforeAll(async () => {
+    await putBytes(BINARY_PATH, PIXEL_BYTES, "image/png");
+    await putBytes(BLOB_PATH, BLOB_BYTES, "application/octet-stream");
+    const { tools } = await client.listTools();
+    signedUrlsEnabled = tools.some((t) => t.name === "vault_get_download_url");
+    if (!signedUrlsEnabled) {
+      console.warn(
+        "Signed URLs are off in the running plugin: link-mode assertions are skipped. Enable them under Advanced settings to cover that path.",
+      );
+    }
+  });
 
   afterAll(async () => {
     await deleteFixture(BINARY_PATH).catch((_e: unknown): void => {});
+    await deleteFixture(BLOB_PATH).catch((_e: unknown): void => {});
   });
 
-  test("round-trips a PNG through write and read without corrupting a byte", async () => {
-    const writeResult = await client.callTool({
-      name: "vault_write_binary",
-      arguments: { path: BINARY_PATH, content: PIXEL_BASE64 },
-    });
-    expect(jsonOf<any>(writeResult).message).toBe("OK");
-
-    // Give Obsidian's index a moment to register the new file.
-    await new Promise((r) => setTimeout(r, 300));
-
-    const readResult = await client.callTool({
+  test("returns a PNG as an image block the renderer decoded, with its dimensions", async () => {
+    const result = await client.callTool({
       name: "vault_read_binary",
       arguments: { path: BINARY_PATH },
     });
-    const body = jsonOf<any>(readResult);
-    expect(body.content).toBe(PIXEL_BASE64);
-    expect(body.encoding).toBe("base64");
-    expect(body.mimeType).toBe("image/png");
-    expect(body.size).toBe(Buffer.from(PIXEL_BASE64, "base64").byteLength);
-  });
-
-  test("the same bytes are served over REST, so the two layers agree", async () => {
-    const response = await authedFetch(`/vault/${BINARY_PATH}`);
-    expect(response.status).toBe(200);
-    const overRest = Buffer.from(await response.arrayBuffer());
-    expect(overRest.toString("base64")).toBe(PIXEL_BASE64);
-  });
-
-  test("rejects a payload that is not canonical base64 rather than writing it", async () => {
-    const result = await client.callTool({
-      name: "vault_write_binary",
-      arguments: { path: BINARY_PATH, content: "not-valid-base64!" },
+    expect(result.isError).toBeFalsy();
+    const [image, meta] = contentOf(result);
+    expect(image.type).toBe("image");
+    expect(image.mimeType).toBe("image/png");
+    // A 1×1 PNG fits, so the bytes are the originals, not a re-encoding.
+    expect(image.data).toBe(PIXEL_BASE64);
+    expect(image.annotations).toEqual({ audience: ["user", "assistant"] });
+    expect(meta.type).toBe("text");
+    expect(JSON.parse(meta.text)).toEqual({
+      path: BINARY_PATH,
+      mimeType: "image/png",
+      size: PIXEL_BYTES.byteLength,
+      width: 1,
+      height: 1,
     });
-    expect(result.isError).toBe(true);
   });
 
-  test("vault_read_binary reports a missing file as an error", async () => {
+  test("as: 'bytes' embeds the raw bytes as a resource block", async () => {
+    const result = await client.callTool({
+      name: "vault_read_binary",
+      arguments: { path: BINARY_PATH, as: "bytes" },
+    });
+    const [resource] = contentOf(result);
+    expect(resource.type).toBe("resource");
+    expect(resource.resource.mimeType).toBe("image/png");
+    expect(resource.resource.blob).toBe(PIXEL_BASE64);
+  });
+
+  test("a non-image file comes back as embedded bytes, or as a signed link when those are on", async () => {
+    const result = await client.callTool({
+      name: "vault_read_binary",
+      arguments: { path: BLOB_PATH },
+    });
+    expect(result.isError).toBeFalsy();
+    const [first] = contentOf(result);
+    if (signedUrlsEnabled) {
+      expect(first.type).toBe("resource_link");
+      expect(first.uri).toMatch(/\/vault\/.*mcp-temp-data\.bin\?sig=/);
+      const fetched = await fetch(first.uri);
+      expect(fetched.status).toBe(200);
+      expect(Buffer.from(await fetched.arrayBuffer()).equals(BLOB_BYTES)).toBe(true);
+    } else {
+      expect(first.type).toBe("resource");
+      expect(first.resource.blob).toBe(BLOB_BYTES.toString("base64"));
+    }
+  });
+
+  test("as: 'link' either returns a link or explains which setting is off", async () => {
+    const result = await client.callTool({
+      name: "vault_read_binary",
+      arguments: { path: BINARY_PATH, as: "link" },
+    });
+    if (signedUrlsEnabled) {
+      expect(result.isError).toBeFalsy();
+      expect(contentOf(result)[0].type).toBe("resource_link");
+    } else {
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toMatch(/Enable signed URLs/);
+    }
+  });
+
+  test("reports a missing file as an error", async () => {
     const result = await client.callTool({
       name: "vault_read_binary",
       arguments: { path: `${TEST_DIR}/definitely-not-here.png` },
     });
     expect(result.isError).toBe(true);
+  });
+
+  test("vault_write refuses to write text to an image path", async () => {
+    const result = await client.callTool({
+      name: "vault_write",
+      arguments: { path: BINARY_PATH, content: "not a png" },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toMatch(/image\/png/);
+    // The file is untouched.
+    const response = await authedFetch(`/vault/${BINARY_PATH}`);
+    expect(Buffer.from(await response.arrayBuffer()).toString("base64")).toBe(PIXEL_BASE64);
+  });
+});
+
+describe("signed URL tools", () => {
+  const UPLOAD_PATH = `${TEST_DIR}/mcp-temp-uploaded.png`;
+  let enabled = false;
+
+  beforeAll(async () => {
+    const { tools } = await client.listTools();
+    enabled = tools.some((t) => t.name === "vault_get_upload_url");
+  });
+
+  afterAll(async () => {
+    await deleteFixture(UPLOAD_PATH).catch((_e: unknown): void => {});
+  });
+
+  test("an upload link accepts one PUT without the API key, then a download link serves it back", async () => {
+    if (!enabled) {
+      console.warn("Signed URLs are off in the running plugin: skipping the upload/download round trip.");
+      return;
+    }
+    const uploadResult = await client.callTool({
+      name: "vault_get_upload_url",
+      arguments: { path: UPLOAD_PATH },
+    });
+    expect(uploadResult.isError).toBeFalsy();
+    const upload = jsonOf<{ url: string; method: string; contentType: string; command: string }>(uploadResult);
+    expect(upload.method).toBe("PUT");
+    expect(upload.contentType).toBe("image/png");
+    expect(upload.command).toContain("curl -X PUT");
+
+    const put = await fetch(upload.url, {
+      method: "PUT",
+      headers: { "Content-Type": "image/png" },
+      body: new Uint8Array(PIXEL_BYTES),
+    });
+    expect(put.status).toBe(204);
+    const replay = await fetch(upload.url, {
+      method: "PUT",
+      headers: { "Content-Type": "image/png" },
+      body: new Uint8Array(PIXEL_BYTES),
+    });
+    expect(replay.status).toBe(401);
+    await new Promise((r) => setTimeout(r, 300));
+
+    const downloadResult = await client.callTool({
+      name: "vault_get_download_url",
+      arguments: { path: UPLOAD_PATH },
+    });
+    const [link, text] = contentOf(downloadResult);
+    expect(link.type).toBe("resource_link");
+    expect(link.mimeType).toBe("image/png");
+    expect(link.size).toBe(PIXEL_BYTES.byteLength);
+    expect(text.type).toBe("text");
+    const get = await fetch(link.uri);
+    expect(get.status).toBe(200);
+    expect(get.headers.get("content-disposition")).toMatch(/^inline;/);
+    expect(Buffer.from(await get.arrayBuffer()).toString("base64")).toBe(PIXEL_BASE64);
+    const asDownload = await fetch(`${link.uri}&download=1`);
+    expect(asDownload.headers.get("content-disposition")).toMatch(/^attachment;/);
   });
 });
 
@@ -685,8 +825,6 @@ describe("vault_read_binary and vault_write_binary tools", () => {
 
 describe("vault_read on a non-text file", () => {
   const PNG_PATH = `${TEST_DIR}/mcp-temp-refused.png`;
-  const PIXEL_BASE64 =
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
   // A note whose text genuinely contains the replacement character: its own bytes are
   // valid UTF-8, so it must read normally. This is the file a check that looked for the
   // character itself would wrongly refuse.
@@ -694,15 +832,12 @@ describe("vault_read on a non-text file", () => {
   const MARKER_BODY = `# Marker\n\nA pasted glyph survived as ${String.fromCodePoint(0xfffd)} here.\n`;
 
   beforeAll(async () => {
-    await client.callTool({
-      name: "vault_write_binary",
-      arguments: { path: PNG_PATH, content: PIXEL_BASE64 },
-    });
+    await putBytes(PNG_PATH, PIXEL_BYTES, "image/png");
     await client.callTool({
       name: "vault_write",
       arguments: { path: MARKER_PATH, content: MARKER_BODY },
     });
-    // Give Obsidian's index a moment to register both new files.
+    // Give Obsidian's index a moment to register the note.
     await new Promise((r) => setTimeout(r, 300));
   });
 

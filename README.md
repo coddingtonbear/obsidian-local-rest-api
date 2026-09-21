@@ -26,6 +26,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
   * [Connecting a client](#connecting-a-client)
   * [Available tools](#available-tools)
   * [Binary files and attachments](#binary-files-and-attachments)
+  * [Signed URLs](#signed-urls)
   * [Available resources](#available-resources)
 - [API Extensions](#api-extensions)
   * [Typed extension API](#typed-extension-api)
@@ -324,9 +325,10 @@ The exact config syntax varies by client; see the [Quick start](#mcp-clients) ex
 |---|---|
 | `vault_list` | List files and subdirectories inside a vault directory |
 | `vault_read` | Read a text file's content, frontmatter, tags, and stat; refuses anything that is not valid UTF-8 |
-| `vault_read_binary` | Read a file as raw bytes, base64-encoded, for attachments `vault_read` would corrupt |
-| `vault_write` | Create or overwrite a vault file |
-| `vault_write_binary` | Create or overwrite a vault file from base64-encoded raw bytes |
+| `vault_read_binary` | Read an attachment: images as an image block the model can see, anything else as a download link or embedded bytes |
+| `vault_get_download_url` | Mint a signed, expiring link to a file that works without the API key (only when signed URLs are enabled) |
+| `vault_get_upload_url` | Mint a signed, single-use link for uploading a file over `PUT` (only when signed URLs are enabled) |
+| `vault_write` | Create or overwrite a text file; refuses paths whose extension names a binary type |
 | `vault_append` | Append content to the end of a vault file |
 | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
 | `vault_delete` | Delete a vault file (moves to trash by default) |
@@ -345,11 +347,30 @@ The exact config syntax varies by client; see the [Quick start](#mcp-clients) ex
 
 The REST API has always handled binary content: `GET /vault/<path>` returns raw bytes with a `Content-Type` derived from the file extension, and `PUT /vault/<path>` accepts a body of any content type and stores it byte-for-byte. Neither has a practical size limit.
 
-MCP tools are a different story, because a tool's arguments and results pass through the model. `vault_read` and `vault_write` are text tools — they decode and encode UTF-8, which is lossy for anything that is not text — so reading an attachment with `vault_read` and writing the result back destroys the file. `vault_read_binary` and `vault_write_binary` exist for those files, and carry the bytes base64-encoded.
+MCP tools are a different story, because a tool's arguments and results pass through the model. `vault_read` and `vault_write` are text tools — they decode and encode UTF-8, which is lossy for anything that is not text — so `vault_read` refuses a file whose bytes are not valid UTF-8, and `vault_write` and `vault_append` refuse a path whose extension names an image, audio, video, font, PDF, or archive type. Reading an attachment as text and writing the result back is the mistake that destroys attachments, and both halves of it are now refused.
 
-`vault_write_binary` refuses a payload it cannot decode cleanly rather than writing the bytes it managed to salvage.
+`vault_read_binary` is the tool for attachments, and what it returns depends on the file:
 
-Because base64 costs roughly 0.35-0.45 tokens per byte of context, both binary tools refuse files over 1 MiB. That ceiling is a context guard, not a storage limit — move larger attachments over the REST endpoints above.
+- **Images** come back as an MCP `image` content block, downscaled to fit 1568px on the long side, plus a small text block with the file's path, MIME type, size, and dimensions. The model can actually look at the picture, and is billed for its pixels rather than its bytes: a multi-megabyte photo costs a couple of thousand tokens.
+- **Everything else** comes back as a `resource_link` to a signed download URL when signed URLs are enabled (below), so the bytes never enter the conversation. When they are not enabled, a file under 1 MiB is embedded as a `resource` block with base64 bytes, and a larger one is refused with a pointer at the REST endpoint.
+
+An `as` argument overrides the default: `as: "bytes"` embeds the raw bytes (under 1 MiB), `as: "link"` returns a signed link and never reads the file.
+
+There is no upload tool that carries bytes through the model — emitting base64 as output tokens is impractical beyond a few kilobytes. The agent's host has the file on disk; it uploads it with a `PUT` to the REST API, either with the API key or with a signed upload URL.
+
+### Signed URLs
+
+Signed URLs let an agent hand a file to something that is not the MCP client — a browser tab, an `<img>` tag, a `curl` in a shell — without also handing over the API key. They are off by default; turn them on under **Settings → Local REST API → Advanced settings → Enable signed URLs**, and set their lifetime there (default 300 seconds).
+
+While they are on, three MCP tools mint them:
+
+- `vault_get_download_url` returns a `resource_link` to `GET /vault/<path>?sig=…&exp=…`, plus a markdown link for clients that only render text. The link is valid until it expires and can be used repeatedly. Add `&download=1` to have the browser save the file instead of showing it.
+- `vault_get_upload_url` returns a `PUT /vault/<path>?sig=…&exp=…` URL and a ready-to-run `curl` command. The link is consumed by the first request that succeeds. Send the file's real `Content-Type`: a `PUT` without one, or with a `text/*` type, is stored as text.
+- `vault_read_binary` uses download links for non-image files, and for anything when called with `as: "link"`.
+
+How they work: the signature is an HMAC over the method, the normalized vault path, and the expiry, under a secret generated fresh every time the plugin loads and kept only in memory. A link is therefore good for one file, one method, one window of time, and never survives an Obsidian restart. The host is not part of the signature, so the same link works whichever hostname on the certificate the client uses. Anyone holding a link can do what it names until it expires, so treat one as you would the file itself.
+
+Two practical notes: whether a chat client renders a linked image inline is up to the client, and most do not today, but clicking through always works; and a link on the HTTPS port needs the plugin's certificate to be trusted by whatever opens it — the plain-HTTP port avoids that.
 
 ### Available resources
 
