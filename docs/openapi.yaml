@@ -1476,11 +1476,11 @@ paths:
         
         On by default; can be turned off under Advanced settings, where the lifetime is also set (default 300 seconds). While enabled, `vault_get_download_url` and `vault_get_upload_url` are registered, and `vault_read_binary` links to non-image files instead of embedding them.
         
-        A signed URL authorizes a **whole-file** write to exactly the path it names. The signature covers the method, the normalized path and the expiry, and nothing else — so a request that also carries `Target-Type`/`Target` headers, or whose path continues into `/heading`, `/block` or `/frontmatter`, is refused with `40102` rather than quietly becoming a targeted edit of a document the link never named. Targeted writes need the API key.
+        A signed URL authorizes a **whole-file** write to exactly the path it names. The signature covers the method, the normalized path, the expiry and a random per-link nonce (`n`), and nothing else — so a request that also carries `Target-Type`/`Target` headers, or whose path continues into `/heading`, `/block` or `/frontmatter`, is refused with `40102` rather than quietly becoming a targeted edit of a document the link never named. Targeted writes need the API key.
         
         A `PUT` link's single use is claimed when the request is authorized, not when it finishes, so concurrent redemptions cannot all pass the check; a request that does not end in a 2xx gives the claim back, so a rejected or aborted attempt never spends the link.
         
-        A signed URL is `GET` or `PUT /vault/{filename}?sig=…&exp=…`. The signature is an HMAC-SHA256 over the method, the normalized vault path, and the expiry, under a secret generated at plugin load and held only in memory; it stands in for the `Authorization` header on that one request. Download links can be used repeatedly until they expire and are served with `Content-Disposition: inline` (`download=1` asks for an attachment). Upload links are consumed by the first request that succeeds. Links do not survive an Obsidian restart.
+        A signed URL is `GET` or `PUT /vault/{filename}?sig=…&exp=…&n=…`. The signature is an HMAC-SHA256 over the method, the normalized vault path, the expiry, and the random per-link nonce `n`, under a secret generated at plugin load and held only in memory; it stands in for the `Authorization` header on that one request. Download links can be used repeatedly until they expire and are served with `Content-Disposition: inline` (`download=1` asks for an attachment). Upload links are consumed by the first request that succeeds. Links do not survive an Obsidian restart.
         
         ## Available resources
         
@@ -2102,7 +2102,7 @@ paths:
         
         Binary files are served as raw bytes, with a `Content-Type` derived from the file extension, so this endpoint reads attachments — images, PDFs, audio — as well as notes. There is no size limit on the response.
         
-        A signed download URL (`?sig=…&exp=…`, from the MCP `vault_get_download_url` tool) authenticates the request in place of the `Authorization` header while signed URLs are enabled in the plugin settings. Such a request is served `inline` rather than as an attachment unless `download=1` is also given.
+        A signed download URL (`?sig=…&exp=…&n=…`, from the MCP `vault_get_download_url` tool) authenticates the request in place of the `Authorization` header while signed URLs are enabled in the plugin settings. Such a request is served `inline` rather than as an attachment unless `download=1` is also given.
         
         # Targeting a Sub-part of your Document
         
@@ -3013,7 +3013,7 @@ paths:
         
         Any content type is accepted: a request body that is not text or JSON is stored as raw bytes, so attachments -- images, PDFs, audio -- can be uploaded here as well as notes. There is no size limit beyond the request-size cap.
         
-        A signed upload URL (`?sig=…&exp=…`, from the MCP `vault_get_upload_url` tool) authenticates a single whole-file `PUT` in place of the `Authorization` header; the link is consumed by the request that succeeds.
+        A signed upload URL (`?sig=…&exp=…&n=…`, from the MCP `vault_get_upload_url` tool) authenticates a single whole-file `PUT` in place of the `Authorization` header; the link is consumed by the request that succeeds. It authorizes a whole-file write only: a request that also targets part of the document, through `Target-Type`/`Target` headers or through `/heading`, `/block` or `/frontmatter` path elements, is refused.
         
         # Targeting a Sub-part of your Document
         

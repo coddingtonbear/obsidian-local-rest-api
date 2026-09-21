@@ -961,8 +961,8 @@ describe("requestHandler", () => {
     });
 
     function signedPath(method: "GET" | "PUT", path: string, query: Record<string, string> = {}): string {
-      const { sig, exp } = handler.urlSigner.sign(method, path, 300);
-      const params = new URLSearchParams({ ...query, sig, exp: String(exp) });
+      const { sig, exp, nonce } = handler.urlSigner.sign(method, path, 300);
+      const params = new URLSearchParams({ ...query, sig, exp: String(exp), n: nonce });
       return `/vault/${path}?${params}`;
     }
 
@@ -1007,9 +1007,9 @@ describe("requestHandler", () => {
       // `note.md/heading/Alpha` edits `note.md` because `note.md` exists.
       app.vault.adapter._exists = true;
       app.vault.adapter._statForPath = PATH;
-      const { sig, exp } = handler.urlSigner.sign("PUT", `${PATH}/heading/Alpha`, 300);
+      const { sig, exp, nonce } = handler.urlSigner.sign("PUT", `${PATH}/heading/Alpha`, 300);
       const result = await request(server)
-        .put(`/vault/${PATH}/heading/Alpha?sig=${sig}&exp=${exp}`)
+        .put(`/vault/${PATH}/heading/Alpha?sig=${sig}&exp=${exp}&n=${nonce}`)
         .set("Content-Type", "text/markdown")
         .send("injected")
         .expect(401);
@@ -1077,9 +1077,9 @@ describe("requestHandler", () => {
     });
 
     test("the signature covers the normalized path, so another spelling of the same file is accepted", async () => {
-      const { sig, exp } = handler.urlSigner.sign("GET", PATH, 300);
+      const { sig, exp, nonce } = handler.urlSigner.sign("GET", PATH, 300);
       await request(server)
-        .get(`/vault/notes/../attachments/pixel.png?sig=${sig}&exp=${exp}`)
+        .get(`/vault/notes/../attachments/pixel.png?sig=${sig}&exp=${exp}&n=${nonce}`)
         .expect(200);
     });
 

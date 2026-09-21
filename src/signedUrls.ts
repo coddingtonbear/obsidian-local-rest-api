@@ -68,6 +68,8 @@ export type SignatureVerdict = "ok" | "expired" | "invalid" | "consumed";
 export interface SignedUrlParams {
   sig: string;
   exp: number;
+  /** Random per-link salt. See `sign` for why the signature is not a pure function. */
+  nonce: string;
 }
 
 export class UrlSigner {
@@ -87,9 +89,14 @@ export class UrlSigner {
     return Math.floor(this.now() / 1000);
   }
 
-  private digest(method: SignableMethod, normalizedPath: string, exp: number): string {
+  private digest(
+    method: SignableMethod,
+    normalizedPath: string,
+    exp: number,
+    nonce: string,
+  ): string {
     return createHmac("sha256", this.secret)
-      .update(`${method}\n${normalizedPath}\n${exp}`)
+      .update(`${method}\n${normalizedPath}\n${exp}\n${nonce}`)
       .digest("hex");
   }
 
@@ -103,7 +110,17 @@ export class UrlSigner {
       throw new Error(`Cannot sign a URL for "${path}": it does not name a file inside the vault.`);
     }
     const exp = this.nowSeconds() + clampSignedUrlTtl(ttlSeconds);
-    return { sig: this.digest(method, normalized, exp), exp };
+    // The nonce is what stops two links for the same file being the same link. Without
+    // it the signed material is (method, path, exp) and `exp` has one-second
+    // granularity, so minting twice for a path inside the same second produced
+    // byte-identical URLs -- and since a spent PUT link is remembered *by signature*,
+    // re-minting straight after an upload handed back the link that had just been
+    // consumed. Two grants the issuer believed were independent were one grant.
+    //
+    // This is not a secrecy fix: a deterministic HMAC leaks nothing, and forging one
+    // still needs the secret. It buys uniqueness, so each mint is its own grant.
+    const nonce = randomBytes(9).toString("base64url");
+    return { sig: this.digest(method, normalized, exp, nonce), exp, nonce };
   }
 
   /**
@@ -111,13 +128,22 @@ export class UrlSigner {
    * normalized here the same way `sign` normalized it. `exp` arrives as the raw query
    * string value.
    */
-  verify(method: string, path: string, exp: string, sig: string): SignatureVerdict {
+  verify(
+    method: string,
+    path: string,
+    exp: string,
+    sig: string,
+    nonce: string,
+  ): SignatureVerdict {
     if (!isSignableMethod(method)) return "invalid";
     const normalized = normalizeVaultFilePath(path);
     if (normalized === null) return "invalid";
     if (!/^\d{1,12}$/.test(exp)) return "invalid";
+    // Bound and charset-checked before it reaches the HMAC, so a hostile query string
+    // cannot feed unbounded input through the digest on every request.
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(nonce)) return "invalid";
     const expSeconds = Number(exp);
-    const expected = Buffer.from(this.digest(method, normalized, expSeconds), "hex");
+    const expected = Buffer.from(this.digest(method, normalized, expSeconds, nonce), "hex");
     if (!/^[0-9a-f]+$/i.test(sig) || sig.length !== expected.length * 2) return "invalid";
     if (!timingSafeEqual(expected, Buffer.from(sig, "hex"))) return "invalid";
     // Only a genuine signature gets to learn whether it is late: an attacker probing
@@ -181,6 +207,11 @@ export function buildSignedUrl(
   extraQuery: Record<string, string> = {},
 ): string {
   const encodedPath = normalizedPath.split("/").map(encodeURIComponent).join("/");
-  const query = new URLSearchParams({ ...extraQuery, sig: params.sig, exp: String(params.exp) });
+  const query = new URLSearchParams({
+    ...extraQuery,
+    sig: params.sig,
+    exp: String(params.exp),
+    n: params.nonce,
+  });
   return `${baseUrl.replace(/\/+$/, "")}/vault/${encodedPath}?${query.toString()}`;
 }

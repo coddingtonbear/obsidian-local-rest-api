@@ -239,8 +239,14 @@ export default class RequestHandler {
    * otherwise the signer's verdict.
    */
   private signedUrlVerdict(req: express.Request): "ok" | "expired" | "invalid" | "consumed" | null {
-    const { sig, exp } = req.query;
+    const { sig, exp, n } = req.query;
+    // `sig` and `exp` together are what makes this *look* like a signed request; without
+    // them it is an ordinary one and falls through to API-key auth, so the absence of
+    // either returns null rather than a rejection. A missing or malformed `n` is a
+    // different thing -- the request claims to be signed and cannot be -- so it is left
+    // to `verify`, which rejects it as invalid along with every other bad signature.
     if (typeof sig !== "string" || typeof exp !== "string") return null;
+    const nonce = typeof n === "string" ? n : "";
     if (!this.settings.enableSignedUrls) return "invalid";
     if (!isSignableMethod(req.method) || !req.path.startsWith("/vault/")) return "invalid";
     let decoded: string;
@@ -254,7 +260,7 @@ export default class RequestHandler {
       return "invalid";
     }
     if (normalizeVaultFilePath(decoded) === null) return "invalid";
-    return this.urlSigner.verify(req.method, decoded, exp, sig);
+    return this.urlSigner.verify(req.method, decoded, exp, sig, nonce);
   }
 
   /** True when the request was authenticated by a signed URL rather than the API key. */

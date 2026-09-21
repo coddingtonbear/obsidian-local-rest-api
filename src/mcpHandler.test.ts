@@ -972,7 +972,7 @@ describe("McpHandler", () => {
         annotations: { audience: ["user", "assistant"], priority: 0.3 },
       });
       expect((result.content[0] as { uri: string }).uri).toMatch(
-        /^http:\/\/127\.0\.0\.1:27123\/vault\/data\.bin\?sig=[0-9a-f]{64}&exp=\d+$/,
+        /^http:\/\/127\.0\.0\.1:27123\/vault\/data\.bin\?sig=[0-9a-f]{64}&exp=\d+&n=[A-Za-z0-9_-]+$/,
       );
       expect(result.content[1].type).toBe("text");
       expect(result.content[1].text).toContain("[data.bin](http://127.0.0.1:27123/vault/data.bin?sig=");
@@ -1046,10 +1046,10 @@ describe("McpHandler", () => {
       const result = await overHttp(mcp, () => getToolCallback("vault_get_download_url")({ path: PNG_PATH }));
       const url = new URL((result.content[0] as { uri: string }).uri);
       expect(
-        signer.verify("GET", PNG_PATH, url.searchParams.get("exp") ?? "", url.searchParams.get("sig") ?? ""),
+        signer.verify("GET", PNG_PATH, url.searchParams.get("exp") ?? "", url.searchParams.get("sig") ?? "", url.searchParams.get("n") ?? ""),
       ).toBe("ok");
       expect(
-        signer.verify("PUT", PNG_PATH, url.searchParams.get("exp") ?? "", url.searchParams.get("sig") ?? ""),
+        signer.verify("PUT", PNG_PATH, url.searchParams.get("exp") ?? "", url.searchParams.get("sig") ?? "", url.searchParams.get("n") ?? ""),
       ).toBe("invalid");
     });
 
@@ -1110,7 +1110,7 @@ describe("McpHandler", () => {
       expect(new Date(body.expiresAt).getTime()).toBeGreaterThan(Date.now());
       const url = new URL(body.url);
       expect(
-        signer.verify("PUT", "attachments/new photo.jpg", url.searchParams.get("exp") ?? "", url.searchParams.get("sig") ?? ""),
+        signer.verify("PUT", "attachments/new photo.jpg", url.searchParams.get("exp") ?? "", url.searchParams.get("sig") ?? "", url.searchParams.get("n") ?? ""),
       ).toBe("ok");
     });
 
