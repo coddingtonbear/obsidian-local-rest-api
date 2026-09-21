@@ -280,7 +280,7 @@ paths:
           description: "Success"
           headers:
             Content-Location:
-              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
                 type: "string"
@@ -327,7 +327,7 @@ paths:
         
         ## Which file did it act on?
         
-        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on (non-ASCII characters percent-encoded). A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
+        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on. Each path component is percent-encoded on its own — non-ASCII characters, and reserved characters like `#`, `?` and `,` that a client would otherwise read as a fragment, a query or a header-list separator — so the value can be pasted straight back into a request URL. A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
         
         `/active/` responses carry `Content-Location` for the same reason, whether or not a target is embedded: the file the request acted on is whichever note happened to be open.
         
@@ -465,7 +465,7 @@ paths:
           description: "Success"
           headers:
             Content-Location:
-              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
                 type: "string"
@@ -1006,7 +1006,7 @@ paths:
           description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
-              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
                 type: "string"
@@ -1081,7 +1081,7 @@ paths:
         
         ## Which file did it act on?
         
-        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on (non-ASCII characters percent-encoded). A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
+        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on. Each path component is percent-encoded on its own — non-ASCII characters, and reserved characters like `#`, `?` and `,` that a client would otherwise read as a fragment, a query or a header-list separator — so the value can be pasted straight back into a request URL. A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
         
         `/active/` responses carry `Content-Location` for the same reason, whether or not a target is embedded: the file the request acted on is whichever note happened to be open.
         
@@ -1162,7 +1162,7 @@ paths:
           description: "Success; content appended to the targeted section (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
-              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
                 type: "string"
@@ -1174,7 +1174,7 @@ paths:
           description: "Success; content appended to end of file."
           headers:
             Content-Location:
-              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
                 type: "string"
@@ -1225,7 +1225,7 @@ paths:
         
         ## Which file did it act on?
         
-        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on (non-ASCII characters percent-encoded). A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
+        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on. Each path component is percent-encoded on its own — non-ASCII characters, and reserved characters like `#`, `?` and `,` that a client would otherwise read as a fragment, a query or a header-list separator — so the value can be pasted straight back into a request URL. A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
         
         `/active/` responses carry `Content-Location` for the same reason, whether or not a target is embedded: the file the request acted on is whichever note happened to be open.
         
@@ -1297,7 +1297,7 @@ paths:
           description: "Success; targeted section replaced (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
-              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
                 type: "string"
@@ -1309,7 +1309,7 @@ paths:
           description: "Success; entire file replaced."
           headers:
             Content-Location:
-              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
                 type: "string"
@@ -2160,7 +2160,7 @@ paths:
         
         ## Which file did it act on?
         
-        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on (non-ASCII characters percent-encoded). A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
+        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on. Each path component is percent-encoded on its own — non-ASCII characters, and reserved characters like `#`, `?` and `,` that a client would otherwise read as a fragment, a query or a header-list separator — so the value can be pasted straight back into a request URL. A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
         
         `/active/` responses carry `Content-Location` for the same reason, whether or not a target is embedded: the file the request acted on is whichever note happened to be open.
         
@@ -2331,7 +2331,7 @@ paths:
           description: "Success"
           headers:
             Content-Location:
-              description: "Vault-relative path of the file the URL resolved to, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded. Sent only when the URL embedded a target (`/heading/...`, `/block/...`, `/frontmatter/...`), since that is the case where the file the request acted on is not evident from the URL alone; absent on a whole-file request."
+              description: "Vault-relative path of the file the URL resolved to, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL. Sent only when the URL embedded a target (`/heading/...`, `/block/...`, `/frontmatter/...`), since that is the case where the file the request acted on is not evident from the URL alone; absent on a whole-file request."
               required: false
               schema:
                 example: "notes/file.md"
@@ -2880,7 +2880,7 @@ paths:
           description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
-              description: "Vault-relative path of the file the URL resolved to, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded. Sent only when the URL embedded a target (`/heading/...`, `/block/...`, `/frontmatter/...`), since that is the case where the file the request acted on is not evident from the URL alone; absent on a whole-file request."
+              description: "Vault-relative path of the file the URL resolved to, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL. Sent only when the URL embedded a target (`/heading/...`, `/block/...`, `/frontmatter/...`), since that is the case where the file the request acted on is not evident from the URL alone; absent on a whole-file request."
               required: false
               schema:
                 example: "notes/file.md"
@@ -2956,7 +2956,7 @@ paths:
         
         ## Which file did it act on?
         
-        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on (non-ASCII characters percent-encoded). A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
+        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on. Each path component is percent-encoded on its own — non-ASCII characters, and reserved characters like `#`, `?` and `,` that a client would otherwise read as a fragment, a query or a header-list separator — so the value can be pasted straight back into a request URL. A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
         
         `/active/` responses carry `Content-Location` for the same reason, whether or not a target is embedded: the file the request acted on is whichever note happened to be open.
         
@@ -3044,7 +3044,7 @@ paths:
           description: "Success; content appended to the targeted section (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
-              description: "Vault-relative path of the file the URL resolved to, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded. Sent only when the URL embedded a target (`/heading/...`, `/block/...`, `/frontmatter/...`), since that is the case where the file the request acted on is not evident from the URL alone; absent on a whole-file request."
+              description: "Vault-relative path of the file the URL resolved to, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL. Sent only when the URL embedded a target (`/heading/...`, `/block/...`, `/frontmatter/...`), since that is the case where the file the request acted on is not evident from the URL alone; absent on a whole-file request."
               required: false
               schema:
                 example: "notes/file.md"
@@ -3108,7 +3108,7 @@ paths:
         
         ## Which file did it act on?
         
-        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on (non-ASCII characters percent-encoded). A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
+        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on. Each path component is percent-encoded on its own — non-ASCII characters, and reserved characters like `#`, `?` and `,` that a client would otherwise read as a fragment, a query or a header-list separator — so the value can be pasted straight back into a request URL. A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
         
         `/active/` responses carry `Content-Location` for the same reason, whether or not a target is embedded: the file the request acted on is whichever note happened to be open.
         
@@ -3205,7 +3205,7 @@ paths:
           description: "Success; targeted section replaced (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
-              description: "Vault-relative path of the file the URL resolved to, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded. Sent only when the URL embedded a target (`/heading/...`, `/block/...`, `/frontmatter/...`), since that is the case where the file the request acted on is not evident from the URL alone; absent on a whole-file request."
+              description: "Vault-relative path of the file the URL resolved to, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL. Sent only when the URL embedded a target (`/heading/...`, `/block/...`, `/frontmatter/...`), since that is the case where the file the request acted on is not evident from the URL alone; absent on a whole-file request."
               required: false
               schema:
                 example: "notes/file.md"

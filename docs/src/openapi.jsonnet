@@ -50,7 +50,7 @@ local DownloadParam = {
 
 local ContentLocationHeader = {
   'Content-Location': {
-    description: 'Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded.',
+    description: 'Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL.',
     schema: { type: 'string', example: 'notes/file.md' },
   },
 };
@@ -66,7 +66,7 @@ local WithContentLocation(codes) = {
 // knows which way it went. A URL that names the file outright reports nothing.
 local ResolvedContentLocationHeader = {
   'Content-Location': {
-    description: 'Vault-relative path of the file the URL resolved to, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded. Sent only when the URL embedded a target (`/heading/...`, `/block/...`, `/frontmatter/...`), since that is the case where the file the request acted on is not evident from the URL alone; absent on a whole-file request.',
+    description: 'Vault-relative path of the file the URL resolved to, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL. Sent only when the URL embedded a target (`/heading/...`, `/block/...`, `/frontmatter/...`), since that is the case where the file the request acted on is not evident from the URL alone; absent on a whole-file request.',
     required: false,
     schema: { type: 'string', example: 'notes/file.md' },
   },

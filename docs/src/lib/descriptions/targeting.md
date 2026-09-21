@@ -20,7 +20,7 @@ On `PUT` and `POST`, the `Content-Type` of your request body selects how the pay
 
 ## Which file did it act on?
 
-A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on (non-ASCII characters percent-encoded). A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
+A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on. Each path component is percent-encoded on its own — non-ASCII characters, and reserved characters like `#`, `?` and `,` that a client would otherwise read as a fragment, a query or a header-list separator — so the value can be pasted straight back into a request URL. A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
 
 `/active/` responses carry `Content-Location` for the same reason, whether or not a target is embedded: the file the request acted on is whichever note happened to be open.
 

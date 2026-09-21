@@ -269,7 +269,7 @@ curl -k -X POST \
 
 Supported target types: `heading`, `block`, `frontmatter`.
 
-A targeted URL is ambiguous on its face — `/vault/notes/log.md/heading/Today` could name the `Today` section of `notes/log.md` or a file literally called `notes/log.md/heading/Today`. The server walks backwards down the path until it finds a real file and reports which one it settled on in a `Content-Location` response header (non-ASCII characters percent-encoded). A request whose URL names the file outright gets no such header.
+A targeted URL is ambiguous on its face — `/vault/notes/log.md/heading/Today` could name the `Today` section of `notes/log.md` or a file literally called `notes/log.md/heading/Today`. The server walks backwards down the path until it finds a real file and reports which one it settled on in a `Content-Location` response header, with each path component percent-encoded on its own (non-ASCII characters, and reserved characters like `#`, `?` and `,`) so it can be pasted straight back into a request URL. A request whose URL names the file outright gets no such header.
 
 On a GET, a `Target-Scope` header selects which part of the target comes back, mirroring the PATCH scopes: `content` (the default), `marker` (the label — a heading's raw text, a block's bare id, a frontmatter key), or `markerAndContent` (the whole node, in exactly the shape a PATCH `replace` at that scope consumes — a heading subtree reads back with its own line as `# Title`, levels relative to its parent):
 

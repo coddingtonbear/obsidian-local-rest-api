@@ -4633,6 +4633,20 @@ describe("requestHandler", () => {
       expect(res.headers["content-location"]).toEqual(encodedPath);
     });
 
+    test("reserved filename characters are percent-encoded", async () => {
+      // `encodeURI` would leave all three of these alone. `#` would make a
+      // client read the rest of the path as a fragment, `?` as a query, and a
+      // comma is a header-list separator -- each of which hands the client a
+      // different filename than the one the request acted on.
+      const awkward = "notes/a#b?c,d.md";
+      app.vault.adapter._statForPath = awkward;
+      const res = await request(server)
+        .get(`/vault/${encodeURIComponent(awkward).replaceAll("%2F", "/")}/heading/Heading2`)
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(200);
+      expect(res.headers["content-location"]).toEqual("notes/a%23b%3Fc%2Cd.md");
+    });
+
     test("a whole-file request sets no Content-Location", async () => {
       // The header reports a resolution the client could not have made itself.
       // A URL that already names the file outright has nothing to report.
