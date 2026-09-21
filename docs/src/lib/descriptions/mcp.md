@@ -70,6 +70,8 @@ On by default; can be turned off under Advanced settings, where the lifetime is 
 
 A signed URL authorizes a **whole-file** write to exactly the path it names. The signature covers the method, the normalized path, the expiry and a random per-link nonce (`n`), and nothing else — so a request that also carries `Target-Type`/`Target` headers, or whose path continues into `/heading`, `/block` or `/frontmatter`, is refused with `40102` rather than quietly becoming a targeted edit of a document the link never named. Targeted writes need the API key.
 
+A signed `PUT` stores exactly the bytes it is sent, whatever `Content-Type` it declares: it bypasses the JSON and text parsers, which would otherwise reparse and re-serialize the body and silently reformat a pretty-printed `.json`.
+
 A `PUT` link's single use is claimed when the request is authorized, not when it finishes, so concurrent redemptions cannot all pass the check; a request that does not end in a 2xx gives the claim back, so a rejected or aborted attempt never spends the link.
 
 A signed request whose path carries a backslash is refused. Verification treats `\` as a separator and dispatch does not, so the two layers would disagree about which file `a%5Cb` names; no legitimate link needs one, since the separator is normalized away before signing. With verbose logging on, `sig` and `n` are redacted from the logged URL: they are a bearer capability, and console output gets pasted into bug reports.

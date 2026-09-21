@@ -2484,11 +2484,24 @@ export default class RequestHandler {
     // answering 204, so nothing looked wrong until the attachment was opened. RFC 9110
     // says a payload with no declared type may be treated as application/octet-stream, so
     // that is what it becomes, and the raw parser takes it from there.
+    //
+    // A *signed* PUT is routed the same way for a different reason. The upload tool
+    // advertises the destination's real media type, which for `data.json` is
+    // application/json -- so the JSON parser turned the upload into a JavaScript value
+    // and `writeFileContent` re-serialized it, storing `{"b":2,"a":1}` for a
+    // pretty-printed file and answering 204. Whitespace, key formatting and the trailing
+    // newline were simply gone. `text/*` is the same shape of problem, decoding and
+    // re-encoding bytes that were never promised to be text.
+    //
+    // A signed URL authorizes a whole-file write of exactly the bytes sent, so it does
+    // not go through a parser that can rewrite them. Doing it here rather than by
+    // changing the advertised Content-Type means the guarantee holds whatever the caller
+    // sends, instead of only when they follow the suggested command.
     this.api.use((req, _res, next) => {
       const hasBody =
         req.headers["content-length"] !== undefined ||
         req.headers["transfer-encoding"] !== undefined;
-      if (hasBody && !req.headers["content-type"]) {
+      if (hasBody && (!req.headers["content-type"] || this.requestIsSigned(req))) {
         req.headers["content-type"] = "application/octet-stream";
       }
       next();

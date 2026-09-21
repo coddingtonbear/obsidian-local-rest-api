@@ -847,7 +847,7 @@ export class McpHandler {
       this.tool(
         "vault_get_upload_url",
         dedent`
-          Return a signed, single-use URL for PUT /vault/<path>, for uploading a file that exists on your host. The result includes a ready-to-run curl command. Send the file's real Content-Type: a PUT with a text/* type is stored as text. A PUT with no Content-Type at all is treated as application/octet-stream and stored as raw bytes. The URL needs no API key and expires; the request that succeeds consumes it. Creates missing parent directories and overwrites an existing file without warning.
+          Return a signed, single-use URL for PUT /vault/<path>, for uploading a file that exists on your host. The result includes a ready-to-run curl command. The Content-Type is informational: a signed upload stores exactly the bytes you send, whatever type you declare, so a pretty-printed .json keeps its whitespace instead of being reparsed and re-serialized. The URL needs no API key and expires; the request that succeeds consumes it. Creates missing parent directories and overwrites an existing file without warning.
         `,
         { path: z.string().describe("Destination file path relative to vault root") },
         { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },

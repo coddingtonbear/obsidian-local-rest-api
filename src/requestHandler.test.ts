@@ -1085,6 +1085,25 @@ describe("requestHandler", () => {
       await request(server).put(path).set("Content-Type", "image/png").send(BYTES).expect(204);
     });
 
+    test.each([
+      ["application/json", '{\n  "b": 2,\n  "a": 1\n}\n'],
+      ["text/markdown", "# Title\r\n\r\ntrailing spaces   \r\n"],
+      ["text/plain", "  leading and trailing  \n\n"],
+    ])("a signed PUT sent as %s stores the bytes verbatim", async (contentType, body) => {
+      // The upload tool advertises the destination's real media type, so a `.json`
+      // destination got application/json, the JSON parser turned the file into a value
+      // and `writeFileContent` re-serialized it -- storing `{"b":2,"a":1}` for the input
+      // below, and answering 204. A signed URL authorizes writing exactly the bytes sent.
+      await request(server)
+        .put(signedPath("PUT", PATH))
+        .set("Content-Type", contentType)
+        .send(body)
+        .expect(204);
+      const written = app.vault.adapter._writeBinary?.[1];
+      expect(written).toBeDefined();
+      expect(Buffer.from(written).toString("utf-8")).toBe(body);
+    });
+
     test("a PUT with no Content-Type stores the bytes, not Express's empty object", async () => {
       // Before the octet-stream default, no parser matched a body with no declared type,
       // `req.body` kept Express's `{}`, and the two bytes "{}" were written over the

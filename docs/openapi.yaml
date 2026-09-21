@@ -1478,6 +1478,8 @@ paths:
         
         A signed URL authorizes a **whole-file** write to exactly the path it names. The signature covers the method, the normalized path, the expiry and a random per-link nonce (`n`), and nothing else — so a request that also carries `Target-Type`/`Target` headers, or whose path continues into `/heading`, `/block` or `/frontmatter`, is refused with `40102` rather than quietly becoming a targeted edit of a document the link never named. Targeted writes need the API key.
         
+        A signed `PUT` stores exactly the bytes it is sent, whatever `Content-Type` it declares: it bypasses the JSON and text parsers, which would otherwise reparse and re-serialize the body and silently reformat a pretty-printed `.json`.
+        
         A `PUT` link's single use is claimed when the request is authorized, not when it finishes, so concurrent redemptions cannot all pass the check; a request that does not end in a 2xx gives the claim back, so a rejected or aborted attempt never spends the link.
         
         A signed request whose path carries a backslash is refused. Verification treats `\` as a separator and dispatch does not, so the two layers would disagree about which file `a%5Cb` names; no legitimate link needs one, since the separator is normalized away before signing. With verbose logging on, `sig` and `n` are redacted from the logged URL: they are a bearer capability, and console output gets pasted into bug reports.
@@ -3021,7 +3023,7 @@ paths:
         
         Any content type is accepted: a request body that is not text or JSON is stored as raw bytes, so attachments -- images, PDFs, audio -- can be uploaded here as well as notes. A body sent with no `Content-Type` at all is treated as `application/octet-stream` and stored as raw bytes, which is what RFC 9110 allows. There is no size limit beyond the request-size cap.
         
-        A signed upload URL (`?sig=…&exp=…&n=…`, from the MCP `vault_get_upload_url` tool) authenticates a single whole-file `PUT` in place of the `Authorization` header; the link is consumed by the request that succeeds. It authorizes a whole-file write only: a request that also targets part of the document, through `Target-Type`/`Target` headers or through `/heading`, `/block` or `/frontmatter` path elements, is refused.
+        A signed upload URL (`?sig=…&exp=…&n=…`, from the MCP `vault_get_upload_url` tool) authenticates a single whole-file `PUT` in place of the `Authorization` header; the link is consumed by the request that succeeds. A signed `PUT` stores exactly the bytes sent, whatever `Content-Type` it declares -- it is not routed through the JSON or text parsers, which would otherwise reparse and re-serialize the body. It authorizes a whole-file write only: a request that also targets part of the document, through `Target-Type`/`Target` headers or through `/heading`, `/block` or `/frontmatter` path elements, is refused.
         
         # Targeting a Sub-part of your Document
         
