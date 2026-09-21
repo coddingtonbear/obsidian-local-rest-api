@@ -55,7 +55,9 @@ local ContentLocationHeader = {
   },
 };
 local WithContentLocation(codes) = {
-  responses+: { [c]+: { headers: ContentLocationHeader } for c in codes },
+  // `headers+:` rather than `headers:`: an operation's own response headers
+  // (`Markdown-Patch-Warnings`, say) must survive this being mixed in.
+  responses+: { [c]+: { headers+: ContentLocationHeader } for c in codes },
 };
 
 // `/vault/{filename}` only reports a Content-Location when the URL had to be
@@ -70,7 +72,9 @@ local ResolvedContentLocationHeader = {
   },
 };
 local WithResolvedContentLocation(codes) = {
-  responses+: { [c]+: { headers: ResolvedContentLocationHeader } for c in codes },
+  // `headers+:` rather than `headers:`: an operation's own response headers
+  // (`Markdown-Patch-Warnings`, say) must survive this being mixed in.
+  responses+: { [c]+: { headers+: ResolvedContentLocationHeader } for c in codes },
 };
 
 

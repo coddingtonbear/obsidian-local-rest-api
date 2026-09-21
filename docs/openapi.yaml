@@ -1010,6 +1010,10 @@ paths:
               schema:
                 example: "notes/file.md"
                 type: "string"
+            Markdown-Patch-Warnings:
+              description: "Present only when the patch produced warnings: a percent-encoded JSON array of `{ code, message }` objects (percent-encoded because a warning message embeds document text verbatim, which may contain non-ASCII characters that are not valid in a raw header value). Decode with `decodeURIComponent` before parsing as JSON."
+              schema:
+                type: "string"
         "400":
           content:
             application/json:
@@ -1162,6 +1166,10 @@ paths:
               schema:
                 example: "notes/file.md"
                 type: "string"
+            Markdown-Patch-Warnings:
+              description: "Present only when the write produced warnings: a percent-encoded JSON array of `{ code, message }` objects. Decode with `decodeURIComponent` before parsing as JSON."
+              schema:
+                type: "string"
         "204":
           description: "Success; content appended to end of file."
           headers:
@@ -1292,6 +1300,10 @@ paths:
               description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
               schema:
                 example: "notes/file.md"
+                type: "string"
+            Markdown-Patch-Warnings:
+              description: "Present only when the write produced warnings: a percent-encoded JSON array of `{ code, message }` objects. Decode with `decodeURIComponent` before parsing as JSON."
+              schema:
                 type: "string"
         "204":
           description: "Success; entire file replaced."
@@ -2873,6 +2885,10 @@ paths:
               schema:
                 example: "notes/file.md"
                 type: "string"
+            Markdown-Patch-Warnings:
+              description: "Present only when the patch produced warnings: a percent-encoded JSON array of `{ code, message }` objects (percent-encoded because a warning message embeds document text verbatim, which may contain non-ASCII characters that are not valid in a raw header value). Decode with `decodeURIComponent` before parsing as JSON."
+              schema:
+                type: "string"
         "400":
           content:
             application/json:
@@ -3033,6 +3049,10 @@ paths:
               schema:
                 example: "notes/file.md"
                 type: "string"
+            Markdown-Patch-Warnings:
+              description: "Present only when the write produced warnings: a percent-encoded JSON array of `{ code, message }` objects. Decode with `decodeURIComponent` before parsing as JSON."
+              schema:
+                type: "string"
         "204":
           description: "Success; content appended to end of file."
         "400":
@@ -3189,6 +3209,10 @@ paths:
               required: false
               schema:
                 example: "notes/file.md"
+                type: "string"
+            Markdown-Patch-Warnings:
+              description: "Present only when the write produced warnings: a percent-encoded JSON array of `{ code, message }` objects. Decode with `decodeURIComponent` before parsing as JSON."
+              schema:
                 type: "string"
         "204":
           description: "Success; entire file replaced."
