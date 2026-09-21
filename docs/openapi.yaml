@@ -3017,7 +3017,7 @@ paths:
       description: |
         Creates a new file in your vault or updates the content of an existing one if the specified file already exists.
         
-        Any content type is accepted: a request body that is not text or JSON is stored as raw bytes, so attachments -- images, PDFs, audio -- can be uploaded here as well as notes. There is no size limit beyond the request-size cap.
+        Any content type is accepted: a request body that is not text or JSON is stored as raw bytes, so attachments -- images, PDFs, audio -- can be uploaded here as well as notes. A body sent with no `Content-Type` at all is treated as `application/octet-stream` and stored as raw bytes, which is what RFC 9110 allows. There is no size limit beyond the request-size cap.
         
         A signed upload URL (`?sig=…&exp=…&n=…`, from the MCP `vault_get_upload_url` tool) authenticates a single whole-file `PUT` in place of the `Authorization` header; the link is consumed by the request that succeeds. It authorizes a whole-file write only: a request that also targets part of the document, through `Target-Type`/`Target` headers or through `/heading`, `/block` or `/frontmatter` path elements, is refused.
         

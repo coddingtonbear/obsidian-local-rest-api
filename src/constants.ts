@@ -118,6 +118,12 @@ export const MaximumRequestSize = "1024mb";
 //    because the true threshold has not been bisected and may move with Obsidian's own
 //    renderer memory use.
 //
+//    It is the base64 specifically, not the size of the response. `vault_read` was made
+//    to return a 6MB text block and the renderer did not blink -- five times the payload
+//    that kills it as base64. So this ceiling belongs on the tools that embed bytes, and
+//    the text tools need no equivalent; an oversized *note* is a context problem, not a
+//    stability one.
+//
 // Anything larger belongs on `GET`/`PUT /vault/<path>`, which carry raw bytes and are
 // bounded only by `MaximumRequestSize` above, or on a signed URL.
 export const MaximumMcpBinaryBytes = 512 * 1024;
