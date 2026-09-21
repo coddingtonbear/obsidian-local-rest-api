@@ -19,7 +19,7 @@ jest.mock("./mcpHandler", () => ({
   })),
 }));
 
-import RequestHandler from "./requestHandler";
+import RequestHandler, { redactSignedUrl } from "./requestHandler";
 import { ErrorCode, LocalRestApiSettings } from "./types";
 import { CERT_NAME } from "./constants";
 import { UrlSigner } from "./signedUrls";
@@ -1013,6 +1013,32 @@ describe("requestHandler", () => {
     // request into an edit of part of a document -- and of a *different* file, in the
     // path-element case -- while the signature covers neither the path elements nor the
     // headers. Verified against a live vault before the fix: both wrote successfully.
+    test("the verbose log redacts the credential parts of a signed URL", async () => {
+      // `sig` and `n` are a bearer capability; console output gets pasted into bug
+      // reports. `exp` stays legible because it is useful and grants nothing alone.
+      const line = redactSignedUrl("/vault/a.png?sig=deadbeef&exp=1790000000&n=AbC-_123");
+      expect(line).toBe("/vault/a.png?sig=<redacted>&exp=1790000000&n=<redacted>");
+      expect(redactSignedUrl("/vault/a.png")).toBe("/vault/a.png");
+      expect(redactSignedUrl("/vault/a.png?download=1&sig=x&n=y")).toBe(
+        "/vault/a.png?download=1&sig=<redacted>&n=<redacted>",
+      );
+    });
+
+    test("a signed request carrying a backslash is refused", async () => {
+      // `normalizeVaultFilePath` folds `\\` into `/` when verifying, but `wholeFilePath`
+      // joins segments verbatim when dispatching, so the two layers disagree about which
+      // file `a%5Cb` names. Obsidian happens to normalize it again before the write, but
+      // a signed URL should not depend on that to address the right file.
+      const { sig, exp, nonce } = handler.urlSigner.sign("GET", PATH, 300);
+      const backslashed = PATH.replace("/", "%5C");
+      const result = await request(server)
+        .get(`/vault/${backslashed}?sig=${sig}&exp=${exp}&n=${nonce}`)
+        .expect(401);
+      expect(result.body.message).toMatch(/not valid for this request/);
+      // The canonical spelling still works, so this rejects only the ambiguous form.
+      await request(server).get(signedPath("GET", PATH)).expect(200);
+    });
+
     test("a signed PUT refuses URL path-element targeting", async () => {
       // The prefix must stat as a real file for the resolver to read the remaining
       // segments as a target -- which is exactly the live condition: an upload URL for

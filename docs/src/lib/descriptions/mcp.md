@@ -72,6 +72,8 @@ A signed URL authorizes a **whole-file** write to exactly the path it names. The
 
 A `PUT` link's single use is claimed when the request is authorized, not when it finishes, so concurrent redemptions cannot all pass the check; a request that does not end in a 2xx gives the claim back, so a rejected or aborted attempt never spends the link.
 
+A signed request whose path carries a backslash is refused. Verification treats `\` as a separator and dispatch does not, so the two layers would disagree about which file `a%5Cb` names; no legitimate link needs one, since the separator is normalized away before signing. With verbose logging on, `sig` and `n` are redacted from the logged URL: they are a bearer capability, and console output gets pasted into bug reports.
+
 A signed URL is `GET` or `PUT /vault/{filename}?sig=…&exp=…&n=…`. The signature is an HMAC-SHA256 over the method, the normalized vault path, the expiry, and the random per-link nonce `n`, under a secret generated at plugin load and held only in memory; it stands in for the `Authorization` header on that one request. Download links can be used repeatedly until they expire and are served with `Content-Disposition: inline` (`download=1` asks for an attachment). Upload links are consumed by the first request that succeeds. Links do not survive an Obsidian restart.
 
 ## Available resources

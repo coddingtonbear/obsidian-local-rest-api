@@ -827,11 +827,10 @@ describe("signed URL tools", () => {
     // Target-Type/Target headers nor extra /heading path elements are covered by the
     // signature, so both routes into a targeted edit are refused (40102). Verified live
     // against this vault before the fix: both wrote successfully.
-    // A different path from the upload above, deliberately. A signature is an HMAC over
-    // (method, normalized path, expiry-in-seconds) with no nonce, so two links minted for
-    // the same path within the same second are byte-identical -- and the one above has
-    // already been spent, which would make this a "consumed" 40101 rather than the 40102
-    // being tested.
+    // A different path from the upload above. Since the nonce landed, two links for one
+    // path are distinct and this is no longer load-bearing for correctness -- it just
+    // keeps the two halves of this test from writing over each other, so a failure names
+    // the half that actually broke.
     const targetedUpload = await client.callTool({
       name: "vault_get_upload_url",
       arguments: { path: TARGETED_PATH },

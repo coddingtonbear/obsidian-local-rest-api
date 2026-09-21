@@ -94,6 +94,19 @@ export const MARKDOWN_PATCH_VERSION_HEADER = "Markdown-Patch-Version";
 interface RequestState {
   signedUrl?: boolean;
 }
+/**
+ * Blank the credential-bearing parts of a URL for logging.
+ *
+ * `sig` and `n` are a bearer capability: anyone holding them can redeem the link until
+ * it expires, without the API key. Verbose logging wrote the whole URL to the developer
+ * console, and console output is the sort of thing that ends up pasted into a bug report.
+ * The expiry is left legible because it is useful when reading a log and grants nothing
+ * on its own.
+ */
+export function redactSignedUrl(url: string): string {
+  return url.replace(/([?&](?:sig|n)=)[^&#]*/gi, "$1<redacted>");
+}
+
 function res_locals(req: express.Request): RequestState {
   const carrier = req as express.Request & { localRestApi?: RequestState };
   carrier.localRestApi ??= {};
@@ -260,6 +273,18 @@ export default class RequestHandler {
       return "invalid";
     }
     if (normalizeVaultFilePath(decoded) === null) return "invalid";
+    // Verification folds `\` into `/` (normalizeVaultFilePath treats it as a separator,
+    // for Windows-shaped input); dispatch does not -- `wholeFilePath` only rejects a
+    // segment containing `/` and joins the rest verbatim. So a signature minted for `a/b`
+    // also verifies for `a%5Cb`, and the two layers disagree about which file that names.
+    //
+    // In practice Obsidian normalizes the separator again before the write lands, which
+    // is why a redeemed `a%5Cb` was observed writing to `a/b` rather than to a distinct
+    // file. That is somebody else's implementation detail to change, though, and a signed
+    // URL should not depend on it to name the right file. A signed request carrying a
+    // backslash is refused instead: no legitimate link needs one, because `sign`
+    // normalized the separator away before signing.
+    if (decoded.includes("\\")) return "invalid";
     return this.urlSigner.verify(req.method, decoded, exp, sig, nonce);
   }
 
@@ -2395,7 +2420,7 @@ export default class RequestHandler {
       if (this.settings.enableVerboseLogging) {
         const originalSend = res.send;
         res.send = function (body, ...args) {
-          console.debug(`[REST API] ${req.method} ${req.url} => ${res.statusCode}`);
+          console.debug(`[REST API] ${req.method} ${redactSignedUrl(req.url)} => ${res.statusCode}`);
           return originalSend.apply(res, [body, ...args]) as ReturnType<typeof res.send>;
         };
       }
