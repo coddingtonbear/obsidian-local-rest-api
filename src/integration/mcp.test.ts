@@ -777,7 +777,12 @@ describe("vault_read_binary tool", () => {
   });
 });
 
-describe("signed URL tools", () => {
+// Signed URLs are on by default, so this suite runs by default and opts *out*, unlike
+// the OBSIDIAN_ACTIVE_FILE / OBSIDIAN_TEST_OPEN_FILE suites which opt in. Gating at
+// registration time is what lets Jest report a skip as a skip.
+const signedUrlSuite = process.env.OBSIDIAN_SIGNED_URLS === "0" ? describe.skip : describe;
+
+signedUrlSuite("signed URL tools", () => {
   const UPLOAD_PATH = `${TEST_DIR}/mcp-temp-uploaded.png`;
   const TARGETED_PATH = `${TEST_DIR}/mcp-temp-targeted.md`;
   let enabled = false;
@@ -793,9 +798,18 @@ describe("signed URL tools", () => {
   });
 
   test("an upload link accepts one PUT without the API key, then a download link serves it back", async () => {
+    // Returning early here used to make Jest record a *pass*: the only end-to-end
+    // upload/replay/download coverage reported green while executing none of its
+    // assertions, which is worse than no test at all. Signed URLs are on by default, so
+    // finding them off is a misconfiguration worth failing on -- and someone who has
+    // deliberately turned them off opts out with OBSIDIAN_SIGNED_URLS=0, which skips the
+    // whole describe at registration time where Jest can report it honestly.
     if (!enabled) {
-      console.warn("Signed URLs are off in the running plugin: skipping the upload/download round trip.");
-      return;
+      throw new Error(
+        "Signed URLs are off in the running plugin, so this round trip exercised nothing. " +
+          'Enable "Enable signed URLs" under Advanced settings, or set OBSIDIAN_SIGNED_URLS=0 ' +
+          "to skip this suite deliberately.",
+      );
     }
     const uploadResult = await client.callTool({
       name: "vault_get_upload_url",

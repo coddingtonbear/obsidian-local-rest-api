@@ -101,12 +101,16 @@ export const LicenseUrl =
 
 export const MaximumRequestSize = "1024mb";
 
-// Ceiling on the bytes `vault_read_binary` and `vault_write_binary` will carry. Two
-// separate reasons, and the second one is the binding constraint:
+// Ceiling on the bytes an MCP *result* will carry -- `vault_read_binary`, whether it
+// embeds them itself or falls back through `embeddedBytesResult`. There is no longer a
+// binary tool that takes bytes as an argument: `vault_write_binary` was replaced by
+// `vault_get_upload_url`, which hands back a URL to PUT the file to, precisely so bytes
+// travel over HTTP instead of through the model. Two separate reasons for the cap, and
+// the second one is the binding constraint:
 //
-// 1. A context guard. base64 in a tool argument or result passes through the model's
-//    context at roughly 0.35-0.45 tokens per byte, so a file a REST client would not
-//    think twice about is a five-figure token bill for an agent.
+// 1. A context guard. base64 in a result passes through the model's context at roughly
+//    0.35-0.45 tokens per byte, so a file a REST client would not think twice about is
+//    a five-figure token bill for an agent.
 //
 // 2. Renderer stability. A tool result carrying roughly a megabyte or more of base64
 //    kills Obsidian's Electron renderer outright -- the process dies, taking this

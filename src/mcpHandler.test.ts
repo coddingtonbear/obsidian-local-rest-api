@@ -15,7 +15,7 @@ import express from "express";
 import request from "supertest";
 import { McpServer } from "@modelcontextprotocol/server";
 
-import { McpHandler } from "./mcpHandler";
+import { McpHandler, markdownLink } from "./mcpHandler";
 import { DEFAULT_SETTINGS, MaximumMcpBinaryBytes } from "./constants";
 import { UrlSigner } from "./signedUrls";
 import { ImageScaler, MaximumImageEdge } from "./imageScaling";
@@ -191,6 +191,30 @@ function sessionlessRequest(
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe("markdownLink", () => {
+  test.each([
+    // The label is a vault filename, and the tool descriptions ask an agent to repeat
+    // this link in its reply -- so an unescaped `]` would choose where a reader is sent.
+    ["report](https://example.invalid/).pdf", "[report\\](https://example.invalid/).pdf]"],
+    ["a[b].png", "[a\\[b\\].png]"],
+    ["*bold*_it_`code`.png", "[\\*bold\\*\\_it\\_\\`code\\`.png]"],
+    ["<tag>.png", "[\\<tag\\>.png]"],
+    ["plain.png", "[plain.png]"],
+  ])("escapes %s in the label", (label, expectedPrefix) => {
+    expect(markdownLink(label, "http://h/v/x")).toBe(`${expectedPrefix}(http://h/v/x)`);
+  });
+
+  test("encodes parentheses in the destination, which would otherwise end it early", () => {
+    expect(markdownLink("a.png", "http://h/v/a(1).png?sig=x")).toBe(
+      "[a.png](http://h/v/a%281%29.png?sig=x)",
+    );
+  });
+
+  test("folds newlines, since a label cannot span lines", () => {
+    expect(markdownLink("two\nlines.png", "http://h")).toBe("[two lines.png](http://h)");
+  });
+});
 
 describe("McpHandler", () => {
    
@@ -907,6 +931,34 @@ describe("McpHandler", () => {
         await expect(call).rejects.toThrow(/Refusing to write .* as text/);
       }
     });
+
+    test.each([
+      "archives/a.bz2",
+      "archives/a.xz",
+      "archives/a.7z",
+      "archives/a.rar",
+      "archives/a.tar",
+      "archives/a.epub",
+      "archives/a.cab",
+      "archives/a.iso",
+      "archives/a.zip",
+      "archives/a.gz",
+    ])("vault_write refuses %s as text", async (path) => {
+      build(DEFAULT_SETTINGS, { imageScaler: null });
+      // The explicit list missed .bz2 and .xz outright; matching +zip/+gzip and
+      // -compressed by shape covers the vendor containers mime-db knows about too.
+      await expect(getToolCallback("vault_write")({ path, content: "x" })).rejects.toThrow(
+        /Refusing to write .* as text/,
+      );
+    });
+
+    test.each(["notes/a.md", "notes/a.txt", "data/a.json", "diagrams/a.svg"])(
+      "vault_write still accepts %s",
+      async (path) => {
+        build(DEFAULT_SETTINGS, { imageScaler: null });
+        await expect(getToolCallback("vault_write")({ path, content: "x" })).resolves.toBeDefined();
+      },
+    );
 
     // ---- vault_read_binary: SVG -----------------------------------------------
 

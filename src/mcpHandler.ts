@@ -106,14 +106,45 @@ const SVG_MIME_TYPE = "image/svg+xml";
 const BINARY_MIME_PREFIXES = ["image/", "audio/", "video/", "font/"];
 const BINARY_MIME_TYPES: ReadonlySet<string> = new Set([
   "application/pdf",
-  "application/zip",
-  "application/gzip",
   "application/octet-stream",
   "application/wasm",
-  "application/x-tar",
-  "application/x-7z-compressed",
-  "application/vnd.rar",
 ]);
+
+// Archives are matched by shape as well as by name. An explicit list was already wrong --
+// `.bz2` and `.xz` resolve to `application/x-bzip2` and `application/x-xz`, neither of
+// which was in it -- and mime-db knows dozens more, every `epub+zip`, `usdz+zip` and
+// vendor container among them. Two patterns cover the families, and the set holds the
+// plain names that match neither.
+const ARCHIVE_MIME_TYPES: ReadonlySet<string> = new Set([
+  "application/zip",
+  "application/gzip",
+  "application/tar",
+  "application/zstd",
+  "application/x-tar",
+  "application/x-gtar",
+  "application/x-ustar",
+  "application/x-gzip",
+  "application/x-compress",
+  "application/x-bzip",
+  "application/x-bzip2",
+  "application/x-xz",
+  "application/x-arj",
+  "application/x-stuffit",
+  "application/x-stuffitx",
+  "application/x-iso9660-image",
+  "application/vnd.rar",
+  "application/vnd.comicbook-rar",
+  "application/vnd.laszip",
+  "application/vnd.dece.zip",
+]);
+
+function isArchiveMimeType(type: string): boolean {
+  return (
+    /\+(?:zip|gzip)$/.test(type) || // epub+zip, usdz+zip, every vendor container
+    /-compressed$/.test(type) || // x-7z-compressed, x-lzh-compressed, ms-cab-compressed
+    ARCHIVE_MIME_TYPES.has(type)
+  );
+}
 
 function binaryMimeTypeFor(path: string): string | null {
   const type = mime.lookup(path);
@@ -124,6 +155,7 @@ function binaryMimeTypeFor(path: string): string | null {
   // which is exactly the corruption this guard exists to stop. Match the extension.
   if (type === SVG_MIME_TYPE && /\.svg$/i.test(path)) return null;
   if (BINARY_MIME_PREFIXES.some((prefix) => type.startsWith(prefix))) return type;
+  if (isArchiveMimeType(type)) return type;
   return BINARY_MIME_TYPES.has(type) ? type : null;
 }
 
@@ -180,6 +212,31 @@ const SIGNED_URLS_DISABLED_HINT =
 /** The URI an embedded vault resource is labelled with. Not fetchable; a name for the bytes. */
 function vaultResourceUri(normalizedPath: string): string {
   return `obsidian://local-rest-api/vault/${normalizedPath.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+/**
+ * A markdown link whose label is a vault filename and whose destination is a signed URL.
+ *
+ * The label is untrusted input. A file named `report](https://example.invalid/).pdf`
+ * closes the label early, and the text then renders as a link to wherever the *filename*
+ * says while the structured `resource_link` beside it still points at the vault -- so a
+ * crafted attachment could choose where a reader is sent. That matters more here than it
+ * looks: the tool descriptions ask an agent to repeat this link in its own reply, which
+ * is precisely where it would be rendered and clicked.
+ *
+ * The characters that shape a link (`\`, `[`, `]`, `<`, `>`) and the inline-formatting
+ * ones (`` ` ``, `*`, `_`) are backslash-escaped, which CommonMark permits for any ASCII
+ * punctuation. Newlines are folded to spaces, since a label cannot span lines. The
+ * destination is already percent-encoded segment by segment, but `encodeURIComponent`
+ * leaves `(` and `)` alone and an unbalanced `)` ends the destination early, so those two
+ * are encoded here; the REST side decodes them back.
+ */
+export function markdownLink(label: string, url: string): string {
+  const escapedLabel = label
+    .replace(/[\\[\]<>`*_]/g, (c) => `\\${c}`)
+    .replace(/[\r\n]+/g, " ");
+  const safeUrl = url.replace(/\(/g, "%28").replace(/\)/g, "%29");
+  return `[${escapedLabel}](${safeUrl})`;
 }
 
 function filenameOf(path: string): string {
@@ -399,7 +456,7 @@ export class McpHandler {
           // immediately above, so repeating them here paid twice for one fact. What is
           // left is the markdown form of the link -- the thing an agent pastes into a
           // reply -- and the expiry, which is what decides whether it still works.
-          text: `[${name}](${url}) — link valid until ${expiresAt}.`,
+          text: `${markdownLink(name, url)} — link valid until ${expiresAt}.`,
           // The fallback for clients that do not render resource_link at all. It restates
           // the block above, so it is ranked low: a client that renders both shows the
           // same link twice, and this is the copy worth dropping.
@@ -929,7 +986,7 @@ export class McpHandler {
     this.tool(
       "vault_read_binary",
       dedent`
-        Read a non-text vault file: an image, PDF, audio, any attachment. A raster image comes back as an image block (downscaled to fit ${MaximumImageEdge}px) plus a text block with its path, mimeType, size, width, and height. An image still larger than ${MaximumMcpBinaryBytes} bytes once downscaled comes back as a resource_link instead, the same as any other oversized file. Since many clients do not show a resource_link to the person, do not leave them with nothing: if you can fetch a URL and put a local file in front of them, download the link to scratch space and show them that file -- the picture reaches them without its bytes passing through your context, and do not read the download back in yourself. Failing that, say why they are getting a link and repeat it in your reply. An SVG comes back unchanged, as its source text in a resource block. Anything else comes back as a resource_link to a signed download URL when signed URLs are enabled, or embedded base64 when they are not and the file is under ${MaximumMcpBinaryBytes} bytes.
+        Read a non-text vault file: an image, PDF, audio, any attachment. A raster image comes back as an image block (downscaled to fit ${MaximumImageEdge}px) plus a text block with its path, mimeType, size, width, and height. An image still larger than ${MaximumMcpBinaryBytes} bytes once downscaled comes back as a resource_link instead, the same as any other oversized file -- or, when signed URLs are off and there is no link to give, is refused with a pointer at the REST endpoint. Since many clients do not show a resource_link to the person, do not leave them with nothing: if you can fetch a URL and put a local file in front of them, download the link to scratch space and show them that file -- the picture reaches them without its bytes passing through your context, and do not read the download back in yourself. Failing that, say why they are getting a link and repeat it in your reply. An SVG comes back unchanged, as its source text in a resource block. Anything else comes back as a resource_link to a signed download URL when signed URLs are enabled, or embedded base64 when they are not and the file is under ${MaximumMcpBinaryBytes} bytes.
 
         as overrides that: 'bytes' embeds the raw bytes (under ${MaximumMcpBinaryBytes} bytes only); 'link' returns a signed download URL instead of any bytes. Throws if the file does not exist.
       `,
