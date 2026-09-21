@@ -1884,7 +1884,22 @@ export default class RequestHandler {
     return this._vaultCopy(filePath, req, res);
   }
 
-  redirectToVaultPath(
+  /**
+   * Delegates an `/active/` request to the corresponding `/vault/<path>`
+   * handler once the active file is known, tagging the response with the
+   * resolved path first.
+   *
+   * `handler` must be returned, not fired-and-forgotten (a bare call
+   * discards its promise, and with it any rejection -- the request would
+   * then hang forever, since the same failure a `/vault/` request routes to
+   * `errorHandler` via the `handle()` wrapper would here just vanish as an
+   * unhandled rejection with no response ever sent). Returning it lets this
+   * function's own promise adopt the handler's, so `handle()`'s `.catch(next)`
+   * still sees a failure that occurs inside it. This exact shape
+   * (`void this._vaultPut(...)`) previously caused unresponsive `/active/`
+   * requests whenever the underlying write threw.
+   */
+  async redirectToVaultPath(
     file: TFile,
     req: express.Request,
     res: express.Response,
@@ -1892,8 +1907,8 @@ export default class RequestHandler {
       path: string,
       req: express.Request,
       res: express.Response,
-    ) => void,
-  ): void {
+    ) => Promise<void>,
+  ): Promise<void> {
     const path = file.path;
     res.set("Content-Location", encodeURI(path));
 
@@ -1969,7 +1984,7 @@ export default class RequestHandler {
         { createTargetIfMissing: true, source: "header" },
       );
     }
-    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPut(p, rq, rs); });
+    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => this._vaultPut(p, rq, rs));
   }
 
   async activeFilePost(
@@ -2021,7 +2036,7 @@ export default class RequestHandler {
         { source: "header" },
       );
     }
-    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPost(p, rq, rs); });
+    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => this._vaultPost(p, rq, rs));
   }
 
   async activeFilePatch(
@@ -2053,7 +2068,7 @@ export default class RequestHandler {
       file,
       req,
       res,
-      (p, rq, rs) => { void this._vaultPatch(p, rq, rs); },
+      (p, rq, rs) => this._vaultPatch(p, rq, rs),
     );
   }
 
@@ -2080,7 +2095,7 @@ export default class RequestHandler {
       file,
       req,
       res,
-      (p, rq, rs) => { void this._vaultDelete(p, rq, rs); },
+      (p, rq, rs) => this._vaultDelete(p, rq, rs),
     );
   }
 

@@ -882,6 +882,15 @@ export class VaultOperations {
   }
 
   openVaultFile(filePath: string, newLeaf = false): void {
-    void this.app.workspace.openLinkText(filePath, "/", newLeaf);
+    // Intentionally fire-and-forget: the caller (POST /open/) has already
+    // responded by the time this settles, since a client asking Obsidian to
+    // focus a file has no reason to wait on that UI action finishing. The
+    // rejection still needs a home, though -- an un-awaited promise with no
+    // .catch is an unhandled rejection the moment openLinkText throws (e.g.
+    // an invalid path), and while that's non-fatal in Obsidian's renderer
+    // process, it's still an unexplained error with nothing to explain it.
+    this.app.workspace.openLinkText(filePath, "/", newLeaf).catch((error) => {
+      console.error(`[REST API] Failed to open "${filePath}":`, error);
+    });
   }
 }

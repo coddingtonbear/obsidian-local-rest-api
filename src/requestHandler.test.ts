@@ -4338,6 +4338,59 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("active-file write handlers surface failures instead of hanging", () => {
+    // Regression coverage for redirectToVaultPath's callers: they used to
+    // fire the underlying _vaultPut/_vaultPost/_vaultPatch/_vaultDelete call
+    // with `void`, discarding its promise. A thrown error then became an
+    // unhandled rejection instead of reaching errorHandler, and since
+    // nothing ever called res.json/res.status, the request just hung
+    // forever instead of failing fast with a 500. Before the fix, these
+    // tests would time out rather than fail cleanly.
+    const activeFilePath = "notes/active.md";
+
+    beforeEach(() => {
+      const activeFile = Object.assign(new TFile(), { path: activeFilePath });
+      jest.spyOn(app.workspace, "getActiveFile").mockReturnValue(activeFile);
+    });
+
+    test("PUT surfaces a write failure as a 500 instead of hanging", async () => {
+      jest
+        .spyOn(handler.operations, "writeFileContent")
+        .mockRejectedValue(new Error("disk full"));
+
+      await request(server)
+        .put("/active/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("# Replaced\n")
+        .expect(500);
+    });
+
+    test("POST surfaces an append failure as a 500 instead of hanging", async () => {
+      jest
+        .spyOn(handler.operations, "appendFileContent")
+        .mockRejectedValue(new Error("disk full"));
+
+      await request(server)
+        .post("/active/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("appended\n")
+        .expect(500);
+    });
+
+    test("DELETE still surfaces an unexpected deletion failure as a 500", async () => {
+      jest
+        .spyOn(handler.operations, "deleteVaultFile")
+        .mockRejectedValue(new Error("locked"));
+
+      await request(server)
+        .delete("/active/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(500);
+    });
+  });
+
   describe("active PATCH — URL-target raw-content mode", () => {
     // A URL suffix on an active-file PATCH was previously
     // ignored (the whole file was patched); it now routes into raw-content
