@@ -759,7 +759,7 @@ describe("McpHandler", () => {
         type: "image",
         data: Buffer.from("scaled-bytes").toString("base64"),
         mimeType: "image/png",
-        annotations: { audience: ["user", "assistant"] },
+        annotations: { audience: ["user", "assistant"], priority: 0.9 },
       });
       expect(result.content[1].type).toBe("text");
       expect(JSON.parse(result.content[1].text)).toEqual({
@@ -959,7 +959,17 @@ describe("McpHandler", () => {
         name: "data.bin",
         mimeType: "application/octet-stream",
         size: PNG_BYTES.byteLength,
-        annotations: { audience: ["user"] },
+        annotations: {
+          audience: ["user", "assistant"],
+          priority: 0.9,
+          lastModified: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+        },
+      });
+      // The prose fallback restates the link, so it is ranked below it: a client with
+      // room for only one block should keep the structured link.
+      expect(result.content[1]).toMatchObject({
+        type: "text",
+        annotations: { audience: ["user", "assistant"], priority: 0.3 },
       });
       expect((result.content[0] as { uri: string }).uri).toMatch(
         /^http:\/\/127\.0\.0\.1:27123\/vault\/data\.bin\?sig=[0-9a-f]{64}&exp=\d+$/,

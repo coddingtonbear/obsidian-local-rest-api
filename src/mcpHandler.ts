@@ -356,12 +356,29 @@ export class McpHandler {
           mimeType,
           size: file.stat.size,
           description: `${normalized} (${mimeType}, ${file.stat.size} bytes); link expires ${expiresAt}`,
-          annotations: { audience: ["user"] },
+          // Both audiences, deliberately. The link is the whole point of the call, so the
+          // model needs it to say what happened and to hand it on; the user needs it to
+          // click. Marking it user-only would, in a client that honours `audience`, leave
+          // the model unable to report the result of a tool it just ran. The spec's own
+          // resource_link example annotates for the assistant for the same reason.
+          //
+          // `priority` ranks this above the text block below: 1 is "effectively required",
+          // 0 "entirely optional", so a client with room for one of the two should keep
+          // the structured link rather than its prose restatement.
+          // `lastModified` is what `stat` already knows, in the field the spec has for it.
+          annotations: {
+            audience: ["user", "assistant"],
+            priority: 0.9,
+            lastModified: new Date(file.stat.mtime).toISOString(),
+          },
         },
         {
           type: "text",
           text: `[${name}](${url}) — ${mimeType}, ${file.stat.size} bytes, link valid until ${expiresAt}.`,
-          annotations: { audience: ["user"] },
+          // The fallback for clients that do not render resource_link at all. It restates
+          // the block above, so it is ranked low: a client that renders both shows the
+          // same link twice, and this is the copy worth dropping.
+          annotations: { audience: ["user", "assistant"], priority: 0.3 },
         },
       ],
     };
@@ -472,7 +489,7 @@ export class McpHandler {
           type: "image",
           data: data.toString("base64"),
           mimeType: outputType,
-          annotations: { audience: ["user", "assistant"] },
+          annotations: { audience: ["user", "assistant"], priority: 0.9 },
         },
         {
           type: "text",
