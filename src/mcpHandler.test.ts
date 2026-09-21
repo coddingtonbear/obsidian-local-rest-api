@@ -14,6 +14,9 @@ import { McpServer } from "@modelcontextprotocol/server";
 
 import { McpHandler } from "./mcpHandler";
 import { DEFAULT_SETTINGS, MaximumMcpBinaryBytes } from "./constants";
+import { UrlSigner } from "./signedUrls";
+import { ImageScaler, MaximumImageEdge } from "./imageScaling";
+import { LocalRestApiSettings } from "./types";
 import { TFile } from "../mocks/obsidian";
 
 const MODERN_VERSION = "2026-07-28";
@@ -220,8 +223,8 @@ describe("McpHandler", () => {
 
   // ---- tool registration --------------------------------------------------
 
-  test("registers all 18 tools", () => {
-    expect(registerTool).toHaveBeenCalledTimes(18);
+  test("registers all 17 tools (the signed-URL tools join only when that setting is on)", () => {
+    expect(registerTool).toHaveBeenCalledTimes(17);
     const names = registerTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -229,7 +232,6 @@ describe("McpHandler", () => {
         "vault_read",
         "vault_read_binary",
         "vault_write",
-        "vault_write_binary",
         "vault_append",
         "vault_patch",
         "vault_delete",
@@ -631,14 +633,15 @@ describe("McpHandler", () => {
     expect(parseText(result).message).toBe("OK");
   });
 
-  // ---- vault_read_binary / vault_write_binary ------------------------------
+  // ---- vault_read_binary and the signed-URL tools --------------------------
 
-  describe("binary tools", () => {
+  describe("binary files and signed URLs", () => {
     // A one-pixel PNG: real bytes, with a 0x89 lead byte that is not valid UTF-8, so a
     // round trip through the text tools could not produce it.
     const PNG_BASE64 =
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
     const PNG_BYTES = Buffer.from(PNG_BASE64, "base64");
+    const PNG_PATH = "attachments/pixel.png";
 
     function arrayBufferOf(buffer: Buffer): ArrayBuffer {
       return buffer.buffer.slice(
@@ -647,101 +650,342 @@ describe("McpHandler", () => {
       ) as ArrayBuffer;
     }
 
-    test("vault_read_binary returns the bytes base64-encoded with a mime type and size", async () => {
+    // A scaler standing in for the renderer's canvas: records the request, answers with
+    // a fixed payload so the test can tell scaled bytes from the originals.
+    function fakeScaler() {
+      return {
+        scale: jest.fn(async () => ({
+          data: Buffer.from("scaled-bytes"),
+          mimeType: "image/png",
+          width: 10,
+          height: 5,
+          transformed: true,
+        })),
+      };
+    }
+
+    // Build a handler (recording its registrations afresh), optionally with signed URLs on.
+    function build(
+      settings: LocalRestApiSettings = DEFAULT_SETTINGS,
+      options: { signer?: UrlSigner; imageScaler?: ImageScaler | null } = {},
+    ): McpHandler {
+      registerTool.mockClear();
+      const mcp = new McpHandler(ops, settings, { imageScaler: null, ...options });
+      buildServer(mcp);
+      return mcp;
+    }
+
+    const SIGNED: LocalRestApiSettings = { ...DEFAULT_SETTINGS, enableSignedUrls: true };
+
+    // Run a callback as though its tool call had arrived on an HTTP request: the
+    // signed-URL tools read the request's scheme and Host to build their links.
+    function overHttp<T>(
+      mcp: McpHandler,
+      fn: () => Promise<T>,
+      request: { headers?: Record<string, string>; encrypted?: boolean } = {},
+    ): Promise<T> {
+      const headers: Record<string, string> = { host: "127.0.0.1:27123", ...request.headers };
+      const req = {
+        get: (name: string) => headers[name.toLowerCase()],
+        socket: { encrypted: request.encrypted ?? false },
+      } as unknown as express.Request;
+      // @ts-ignore: requestContext is private — the test stands in for handleRequest.
+      return mcp.requestContext.run(req, fn);
+    }
+
+    function registeredNames(): string[] {
+      return registerTool.mock.calls.map((c: unknown[]) => c[0] as string);
+    }
+
+    beforeEach(() => {
+      const png = makeMockFile(PNG_PATH);
+      png.stat.size = PNG_BYTES.byteLength;
+      ops.app.vault.getAbstractFileByPath.mockImplementation((path: string) =>
+        path === PNG_PATH || path === "data.bin" ? png : null,
+      );
       ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(PNG_BYTES));
-      const cb = getToolCallback("vault_read_binary");
-      const result = await cb({ path: "attachments/pixel.png" });
-      expect(ops.readBinaryFileContent).toHaveBeenCalledWith("attachments/pixel.png");
-      expect(parseText(result)).toEqual({
-        path: "attachments/pixel.png",
+    });
+
+    // ---- registration ------------------------------------------------------
+
+    test("the signed-URL tools are registered only while the setting is on", () => {
+      build();
+      expect(registeredNames()).not.toContain("vault_get_download_url");
+      expect(registeredNames()).not.toContain("vault_get_upload_url");
+      build(SIGNED);
+      expect(registeredNames()).toEqual(
+        expect.arrayContaining(["vault_get_download_url", "vault_get_upload_url"]),
+      );
+      expect(registerTool).toHaveBeenCalledTimes(19);
+    });
+
+    test("setSignedUrlsEnabled adds and removes the tools without rebuilding the handler", () => {
+      const mcp = build();
+      mcp.setSignedUrlsEnabled(true);
+      registerTool.mockClear();
+      buildServer(mcp);
+      expect(registeredNames()).toContain("vault_get_upload_url");
+      mcp.setSignedUrlsEnabled(false);
+      registerTool.mockClear();
+      buildServer(mcp);
+      expect(registeredNames()).not.toContain("vault_get_upload_url");
+      // Idempotent in both directions.
+      mcp.setSignedUrlsEnabled(false);
+      mcp.setSignedUrlsEnabled(true);
+      mcp.setSignedUrlsEnabled(true);
+      registerTool.mockClear();
+      buildServer(mcp);
+      expect(registeredNames().filter((n) => n === "vault_get_upload_url")).toHaveLength(1);
+    });
+
+    // ---- vault_read_binary: images ------------------------------------------
+
+    test("returns an image as a downscaled image block plus a text block describing it", async () => {
+      const scaler = fakeScaler();
+      build(DEFAULT_SETTINGS, { imageScaler: scaler });
+      const result = await getToolCallback("vault_read_binary")({ path: PNG_PATH });
+      expect(scaler.scale).toHaveBeenCalledTimes(1);
+      const [bytes, mimeType, maxEdge] = scaler.scale.mock.calls[0] as unknown as [ArrayBuffer, string, number];
+      expect(Buffer.from(bytes).equals(PNG_BYTES)).toBe(true);
+      expect(mimeType).toBe("image/png");
+      expect(maxEdge).toBe(MaximumImageEdge);
+      expect(result.content).toHaveLength(2);
+      expect(result.content[0]).toEqual({
+        type: "image",
+        data: Buffer.from("scaled-bytes").toString("base64"),
+        mimeType: "image/png",
+        annotations: { audience: ["user", "assistant"] },
+      });
+      expect(result.content[1].type).toBe("text");
+      expect(JSON.parse(result.content[1].text)).toEqual({
+        path: PNG_PATH,
         mimeType: "image/png",
         size: PNG_BYTES.byteLength,
-        encoding: "base64",
-        content: PNG_BASE64,
+        width: 10,
+        height: 5,
       });
     });
 
-    test("vault_read_binary falls back to application/octet-stream for an unknown extension", async () => {
+    test("with no scaler in the runtime, a small model-readable image goes through as-is without dimensions", async () => {
+      build(DEFAULT_SETTINGS, { imageScaler: null });
+      const result = await getToolCallback("vault_read_binary")({ path: PNG_PATH });
+      expect(result.content[0]).toMatchObject({ type: "image", data: PNG_BASE64, mimeType: "image/png" });
+      expect(JSON.parse(result.content[1].text)).toEqual({
+        path: PNG_PATH,
+        mimeType: "image/png",
+        size: PNG_BYTES.byteLength,
+      });
+    });
+
+    test("an image the renderer cannot decode falls through to the non-image path", async () => {
+      const scaler = { scale: jest.fn().mockRejectedValue(new Error("not an image")) };
+      build(DEFAULT_SETTINGS, { imageScaler: scaler });
+      const result = await getToolCallback("vault_read_binary")({ path: PNG_PATH });
+      expect(result.content[0].type).toBe("resource");
+    });
+
+    test("as: 'bytes' embeds an image's raw bytes without scaling", async () => {
+      const scaler = fakeScaler();
+      build(DEFAULT_SETTINGS, { imageScaler: scaler });
+      const result = await getToolCallback("vault_read_binary")({ path: PNG_PATH, as: "bytes" });
+      expect(scaler.scale).not.toHaveBeenCalled();
+      expect(result.content).toEqual([
+        {
+          type: "resource",
+          resource: {
+            uri: "obsidian://local-rest-api/vault/attachments/pixel.png",
+            mimeType: "image/png",
+            blob: PNG_BASE64,
+          },
+        },
+      ]);
+    });
+
+    // ---- vault_read_binary: everything else ----------------------------------
+
+    test("embeds a small non-image file as a resource block when signed URLs are off", async () => {
+      build();
       ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(Buffer.from([0, 1, 2])));
-      const cb = getToolCallback("vault_read_binary");
-      expect(parseText(await cb({ path: "data.zzz" })).mimeType).toBe(
-        "application/octet-stream",
+      const result = await getToolCallback("vault_read_binary")({ path: "data.bin" });
+      expect(result.content).toEqual([
+        {
+          type: "resource",
+          resource: {
+            uri: "obsidian://local-rest-api/vault/data.bin",
+            mimeType: "application/octet-stream",
+            blob: Buffer.from([0, 1, 2]).toString("base64"),
+          },
+        },
+      ]);
+    });
+
+    test("refuses to embed a file over the ceiling, pointing at REST and the setting when signed URLs are off", async () => {
+      build();
+      ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
+      await expect(getToolCallback("vault_read_binary")({ path: "data.bin" })).rejects.toThrow(
+        /limit is .* GET \/vault\/<path>.*Enable signed URLs/s,
       );
     });
 
-    test("vault_read_binary refuses a file over the ceiling instead of returning it", async () => {
-      ops.readBinaryFileContent.mockResolvedValue(
-        new ArrayBuffer(MaximumMcpBinaryBytes + 1),
+    test("returns a signed link for a non-image file when signed URLs are on, whatever its size", async () => {
+      const mcp = build(SIGNED);
+      ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
+      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: "data.bin" }));
+      expect(result.content[0]).toMatchObject({
+        type: "resource_link",
+        name: "data.bin",
+        mimeType: "application/octet-stream",
+        size: PNG_BYTES.byteLength,
+        annotations: { audience: ["user"] },
+      });
+      expect((result.content[0] as { uri: string }).uri).toMatch(
+        /^http:\/\/127\.0\.0\.1:27123\/vault\/data\.bin\?sig=[0-9a-f]{64}&exp=\d+$/,
       );
-      const cb = getToolCallback("vault_read_binary");
-      await expect(cb({ path: "big.bin" })).rejects.toThrow(
-        /Refusing to read .* GET or PUT \/vault/s,
+      expect(result.content[1].type).toBe("text");
+      expect(result.content[1].text).toContain("[data.bin](http://127.0.0.1:27123/vault/data.bin?sig=");
+    });
+
+    test("as: 'link' returns a signed link even for an image, and never reads the file", async () => {
+      const scaler = fakeScaler();
+      const mcp = build(SIGNED, { imageScaler: scaler });
+      const result = await overHttp(mcp, () =>
+        getToolCallback("vault_read_binary")({ path: PNG_PATH, as: "link" }),
+      );
+      expect(result.content[0].type).toBe("resource_link");
+      expect(scaler.scale).not.toHaveBeenCalled();
+      expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
+    });
+
+    test("as: 'link' with signed URLs off fails naming the setting", async () => {
+      build();
+      await expect(
+        getToolCallback("vault_read_binary")({ path: PNG_PATH, as: "link" }),
+      ).rejects.toThrow(/Enable signed URLs/);
+    });
+
+    test("as: 'bytes' over the ceiling suggests a link when signed URLs are on", async () => {
+      const mcp = build(SIGNED);
+      ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
+      await expect(
+        overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: "data.bin", as: "bytes" })),
+      ).rejects.toThrow(/as: "link"/);
+    });
+
+    test("normalizes the path before reading, so a traversal-shaped path names the same file", async () => {
+      build();
+      await getToolCallback("vault_read_binary")({ path: "notes/../attachments/pixel.png" });
+      expect(ops.readBinaryFileContent).toHaveBeenCalledWith(PNG_PATH);
+      await expect(getToolCallback("vault_read_binary")({ path: "../outside.png" })).rejects.toThrow(
+        /Not a file path inside the vault/,
       );
     });
 
-    test("vault_write_binary decodes base64 and hands writeFileContent a Buffer", async () => {
-      const cb = getToolCallback("vault_write_binary");
-      const result = await cb({ path: "attachments/pixel.png", content: PNG_BASE64 });
-      expect(ops.writeFileContent).toHaveBeenCalledTimes(1);
-      const [writtenPath, writtenContent] = ops.writeFileContent.mock.calls[0];
-      expect(writtenPath).toBe("attachments/pixel.png");
-      expect(Buffer.isBuffer(writtenContent)).toBe(true);
-      // The bytes must survive intact — this is the whole point of the tool.
-      expect((writtenContent as Buffer).equals(PNG_BYTES)).toBe(true);
-      expect(parseText(result)).toEqual({ message: "OK", size: PNG_BYTES.byteLength });
+    // ---- vault_get_download_url ---------------------------------------------
+
+    test("vault_get_download_url builds the link from the request's scheme and host", async () => {
+      const mcp = build(SIGNED);
+      const cb = getToolCallback("vault_get_download_url");
+      const plain = await overHttp(mcp, () => cb({ path: PNG_PATH }));
+      expect((plain.content[0] as { uri: string }).uri).toMatch(
+        /^http:\/\/127\.0\.0\.1:27123\/vault\/attachments\/pixel\.png\?sig=/,
+      );
+      const tls = await overHttp(mcp, () => cb({ path: PNG_PATH }), {
+        encrypted: true,
+        headers: { host: "vault.example.com:27124" },
+      });
+      expect((tls.content[0] as { uri: string }).uri).toMatch(
+        /^https:\/\/vault\.example\.com:27124\/vault\//,
+      );
+      const proxied = await overHttp(mcp, () => cb({ path: PNG_PATH }), {
+        headers: { "x-forwarded-proto": "https, http" },
+      });
+      expect((proxied.content[0] as { uri: string }).uri).toMatch(/^https:\/\/127\.0\.0\.1:27123\//);
     });
 
-    test("vault_write_binary tolerates whitespace-wrapped base64", async () => {
-      const cb = getToolCallback("vault_write_binary");
-      const wrapped = PNG_BASE64.replace(/(.{40})/g, "$1\n");
-      await cb({ path: "attachments/pixel.png", content: wrapped });
-      const [, writtenContent] = ops.writeFileContent.mock.calls[0];
-      expect((writtenContent as Buffer).equals(PNG_BYTES)).toBe(true);
+    test("the minted link verifies against the signer the REST side shares", async () => {
+      const signer = new UrlSigner();
+      const mcp = build(SIGNED, { signer });
+      const result = await overHttp(mcp, () => getToolCallback("vault_get_download_url")({ path: PNG_PATH }));
+      const url = new URL((result.content[0] as { uri: string }).uri);
+      expect(
+        signer.verify("GET", PNG_PATH, url.searchParams.get("exp") ?? "", url.searchParams.get("sig") ?? ""),
+      ).toBe("ok");
+      expect(
+        signer.verify("PUT", PNG_PATH, url.searchParams.get("exp") ?? "", url.searchParams.get("sig") ?? ""),
+      ).toBe("invalid");
     });
+
+    test("vault_get_download_url refuses a file that does not exist", async () => {
+      const mcp = build(SIGNED);
+      await expect(
+        overHttp(mcp, () => getToolCallback("vault_get_download_url")({ path: "missing.png" })),
+      ).rejects.toThrow(/File not found/);
+    });
+
+    test("the signed-URL tools fail clearly when called outside an HTTP request", async () => {
+      build(SIGNED);
+      await expect(getToolCallback("vault_get_download_url")({ path: PNG_PATH })).rejects.toThrow(
+        /did not arrive over HTTP/,
+      );
+    });
+
+    // ---- vault_get_upload_url -----------------------------------------------
+
+    test("vault_get_upload_url returns a single-use PUT link with a ready-to-run curl command", async () => {
+      const signer = new UrlSigner();
+      const mcp = build(SIGNED, { signer });
+      const result = await overHttp(mcp, () =>
+        getToolCallback("vault_get_upload_url")({ path: "attachments/new photo.jpg" }),
+      );
+      const body = parseText(result);
+      expect(body).toMatchObject({
+        method: "PUT",
+        path: "attachments/new photo.jpg",
+        contentType: "image/jpeg",
+        singleUse: true,
+      });
+      expect(body.url).toMatch(/^http:\/\/127\.0\.0\.1:27123\/vault\/attachments\/new%20photo\.jpg\?sig=/);
+      expect(body.command).toBe(
+        `curl -X PUT -H "Content-Type: image/jpeg" --data-binary @"new photo.jpg" "${body.url}"`,
+      );
+      expect(new Date(body.expiresAt).getTime()).toBeGreaterThan(Date.now());
+      const url = new URL(body.url);
+      expect(
+        signer.verify("PUT", "attachments/new photo.jpg", url.searchParams.get("exp") ?? "", url.searchParams.get("sig") ?? ""),
+      ).toBe("ok");
+    });
+
+    test("vault_get_upload_url honours the configured lifetime", async () => {
+      const mcp = build({ ...SIGNED, signedUrlTtlSeconds: 60 });
+      const before = Date.now();
+      const body = parseText(
+        await overHttp(mcp, () => getToolCallback("vault_get_upload_url")({ path: "a.bin" })),
+      );
+      const expiresIn = (new Date(body.expiresAt).getTime() - before) / 1000;
+      expect(expiresIn).toBeGreaterThan(55);
+      expect(expiresIn).toBeLessThanOrEqual(61);
+    });
+
+    // ---- the text tools refuse binary targets ---------------------------------
 
     test.each([
-      ["a bad length", "iVBOR"],
-      ["a character outside the alphabet", "iVBO*w0KGgo="],
-      ["base64url input", "-_-_"],
-      ["a non-canonical encoding", "QR=="],
-    ])(
-      "vault_write_binary rejects %s rather than writing mangled bytes",
-      async (_label: string, content: string) => {
-        const cb = getToolCallback("vault_write_binary");
-        await expect(cb({ path: "attachments/pixel.png", content })).rejects.toThrow(
-          /must be base64-encoded bytes/,
-        );
-        expect(ops.writeFileContent).not.toHaveBeenCalled();
-      },
-    );
-
-    // The base64url hint is worth its space only for a caller who actually used base64url;
-    // on every other failure it is a paragraph about an encoding nobody reached for.
-    test("vault_write_binary names base64url only when the payload looks like it", async () => {
-      const cb = getToolCallback("vault_write_binary");
-      await expect(
-        cb({ path: "attachments/pixel.png", content: "-_-_" }),
-      ).rejects.toThrow(/base64url/);
-      await expect(
-        cb({ path: "attachments/pixel.png", content: "iVBOR" }),
-      ).rejects.not.toThrow(/base64url/);
-    });
-
-    test("vault_write_binary refuses a payload over the ceiling", async () => {
-      const cb = getToolCallback("vault_write_binary");
-      const oversized = Buffer.alloc(MaximumMcpBinaryBytes + 3).toString("base64");
-      await expect(
-        cb({ path: "big.bin", content: oversized }),
-      ).rejects.toThrow(/Refusing to write/);
+      ["a PNG path", "attachments/pixel.png", "hello", /image\/png.*vault_get_upload_url/s],
+      ["a PDF path", "docs/paper.pdf", "hello", /application\/pdf/],
+      ["content with a NUL byte", "notes/odd.md", "text\0more", /NUL byte/],
+    ])("vault_write and vault_append refuse %s", async (_label, path, content, pattern) => {
+      build();
+      await expect(getToolCallback("vault_write")({ path, content })).rejects.toThrow(pattern);
+      await expect(getToolCallback("vault_append")({ path, content })).rejects.toThrow(pattern);
       expect(ops.writeFileContent).not.toHaveBeenCalled();
+      expect(ops.appendFileContent).not.toHaveBeenCalled();
     });
 
-    test("vault_write_binary writes an empty file for an empty payload", async () => {
-      const cb = getToolCallback("vault_write_binary");
-      const result = await cb({ path: "empty.bin", content: "" });
-      const [, writtenContent] = ops.writeFileContent.mock.calls[0];
-      expect((writtenContent as Buffer).byteLength).toBe(0);
-      expect(parseText(result).size).toBe(0);
+    test("vault_write still writes text types and unknown extensions", async () => {
+      build();
+      await getToolCallback("vault_write")({ path: "notes/a.md", content: "# hi" });
+      await getToolCallback("vault_write")({ path: "data/config.json", content: "{}" });
+      await getToolCallback("vault_write")({ path: "no-extension", content: "x" });
+      expect(ops.writeFileContent).toHaveBeenCalledTimes(3);
     });
   });
 
@@ -1333,8 +1577,8 @@ describe("McpHandler", () => {
 
       const first = await send(1);
       const second = await send(2);
-      expect(first.body.result.tools).toHaveLength(18);
-      expect(second.body.result.tools).toHaveLength(18);
+      expect(first.body.result.tools).toHaveLength(17);
+      expect(second.body.result.tools).toHaveLength(17);
       expect(first.headers["mcp-session-id"]).toBeUndefined();
       expect(second.headers["mcp-session-id"]).toBeUndefined();
     });
@@ -1474,7 +1718,7 @@ describe("McpHandler", () => {
         .send(sessionlessRequest(1, "tools/list"))
         .expect(200);
 
-      expect(res.body.result.tools).toHaveLength(18);
+      expect(res.body.result.tools).toHaveLength(17);
       expect(res.headers["mcp-session-id"]).toBeUndefined();
     });
 
@@ -1602,7 +1846,7 @@ describe("McpHandler", () => {
         .expect(200);
 
       const message = sseResult(res.text);
-      expect(message.result.tools).toHaveLength(18);
+      expect(message.result.tools).toHaveLength(17);
       const vaultList = (message.result.tools as { name: string; inputSchema: unknown }[]).find(
         (t) => t.name === "vault_list",
       );
@@ -1755,6 +1999,94 @@ describe("McpHandler", () => {
       buildServer(mcp);
       const removableCalls = registerTool.mock.calls.filter((c: unknown[]) => c[0] === "removable_tool");
       expect(removableCalls).toHaveLength(1);
+    });
+  });
+
+  // ---- signed-URL tools over HTTP ------------------------------------------
+  //
+  // The signed-URL tools build their links from the request they arrived on, which they
+  // reach through async context rather than anything the SDK passes them. That context
+  // has to survive the SDK's own request handling on both legs, so each is exercised
+  // end to end here: a link comes back carrying the Host header supertest sent.
+
+  describe("signed-URL tools over HTTP", () => {
+    let mcp: McpHandler;
+    let app: express.Express;
+
+    function sseResult(text: string) {
+      const line = text.split("\n").find((l) => l.startsWith("data:"));
+      if (!line) throw new Error(`No SSE data line in:\n${text}`);
+      return JSON.parse(line.slice("data:".length));
+    }
+
+    beforeEach(() => {
+      const png = makeMockFile("attachments/pixel.png");
+      png.stat.size = 70;
+      ops.app.vault.getAbstractFileByPath.mockReturnValue(png);
+      mcp = new McpHandler(ops, { ...DEFAULT_SETTINGS, enableSignedUrls: true }, { imageScaler: null });
+      app = makeApp(mcp);
+    });
+
+    afterEach(() => {
+      mcp.close();
+    });
+
+    test("the sessionless leg hands the tool the request it arrived on", async () => {
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("Host", "vault.local:27123")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", "tools/call")
+        .set("Mcp-Name", "vault_get_download_url")
+        .send(
+          sessionlessRequest(1, "tools/call", {
+            name: "vault_get_download_url",
+            arguments: { path: "attachments/pixel.png" },
+          }),
+        )
+        .expect(200);
+
+      expect(res.body.error).toBeUndefined();
+      const link = res.body.result.content[0];
+      expect(link.type).toBe("resource_link");
+      expect(link.uri).toMatch(/^http:\/\/vault\.local:27123\/vault\/attachments\/pixel\.png\?sig=/);
+    });
+
+    test("the sessionful leg hands the tool the request it arrived on, not the handshake's", async () => {
+      const init = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("Host", "handshake.local:1")
+        .send({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: LEGACY_VERSION,
+            capabilities: {},
+            clientInfo: { name: "sessionful-client", version: "1.0.0" },
+          },
+        })
+        .expect(200);
+      const sessionId = init.headers["mcp-session-id"];
+
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("Host", "later.local:2")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: { name: "vault_get_upload_url", arguments: { path: "attachments/new.png" } },
+        })
+        .expect(200);
+
+      const body = JSON.parse(sseResult(res.text).result.content[0].text);
+      expect(body.url).toMatch(/^http:\/\/later\.local:2\/vault\/attachments\/new\.png\?sig=/);
     });
   });
 });

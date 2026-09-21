@@ -63,6 +63,14 @@ export interface LocalRestApiSettings {
   subjectAltNames?: string;
   enableVerboseLogging?: boolean;
 
+  /**
+   * Whether `GET`/`PUT /vault/<path>` accept a signed URL in place of the bearer
+   * header, and whether the MCP tools that mint such URLs are registered. Off unless
+   * the user turns it on: a signed link is a capability that can be pasted anywhere.
+   */
+  enableSignedUrls?: boolean;
+  /** How long a signed URL stays valid, in seconds. See `clampSignedUrlTtl`. */
+  signedUrlTtlSeconds?: number;
 }
 
 declare module "obsidian" {

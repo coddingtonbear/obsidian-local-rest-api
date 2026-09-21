@@ -31,6 +31,12 @@ import {
   renewServerCertificateIfNeeded,
 } from "./certificates";
 import type { LocalRestApiPublicApi } from "./publicApi";
+import {
+  DefaultSignedUrlTtlSeconds,
+  MaximumSignedUrlTtlSeconds,
+  MinimumSignedUrlTtlSeconds,
+  clampSignedUrlTtl,
+} from "./signedUrls";
 // The extension API is defined in ./publicApi, which is what the generated
 // publicApi.d.ts ships to extension authors. Re-exported here so that anything
 // importing the plugin entry point keeps seeing the same names it always has.
@@ -809,6 +815,21 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         desc: "When enabled, logs server startup messages and a one-line access log entry for every request to the browser console.",
         control: { type: "toggle", key: "enableVerboseLogging" },
       },
+      {
+        name: "Enable signed URLs",
+        desc: "Lets the MCP tools hand out expiring links to individual vault files (vault_get_download_url, vault_get_upload_url, and vault_read_binary's link mode) that work without the API key, so a browser or a shell can fetch or upload a file directly. Anyone holding such a link can read (or, for an upload link, write once to) that one file until it expires. The signing secret is regenerated every time the plugin loads, so links never outlive a restart.",
+        control: { type: "toggle", key: "enableSignedUrls" },
+      },
+      {
+        name: "Signed URL lifetime (seconds)",
+        desc: `How long a signed URL stays valid. Between ${MinimumSignedUrlTtlSeconds} and ${MaximumSignedUrlTtlSeconds} seconds; the default is ${DefaultSignedUrlTtlSeconds}.`,
+        control: {
+          type: "number",
+          key: "signedUrlTtlSeconds",
+          min: MinimumSignedUrlTtlSeconds,
+          max: MaximumSignedUrlTtlSeconds,
+        },
+      },
     ];
   }
 
@@ -900,6 +921,10 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         return this.plugin.settings.bindingHost ?? DefaultBindingHost;
       case "enableVerboseLogging":
         return this.plugin.settings.enableVerboseLogging ?? false;
+      case "enableSignedUrls":
+        return this.plugin.settings.enableSignedUrls ?? false;
+      case "signedUrlTtlSeconds":
+        return clampSignedUrlTtl(this.plugin.settings.signedUrlTtlSeconds);
       default:
         return undefined;
     }
@@ -996,6 +1021,20 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         this.plugin.settings.enableVerboseLogging = (value as boolean) || undefined;
         await this.plugin.saveSettings();
         break;
+      case "enableSignedUrls":
+        this.plugin.settings.enableSignedUrls = (value as boolean) || undefined;
+        await this.plugin.saveSettings();
+        // The REST side reads the setting per request; the MCP side registers or
+        // removes its signed-URL tools to match, so connected clients see the change.
+        this.plugin.requestHandler.mcpHandler.setSignedUrlsEnabled(value as boolean);
+        break;
+      case "signedUrlTtlSeconds": {
+        const clamped = clampSignedUrlTtl(value as number);
+        this.plugin.settings.signedUrlTtlSeconds =
+          clamped === DefaultSignedUrlTtlSeconds ? undefined : clamped;
+        await this.plugin.saveSettings();
+        break;
+      }
     }
   }
 }
