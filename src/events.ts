@@ -230,12 +230,32 @@ export const MaximumSubscriptions = 256;
 export class TooManyStreamsError extends Error {}
 export class TooManySubscriptionsError extends Error {}
 export class InvalidEventFilterError extends Error {}
+export class UnknownEventError extends Error {}
+
+/**
+ * An event an extension has made streamable. It is streamed under the extension's
+ * plugin id as the emitter: `/events/<plugin id>/<event>/`.
+ */
+export interface ExtensionEventDefinition {
+  /** What the event fires on; Obsidian's `Events` fits. */
+  source: NamedEventSource;
+  /**
+   * Turns a listener's arguments into what the stream sends and the filter sees. Null
+   * drops the occurrence. The extension, which knows the payload, decides what is safe.
+   */
+  serialize: (
+    ...args: unknown[]
+  ) => Record<string, unknown> | null | Promise<Record<string, unknown> | null>;
+}
+
+/** Event names an extension may register: one URL path segment, no encoding needed. */
+const EXTENSION_EVENT_NAME = /^[A-Za-z0-9._:-]{1,128}$/;
 
 /** What registering a subscription hands back to a client. */
 export interface EventListenerGrant {
   id: string;
-  emitter: EventEmitterName;
-  event: StreamableEventName;
+  emitter: string;
+  event: string;
   /** The stream's URL: signed when signed URLs are enabled, otherwise it needs the API key. */
   url: string;
   signed: boolean;
@@ -244,8 +264,8 @@ export interface EventListenerGrant {
 
 export interface Subscription {
   id: string;
-  emitter: EventEmitterName;
-  event: StreamableEventName;
+  emitter: string;
+  event: string;
   /** The JSONLogic expression events must satisfy, or null to receive every event. */
   filter: unknown;
   /** Whether the filter mentions `content`, and so whether events carry it. */
@@ -259,7 +279,7 @@ export interface Subscription {
 }
 
 /** Something whose events can be listened to by name, like Obsidian's `Events`. */
-interface NamedEventSource {
+export interface NamedEventSource {
   on(name: string, callback: (...data: unknown[]) => unknown): unknown;
   off(name: string, callback: (...data: unknown[]) => unknown): void;
 }
@@ -290,6 +310,8 @@ export class EventStreams {
    */
   readonly epoch = randomBytes(4).toString("hex");
   private counter = 0;
+  /** Events extensions have registered, by emitter (the extension's plugin id). */
+  private readonly extensionEvents = new Map<string, Map<string, ExtensionEventDefinition>>();
 
   constructor(
     private readonly app: App,
@@ -297,16 +319,73 @@ export class EventStreams {
     private readonly now: () => number = () => Date.now(),
   ) {}
 
+  /** Whether `<emitter>/<event>` is on the built-in allowlist or registered by an extension. */
+  isStreamable(emitter: string, event: string): boolean {
+    if (isEventEmitterName(emitter)) return isStreamableEvent(emitter, event);
+    return this.extensionEvents.get(emitter)?.has(event) ?? false;
+  }
+
+  /** Everything that can be streamed right now, by emitter. */
+  supportedEvents(): Record<string, readonly string[]> {
+    const supported: Record<string, readonly string[]> = { ...STREAMABLE_EVENTS };
+    for (const [emitter, events] of this.extensionEvents) {
+      supported[emitter] = [...events.keys()];
+    }
+    return supported;
+  }
+
+  /**
+   * Make an extension's event streamable under `emitter`, the extension's plugin id.
+   * Throws for a built-in emitter name, an event name that is not one URL-safe path
+   * segment, or an event already registered.
+   */
+  addExtensionEvent(emitter: string, event: string, definition: ExtensionEventDefinition): void {
+    if (isEventEmitterName(emitter)) {
+      throw new Error(`"${emitter}" is a built-in event emitter and cannot be extended.`);
+    }
+    if (!EXTENSION_EVENT_NAME.test(emitter)) {
+      throw new Error(`"${emitter}" cannot be used as an event emitter name in a URL.`);
+    }
+    if (!EXTENSION_EVENT_NAME.test(event)) {
+      throw new Error(
+        `Event name "${event}" must be 1-128 letters, digits, or ".", "_", ":", "-".`,
+      );
+    }
+    const events = this.extensionEvents.get(emitter) ?? new Map<string, ExtensionEventDefinition>();
+    if (events.has(event)) {
+      throw new Error(`The event "${event}" is already registered for "${emitter}".`);
+    }
+    events.set(event, definition);
+    this.extensionEvents.set(emitter, events);
+  }
+
+  /**
+   * Remove every event registered under `emitter`, closing their open streams and
+   * dropping their subscriptions. Called when the extension unregisters.
+   */
+  removeExtensionEvents(emitter: string): void {
+    const events = this.extensionEvents.get(emitter);
+    if (!events) return;
+    for (const event of events.keys()) this.detach(emitter, event);
+    for (const [id, subscription] of this.subscriptions) {
+      if (subscription.emitter !== emitter) continue;
+      for (const session of subscription.sessions) this.responses.get(session)?.end();
+      this.subscriptions.delete(id);
+    }
+    this.extensionEvents.delete(emitter);
+  }
+
   /**
    * Register a subscription and return the URL that streams it. `signer` is null when
    * signed URLs are disabled, and the URL then needs the API key like any other request.
    *
-   * Throws {@link InvalidEventFilterError} for a filter JSONLogic cannot evaluate, and
+   * Throws {@link UnknownEventError} for an event that is not streamable,
+   * {@link InvalidEventFilterError} for a filter JSONLogic cannot evaluate, and
    * {@link TooManySubscriptionsError} at the cap.
    */
   createListener(
-    emitter: EventEmitterName,
-    event: StreamableEventName,
+    emitter: string,
+    event: string,
     filter: unknown,
     ttlSeconds: number,
     baseUrl: string,
@@ -327,22 +406,20 @@ export class EventStreams {
 
   /** Register a subscription. See {@link createListener} for what it throws. */
   subscribe(
-    emitter: EventEmitterName,
-    event: StreamableEventName,
+    emitter: string,
+    event: string,
     filter: unknown,
     ttlSeconds: number,
   ): Subscription {
+    if (!this.isStreamable(emitter, event)) {
+      throw new UnknownEventError(`${emitter}/${event} cannot be streamed.`);
+    }
     if (filter != null) {
       // JSONLogic has no validator; applying the filter once to an empty event is how an
       // unknown operator or a malformed rule gets refused now, rather than silently
       // matching nothing on every event later.
       try {
-        jsonLogic.apply(filter, {
-          emitter,
-          event,
-          path: null,
-          file: null,
-        } satisfies StreamedEvent);
+        jsonLogic.apply(filter, { emitter, event, path: null, file: null });
       } catch (error) {
         throw new InvalidEventFilterError((error as Error).message);
       }
@@ -437,20 +514,22 @@ export class EventStreams {
   /** Close every stream and remove every listener. Called at plugin unload. */
   dispose(): void {
     for (const key of [...this.listeners.keys()]) {
-      const [emitter, event] = key.split("/") as [EventEmitterName, string];
+      const [emitter, event] = key.split("/");
       this.detach(emitter, event);
     }
     // Ending the response closes it, which is what better-sse watches for to disconnect.
     for (const res of this.responses.values()) res.end();
     this.responses.clear();
     this.subscriptions.clear();
+    this.extensionEvents.clear();
   }
 
-  private source(emitter: EventEmitterName): NamedEventSource {
-    return this.app[emitter];
+  private source(emitter: string, event: string): NamedEventSource | null {
+    if (isEventEmitterName(emitter)) return this.app[emitter];
+    return this.extensionEvents.get(emitter)?.get(event)?.source ?? null;
   }
 
-  private attach(emitter: EventEmitterName, event: StreamableEventName): void {
+  private attach(emitter: string, event: string): void {
     const key = `${emitter}/${event}`;
     if (this.listeners.has(key)) return;
     const listener = (...args: unknown[]) => {
@@ -462,11 +541,13 @@ export class EventStreams {
         });
       this.queues.set(key, next);
     };
+    const source = this.source(emitter, event);
+    if (!source) return;
     this.listeners.set(key, listener);
-    this.source(emitter).on(event, listener);
+    source.on(event, listener);
   }
 
-  private detachIfUnused(emitter: EventEmitterName, event: string): void {
+  private detachIfUnused(emitter: string, event: string): void {
     for (const subscription of this.subscriptions.values()) {
       if (
         subscription.emitter === emitter &&
@@ -479,11 +560,11 @@ export class EventStreams {
     this.detach(emitter, event);
   }
 
-  private detach(emitter: EventEmitterName, event: string): void {
+  private detach(emitter: string, event: string): void {
     const key = `${emitter}/${event}`;
     const listener = this.listeners.get(key);
     if (!listener) return;
-    this.source(emitter).off(event, listener);
+    this.source(emitter, event)?.off(event, listener);
     this.listeners.delete(key);
     this.queues.delete(key);
   }
@@ -498,11 +579,7 @@ export class EventStreams {
     }
   }
 
-  private async deliver(
-    emitter: EventEmitterName,
-    event: StreamableEventName,
-    args: unknown[],
-  ): Promise<void> {
+  private async deliver(emitter: string, event: string, args: unknown[]): Promise<void> {
     const listening = [...this.subscriptions.values()].filter(
       (subscription) =>
         subscription.emitter === emitter &&
@@ -511,18 +588,12 @@ export class EventStreams {
     );
     if (listening.length === 0) return;
 
-    const includeContent = listening.some((subscription) => subscription.includeContent);
-    const serializer = (SERIALIZERS[emitter] as Record<string, Serializer>)[event];
-    const serialized = await serializer(
-      { note: (file) => this.note(file, includeContent) },
-      args,
-    );
-    const full: StreamedEvent = { emitter, event, ...serialized };
-    const withoutContent = stripContent(full);
+    const payloads = await this.serialize(emitter, event, args, listening);
+    if (!payloads) return;
     const id = `${this.epoch}-${++this.counter}`;
 
     for (const subscription of listening) {
-      const payload = subscription.includeContent ? full : withoutContent;
+      const payload = subscription.includeContent ? payloads.full : payloads.withoutContent;
       if (!this.matches(subscription, payload)) continue;
       for (const session of subscription.sessions) {
         if (session.isConnected) session.push(payload, event, id);
@@ -530,7 +601,37 @@ export class EventStreams {
     }
   }
 
-  private matches(subscription: Subscription, payload: StreamedEvent): boolean {
+  /**
+   * The payload for one occurrence, with and without note content, or null to drop it.
+   * An extension's payload is sent as its serializer returned it: the content rule is
+   * about the NoteJson built-in events carry, and an extension decides for itself.
+   */
+  private async serialize(
+    emitter: string,
+    event: string,
+    args: unknown[],
+    listening: Subscription[],
+  ): Promise<{ full: Record<string, unknown>; withoutContent: Record<string, unknown> } | null> {
+    if (isEventEmitterName(emitter)) {
+      const includeContent = listening.some((subscription) => subscription.includeContent);
+      const serializer = (SERIALIZERS[emitter] as Record<string, Serializer>)[event];
+      const serialized = await serializer(
+        { note: (file) => this.note(file, includeContent) },
+        args,
+      );
+      const full: StreamedEvent = { emitter, event, ...serialized };
+      return { full: { ...full }, withoutContent: { ...stripContent(full) } };
+    }
+    const definition = this.extensionEvents.get(emitter)?.get(event);
+    if (!definition) return null;
+    const data = await definition.serialize(...args);
+    if (data === null) return null;
+    // emitter and event last, so a serializer cannot relabel what fired.
+    const payload = { ...data, emitter, event };
+    return { full: payload, withoutContent: payload };
+  }
+
+  private matches(subscription: Subscription, payload: Record<string, unknown>): boolean {
     if (subscription.filter === null) return true;
     try {
       return isTruthy(jsonLogic.apply(subscription.filter, payload));

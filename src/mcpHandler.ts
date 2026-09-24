@@ -30,7 +30,6 @@ import {
   EVENT_EMITTERS,
   EventStreams,
   STREAMABLE_EVENTS,
-  isStreamableEvent,
 } from "./events";
 import {
   UrlSigner,
@@ -903,12 +902,16 @@ export class McpHandler {
       dedent`
         Subscribe to one Obsidian event and return a signed URL that streams matching occurrences as Server-Sent Events (text/event-stream). The URL needs no API key, so a process on your host can follow it -- \`curl -N <url>\`, or an EventSource in a browser -- and act on each event as it arrives. Each message's \`event:\` field is the event name, its \`id:\` is \`<epoch>-<counter>\` (a new epoch or a gap in the counter means events were missed; nothing is replayed), and its data is a JSON object: {emitter, event, path, file}, where file is the NoteJson search_query evaluates (without content unless your filter mentions content), plus oldPath on vault rename, isFolder on vault events, previous ({frontmatter, tags}) on metadataCache deleted, and viewType on workspace active-leaf-change.
 
-        Streamable events -- ${supported}. For "a note's frontmatter changed", prefer metadataCache changed over vault modify: vault modify fires before Obsidian has re-read the file's metadata.
+        Streamable events -- ${supported}. Plugins extending this server can add their own, with their plugin id as the emitter and a payload they define; ask for an emitter or event that does not exist and the error lists everything currently available. For "a note's frontmatter changed", prefer metadataCache changed over vault modify: vault modify fires before Obsidian has re-read the file's metadata.
 
         The optional filter is a JsonLogic expression evaluated against that data object, with the same extra operators as search_query (glob, regexp); only events for which it is truthy are sent. Examples: {"glob": ["journal/*", {"var": "path"}]}; {"==": [{"var": "file.frontmatter.status"}, "done"]}. The URL expires after ttlSeconds (default: the server's signed-URL lifetime); a stream opened before then stays open, but reconnecting after it is refused and needs a new URL. At most 16 streams may be open at once. Anyone holding the URL sees the path and metadata of every matching event, and note content if the filter mentions content.
       `,
       {
-        emitter: z.enum(EVENT_EMITTERS).describe("The Obsidian object whose event to follow"),
+        emitter: z
+          .string()
+          .describe(
+            `The Obsidian object whose event to follow (${EVENT_EMITTERS.join(", ")}), or the plugin id of an extension that registered events`,
+          ),
         event: z.string().describe(`The event name, one of those listed for the emitter`),
         filter: z
           .record(z.unknown())
@@ -927,14 +930,17 @@ export class McpHandler {
         filter,
         ttlSeconds,
       }: {
-        emitter: (typeof EVENT_EMITTERS)[number];
+        emitter: string;
         event: string;
         filter?: Record<string, unknown>;
         ttlSeconds?: number;
       }) => {
-        if (!isStreamableEvent(emitter, event)) {
+        if (!events.isStreamable(emitter, event)) {
+          const available = Object.entries(events.supportedEvents())
+            .map(([name, names]) => `${name}: ${names.join(", ")}`)
+            .join("; ");
           throw new Error(
-            `"${event}" is not a streamable ${emitter} event. Choose one of: ${STREAMABLE_EVENTS[emitter].join(", ")}.`,
+            `"${event}" is not a streamable ${emitter} event. Streamable events -- ${available}.`,
           );
         }
         const hasFilter = filter !== undefined && Object.keys(filter).length > 0;

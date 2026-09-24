@@ -3,13 +3,13 @@ import { z } from "zod";
 import type { ToolAnnotations } from "@modelcontextprotocol/server";
 import { BUILT_IN_ROUTES } from "./constants";
 import { McpHandler } from "./mcpHandler";
-import type { LocalRestApiPublicApi } from "./publicApi";
+import type { LocalRestApiPublicApi, StreamableEventDefinition } from "./publicApi";
 
 // The public surface — the interface and ApiVersionUnsupportedError — lives in
 // ./publicApi, which is what the generated publicApi.d.ts is emitted from. Re-exported
 // here so internal callers keep importing them from the module that implements them.
 export { ApiVersionUnsupportedError } from "./publicApi";
-export type { LocalRestApiPublicApi } from "./publicApi";
+export type { LocalRestApiPublicApi, StreamableEventDefinition } from "./publicApi";
 
 /**
  * A route an extension has registered, as reported by {@link
@@ -25,21 +25,31 @@ export interface RegisteredRoute {
 }
 
 export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi {
-  public readonly apiVersion = 2;
+  public readonly apiVersion = 3;
   private router: express.Router;
   private publicRouter: express.Router;
   private mcpHandler: McpHandler;
   private onUnregister: () => void;
+  private addEvent: (event: string, definition: StreamableEventDefinition) => void;
   private unregistered = false;
   private registeredRoutes: RegisteredRoute[] = [];
   private mcpToolCleanups: (() => void)[] = [];
   private registeredMcpTools: string[] = [];
 
-  constructor(router: express.Router, publicRouter: express.Router, mcpHandler: McpHandler, onUnregister: () => void) {
+  constructor(
+    router: express.Router,
+    publicRouter: express.Router,
+    mcpHandler: McpHandler,
+    onUnregister: () => void,
+    addEvent: (event: string, definition: StreamableEventDefinition) => void = () => {
+      throw new Error("Streamable events are not available.");
+    },
+  ) {
     this.router = router;
     this.publicRouter = publicRouter;
     this.mcpHandler = mcpHandler;
     this.onUnregister = onUnregister;
+    this.addEvent = addEvent;
     this.unregistered = false;
   }
 
@@ -93,6 +103,12 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     const cleanup = this.mcpHandler.registerTool(name, description, schema, callback, annotations);
     this.mcpToolCleanups.push(cleanup);
     this.registeredMcpTools.push(name);
+  }
+
+  /** Makes one of the extension's events streamable; see the interface for the contract. */
+  public addStreamableEvent(event: string, definition: StreamableEventDefinition): void {
+    this.assertRegistered();
+    this.addEvent(event, definition);
   }
 
   /** Host-only counterpart to {@link getRoutes}, returning a copy for the same reason. */

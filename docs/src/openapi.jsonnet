@@ -765,8 +765,8 @@ std.manifestYamlDoc(
             name: 'emitter',
             'in': 'path',
             required: true,
-            description: 'The Obsidian object whose event to follow.',
-            schema: { type: 'string', enum: ['vault', 'metadataCache', 'workspace'] },
+            description: "The Obsidian object whose event to follow (`vault`, `metadataCache`, `workspace`), or the plugin id of an extension that registered events.",
+            schema: { type: 'string' },
           },
           {
             name: 'event',
@@ -872,7 +872,7 @@ std.manifestYamlDoc(
               name: 'emitter',
               'in': 'path',
               required: true,
-              schema: { type: 'string', enum: ['vault', 'metadataCache', 'workspace'] },
+              schema: { type: 'string' },
             },
             { name: 'event', 'in': 'path', required: true, schema: { type: 'string' } },
             {

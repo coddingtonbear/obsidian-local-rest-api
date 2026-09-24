@@ -31,6 +31,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
   * [Available resources](#available-resources)
 - [API Extensions](#api-extensions)
   * [Typed extension API](#typed-extension-api)
+  * [Extension events](#extension-events)
   * [Known extensions](#known-extensions)
 - [Contributing](#contributing)
 - [Credits](#credits)
@@ -421,7 +422,7 @@ Two practical notes: whether a chat client renders a linked image inline is up t
 
 ## API Extensions
 
-Other plugins can register their own authenticated routes, public routes, and MCP tools against this plugin's server. See [Adding your own API Routes via an Extension](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension) for a walkthrough.
+Other plugins can register their own authenticated routes, public routes, MCP tools, and [streamable events](#extension-events) against this plugin's server. See [Adding your own API Routes via an Extension](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension) for a walkthrough.
 
 ### Typed extension API
 
@@ -442,6 +443,20 @@ const api: LocalRestApiPublicApi | undefined = getAPI(this.app, this.manifest, 2
 The package entry point is a small standalone module — it resolves the *running* host plugin out of Obsidian's plugin registry rather than pulling the plugin bundle into your build. Passing an extension API version (`2` above) makes `getAPI` throw `ApiVersionUnsupportedError` when the installed host is older than the surface you need; omit it to accept whatever is installed and feature-detect yourself. `getAPI` returns `undefined` when the plugin isn't installed or hasn't loaded yet.
 
 `publicApi.d.ts` is generated from [`src/publicApi.ts`](src/publicApi.ts), which the implementation is compile-time-checked against, so the published types cannot drift from what the plugin actually offers.
+
+### Extension events
+
+From extension API version 3, an extension can add its own events to the [event streams](#event-streams). Each one is streamed under the extension's plugin id as the emitter:
+
+```ts
+api.addStreamableEvent("metadata-change", {
+  source: this.app.metadataCache, // or your plugin's own Events instance
+  serialize: (type, file) => ({ type, path: (file as TFile).path }),
+});
+// Now available at POST /events/<your plugin id>/metadata-change/
+```
+
+Your serializer decides _everything_ a stream sends. The host adds `emitter` and `event` and sends nothing else, so return only what someone holding a stream URL should see. Return `null` to skip an occurrence. `unregister()` closes any open streams for your events.
 
 ### Known extensions
 

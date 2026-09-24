@@ -94,11 +94,8 @@ import {
 import {
   EventStreams,
   InvalidEventFilterError,
-  STREAMABLE_EVENTS,
   TooManyStreamsError,
   TooManySubscriptionsError,
-  isEventEmitterName,
-  isStreamableEvent,
 } from "./events";
 
 // Import openapi.yaml as a string
@@ -262,12 +259,19 @@ export default class RequestHandler {
         parent.stack.splice(idx, 1);
       }
     };
-    const api = new LocalRestApiPublicApiImpl(router, publicRouter, this.mcpHandler, () => {
-      if (this.apiExtensions.delete(manifest.id)) {
-        removeRouter(this.apiExtensionRouter, router);
-        removeRouter(this.publicApiExtensionRouter, publicRouter);
-      }
-    });
+    const api = new LocalRestApiPublicApiImpl(
+      router,
+      publicRouter,
+      this.mcpHandler,
+      () => {
+        if (this.apiExtensions.delete(manifest.id)) {
+          removeRouter(this.apiExtensionRouter, router);
+          removeRouter(this.publicApiExtensionRouter, publicRouter);
+        }
+        this.events.removeExtensionEvents(manifest.id);
+      },
+      (event, definition) => this.events.addExtensionEvent(manifest.id, event, definition),
+    );
     this.apiExtensions.set(manifest.id, { manifest, api });
 
     return api;
@@ -2478,7 +2482,7 @@ export default class RequestHandler {
     res.status(Math.floor(errorCode / 100)).json({
       message: ERROR_CODE_MESSAGES[errorCode],
       errorCode,
-      supportedEvents: STREAMABLE_EVENTS,
+      supportedEvents: this.events.supportedEvents(),
     });
   }
 
@@ -2493,7 +2497,7 @@ export default class RequestHandler {
    */
   async eventsSubscribePost(req: express.Request, res: express.Response): Promise<void> {
     const { emitter, event } = req.params;
-    if (!isEventEmitterName(emitter) || !isStreamableEvent(emitter, event)) {
+    if (!this.events.isStreamable(emitter, event)) {
       this.returnEventError(res, ErrorCode.UnknownEvent);
       return;
     }
@@ -2557,7 +2561,7 @@ export default class RequestHandler {
   /** `GET /events/<emitter>/<event>/<id>/`: open the subscription's stream. */
   async eventsStreamGet(req: express.Request, res: express.Response): Promise<void> {
     const { emitter, event, id } = req.params;
-    if (!isEventEmitterName(emitter) || !isStreamableEvent(emitter, event)) {
+    if (!this.events.isStreamable(emitter, event)) {
       this.returnEventError(res, ErrorCode.UnknownEvent);
       return;
     }
