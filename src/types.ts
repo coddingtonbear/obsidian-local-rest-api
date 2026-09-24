@@ -24,13 +24,17 @@ export enum ErrorCode {
   PatchFailed = 40080,
   InvalidPatchInstruction = 40081,
   InvalidSearch = 40090,
+  EventNameRequired = 40095,
   ApiKeyAuthorizationRequired = 40101,
   SignedUrlIsWholeFileOnly = 40102,
+  UnknownEvent = 40460,
+  EventSubscriptionNotFound = 40461,
   RequestMethodValidOnlyForFiles = 40510,
   DestinationAlreadyExists = 40920,
   ConflictingTargetSpecification = 42200,
   ErrorPreparingSimpleSearch = 50010,
   FileOperationFailed = 50020,
+  EventCapacityReached = 50301,
 }
 
 /**

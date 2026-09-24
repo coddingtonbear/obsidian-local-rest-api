@@ -18,6 +18,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { McpHandler, markdownLink } from "./mcpHandler";
 import { DEFAULT_SETTINGS, MaximumMcpBinaryBytes } from "./constants";
 import { UrlSigner } from "./signedUrls";
+import type { EventStreams } from "./events";
 import { ImageScaler, MaximumImageEdge } from "./imageScaling";
 import { LocalRestApiSettings } from "./types";
 import { TFile } from "../mocks/obsidian";
@@ -696,7 +697,7 @@ describe("McpHandler", () => {
     // Build a handler (recording its registrations afresh), optionally with signed URLs on.
     function build(
       settings: LocalRestApiSettings = DEFAULT_SETTINGS,
-      options: { signer?: UrlSigner; imageScaler?: ImageScaler | null } = {},
+      options: { signer?: UrlSigner; imageScaler?: ImageScaler | null; events?: EventStreams } = {},
     ): McpHandler {
       registerTool.mockClear();
       const mcp = new McpHandler(ops, settings, { imageScaler: null, ...options });
@@ -1186,6 +1187,76 @@ describe("McpHandler", () => {
       await expect(getToolCallback("vault_get_download_url")({ path: PNG_PATH })).rejects.toThrow(
         /did not arrive over HTTP/,
       );
+    });
+
+    // ---- events_get_listener_url --------------------------------------------
+
+    // The subscription and URL machinery is exercised end to end in events.test.ts; here
+    // it is a stand-in, so these check only what the tool itself decides.
+    function fakeEvents() {
+      const createListener = jest.fn(
+        (emitter: string, event: string, _filter: unknown, _ttl: number, baseUrl: string) => ({
+          id: "sub1",
+          emitter,
+          event,
+          url: `${baseUrl}/events/${emitter}/${event}/sub1/?sig=s&exp=1&n=n`,
+          signed: true,
+          expiresAt: "2026-01-01T00:00:00.000Z",
+        }),
+      );
+      return { events: { createListener } as unknown as EventStreams, createListener };
+    }
+
+    test("events_get_listener_url is registered only with signed URLs on and an event source", () => {
+      const { events } = fakeEvents();
+      build(UNSIGNED, { events });
+      expect(registeredNames()).not.toContain("events_get_listener_url");
+      build(SIGNED);
+      expect(registeredNames()).not.toContain("events_get_listener_url");
+      build(SIGNED, { events });
+      expect(registeredNames()).toContain("events_get_listener_url");
+    });
+
+    test("events_get_listener_url registers a subscription and returns its URL and a curl command", async () => {
+      const { events, createListener } = fakeEvents();
+      const signer = new UrlSigner();
+      const mcp = build({ ...SIGNED, signedUrlTtlSeconds: 120 }, { events, signer });
+      const filter = { glob: ["notes/*", { var: "path" }] };
+      const result = await overHttp(mcp, () =>
+        getToolCallback("events_get_listener_url")({ emitter: "vault", event: "modify", filter }),
+      );
+      expect(createListener).toHaveBeenCalledWith(
+        "vault",
+        "modify",
+        filter,
+        120,
+        "http://127.0.0.1:27123",
+        signer,
+      );
+      const body = JSON.parse((result.content[0] as { text: string }).text) as Record<string, string>;
+      expect(body.url).toBe("http://127.0.0.1:27123/events/vault/modify/sub1/?sig=s&exp=1&n=n");
+      expect(body.command).toBe(`curl -N '${body.url}'`);
+      expect(body.expiresAt).toBe("2026-01-01T00:00:00.000Z");
+    });
+
+    test("events_get_listener_url treats an empty filter as no filter", async () => {
+      const { events, createListener } = fakeEvents();
+      const mcp = build(SIGNED, { events });
+      await overHttp(mcp, () =>
+        getToolCallback("events_get_listener_url")({ emitter: "workspace", event: "file-open", filter: {} }),
+      );
+      expect(createListener.mock.calls[0][2]).toBeNull();
+    });
+
+    test("events_get_listener_url refuses an event that is not streamable", async () => {
+      const { events, createListener } = fakeEvents();
+      const mcp = build(SIGNED, { events });
+      await expect(
+        overHttp(mcp, () =>
+          getToolCallback("events_get_listener_url")({ emitter: "workspace", event: "quick-preview" }),
+        ),
+      ).rejects.toThrow(/not a streamable workspace event.*file-open/);
+      expect(createListener).not.toHaveBeenCalled();
     });
 
     // ---- vault_get_upload_url -----------------------------------------------

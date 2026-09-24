@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { vaultPathIsContained } from "./vaultPath";
 import { posix } from "path";
+import type { Request } from "express";
 
 /**
  * Signed URLs: a way to hand a file's bytes to something that is not the MCP client
@@ -107,14 +108,19 @@ export class UrlSigner {
     return Math.floor(this.now() / 1000);
   }
 
+  /**
+   * `resource` is a normalized vault path, or an {@link eventStreamResource}. The two
+   * cannot collide: a normalized vault path never starts with `/`, and an event-stream
+   * resource always does.
+   */
   private digest(
     method: SignableMethod,
-    normalizedPath: string,
+    resource: string,
     exp: number,
     nonce: string,
   ): string {
     return createHmac("sha256", this.secret)
-      .update(`${method}\n${normalizedPath}\n${exp}\n${nonce}`)
+      .update(`${method}\n${resource}\n${exp}\n${nonce}`)
       .digest("hex");
   }
 
@@ -142,6 +148,29 @@ export class UrlSigner {
   }
 
   /**
+   * Sign a GET of an event stream. The expiry is the subscription's own, passed in
+   * rather than computed, so the link and the subscription it names expire together.
+   */
+  signEventStream(resource: string, exp: number): SignedUrlParams {
+    if (!resource.startsWith("/events/")) {
+      throw new Error(`Not an event-stream resource: ${resource}`);
+    }
+    const nonce = randomBytes(9).toString("base64url");
+    return { sig: this.digest("GET", resource, exp, nonce), exp, nonce };
+  }
+
+  /** Check a signature against a GET of an event stream. */
+  verifyEventStream(
+    resource: string,
+    exp: string,
+    sig: string,
+    nonce: string,
+  ): SignatureVerdict {
+    if (!resource.startsWith("/events/")) return "invalid";
+    return this.verifyResource("GET", resource, exp, sig, nonce);
+  }
+
+  /**
    * Check a signature against a request. `path` is the request's vault path, which is
    * normalized here the same way `sign` normalized it. `exp` arrives as the raw query
    * string value.
@@ -156,12 +185,22 @@ export class UrlSigner {
     if (!isSignableMethod(method)) return "invalid";
     const normalized = normalizeVaultFilePath(path);
     if (normalized === null) return "invalid";
+    return this.verifyResource(method, normalized, exp, sig, nonce);
+  }
+
+  private verifyResource(
+    method: SignableMethod,
+    resource: string,
+    exp: string,
+    sig: string,
+    nonce: string,
+  ): SignatureVerdict {
     if (!/^\d{1,12}$/.test(exp)) return "invalid";
     // Bound and charset-checked before it reaches the HMAC, so a hostile query string
     // cannot feed unbounded input through the digest on every request.
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(nonce)) return "invalid";
     const expSeconds = Number(exp);
-    const expected = Buffer.from(this.digest(method, normalized, expSeconds, nonce), "hex");
+    const expected = Buffer.from(this.digest(method, resource, expSeconds, nonce), "hex");
     if (!/^[0-9a-f]+$/i.test(sig) || sig.length !== expected.length * 2) return "invalid";
     if (!timingSafeEqual(expected, Buffer.from(sig, "hex"))) return "invalid";
     // Only a genuine signature gets to learn whether it is late: an attacker probing
@@ -211,6 +250,53 @@ export class UrlSigner {
       if (exp < now) this.consumedPutSignatures.delete(sig);
     }
   }
+}
+
+/**
+ * Scheme and host as the caller reached us, so a link handed back resolves from wherever
+ * the caller is. The scheme is the listener's, unless a proxy in front says otherwise;
+ * the host is the Host header as sent. A forged Host misleads only the caller who forged
+ * it, so neither is validated further.
+ */
+export function requestBaseUrl(req: Request): string {
+  const forwarded = req.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  const socket = req.socket as { encrypted?: boolean } | undefined;
+  const scheme =
+    forwarded === "http" || forwarded === "https"
+      ? forwarded
+      : socket?.encrypted
+        ? "https"
+        : "http";
+  const host = req.get("host");
+  if (!host) {
+    throw new Error("Cannot build a URL for this server: the request carried no Host header.");
+  }
+  return `${scheme}://${host}`;
+}
+
+/**
+ * The signed material naming one event stream: its request path, without the trailing
+ * slash. Emitter and event names come from a fixed allowlist and ids are base64url, so
+ * none of the three needs encoding.
+ */
+export function eventStreamResource(emitter: string, event: string, id: string): string {
+  return `/events/${emitter}/${event}/${id}`;
+}
+
+/** Build the URL for an event stream, signed when `params` is given. */
+export function buildEventStreamUrl(
+  baseUrl: string,
+  resource: string,
+  params: SignedUrlParams | null,
+): string {
+  const url = `${baseUrl.replace(/\/+$/, "")}${resource}/`;
+  if (!params) return url;
+  const query = new URLSearchParams({
+    sig: params.sig,
+    exp: String(params.exp),
+    n: params.nonce,
+  });
+  return `${url}?${query.toString()}`;
 }
 
 /**

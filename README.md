@@ -21,6 +21,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
   * [Raw-content mode](#raw-content-mode)
 - [Targeting specific sections](#targeting-specific-sections)
 - [Searching](#searching)
+- [Event streams](#event-streams)
 - [MCP (Model Context Protocol)](#mcp-model-context-protocol)
   * [Protocol revisions](#protocol-revisions)
   * [Connecting a client](#connecting-a-client)
@@ -43,6 +44,7 @@ Access your vault through the **REST API** or the **built-in [MCP server](https:
 - **Read, create, update, or delete notes** — full CRUD on any file in your vault, including binary files
 - **Surgically patch specific sections** — target a heading, block reference, or frontmatter key and append, prepend, replace, delete, or move just that section without touching the rest of the file
 - **Search your vault** — simple full-text search or structured [JsonLogic](https://jsonlogic.com/) queries against note metadata (frontmatter, tags, path, content)
+- **Follow vault events** — subscribe to Obsidian events (a note created, its frontmatter changed, a file opened) as a filtered Server-Sent Events stream
 - **Access the active file** — read or write whatever note is currently open in Obsidian
 - **List and execute commands** — trigger any Obsidian command as if you'd used the command palette
 - **Query tags** — list all tags across your vault with usage counts
@@ -288,6 +290,36 @@ curl -k -H "Authorization: Bearer <your-api-key>" \
 
 `POST /search/` accepts a [JsonLogic](https://jsonlogic.com/) expression (content type `application/vnd.olrapi.jsonlogic+json`) and evaluates it against each note's metadata (frontmatter, tags, path, content).
 
+## Event streams
+
+You can follow what happens in the vault as a [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html) stream. There are two steps. First, register a subscription to one Obsidian event, with an optional JsonLogic filter. Then open the URL that comes back:
+
+```sh
+# 1. Subscribe to notes under journal/ being modified
+curl -X POST -H "Authorization: Bearer <your-api-key>" \
+  -H "Content-Type: application/vnd.olrapi.jsonlogic+json" \
+  -d '{"glob": ["journal/*", {"var": "path"}]}' \
+  https://127.0.0.1:27124/events/vault/modify/
+# => {"id": "…", "url": "https://127.0.0.1:27124/events/vault/modify/…/?sig=…&exp=…&n=…", …}
+
+# 2. Follow the stream; with signed URLs on, the URL needs no API key
+curl -N "<url>"
+```
+
+It takes two steps because a browser's `EventSource` can only make `GET` requests, which have no body to carry a filter.
+
+The events are Obsidian's own, and only these can be streamed:
+
+| Emitter | Events |
+|---|---|
+| `vault` | `create`, `modify`, `delete`, `rename` |
+| `metadataCache` | `changed`, `deleted`, `resolve`, `resolved` |
+| `workspace` | `file-open`, `active-leaf-change`, `layout-change` |
+
+Each event is serialized by code written for it. That code decides exactly what is sent: the path, the file's NoteJson (the same shape `/search/` evaluates), and a few event-specific fields such as `oldPath` on a rename. Note content is sent only when the filter mentions `content`. Events whose payloads are keystrokes, clipboard data, or UI objects (`editor-change`, `quick-preview`, `editor-paste`, the menu events, …) can't be streamed. To react to frontmatter changes, use `metadataCache` `changed`: `vault` `modify` fires before Obsidian has re-read the file's metadata.
+
+Each message's `id` is `<epoch>-<counter>`. A new epoch, or a gap in the counter, means events were missed. Nothing is replayed. A stream URL expires after the signed-URL lifetime (or `?ttl=<seconds>`), but a stream opened before then stays open. At most 16 streams can be open at once. Anyone holding a signed stream URL sees the paths and metadata of every event its filter matches, so treat it like the notes themselves. See the [API docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for the full message format.
+
 ## MCP (Model Context Protocol)
 
 > [!NOTE]
@@ -330,6 +362,7 @@ The exact config syntax varies by client; see the [Quick start](#mcp-clients) ex
 | `vault_read_binary` | Read an attachment: images as an image block the model can see, anything else as a download link or embedded bytes |
 | `vault_get_download_url` | Mint a signed, expiring link to a file that works without the API key (only when signed URLs are enabled) |
 | `vault_get_upload_url` | Mint a signed, single-use link for uploading a file over `PUT` (only when signed URLs are enabled) |
+| `events_get_listener_url` | Subscribe to an Obsidian event and mint a signed link to its Server-Sent Events stream (only when signed URLs are enabled) |
 | `vault_write` | Create or overwrite a text file; refuses paths whose extension names a binary type |
 | `vault_append` | Append content to the end of a vault file |
 | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
@@ -367,11 +400,12 @@ There is no upload tool that carries bytes through the model — emitting base64
 
 Signed URLs let an agent hand a file to something that is not the MCP client — a browser tab, an `<img>` tag, a `curl` in a shell — without also handing over the API key. They are on by default; turn them off under **Settings → Local REST API → Advanced settings → Enable signed URLs**, and set their lifetime there (default 300 seconds).
 
-While they are on, three MCP tools mint them:
+While they are on, these MCP tools mint them:
 
 - `vault_get_download_url` returns a `resource_link` to `GET /vault/<path>?sig=…&exp=…&n=…`, plus a markdown link for clients that only render text. The link is valid until it expires and can be used repeatedly. Add `&download=1` to have the browser save the file instead of showing it.
 - `vault_get_upload_url` returns a `PUT /vault/<path>?sig=…&exp=…&n=…` URL and a ready-to-run `curl` command, with the filename quoted for a POSIX shell so a name containing `$`, backticks or spaces cannot be expanded when the command is pasted. The link is consumed by the first request that succeeds — claimed at authorization rather than at completion, so concurrent redemptions cannot all pass, and released again if the request does not end in a 2xx. The `Content-Type` is informational on a signed upload: the bytes are stored exactly as sent, whatever type is declared, because a signed URL authorizes a whole-file write of that content. Without it, a `.json` destination was parsed and re-serialized, so a pretty-printed file lost its whitespace and trailing newline while still answering `204`.
 - `vault_read_binary` uses download links for non-image files, and for anything when called with `as: "link"`.
+- `events_get_listener_url` registers an [event stream](#event-streams) subscription and returns its `GET /events/<emitter>/<event>/<id>/?sig=…&exp=…&n=…` URL, plus a `curl -N` command. `POST /events/<emitter>/<event>/` returns the same kind of URL.
 
 A signed URL authorizes a whole-file write to the path it names, and only that: a request that also carries `Target-Type`/`Target` headers, or whose path continues into `/heading`, `/block` or `/frontmatter`, is refused rather than quietly becoming a targeted edit of a document the link never named. Use the API key for targeted writes.
 

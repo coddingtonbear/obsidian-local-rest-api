@@ -81,6 +81,14 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "Destination file already exists.",
   [ErrorCode.FileOperationFailed]:
     "File operation failed. Check the error message for details.",
+  [ErrorCode.EventNameRequired]:
+    "Name the emitter and the event to subscribe to: /events/<emitter>/<event>/. Obsidian has no way to listen for every event at once. `supportedEvents` lists what can be streamed.",
+  [ErrorCode.UnknownEvent]:
+    "That emitter or event cannot be streamed. `supportedEvents` lists what can.",
+  [ErrorCode.EventSubscriptionNotFound]:
+    "No such event subscription. It may have expired, or the plugin may have reloaded since it was created; register a new one with POST /events/<emitter>/<event>/.",
+  [ErrorCode.EventCapacityReached]:
+    "Too many event streams or subscriptions are open. Close one and try again.",
 };
 
 export enum ContentTypes {

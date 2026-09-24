@@ -27,10 +27,17 @@ import { MaximumMcpBinaryBytes } from "./constants";
 import { assertVaultPathIsContained } from "./vaultPath";
 import { LocalRestApiSettings } from "./types";
 import {
+  EVENT_EMITTERS,
+  EventStreams,
+  STREAMABLE_EVENTS,
+  isStreamableEvent,
+} from "./events";
+import {
   UrlSigner,
   buildSignedUrl,
   clampSignedUrlTtl,
   normalizeVaultFilePath,
+  requestBaseUrl,
 } from "./signedUrls";
 import {
   CanvasImageScaler,
@@ -316,6 +323,7 @@ export class McpHandler {
   private readonly requestContext = new AsyncLocalStorage<express.Request>();
 
   private readonly signer: UrlSigner;
+  private readonly events: EventStreams | null;
   private readonly imageScaler: ImageScaler | null;
   // Handles for the tools that only exist while signed URLs are enabled, so the setting
   // can be toggled without rebuilding the handler.
@@ -324,9 +332,15 @@ export class McpHandler {
   constructor(
     private readonly ops: VaultOperations,
     private readonly settings: LocalRestApiSettings,
-    options: { signer?: UrlSigner; imageScaler?: ImageScaler | null } = {},
+    options: {
+      signer?: UrlSigner;
+      imageScaler?: ImageScaler | null;
+      /** Where `events_get_listener_url` registers subscriptions; without it the tool is absent. */
+      events?: EventStreams;
+    } = {},
   ) {
     this.signer = options.signer ?? new UrlSigner();
+    this.events = options.events ?? null;
     this.imageScaler =
       options.imageScaler !== undefined
         ? options.imageScaler
@@ -369,10 +383,6 @@ export class McpHandler {
     return clampSignedUrlTtl(this.settings.signedUrlTtlSeconds);
   }
 
-  // Scheme and host as the caller reached us, so the link we hand back resolves from
-  // wherever the caller is. The scheme is the listener's, unless a proxy in front says
-  // otherwise; the host is the Host header as sent. A forged Host misleads only the
-  // caller who forged it, so neither is validated further.
   private baseUrlFromRequest(): string {
     const req = this.requestContext.getStore();
     if (!req) {
@@ -380,19 +390,7 @@ export class McpHandler {
         "Cannot build a URL for this server: the tool call did not arrive over HTTP.",
       );
     }
-    const forwarded = req.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
-    const socket = req.socket as { encrypted?: boolean } | undefined;
-    const scheme =
-      forwarded === "http" || forwarded === "https"
-        ? forwarded
-        : socket?.encrypted
-          ? "https"
-          : "http";
-    const host = req.get("host");
-    if (!host) {
-      throw new Error("Cannot build a URL for this server: the request carried no Host header.");
-    }
-    return `${scheme}://${host}`;
+    return requestBaseUrl(req);
   }
 
   private signedUrlFor(
@@ -891,6 +889,70 @@ export class McpHandler {
         },
       ),
     ];
+    if (this.events) {
+      this.signedUrlToolHandles.push(this.registerEventListenerTool(this.events));
+    }
+  }
+
+  private registerEventListenerTool(events: EventStreams): { remove: () => void } {
+    const supported = EVENT_EMITTERS.map(
+      (emitter) => `${emitter}: ${STREAMABLE_EVENTS[emitter].join(", ")}`,
+    ).join("; ");
+    return this.tool(
+      "events_get_listener_url",
+      dedent`
+        Subscribe to one Obsidian event and return a signed URL that streams matching occurrences as Server-Sent Events (text/event-stream). The URL needs no API key, so a process on your host can follow it -- \`curl -N <url>\`, or an EventSource in a browser -- and act on each event as it arrives. Each message's \`event:\` field is the event name, its \`id:\` is \`<epoch>-<counter>\` (a new epoch or a gap in the counter means events were missed; nothing is replayed), and its data is a JSON object: {emitter, event, path, file}, where file is the NoteJson search_query evaluates (without content unless your filter mentions content), plus oldPath on vault rename, isFolder on vault events, previous ({frontmatter, tags}) on metadataCache deleted, and viewType on workspace active-leaf-change.
+
+        Streamable events -- ${supported}. For "a note's frontmatter changed", prefer metadataCache changed over vault modify: vault modify fires before Obsidian has re-read the file's metadata.
+
+        The optional filter is a JsonLogic expression evaluated against that data object, with the same extra operators as search_query (glob, regexp); only events for which it is truthy are sent. Examples: {"glob": ["journal/*", {"var": "path"}]}; {"==": [{"var": "file.frontmatter.status"}, "done"]}. The URL expires after ttlSeconds (default: the server's signed-URL lifetime); a stream opened before then stays open, but reconnecting after it is refused and needs a new URL. At most 16 streams may be open at once. Anyone holding the URL sees the path and metadata of every matching event, and note content if the filter mentions content.
+      `,
+      {
+        emitter: z.enum(EVENT_EMITTERS).describe("The Obsidian object whose event to follow"),
+        event: z.string().describe(`The event name, one of those listed for the emitter`),
+        filter: z
+          .record(z.unknown())
+          .optional()
+          .describe("JsonLogic expression events must satisfy; omit to receive every occurrence"),
+        ttlSeconds: z
+          .number()
+          .int()
+          .optional()
+          .describe("How long the URL stays valid, in seconds (clamped to 10-86400)"),
+      },
+      READ_ONLY_ANNOTATIONS,
+      async ({
+        emitter,
+        event,
+        filter,
+        ttlSeconds,
+      }: {
+        emitter: (typeof EVENT_EMITTERS)[number];
+        event: string;
+        filter?: Record<string, unknown>;
+        ttlSeconds?: number;
+      }) => {
+        if (!isStreamableEvent(emitter, event)) {
+          throw new Error(
+            `"${event}" is not a streamable ${emitter} event. Choose one of: ${STREAMABLE_EVENTS[emitter].join(", ")}.`,
+          );
+        }
+        const hasFilter = filter !== undefined && Object.keys(filter).length > 0;
+        const grant = events.createListener(
+          emitter,
+          event,
+          hasFilter ? filter : null,
+          clampSignedUrlTtl(ttlSeconds ?? this.signedUrlTtlSeconds),
+          this.baseUrlFromRequest(),
+          this.signer,
+        );
+        return this.text({
+          url: grant.url,
+          expiresAt: grant.expiresAt,
+          command: `curl -N ${shellQuote(grant.url)}`,
+        });
+      },
+    );
   }
 
   private registerTools(): void {
