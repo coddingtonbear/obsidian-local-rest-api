@@ -30,6 +30,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
   * [Available resources](#available-resources)
 - [API Extensions](#api-extensions)
   * [Typed extension API](#typed-extension-api)
+  * [MCP tools, resources, and prompts](#mcp-tools-resources-and-prompts)
   * [Known extensions](#known-extensions)
 - [Contributing](#contributing)
 - [Credits](#credits)
@@ -408,6 +409,34 @@ const api: LocalRestApiPublicApi | undefined = getAPI(this.app, this.manifest, 2
 The package entry point is a small standalone module — it resolves the *running* host plugin out of Obsidian's plugin registry rather than pulling the plugin bundle into your build. Passing an extension API version (`2` above) makes `getAPI` throw `ApiVersionUnsupportedError` when the installed host is older than the surface you need; omit it to accept whatever is installed and feature-detect yourself. `getAPI` returns `undefined` when the plugin isn't installed or hasn't loaded yet.
 
 `publicApi.d.ts` is generated from [`src/publicApi.ts`](src/publicApi.ts), which the implementation is compile-time-checked against, so the published types cannot drift from what the plugin actually offers.
+
+### MCP tools, resources, and prompts
+
+`addMcpTool(name, description, schema, callback)` sends whatever your callback returns back to the client as a single block of JSON text. From extension API version 3 you can instead pass a definition object, and the callback returns the complete MCP result, which reaches the client unchanged. Use it when you need images, `structuredContent` checked against an `outputSchema`, or an `isError` result that tells the model a call failed in a way it can recover from:
+
+```ts
+api.addMcpTool({
+  name: "comments_count",
+  description: "Count the comments on a note",
+  inputSchema: { path: z.string() },
+  outputSchema: { count: z.number() },
+  callback: async ({ path }) => {
+    const count = await countComments(path as string);
+    return {
+      content: [{ type: "text", text: `${count} comments` }],
+      structuredContent: { count },
+    };
+  },
+});
+```
+
+Version 3 also lets an extension expose things that aren't tools:
+
+- `addMcpResource({ name, uri, read })` adds a resource at a fixed URI.
+- `addMcpResourceTemplate({ name, uriTemplate, read, list? })` adds a family of resources addressed by an RFC 6570 template such as `tandem://comments/{path}`. `read` gets the matched variables. `list` is optional, and when you provide it, its resources appear in `resources/list`.
+- `addMcpPrompt({ name, argsSchema?, callback })` adds a prompt. MCP passes prompt arguments as strings.
+
+Clients that are already connected are notified when these lists change, and `unregister()` removes everything the handle registered.
 
 ### Known extensions
 
