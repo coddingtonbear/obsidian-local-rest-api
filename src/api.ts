@@ -10,6 +10,7 @@ import type {
   McpResourceTemplateDefinition,
   McpToolDefinition,
 } from "./publicApi";
+import type { VaultSubresourceRegistry } from "./vaultSubresources";
 
 // The public surface — the interface and ApiVersionUnsupportedError — lives in
 // ./publicApi, which is what the generated publicApi.d.ts is emitted from. Re-exported
@@ -35,17 +36,26 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
   private router: express.Router;
   private publicRouter: express.Router;
   private mcpHandler: McpHandler;
+  private vaultSubresources: VaultSubresourceRegistry;
   private onUnregister: () => void;
   private unregistered = false;
   private registeredRoutes: RegisteredRoute[] = [];
   // One per MCP tool, resource, resource template, and prompt, all undone by unregister().
   private mcpCleanups: (() => void)[] = [];
   private registeredMcpTools: string[] = [];
+  private registeredSubresources: { name: string; router: express.Router }[] = [];
 
-  constructor(router: express.Router, publicRouter: express.Router, mcpHandler: McpHandler, onUnregister: () => void) {
+  constructor(
+    router: express.Router,
+    publicRouter: express.Router,
+    mcpHandler: McpHandler,
+    vaultSubresources: VaultSubresourceRegistry,
+    onUnregister: () => void,
+  ) {
     this.router = router;
     this.publicRouter = publicRouter;
     this.mcpHandler = mcpHandler;
+    this.vaultSubresources = vaultSubresources;
     this.onUnregister = onUnregister;
     this.unregistered = false;
   }
@@ -86,6 +96,16 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     }
     this.registeredRoutes.push({ path, authenticated: false });
     return this.publicRouter.route(path);
+  }
+
+  /** Adds a sub-resource under every note; see ./publicApi for the contract. */
+  public addVaultSubresource(name: string): express.Router {
+    this.assertRegistered();
+    const router = express.Router();
+    this.vaultSubresources.register(name, router);
+    this.registeredSubresources.push({ name, router });
+    this.registeredRoutes.push({ path: `/vault/{path}/${name}/`, authenticated: true });
+    return router;
   }
 
   /** Registers an MCP tool that will be available to MCP clients. */
@@ -148,6 +168,9 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
   public unregister(): void {
     for (const cleanup of this.mcpCleanups) {
       cleanup();
+    }
+    for (const { name, router } of this.registeredSubresources) {
+      this.vaultSubresources.unregister(name, router);
     }
     this.onUnregister();
     this.unregistered = true;

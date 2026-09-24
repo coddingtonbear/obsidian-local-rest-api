@@ -23,7 +23,10 @@ jest.mock("./mcpHandler", () => ({
   })),
 }));
 
+import type express from "express";
+
 import RequestHandler, { redactSignedUrl } from "./requestHandler";
+import type { LocalRestApiPublicApi, VaultSubresourceRequest } from "./publicApi";
 import { ErrorCode, LocalRestApiSettings } from "./types";
 import { CERT_NAME } from "./constants";
 import { UrlSigner } from "./signedUrls";
@@ -4580,6 +4583,241 @@ describe("requestHandler", () => {
       expect(() =>
         api.addMcpTool({ name: "t", description: "d", callback: async () => ({ content: [] }) }),
       ).toThrow(/unregistered/);
+    });
+  });
+
+  describe("vault sub-resources", () => {
+    const NOTE = "Notes/draft.md";
+
+    interface Seen {
+      url: string;
+      baseUrl: string;
+      params: Record<string, string>;
+      query: Record<string, unknown>;
+      filePath: string;
+      segments: string[];
+    }
+
+    function registerExtension(id: string): LocalRestApiPublicApi {
+      const extManifest = Object.assign(new PluginManifest(), { id });
+      // @ts-ignore: mock PluginManifest is close enough for runtime
+      return handler.registerApiExtension(extManifest);
+    }
+
+    /** Registers `comments` with GET handlers that echo what they saw. */
+    function registerComments(): { api: LocalRestApiPublicApi; seen: Seen[] } {
+      const api = registerExtension("comments-extension");
+      const seen: Seen[] = [];
+      const record = (req: express.Request, res: express.Response) => {
+        const { vaultFile, vaultSubresourceSegments } = req as VaultSubresourceRequest;
+        seen.push({
+          url: req.url,
+          baseUrl: req.baseUrl,
+          params: req.params,
+          query: req.query,
+          filePath: vaultFile.path,
+          segments: vaultSubresourceSegments,
+        });
+        res.json({ ok: true });
+      };
+      const router = api.addVaultSubresource("comments");
+      router.get("/", record);
+      router.get("/:id", record);
+      return { api, seen };
+    }
+
+    beforeEach(() => {
+      app.vault.adapter._exists = true;
+      app.vault.adapter._statForPath = NOTE;
+      app.vault._getAbstractFileByPath = Object.assign(new TFile(), { path: NOTE });
+    });
+
+    test("routes a request under a note to the extension's router", async () => {
+      const { seen } = registerComments();
+      await request(server)
+        .get(`/vault/${NOTE}/comments/a1f3`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200, { ok: true });
+      expect(seen).toEqual([
+        {
+          url: "/a1f3",
+          baseUrl: `/vault/${NOTE}/comments`,
+          params: { id: "a1f3" },
+          query: {},
+          filePath: NOTE,
+          segments: ["a1f3"],
+        },
+      ]);
+    });
+
+    test("routes the sub-resource root, with or without a trailing slash", async () => {
+      const { seen } = registerComments();
+      for (const suffix of ["comments", "comments/"]) {
+        await request(server)
+          .get(`/vault/${NOTE}/${suffix}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(200);
+      }
+      expect(seen.map(({ url, segments }) => ({ url, segments }))).toEqual([
+        { url: "/", segments: [] },
+        { url: "/", segments: [] },
+      ]);
+    });
+
+    test("keeps the query string", async () => {
+      const { seen } = registerComments();
+      await request(server)
+        .get(`/vault/${NOTE}/comments/a1f3?resolved=true`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(seen[0].query).toEqual({ resolved: "true" });
+      expect(seen[0].url).toEqual("/a1f3?resolved=true");
+    });
+
+    test("an encoded slash stays inside its segment", async () => {
+      const { seen } = registerComments();
+      await request(server)
+        .get(`/vault/${NOTE}/comments/a%2Fb`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      // Re-encoded rather than rejoined: the router matched `/:id`, not a two-segment path.
+      expect(seen[0].url).toEqual("/a%2Fb");
+      expect(seen[0].params).toEqual({ id: "a/b" });
+      expect(seen[0].segments).toEqual(["a/b"]);
+    });
+
+    test("routes under the active file too", async () => {
+      const active = Object.assign(new TFile(), { path: "Daily/today.md" });
+      jest.spyOn(app.workspace, "getActiveFile").mockReturnValue(active);
+      const { seen } = registerComments();
+      await request(server)
+        .get("/active/comments/a1f3")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(seen[0]).toMatchObject({
+        url: "/a1f3",
+        baseUrl: "/active/comments",
+        filePath: "Daily/today.md",
+        segments: ["a1f3"],
+      });
+    });
+
+    test("requires the API key", async () => {
+      const { seen } = registerComments();
+      const res = await request(server).get(`/vault/${NOTE}/comments/a1f3`);
+      expect(res.status).toBe(401);
+      expect(seen).toEqual([]);
+    });
+
+    test("a missing note never reaches the router", async () => {
+      const { seen } = registerComments();
+      app.vault.adapter._statForPath = "Notes/other.md";
+      await request(server)
+        .get(`/vault/${NOTE}/comments/a1f3`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(404);
+      expect(seen).toEqual([]);
+    });
+
+    test("a method the router does not handle falls through to the built-in handler", async () => {
+      const { seen } = registerComments();
+      const res = await request(server)
+        .delete(`/vault/${NOTE}/comments/a1f3`)
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(seen).toEqual([]);
+      expect(res.body).not.toEqual({ ok: true });
+    });
+
+    // Without a registration, the built-in handler rejects `comments` as an unknown
+    // target type with a 400; the tests below check that nothing changed that.
+    test("without a registration the built-in handler answers as before", async () => {
+      await request(server)
+        .get(`/vault/${NOTE}/comments/a1f3`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(400);
+    });
+
+    test("a path that is really a file is served as the file", async () => {
+      const { seen } = registerComments();
+      const realFile = "Notes/comments/a1f3.md";
+      app.vault.adapter._statForPath = realFile;
+      app.vault.adapter._readBinary = Buffer.from("# Real\n");
+      const res = await request(server)
+        .get(`/vault/${realFile}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(res.text).toEqual("# Real\n");
+      expect(seen).toEqual([]);
+    });
+
+    test("errors thrown by the router reach the host's error handler", async () => {
+      const api = registerExtension("throwing-extension");
+      api.addVaultSubresource("comments").get("/", () => {
+        throw new Error("extension failure");
+      });
+      const res = await request(server)
+        .get(`/vault/${NOTE}/comments/`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(500);
+      expect(res.body.message).toContain("extension failure");
+    });
+
+    test("unregister releases the name", async () => {
+      const { api, seen } = registerComments();
+      api.unregister();
+      await request(server)
+        .get(`/vault/${NOTE}/comments/a1f3`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(400);
+      expect(seen).toEqual([]);
+      // And another extension can now claim it.
+      expect(() => registerExtension("successor").addVaultSubresource("comments")).not.toThrow();
+    });
+
+    test.each(["heading", "block", "frontmatter"])("refuses the reserved name %s", (name) => {
+      expect(() => registerExtension("reserved").addVaultSubresource(name)).toThrow(/reserved/);
+    });
+
+    test.each(["", "a/b"])("refuses the invalid name %j", (name) => {
+      expect(() => registerExtension("invalid").addVaultSubresource(name)).toThrow(/Invalid/);
+    });
+
+    test("refuses a name another extension already holds", () => {
+      registerExtension("first").addVaultSubresource("comments");
+      expect(() => registerExtension("second").addVaultSubresource("comments")).toThrow(
+        /already registered/,
+      );
+    });
+
+    test("refuses registration after unregister", () => {
+      const api = registerExtension("gone");
+      api.unregister();
+      expect(() => api.addVaultSubresource("comments")).toThrow(/unregistered/);
+    });
+
+    test("reports API version 3", () => {
+      expect(registerExtension("versioned").apiVersion).toBe(3);
+    });
+
+    test("lists the sub-resource among the extension's routes", async () => {
+      registerExtension("listed").addVaultSubresource("comments");
+      const res = await request(server)
+        .get("/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(res.body.apiExtensions[0].routes).toEqual([
+        { path: "/vault/{path}/comments/", authenticated: true },
+      ]);
+    });
+
+    test("a signed URL never reaches the router", async () => {
+      settings.enableSignedUrls = true;
+      const { seen } = registerComments();
+      const { sig, exp, nonce } = handler.urlSigner.sign("GET", `${NOTE}/comments/a1f3`, 300);
+      await request(server)
+        .get(`/vault/${NOTE}/comments/a1f3?sig=${sig}&exp=${exp}&n=${nonce}`)
+        .expect(400);
+      expect(seen).toEqual([]);
     });
   });
 
