@@ -32,6 +32,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
 - [API Extensions](#api-extensions)
   * [Typed extension API](#typed-extension-api)
   * [MCP tools, resources, and prompts](#mcp-tools-resources-and-prompts)
+  * [Sub-resources under a note](#sub-resources-under-a-note)
   * [Known extensions](#known-extensions)
 - [Contributing](#contributing)
 - [Credits](#credits)
@@ -475,6 +476,27 @@ Version 3 also lets an extension expose things that aren't tools:
 - `addMcpPrompt({ name, argsSchema?, callback })` adds a prompt. MCP passes prompt arguments as strings.
 
 Clients that are already connected are notified when these lists change, and `unregister()` removes everything the handle registered.
+
+### Sub-resources under a note
+
+Routes added with `addRoute` can't live under `/vault/`, because the plugin's own `/vault/*` handler claims those paths first. From extension API version 3, `addVaultSubresource(name)` lets an extension serve routes under any note instead:
+
+```ts
+import type { VaultSubresourceRequest } from "obsidian-local-rest-api";
+
+const comments = api.addVaultSubresource("comments");
+comments.get("/", (req, res) => {
+  const { vaultFile } = req as VaultSubresourceRequest;
+  res.json(listComments(vaultFile));
+});
+comments.get("/:id", (req, res) => { /* ... */ });
+```
+
+`GET /vault/Notes/draft.md/comments/a1f3` then reaches that router as `GET /a1f3`, with the note attached as `req.vaultFile`; `/active/comments/a1f3` does the same for the active file. The plugin resolves the note before your router runs, so it only ever sees notes that exist, and a request your router doesn't answer continues to the plugin's own handlers. Requests need the API key; signed URLs never reach a sub-resource.
+
+A `%2F` in the URL is a literal slash inside one segment, which Express's own route matching can't tell apart from a separator. `req.vaultSubresourceSegments` holds the segments after the name, each decoded on its own, for when that matters.
+
+A name is one path segment. `heading`, `block` and `frontmatter` are reserved, and each name can only be registered by one extension at a time.
 
 ### Known extensions
 
