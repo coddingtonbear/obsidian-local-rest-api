@@ -15,6 +15,10 @@ jest.mock("./mcpHandler", () => ({
     // a sessionful-shaped request so the router's version filter applies its plain rejection.
     isSessionlessRequest: jest.fn().mockResolvedValue(false),
     registerTool: jest.fn().mockReturnValue(jest.fn()),
+    registerToolDefinition: jest.fn().mockReturnValue(jest.fn()),
+    registerResource: jest.fn().mockReturnValue(jest.fn()),
+    registerResourceTemplate: jest.fn().mockReturnValue(jest.fn()),
+    registerPrompt: jest.fn().mockReturnValue(jest.fn()),
     close: jest.fn(),
   })),
 }));
@@ -4512,6 +4516,70 @@ describe("requestHandler", () => {
       api.addMcpTool("cleanup_tool", "Desc", {}, async () => "");
       api.unregister();
       expect(mockCleanup).toHaveBeenCalledTimes(1);
+    });
+
+    test("reports API version 3", () => {
+      const extManifest = Object.assign(new PluginManifest(), { id: "test-plugin-version" });
+      // @ts-ignore: mock PluginManifest is close enough for runtime
+      expect(handler.registerApiExtension(extManifest).apiVersion).toBe(3);
+    });
+
+    test("the object form of addMcpTool registers a tool definition", () => {
+      const extManifest = Object.assign(new PluginManifest(), { id: "test-plugin-3" });
+      // @ts-ignore: mock PluginManifest is close enough for runtime
+      const api = handler.registerApiExtension(extManifest);
+      const definition = {
+        name: "defined_tool",
+        description: "Returns a full result",
+        callback: async () => ({ content: [] }),
+      };
+      api.addMcpTool(definition);
+      // @ts-ignore: registerToolDefinition is a jest mock on the McpHandler instance
+      expect(handler.mcpHandler.registerToolDefinition).toHaveBeenCalledWith(definition);
+      // @ts-ignore: registerTool is a jest mock on the McpHandler instance
+      expect(handler.mcpHandler.registerTool).not.toHaveBeenCalledWith("defined_tool", expect.anything());
+    });
+
+    test("unregister cleans up every tool, resource, template, and prompt", () => {
+      const extManifest = Object.assign(new PluginManifest(), { id: "test-plugin-4" });
+      // @ts-ignore: mock PluginManifest is close enough for runtime
+      const api = handler.registerApiExtension(extManifest);
+      const mcp = handler.mcpHandler as unknown as Record<
+        "registerToolDefinition" | "registerResource" | "registerResourceTemplate" | "registerPrompt",
+        jest.Mock
+      >;
+      const cleanups = [jest.fn(), jest.fn(), jest.fn(), jest.fn()];
+      mcp.registerToolDefinition.mockReturnValueOnce(cleanups[0]);
+      mcp.registerResource.mockReturnValueOnce(cleanups[1]);
+      mcp.registerResourceTemplate.mockReturnValueOnce(cleanups[2]);
+      mcp.registerPrompt.mockReturnValueOnce(cleanups[3]);
+      const read = async (uri: URL) => ({ contents: [{ uri: uri.href, text: "" }] });
+
+      api.addMcpTool({ name: "t", description: "d", callback: async () => ({ content: [] }) });
+      api.addMcpResource({ name: "r", uri: "ext://r", read });
+      api.addMcpResourceTemplate({ name: "rt", uriTemplate: "ext://r/{id}", read });
+      api.addMcpPrompt({ name: "p", callback: async () => ({ messages: [] }) });
+      api.unregister();
+
+      for (const cleanup of cleanups) expect(cleanup).toHaveBeenCalledTimes(1);
+    });
+
+    test("nothing can be registered after unregister", () => {
+      const extManifest = Object.assign(new PluginManifest(), { id: "test-plugin-5" });
+      // @ts-ignore: mock PluginManifest is close enough for runtime
+      const api = handler.registerApiExtension(extManifest);
+      api.unregister();
+      const read = async (uri: URL) => ({ contents: [{ uri: uri.href, text: "" }] });
+      expect(() => api.addMcpResource({ name: "r", uri: "ext://r", read })).toThrow(/unregistered/);
+      expect(() => api.addMcpResourceTemplate({ name: "rt", uriTemplate: "ext://r/{id}", read })).toThrow(
+        /unregistered/,
+      );
+      expect(() => api.addMcpPrompt({ name: "p", callback: async () => ({ messages: [] }) })).toThrow(
+        /unregistered/,
+      );
+      expect(() =>
+        api.addMcpTool({ name: "t", description: "d", callback: async () => ({ content: [] }) }),
+      ).toThrow(/unregistered/);
     });
   });
 
