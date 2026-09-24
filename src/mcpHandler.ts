@@ -26,6 +26,7 @@ import { VaultOperations } from "./vaultOperations";
 import type { InstructionInput, ReadTarget } from "markdown-patch-2";
 import { InstructionInputObjectSchema } from "markdown-patch-2";
 import openapiYaml from "../docs/openapi.yaml";
+import { OpenApiSpec } from "./openApiSpec";
 import { toStandardSchema } from "./mcpSchema";
 import { MaximumMcpBinaryBytes } from "./constants";
 import { assertVaultPathIsContained } from "./vaultPath";
@@ -366,6 +367,7 @@ export class McpHandler {
   private readonly signer: UrlSigner;
   private readonly events: EventStreams | null;
   private readonly imageScaler: ImageScaler | null;
+  private readonly openApiSpec: OpenApiSpec;
   // Handles for the tools that only exist while signed URLs are enabled, so the setting
   // can be toggled without rebuilding the handler.
   private signedUrlToolHandles: Array<{ remove: () => void }> = [];
@@ -378,10 +380,12 @@ export class McpHandler {
       imageScaler?: ImageScaler | null;
       /** Where `events_get_listener_url` registers subscriptions; without it the tool is absent. */
       events?: EventStreams;
+      openApiSpec?: OpenApiSpec;
     } = {},
   ) {
     this.signer = options.signer ?? new UrlSigner();
     this.events = options.events ?? null;
+    this.openApiSpec = options.openApiSpec ?? new OpenApiSpec(openapiYaml);
     this.imageScaler =
       options.imageScaler !== undefined
         ? options.imageScaler
@@ -998,14 +1002,14 @@ export class McpHandler {
       "obsidian://local-rest-api/openapi.yaml",
       {
         mimeType: "application/yaml",
-        description: dedent`Full OpenAPI specification for the Obsidian Local REST API. Contains complete request/response schemas, parameter descriptions, and usage examples for every endpoint.`,
+        description: dedent`Full OpenAPI specification for the Obsidian Local REST API. Contains complete request/response schemas, parameter descriptions, and usage examples for every endpoint, including those added by extension plugins that describe their routes.`,
       },
       async (uri: URL) => ({
         contents: [
           {
             uri: uri.href,
             mimeType: "application/yaml",
-            text: openapiYaml,
+            text: this.openApiSpec.yaml(),
           },
         ],
       }),

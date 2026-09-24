@@ -71,6 +71,7 @@ import {
   isV2TargetType,
 } from "./typeGuards";
 import LocalRestApiPublicApiImpl from "./api";
+import { OpenApiSpec } from "./openApiSpec";
 import type { LocalRestApiPublicApi } from "./publicApi";
 import {
   CommandNotFoundError,
@@ -223,6 +224,9 @@ export default class RequestHandler {
   // that redeems them share a secret — and that secret lives exactly as long as this
   // handler does.
   readonly urlSigner: UrlSigner;
+  // The spec served at /openapi.yaml, /openapi.json, and the MCP openapi-spec resource:
+  // the host's compiled spec plus whatever registered extensions have described.
+  readonly openApiSpec: OpenApiSpec;
 
   constructor(
     app: App,
@@ -235,6 +239,7 @@ export default class RequestHandler {
     this.api = express();
     this.settings = settings;
     this.urlSigner = urlSigner;
+    this.openApiSpec = new OpenApiSpec(openapiYaml);
 
     this.apiExtensionRouter = express.Router();
     this.publicApiExtensionRouter = express.Router();
@@ -243,6 +248,7 @@ export default class RequestHandler {
     this.mcpHandler = new McpHandler(this.operations, this.settings, {
       signer: this.urlSigner,
       events: this.events,
+      openApiSpec: this.openApiSpec,
     });
 
     this.api.set("json spaces", 2);
@@ -264,7 +270,7 @@ export default class RequestHandler {
         parent.stack.splice(idx, 1);
       }
     };
-    const api = new LocalRestApiPublicApiImpl(router, publicRouter, this.mcpHandler, this.vaultSubresources, () => {
+    const api = new LocalRestApiPublicApiImpl(router, publicRouter, this.mcpHandler, this.vaultSubresources, this.openApiSpec, manifest.id, () => {
       if (this.apiExtensions.delete(manifest.id)) {
         removeRouter(this.apiExtensionRouter, router);
         removeRouter(this.publicApiExtensionRouter, publicRouter);
@@ -360,6 +366,7 @@ export default class RequestHandler {
       "/",
       `/${CERT_NAME}`,
       "/openapi.yaml",
+      "/openapi.json",
     ];
 
     if (authenticationExemptRoutes.includes(req.path) || this.requestIsAuthenticated(req)) {
@@ -2428,7 +2435,14 @@ export default class RequestHandler {
     res: express.Response,
   ): Promise<void> {
     res.setHeader("Content-Type", "application/yaml; charset=utf-8");
-    res.status(200).send(openapiYaml);
+    res.status(200).send(this.openApiSpec.yaml());
+  }
+
+  async openapiJsonGet(
+    _req: express.Request,
+    res: express.Response,
+  ): Promise<void> {
+    res.status(200).json(this.openApiSpec.json());
   }
 
   async notFoundHandler(
@@ -2775,6 +2789,7 @@ export default class RequestHandler {
 
     this.api.get(`/${CERT_NAME}`, this.handle((rq, rs) => this.certificateGet(rq, rs)));
     this.api.get("/openapi.yaml", this.handle((rq, rs) => this.openapiYamlGet(rq, rs)));
+    this.api.get("/openapi.json", this.handle((rq, rs) => this.openapiJsonGet(rq, rs)));
     this.api.get("/", (rq, rs) => { this.root(rq, rs); });
 
     this.api.use(this.apiExtensionRouter);

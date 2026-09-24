@@ -67,6 +67,7 @@
     "tslib": "2.4.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.3",
+    "yaml": "^2.9.1",
     "zod": "3.25.76",
     "zod-to-json-schema": "^3.25.2"
   },

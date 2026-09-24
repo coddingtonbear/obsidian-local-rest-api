@@ -1942,8 +1942,25 @@ paths:
         Open the specified document in the Obsidian user interface.
       tags:
         - "Open"
+  /openapi.json:
+    get:
+      description: |
+        The same document as `/openapi.yaml`, including the routes extension plugins describe.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: "object"
+          description: "Success"
+      summary: |
+        Returns the OpenAPI document describing the capabilities of this API, as JSON.
+      tags:
+        - "System"
   /openapi.yaml:
     get:
+      description: |
+        Includes the routes of any installed extension plugin that describes them. Each path an extension contributes carries an `x-obsidian-extension` field naming that extension's plugin ID.
       responses:
         "200":
           description: "Success"

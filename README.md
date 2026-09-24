@@ -32,6 +32,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
 - [API Extensions](#api-extensions)
   * [Typed extension API](#typed-extension-api)
   * [MCP tools, resources, and prompts](#mcp-tools-resources-and-prompts)
+  * [Documenting your routes](#documenting-your-routes)
   * [Sub-resources under a note](#sub-resources-under-a-note)
   * [Known extensions](#known-extensions)
 - [Contributing](#contributing)
@@ -419,7 +420,7 @@ Two practical notes: whether a chat client renders a linked image inline is up t
 
 | URI | Description |
 |---|---|
-| `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API |
+| `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API, including routes that extensions describe |
 
 ## API Extensions
 
@@ -476,6 +477,29 @@ Version 3 also lets an extension expose things that aren't tools:
 - `addMcpPrompt({ name, argsSchema?, callback })` adds a prompt. MCP passes prompt arguments as strings.
 
 Clients that are already connected are notified when these lists change, and `unregister()` removes everything the handle registered.
+
+### Documenting your routes
+
+The plugin can't see what an extension's routes accept or return, so they don't appear in the OpenAPI spec until the extension describes them. `addOpenApiDescription` (extension API version 3) takes the `paths`, `components`, and `tags` your routes need, in the same shape as the matching parts of an OpenAPI document, and merges them into the spec served at `/openapi.yaml`, `/openapi.json`, and the MCP `openapi-spec` resource:
+
+```ts
+api.addRoute("/widgets/:id/").get(handler);
+api.addOpenApiDescription({
+  paths: {
+    "/widgets/{id}/": {
+      get: {
+        tags: ["Widgets"],
+        summary: "Return one widget.",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "The widget." } },
+      },
+    },
+  },
+  tags: [{ name: "Widgets", description: "Routes added by the Widgets plugin." }],
+});
+```
+
+Write path parameters the OpenAPI way (`{id}`), not express's (`:id`). Each path you contribute is published with an `x-obsidian-extension` field set to your plugin ID. A path, component, or tag that the plugin or another extension already declares makes the call throw without publishing anything, and `unregister()` removes your description along with your routes.
 
 ### Sub-resources under a note
 

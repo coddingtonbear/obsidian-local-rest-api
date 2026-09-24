@@ -228,6 +228,36 @@ export interface VaultSubresourceRequest extends Request {
     vaultSubresourceSegments: string[];
 }
 /**
+ * Any object in an OpenAPI document. Declared loosely on purpose: the host merges what
+ * it is given into its own spec without interpreting it, so this package does not need
+ * to model the OpenAPI schema, and does not pin extensions to one revision of it.
+ */
+export interface OpenApiObject {
+    [key: string]: unknown;
+}
+/** An entry in an OpenAPI document's top-level `tags` list. */
+export interface OpenApiTag extends OpenApiObject {
+    name: string;
+    description?: string;
+}
+/**
+ * The part of an OpenAPI document an extension contributes with
+ * {@link LocalRestApiPublicApi.addOpenApiDescription}.
+ *
+ * Each field has the shape of the matching top-level field of an OpenAPI 3 document,
+ * and the host merges them into its own: `paths` maps a path (starting with `/`, with
+ * parameters written `{name}` as OpenAPI requires, not express's `:name`) to its path
+ * item; `components` maps a section such as `schemas` or `parameters` to named entries,
+ * which the path items can `$ref` the usual way (`#/components/schemas/MyThing`); and
+ * `tags` declares tags with descriptions. An operation may also use one of the host's
+ * own tags without declaring it.
+ */
+export interface OpenApiDescription {
+    paths?: Record<string, OpenApiObject>;
+    components?: Record<string, Record<string, OpenApiObject>>;
+    tags?: OpenApiTag[];
+}
+/**
  * Thrown by {@link getAPI} when the caller asks for an extension API version newer
  * than the installed plugin implements.
  */
@@ -310,8 +340,22 @@ export interface LocalRestApiPublicApi {
      */
     addVaultSubresource(name: string): Router;
     /**
-     * Removes every route, vault sub-resource, MCP tool, resource, resource template, and
-     * prompt registered through this handle.
+     * Documents this extension's routes in the OpenAPI spec the host publishes at
+     * `/openapi.yaml`, `/openapi.json`, and the MCP `openapi-spec` resource.
+     *
+     * The host can't see what a route registered with {@link addRoute} accepts or
+     * returns, so without this an extension's routes are missing from the spec, and from
+     * every client or docs viewer generated from it. Each path item is published with an
+     * `x-obsidian-extension` field naming this extension.
+     *
+     * May be called more than once. Throws, and publishes nothing from that call, if the
+     * description declares a path, component, or tag the host or another extension
+     * already declares. Requires extension API version 3.
+     */
+    addOpenApiDescription(description: OpenApiDescription): void;
+    /**
+     * Removes every route, vault sub-resource, MCP tool, resource, resource template,
+     * prompt, and OpenAPI description registered through this handle.
      */
     unregister(): void;
 }

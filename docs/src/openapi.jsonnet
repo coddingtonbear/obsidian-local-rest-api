@@ -997,9 +997,31 @@ std.manifestYamlDoc(
             'System',
           ],
           summary: 'Returns OpenAPI YAML document describing the capabilities of this API.\n',
+          description: "Includes the routes of any installed extension plugin that describes them. Each path an extension contributes carries an `x-obsidian-extension` field naming that extension's plugin ID.\n",
           responses: {
             '200': {
               description: 'Success',
+            },
+          },
+        },
+      },
+      '/openapi.json': {
+        get: {
+          tags: [
+            'System',
+          ],
+          summary: 'Returns the OpenAPI document describing the capabilities of this API, as JSON.\n',
+          description: 'The same document as `/openapi.yaml`, including the routes extension plugins describe.\n',
+          responses: {
+            '200': {
+              description: 'Success',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                  },
+                },
+              },
             },
           },
         },
