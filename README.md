@@ -482,7 +482,10 @@ Clients that are already connected are notified when these lists change, and `un
 
 The plugin can't see what an extension's routes accept or return, so they don't appear in the OpenAPI spec until the extension describes them. `addOpenApiDescription` (extension API version 3) takes the `paths`, `components`, and `tags` your routes need, in the same shape as the matching parts of an OpenAPI document, and merges them into the spec served at `/openapi.yaml`, `/openapi.json`, and the MCP `openapi-spec` resource:
 
+Request version 3 from `getAPI` so an older host fails loudly instead of lacking the method:
+
 ```ts
+const api = getAPI(this.app, this.manifest, 3);
 api.addRoute("/widgets/:id/").get(handler);
 api.addOpenApiDescription({
   paths: {
