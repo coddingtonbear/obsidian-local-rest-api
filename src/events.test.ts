@@ -1,6 +1,6 @@
 import fs from "fs";
 import http from "http";
-import { AddressInfo } from "net";
+import { AddressInfo, connect } from "net";
 import path from "path";
 import request from "supertest";
 
@@ -165,6 +165,28 @@ describe("event streams over REST", () => {
   describe("registration", () => {
     test("requires the API key", async () => {
       await request(server).post("/events/vault/modify/").expect(401);
+    });
+
+    test("a request with no Host header registers nothing", async () => {
+      // HTTP/1.0 may omit Host, and the URL can't be built without it. That has to fail
+      // before a subscription exists, or such requests would fill the subscription cap.
+      const subscribeSpy = jest.spyOn(handler.events, "subscribe");
+      const port = (server.address() as AddressInfo).port;
+      const response = await new Promise<string>((resolve, reject) => {
+        const socket = connect(port, "127.0.0.1", () => {
+          socket.end(
+            `POST /events/vault/modify/ HTTP/1.0\r\nAuthorization: Bearer ${API_KEY}\r\n\r\n`,
+          );
+        });
+        let received = "";
+        socket.setEncoding("utf-8");
+        socket.on("data", (chunk: string) => (received += chunk));
+        socket.on("end", () => resolve(received));
+        socket.on("error", reject);
+      });
+
+      expect(response).toMatch(/^HTTP\/1\.\d 5\d\d/);
+      expect(subscribeSpy).not.toHaveBeenCalled();
     });
 
     test("a bare /events/ is refused, listing what can be streamed", async () => {
@@ -648,6 +670,26 @@ describe("event streams over REST", () => {
       handler.events.dispose();
 
       await ended;
+      expect(listenerCount(app.vault, "delete")).toBe(1);
+    });
+
+    test("a stream still being set up at dispose is closed, not left listening", async () => {
+      const grant = await subscribe("/events/vault/delete/");
+      // Dispose while `open` is awaiting its session, as a plugin unload racing a
+      // connecting client would.
+      const events = handler.events;
+      const original = events.open.bind(events);
+      jest.spyOn(events, "open").mockImplementation((subscription, req, res) => {
+        const opening = original(subscription, req, res);
+        events.dispose();
+        return opening;
+      });
+
+      const stream = await open(grant.url);
+      // The response may already have ended by the time `open` hands it back.
+      await waitFor(() => stream.response.complete);
+
+      expect(events.openStreamCount).toBe(0);
       expect(listenerCount(app.vault, "delete")).toBe(1);
     });
   });

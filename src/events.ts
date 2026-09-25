@@ -577,7 +577,8 @@ export class EventStreams {
       this.opening--;
     }
     // The subscription may have been dropped during the await -- its extension
-    // unregistered, or the plugin unloaded. Nothing would ever close this stream then.
+    // unregistered, the plugin unloaded, or it expired and was pruned. Nothing would ever
+    // close this stream then.
     if (this.subscriptions.get(subscription.id) !== subscription) {
       res.end();
       return session;
