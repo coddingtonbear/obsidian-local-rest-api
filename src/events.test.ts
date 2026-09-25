@@ -462,6 +462,205 @@ describe("event streams over REST", () => {
       expect(result.body.errorCode).toBe(ErrorCode.EventCapacityReached);
     });
 
+    describe("extension events", () => {
+      /** An `Events`-shaped emitter an extension owns. */
+      class FakeEvents {
+        _listeners: Map<string, ((...data: unknown[]) => unknown)[]> = new Map();
+        on(name: string, callback: (...data: unknown[]) => unknown): void {
+          this._listeners.set(name, [...(this._listeners.get(name) ?? []), callback]);
+        }
+        off(name: string, callback: (...data: unknown[]) => unknown): void {
+          this._listeners.set(name, (this._listeners.get(name) ?? []).filter((cb) => cb !== callback));
+        }
+        trigger(name: string, ...data: unknown[]): void {
+          for (const callback of this._listeners.get(name) ?? []) callback(...data);
+        }
+      }
+
+      function registerExtension(id = "some-extension") {
+        const manifest = new PluginManifest();
+        manifest.id = id;
+        // @ts-ignore: the mock manifest does not match Obsidian's exactly
+        return handler.registerApiExtension(manifest);
+      }
+
+      test("streams what the extension's serializer returns, under its plugin id", async () => {
+        const source = new FakeEvents();
+        const api = registerExtension();
+        expect(api.apiVersion).toBe(5);
+        api.addStreamableEvent("thing:happened", {
+          source,
+          serialize: (live, count) => ({
+            name: (live as { name: string }).name,
+            count,
+            emitter: "vault",
+          }),
+        });
+        const grant = await subscribe("/events/some-extension/thing:happened/", {
+          ">": [{ var: "count" }, 1],
+        });
+        const stream = await open(grant.url);
+        await waitFor(() => (source._listeners.get("thing:happened") ?? []).length === 1);
+
+        source.trigger("thing:happened", { name: "skip", secret: "x" }, 1);
+        source.trigger("thing:happened", { name: "keep", secret: "x" }, 2);
+
+        const received = await stream.next();
+        expect(received.event).toBe("thing:happened");
+        // The serializer's own `emitter` does not relabel what fired.
+        expect(received.data).toEqual({
+          name: "keep",
+          count: 2,
+          emitter: "some-extension",
+          event: "thing:happened",
+        });
+      });
+
+      test("a serializer returning null sends nothing for that occurrence", async () => {
+        const source = new FakeEvents();
+        registerExtension().addStreamableEvent("tick", {
+          source,
+          serialize: async (n) => ((n as number) % 2 === 0 ? { n } : null),
+        });
+        const stream = await open((await subscribe("/events/some-extension/tick/")).url);
+        await waitFor(() => (source._listeners.get("tick") ?? []).length === 1);
+
+        source.trigger("tick", 1);
+        source.trigger("tick", 2);
+
+        expect((await stream.next()).data).toMatchObject({ n: 2 });
+      });
+
+      test("registered events are listed, and unregistered ones are not streamable", async () => {
+        registerExtension().addStreamableEvent("tick", { source: new FakeEvents(), serialize: () => ({}) });
+        const result = await request(server)
+          .post("/events/some-extension/tock/")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(404);
+        expect(result.body.supportedEvents).toEqual({
+          ...STREAMABLE_EVENTS,
+          "some-extension": ["tick"],
+        });
+      });
+
+      test("unregister closes the extension's streams and forgets its events", async () => {
+        const source = new FakeEvents();
+        const api = registerExtension();
+        api.addStreamableEvent("tick", { source, serialize: () => ({}) });
+        const grant = await subscribe("/events/some-extension/tick/");
+        const stream = await open(grant.url);
+        await waitFor(() => (source._listeners.get("tick") ?? []).length === 1);
+        const ended = new Promise((resolve) => stream.response.on("end", resolve));
+
+        api.unregister();
+
+        await ended;
+        expect(source._listeners.get("tick")).toEqual([]);
+        await request(server)
+          .get(`/events/some-extension/tick/${grant.id}/`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(404);
+        expect(() => api.addStreamableEvent("tock", { source, serialize: () => ({}) })).toThrow(
+          /unregistered/,
+        );
+      });
+
+      test("an extension whose id is __proto__ is listed like any other", async () => {
+        registerExtension("__proto__").addStreamableEvent("tick", {
+          source: new FakeEvents(),
+          serialize: () => ({}),
+        });
+        const result = await request(server)
+          .post("/events/__proto__/tock/")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(404);
+        const supported = result.body.supportedEvents as Record<string, unknown>;
+        expect(Object.keys(supported)).toContain("__proto__");
+        expect(Object.getOwnPropertyDescriptor(supported, "__proto__")?.value).toEqual(["tick"]);
+      });
+
+      test("an occurrence from before unregister never reaches a re-registered event", async () => {
+        const source = new FakeEvents();
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        const api = registerExtension();
+        api.addStreamableEvent("tick", {
+          source,
+          serialize: async (n) => {
+            await held;
+            return { n, from: "old" };
+          },
+        });
+        await open((await subscribe("/events/some-extension/tick/")).url);
+        await waitFor(() => (source._listeners.get("tick") ?? []).length === 1);
+        // One occurrence is mid-serialization and the next is queued behind it.
+        source.trigger("tick", 1);
+        source.trigger("tick", 2);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        api.unregister();
+        registerExtension().addStreamableEvent("tick", {
+          source,
+          serialize: (n) => ({ n, from: "new" }),
+        });
+        const stream = await open((await subscribe("/events/some-extension/tick/")).url);
+        await waitFor(() => (source._listeners.get("tick") ?? []).length === 1);
+        release();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        source.trigger("tick", 3);
+
+        expect((await stream.next()).data).toMatchObject({ n: 3, from: "new" });
+      });
+
+      test.each([
+        ["an empty name", ""],
+        ["a slash", "a/b"],
+        ["a space", "a b"],
+        ["a query string", "a?b"],
+        ["a dot segment", "."],
+        ["a dot-dot segment", ".."],
+      ])("refuses an event name with %s", (_label, name) => {
+        expect(() =>
+          registerExtension().addStreamableEvent(name, { source: new FakeEvents(), serialize: () => ({}) }),
+        ).toThrow(/Event name/);
+      });
+
+      test.each([["."], [".."]])("refuses an extension whose id is %s", (id) => {
+        expect(() =>
+          registerExtension(id).addStreamableEvent("tick", { source: new FakeEvents(), serialize: () => ({}) }),
+        ).toThrow(/event emitter name/);
+      });
+
+      test("unregistering a replaced handle again leaves its replacement alone", async () => {
+        const source = new FakeEvents();
+        const old = registerExtension();
+        old.unregister();
+        const replacement = registerExtension();
+        expect(replacement).not.toBe(old);
+        replacement.addStreamableEvent("tick", { source, serialize: (n) => ({ n }) });
+        const stream = await open((await subscribe("/events/some-extension/tick/")).url);
+        await waitFor(() => (source._listeners.get("tick") ?? []).length === 1);
+
+        old.unregister();
+
+        expect(registerExtension()).toBe(replacement);
+        expect(source._listeners.get("tick")).toHaveLength(1);
+        source.trigger("tick", 1);
+        expect((await stream.next()).data).toMatchObject({ n: 1 });
+      });
+
+      test("refuses a duplicate event, and an extension named like a built-in emitter", () => {
+        const api = registerExtension();
+        api.addStreamableEvent("tick", { source: new FakeEvents(), serialize: () => ({}) });
+        expect(() => api.addStreamableEvent("tick", { source: new FakeEvents(), serialize: () => ({}) })).toThrow(
+          /already registered/,
+        );
+        expect(() =>
+          registerExtension("vault").addStreamableEvent("tick", { source: new FakeEvents(), serialize: () => ({}) }),
+        ).toThrow(/built-in/);
+      });
+    });
+
     test("dispose closes open streams and removes listeners", async () => {
       const grant = await subscribe("/events/vault/delete/");
       const stream = await open(grant.url);

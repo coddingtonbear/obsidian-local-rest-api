@@ -26,7 +26,7 @@
  * as well, but it also freezes the member's signature into the published contract
  * forever.
  */
-import type { App, PluginManifest, TFile } from "obsidian";
+import type { App, Events, PluginManifest, TFile } from "obsidian";
 import type { IRoute, Request, Router } from "express";
 import type { z } from "zod";
 
@@ -402,10 +402,42 @@ export interface LocalRestApiPublicApi {
   addOpenApiDescription(description: OpenApiDescription): void;
 
   /**
+   * Makes one of the extension's events streamable through the host's event streams,
+   * under the extension's plugin id: `POST /events/<plugin id>/<event>/` subscribes, and
+   * the MCP `events_get_listener_url` tool accepts it too.
+   *
+   * `serialize` decides everything a stream sends. The host adds `emitter` and `event`
+   * fields and sends nothing else, so return only what a holder of a stream URL may see
+   * -- never live objects or note text they did not ask for. Returning null drops the
+   * occurrence.
+   *
+   * Throws if `event` is not 1-128 letters, digits, or `.`, `_`, `:`, `-`, is `.` or `..`,
+   * or is already registered by this extension. Requires extension API version 5.
+   */
+  addStreamableEvent(event: string, definition: StreamableEventDefinition): void;
+
+  /**
    * Removes every route, vault sub-resource, MCP tool, resource, resource template,
-   * prompt, and OpenAPI description registered through this handle.
+   * prompt, OpenAPI description, and streamable event registered through this handle.
    */
   unregister(): void;
+}
+
+/** How an extension's event is listened for and turned into what a stream sends. */
+export interface StreamableEventDefinition {
+  /**
+   * What the event fires on: the extension's own `Events` instance, or one of
+   * Obsidian's (`app.metadataCache`, say, for an event another plugin triggers there).
+   */
+  source: Pick<Events, "on" | "off">;
+  /**
+   * Builds a JSON-serializable object from the listener's arguments: what the stream
+   * sends and what a subscriber's JSONLogic filter is evaluated against. May be async.
+   * Return null to send nothing for this occurrence.
+   */
+  serialize: (
+    ...args: unknown[]
+  ) => Record<string, unknown> | null | Promise<Record<string, unknown> | null>;
 }
 
 /**

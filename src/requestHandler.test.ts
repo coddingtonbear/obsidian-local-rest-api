@@ -4523,10 +4523,10 @@ describe("requestHandler", () => {
       expect(mockCleanup).toHaveBeenCalledTimes(1);
     });
 
-    test("reports API version 4", () => {
+    test("reports API version 5", () => {
       const extManifest = Object.assign(new PluginManifest(), { id: "test-plugin-version" });
       // @ts-ignore: mock PluginManifest is close enough for runtime
-      expect(handler.registerApiExtension(extManifest).apiVersion).toBe(4);
+      expect(handler.registerApiExtension(extManifest).apiVersion).toBe(5);
     });
 
     test("the object form of addMcpTool registers a tool definition", () => {

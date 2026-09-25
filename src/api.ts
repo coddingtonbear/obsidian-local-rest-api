@@ -11,6 +11,7 @@ import type {
   McpResourceTemplateDefinition,
   McpToolDefinition,
   OpenApiDescription,
+  StreamableEventDefinition,
 } from "./publicApi";
 import type { VaultSubresourceRegistry } from "./vaultSubresources";
 
@@ -18,7 +19,7 @@ import type { VaultSubresourceRegistry } from "./vaultSubresources";
 // ./publicApi, which is what the generated publicApi.d.ts is emitted from. Re-exported
 // here so internal callers keep importing them from the module that implements them.
 export { ApiVersionUnsupportedError } from "./publicApi";
-export type { LocalRestApiPublicApi } from "./publicApi";
+export type { LocalRestApiPublicApi, StreamableEventDefinition } from "./publicApi";
 
 /**
  * A route an extension has registered, as reported by {@link
@@ -34,7 +35,7 @@ export interface RegisteredRoute {
 }
 
 export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi {
-  public readonly apiVersion = 4;
+  public readonly apiVersion = 5;
   private router: express.Router;
   private publicRouter: express.Router;
   private mcpHandler: McpHandler;
@@ -42,6 +43,7 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
   private openApiSpec: OpenApiSpec;
   private pluginId: string;
   private onUnregister: () => void;
+  private addEvent: (event: string, definition: StreamableEventDefinition) => void;
   private unregistered = false;
   private registeredRoutes: RegisteredRoute[] = [];
   // One per MCP tool, resource, resource template, and prompt, all undone by unregister().
@@ -58,6 +60,9 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     openApiSpec: OpenApiSpec,
     pluginId: string,
     onUnregister: () => void,
+    addEvent: (event: string, definition: StreamableEventDefinition) => void = () => {
+      throw new Error("Streamable events are not available.");
+    },
   ) {
     this.router = router;
     this.publicRouter = publicRouter;
@@ -66,6 +71,7 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     this.openApiSpec = openApiSpec;
     this.pluginId = pluginId;
     this.onUnregister = onUnregister;
+    this.addEvent = addEvent;
     this.unregistered = false;
   }
 
@@ -167,6 +173,12 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
   public addMcpPrompt(definition: McpPromptDefinition): void {
     this.assertRegistered();
     this.mcpCleanups.push(this.mcpHandler.registerPrompt(definition));
+  }
+
+  /** Makes one of the extension's events streamable; see the interface for the contract. */
+  public addStreamableEvent(event: string, definition: StreamableEventDefinition): void {
+    this.assertRegistered();
+    this.addEvent(event, definition);
   }
 
   /** Host-only counterpart to {@link getRoutes}, returning a copy for the same reason. */

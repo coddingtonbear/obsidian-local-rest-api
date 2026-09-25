@@ -12,7 +12,7 @@ Streaming is two steps because a browser's `EventSource` can only make `GET` req
 | `metadataCache` | `changed`, `deleted`, `resolve`, `resolved` |
 | `workspace` | `file-open`, `active-leaf-change`, `layout-change` |
 
-Anything else gets a `404` whose `supportedEvents` field lists the table above. Some events are left out on purpose. `quick-preview` and `editor-change` fire on every keystroke and carry the note's text, `editor-paste` and `editor-drop` carry clipboard and drag data, and the menu and window events carry UI objects. `/events/` and `/events/{emitter}/` return `400`, because Obsidian has no way to listen for every event at once.
+Plugins extending this server can add their own events, with their plugin id as `{emitter}`. The payload of an extension's event is whatever that extension's serializer returns, plus `emitter` and `event`. Anything else gets a `404` whose `supportedEvents` field lists everything currently available. Some events are left out on purpose. `quick-preview` and `editor-change` fire on every keystroke and carry the note's text, `editor-paste` and `editor-drop` carry clipboard and drag data, and the menu and window events carry UI objects. `/events/` and `/events/{emitter}/` return `400`, because Obsidian has no way to listen for every event at once.
 
 To react to a note's frontmatter changing, use `metadataCache` `changed` rather than `vault` `modify`. `modify` fires before Obsidian has re-read the file's metadata, so its frontmatter can be stale.
 

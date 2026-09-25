@@ -1222,8 +1222,34 @@ describe("McpHandler", () => {
           expiresAt: "2026-01-01T00:00:00.000Z",
         }),
       );
-      return { events: { createListener } as unknown as EventStreams, createListener };
+      const supported: Record<string, string[]> = {
+        vault: ["modify"],
+        workspace: ["file-open"],
+        "some-extension": ["thing-happened"],
+      };
+      const fake = {
+        createListener,
+        isStreamable: (emitter: string, event: string) => supported[emitter]?.includes(event) ?? false,
+        supportedEvents: () => supported,
+      };
+      return { events: fake as unknown as EventStreams, createListener };
     }
+
+    test("events_get_listener_url accepts an event an extension registered", async () => {
+      const { events, createListener } = fakeEvents();
+      const mcp = build(SIGNED, { events });
+      await overHttp(mcp, () =>
+        getToolCallback("events_get_listener_url")({
+          emitter: "some-extension",
+          event: "thing-happened",
+        }),
+      );
+      expect(createListener.mock.calls[0].slice(0, 3)).toEqual([
+        "some-extension",
+        "thing-happened",
+        null,
+      ]);
+    });
 
     test("events_get_listener_url is registered only with signed URLs on and an event source", () => {
       const { events } = fakeEvents();
@@ -1273,7 +1299,7 @@ describe("McpHandler", () => {
         overHttp(mcp, () =>
           getToolCallback("events_get_listener_url")({ emitter: "workspace", event: "quick-preview" }),
         ),
-      ).rejects.toThrow(/not a streamable workspace event.*file-open/);
+      ).rejects.toThrow(/not a streamable workspace event.*file-open.*some-extension: thing-happened/);
       expect(createListener).not.toHaveBeenCalled();
     });
 

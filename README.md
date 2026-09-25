@@ -34,6 +34,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
   * [MCP tools, resources, and prompts](#mcp-tools-resources-and-prompts)
   * [Documenting your routes](#documenting-your-routes)
   * [Sub-resources under a note](#sub-resources-under-a-note)
+  * [Extension events](#extension-events)
   * [Known extensions](#known-extensions)
 - [Contributing](#contributing)
 - [Credits](#credits)
@@ -424,7 +425,7 @@ Two practical notes: whether a chat client renders a linked image inline is up t
 
 ## API Extensions
 
-Other plugins can register their own authenticated routes, public routes, and MCP tools against this plugin's server. See [Adding your own API Routes via an Extension](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension) for a walkthrough.
+Other plugins can register their own authenticated routes, public routes, MCP tools, and [streamable events](#extension-events) against this plugin's server. See [Adding your own API Routes via an Extension](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension) for a walkthrough.
 
 ### Typed extension API
 
@@ -524,6 +525,26 @@ comments.get("/:id", (req, res) => { /* ... */ });
 A `%2F` in the URL is a literal slash inside one segment, which Express's own route matching can't tell apart from a separator. `req.vaultSubresourceSegments` holds the segments after the name, each decoded on its own, for when that matters.
 
 A name is one path segment. `heading`, `block` and `frontmatter` are reserved, and each name can only be registered by one extension at a time.
+
+### Extension events
+
+From extension API version 5, an extension can add its own events to the [event streams](#event-streams). Each one is streamed under the extension's plugin id as the emitter:
+
+```ts
+const api = getAPI(this.app, this.manifest, 5);
+
+// Your plugin's own Events instance; call this.events.trigger("task-completed", ...)
+// wherever the event happens.
+this.events = new Events();
+
+api.addStreamableEvent("task-completed", {
+  source: this.events,
+  serialize: (file, line) => ({ path: (file as TFile).path, line }),
+});
+// Now available at POST /events/<your plugin id>/task-completed/
+```
+
+Your serializer decides _everything_ a stream sends. The host adds `emitter` and `event` and sends nothing else, so return only what someone holding a stream URL should see. Return `null` to skip an occurrence. `unregister()` closes any open streams for your events.
 
 ### Known extensions
 
