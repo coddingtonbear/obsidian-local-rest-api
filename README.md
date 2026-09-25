@@ -449,11 +449,15 @@ The package entry point is a small standalone module — it resolves the *runnin
 From extension API version 3, an extension can add its own events to the [event streams](#event-streams). Each one is streamed under the extension's plugin id as the emitter:
 
 ```ts
-api.addStreamableEvent("metadata-change", {
-  source: this.app.metadataCache, // or your plugin's own Events instance
-  serialize: (type, file) => ({ type, path: (file as TFile).path }),
+// Your plugin's own Events instance; call this.events.trigger("task-completed", ...)
+// wherever the event happens.
+this.events = new Events();
+
+api.addStreamableEvent("task-completed", {
+  source: this.events,
+  serialize: (file, line) => ({ path: (file as TFile).path, line }),
 });
-// Now available at POST /events/<your plugin id>/metadata-change/
+// Now available at POST /events/<your plugin id>/task-completed/
 ```
 
 Your serializer decides _everything_ a stream sends. The host adds `emitter` and `event` and sends nothing else, so return only what someone holding a stream URL should see. Return `null` to skip an occurrence. `unregister()` closes any open streams for your events.
