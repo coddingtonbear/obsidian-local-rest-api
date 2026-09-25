@@ -72,4 +72,33 @@ describe("EventStreams admission", () => {
     for (const release of pending) release();
     await expect(Promise.all(opens)).resolves.toHaveLength(MaximumOpenStreams);
   });
+
+  describe("a subscription removed while its stream is being set up", () => {
+    function extensionSubscription(events: EventStreams) {
+      const source = { on: jest.fn(), off: jest.fn() };
+      events.addExtensionEvent("some-extension", "tick", { source, serialize: () => ({}) });
+      return { source, subscription: events.subscribe("some-extension", "tick", null, 60) };
+    }
+
+    test.each([
+      [
+        "the extension unregistering",
+        (events: EventStreams) => events.removeExtensionEvents("some-extension"),
+      ],
+      ["plugin unload", (events: EventStreams) => events.dispose()],
+    ])("by %s ends the response instead of leaving it open", async (_label, remove) => {
+      const events = streams();
+      const { source, subscription } = extensionSubscription(events);
+      const response = { end: jest.fn() } as unknown as ServerResponse;
+
+      const opened = events.open(subscription, req, response);
+      remove(events);
+      for (const release of pending) release();
+      await opened;
+
+      expect(response.end).toHaveBeenCalled();
+      expect(subscription.sessions.size).toBe(0);
+      expect(source.on).not.toHaveBeenCalled();
+    });
+  });
 });

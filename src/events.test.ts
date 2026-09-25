@@ -595,10 +595,36 @@ describe("event streams over REST", () => {
         ["a slash", "a/b"],
         ["a space", "a b"],
         ["a query string", "a?b"],
+        ["a dot segment", "."],
+        ["a dot-dot segment", ".."],
       ])("refuses an event name with %s", (_label, name) => {
         expect(() =>
           registerExtension().addStreamableEvent(name, { source: new FakeEvents(), serialize: () => ({}) }),
         ).toThrow(/Event name/);
+      });
+
+      test.each([["."], [".."]])("refuses an extension whose id is %s", (id) => {
+        expect(() =>
+          registerExtension(id).addStreamableEvent("tick", { source: new FakeEvents(), serialize: () => ({}) }),
+        ).toThrow(/event emitter name/);
+      });
+
+      test("unregistering a replaced handle again leaves its replacement alone", async () => {
+        const source = new FakeEvents();
+        const old = registerExtension();
+        old.unregister();
+        const replacement = registerExtension();
+        expect(replacement).not.toBe(old);
+        replacement.addStreamableEvent("tick", { source, serialize: (n) => ({ n }) });
+        const stream = await open((await subscribe("/events/some-extension/tick/")).url);
+        await waitFor(() => (source._listeners.get("tick") ?? []).length === 1);
+
+        old.unregister();
+
+        expect(registerExtension()).toBe(replacement);
+        expect(source._listeners.get("tick")).toHaveLength(1);
+        source.trigger("tick", 1);
+        expect((await stream.next()).data).toMatchObject({ n: 1 });
       });
 
       test("refuses a duplicate event, and an extension named like a built-in emitter", () => {
