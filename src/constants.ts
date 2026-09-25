@@ -2,7 +2,7 @@ import { ErrorCode, LocalRestApiSettings } from "./types";
 
 export const CERT_NAME = "obsidian-local-rest-api.crt";
 
-export const BUILT_IN_ROUTES = ["/", "/openapi.yaml", `/${CERT_NAME}`];
+export const BUILT_IN_ROUTES = ["/", "/openapi.yaml", "/openapi.json", `/${CERT_NAME}`];
 
 /**
  * The MCP protocol revision served by the `/mcp/` endpoint's sessionless leg.

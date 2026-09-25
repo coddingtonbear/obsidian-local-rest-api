@@ -3,7 +3,17 @@ import { z } from "zod";
 import type { ToolAnnotations } from "@modelcontextprotocol/server";
 import { BUILT_IN_ROUTES } from "./constants";
 import { McpHandler } from "./mcpHandler";
-import type { LocalRestApiPublicApi, StreamableEventDefinition } from "./publicApi";
+import type { OpenApiSpec } from "./openApiSpec";
+import type {
+  LocalRestApiPublicApi,
+  McpPromptDefinition,
+  McpResourceDefinition,
+  McpResourceTemplateDefinition,
+  McpToolDefinition,
+  OpenApiDescription,
+  StreamableEventDefinition,
+} from "./publicApi";
+import type { VaultSubresourceRegistry } from "./vaultSubresources";
 
 // The public surface — the interface and ApiVersionUnsupportedError — lives in
 // ./publicApi, which is what the generated publicApi.d.ts is emitted from. Re-exported
@@ -25,21 +35,30 @@ export interface RegisteredRoute {
 }
 
 export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi {
-  public readonly apiVersion = 3;
+  public readonly apiVersion = 5;
   private router: express.Router;
   private publicRouter: express.Router;
   private mcpHandler: McpHandler;
+  private vaultSubresources: VaultSubresourceRegistry;
+  private openApiSpec: OpenApiSpec;
+  private pluginId: string;
   private onUnregister: () => void;
   private addEvent: (event: string, definition: StreamableEventDefinition) => void;
   private unregistered = false;
   private registeredRoutes: RegisteredRoute[] = [];
-  private mcpToolCleanups: (() => void)[] = [];
+  // One per MCP tool, resource, resource template, and prompt, all undone by unregister().
+  private mcpCleanups: (() => void)[] = [];
   private registeredMcpTools: string[] = [];
+  private registeredSubresources: { name: string; router: express.Router }[] = [];
+  private openApiCleanups: (() => void)[] = [];
 
   constructor(
     router: express.Router,
     publicRouter: express.Router,
     mcpHandler: McpHandler,
+    vaultSubresources: VaultSubresourceRegistry,
+    openApiSpec: OpenApiSpec,
+    pluginId: string,
     onUnregister: () => void,
     addEvent: (event: string, definition: StreamableEventDefinition) => void = () => {
       throw new Error("Streamable events are not available.");
@@ -48,6 +67,9 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     this.router = router;
     this.publicRouter = publicRouter;
     this.mcpHandler = mcpHandler;
+    this.vaultSubresources = vaultSubresources;
+    this.openApiSpec = openApiSpec;
+    this.pluginId = pluginId;
     this.onUnregister = onUnregister;
     this.addEvent = addEvent;
     this.unregistered = false;
@@ -91,6 +113,16 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     return this.publicRouter.route(path);
   }
 
+  /** Adds a sub-resource under every note; see ./publicApi for the contract. */
+  public addVaultSubresource(name: string): express.Router {
+    this.assertRegistered();
+    const router = express.Router();
+    this.vaultSubresources.register(name, router);
+    this.registeredSubresources.push({ name, router });
+    this.registeredRoutes.push({ path: `/vault/{path}/${name}/`, authenticated: true });
+    return router;
+  }
+
   /** Registers an MCP tool that will be available to MCP clients. */
   public addMcpTool(
     name: string,
@@ -98,11 +130,49 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     schema: Record<string, z.ZodTypeAny>,
     callback: (args: Record<string, unknown>) => Promise<unknown>,
     annotations?: ToolAnnotations,
+  ): void;
+  public addMcpTool(definition: McpToolDefinition): void;
+  public addMcpTool(
+    nameOrDefinition: string | McpToolDefinition,
+    description?: string,
+    schema?: Record<string, z.ZodTypeAny>,
+    callback?: (args: Record<string, unknown>) => Promise<unknown>,
+    annotations?: ToolAnnotations,
   ): void {
     this.assertRegistered();
-    const cleanup = this.mcpHandler.registerTool(name, description, schema, callback, annotations);
-    this.mcpToolCleanups.push(cleanup);
-    this.registeredMcpTools.push(name);
+    if (typeof nameOrDefinition !== "string") {
+      this.mcpCleanups.push(this.mcpHandler.registerToolDefinition(nameOrDefinition));
+      this.registeredMcpTools.push(nameOrDefinition.name);
+      return;
+    }
+    // Only reachable from plain JavaScript: the overloads make these required.
+    if (description === undefined || schema === undefined || callback === undefined) {
+      throw new TypeError(
+        "addMcpTool(name, description, schema, callback) requires all four arguments.",
+      );
+    }
+    this.mcpCleanups.push(
+      this.mcpHandler.registerTool(nameOrDefinition, description, schema, callback, annotations),
+    );
+    this.registeredMcpTools.push(nameOrDefinition);
+  }
+
+  /** Registers an MCP resource at a fixed URI. */
+  public addMcpResource(definition: McpResourceDefinition): void {
+    this.assertRegistered();
+    this.mcpCleanups.push(this.mcpHandler.registerResource(definition));
+  }
+
+  /** Registers a family of MCP resources addressed by a URI template. */
+  public addMcpResourceTemplate(definition: McpResourceTemplateDefinition): void {
+    this.assertRegistered();
+    this.mcpCleanups.push(this.mcpHandler.registerResourceTemplate(definition));
+  }
+
+  /** Registers an MCP prompt. */
+  public addMcpPrompt(definition: McpPromptDefinition): void {
+    this.assertRegistered();
+    this.mcpCleanups.push(this.mcpHandler.registerPrompt(definition));
   }
 
   /** Makes one of the extension's events streamable; see the interface for the contract. */
@@ -116,10 +186,23 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     return [...this.registeredMcpTools];
   }
 
+  /** Documents this extension's routes in the published OpenAPI spec. */
+  public addOpenApiDescription(description: OpenApiDescription): void {
+    this.assertRegistered();
+    this.openApiCleanups.push(this.openApiSpec.add(this.pluginId, description));
+  }
+
   public unregister(): void {
-    for (const cleanup of this.mcpToolCleanups) {
+    for (const cleanup of this.mcpCleanups) {
       cleanup();
     }
+    for (const { name, router } of this.registeredSubresources) {
+      this.vaultSubresources.unregister(name, router);
+    }
+    for (const cleanup of this.openApiCleanups) {
+      cleanup();
+    }
+    this.openApiCleanups = [];
     this.onUnregister();
     this.unregistered = true;
   }

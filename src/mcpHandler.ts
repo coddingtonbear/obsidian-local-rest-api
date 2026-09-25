@@ -1,10 +1,14 @@
-import { McpServer, createMcpHandler, isLegacyRequest } from "@modelcontextprotocol/server";
+import {
+  McpServer,
+  ResourceTemplate,
+  createMcpHandler,
+  isLegacyRequest,
+} from "@modelcontextprotocol/server";
 import type {
   CacheHint,
   CallToolResult,
   McpHttpHandler,
   ReadResourceResult,
-  RegisteredTool,
   StandardSchemaWithJSON,
   ToolAnnotations,
 } from "@modelcontextprotocol/server";
@@ -22,10 +26,17 @@ import { VaultOperations } from "./vaultOperations";
 import type { InstructionInput, ReadTarget } from "markdown-patch-2";
 import { InstructionInputObjectSchema } from "markdown-patch-2";
 import openapiYaml from "../docs/openapi.yaml";
+import { OpenApiSpec } from "./openApiSpec";
 import { toStandardSchema } from "./mcpSchema";
 import { MaximumMcpBinaryBytes } from "./constants";
 import { assertVaultPathIsContained } from "./vaultPath";
 import { LocalRestApiSettings } from "./types";
+import type {
+  McpPromptDefinition,
+  McpResourceDefinition,
+  McpResourceTemplateDefinition,
+  McpToolDefinition,
+} from "./publicApi";
 import {
   EVENT_EMITTERS,
   EventStreams,
@@ -52,10 +63,11 @@ const SERVER_INFO = { name: "obsidian-local-rest-api", version: "1.0.0" };
 // changes under the client's feet, so nothing is advertised as `public` — a shared proxy
 // must never hand one vault's listing to another client — and the lifetimes are short
 // enough that a stale answer is measured in seconds. `server/discover` is the exception:
-// the tool/resource capability set only changes when a plugin registers a tool.
+// the capability set only changes when a plugin registers a tool, resource, or prompt.
 const CACHE_HINTS = {
   "server/discover": { ttlMs: 300_000, cacheScope: "private" },
   "tools/list": { ttlMs: 60_000, cacheScope: "private" },
+  "prompts/list": { ttlMs: 60_000, cacheScope: "private" },
   "resources/list": { ttlMs: 60_000, cacheScope: "private" },
   "resources/templates/list": { ttlMs: 60_000, cacheScope: "private" },
   "resources/read": { ttlMs: 60_000, cacheScope: "private" },
@@ -63,10 +75,12 @@ const CACHE_HINTS = {
 
 interface ToolSpec {
   name: string;
+  title?: string;
   description: string;
   // Converted from the registered zod shape once, not per request: a request builds a
   // whole server from these specs, and the shape never changes after registration.
   inputSchema: StandardSchemaWithJSON<Record<string, unknown>, Record<string, unknown>>;
+  outputSchema?: StandardSchemaWithJSON<Record<string, unknown>, Record<string, unknown>>;
   annotations: ToolAnnotations;
   callback: (args: unknown) => Promise<CallToolResult>;
 }
@@ -265,22 +279,49 @@ export function shellQuote(value: string): string {
   return "'" + value.split("'").join("'\\''") + "'";
 }
 
-interface ResourceSpec {
-  name: string;
-  uri: string;
-  meta: { mimeType?: string; description?: string };
-  handler: (uri: URL) => Promise<ReadResourceResult>;
+/** What putting something on a server hands back: the way to take it off again. */
+interface RegistrationHandle {
+  remove(): void;
+}
+
+/**
+ * One thing every server this handler builds must carry: a tool, a resource, a resource
+ * template, or a prompt. `apply` puts it on a server. `announce` tells sessionless
+ * clients that the matching list changed; a sessionful server announces the change on
+ * its own stream when the thing is applied to it or removed from it.
+ */
+interface Registration {
+  apply(server: McpServer): RegistrationHandle;
+  announce(): void;
+}
+
+/** The fields shared by every resource and resource template registration. */
+interface ResourceMeta {
+  title?: string;
+  description?: string;
+  mimeType?: string;
+}
+
+/**
+ * The metadata of an extension's resource definition, copied field by field so nothing
+ * else on the definition object (its callbacks, anything an extension added) is spread
+ * into what `resources/list` advertises.
+ */
+function resourceMeta(definition: ResourceMeta): ResourceMeta {
+  const { title, description, mimeType } = definition;
+  return { title, description, mimeType };
 }
 
 /**
  * A live sessionful-leg session: one client's `initialize` handshake, the server instance
- * pinned to it, and the handles needed to add or drop tools on that instance while it
- * is connected. The sessionless leg never produces one of these.
+ * pinned to it, and the handles needed to add or drop registrations on that instance
+ * while it is connected, keyed as in `McpHandler.registrations`. The sessionless leg
+ * never produces one of these.
  */
 interface Session {
   server: McpServer;
   transport: NodeStreamableHTTPServerTransport;
-  toolHandles: Map<string, RegisteredTool>;
+  handles: Map<string, RegistrationHandle>;
 }
 
 // The path parameter reads the same on every tool that takes one, so it is spelled once
@@ -289,12 +330,13 @@ const VAULT_PATH_DESCRIPTION = "File path relative to vault root";
 const SOURCE_VAULT_PATH_DESCRIPTION = "Source file path relative to vault root";
 
 export class McpHandler {
-  // The tool and resource registries are this handler's application state: the 2026-07-28
-  // revision has no protocol-level session to hang anything off, so everything a request
-  // needs must be reachable from the handler itself. `buildServer()` replays them onto a
-  // fresh server for every request.
-  private readonly toolSpecs: Map<string, ToolSpec> = new Map();
-  private readonly resourceSpecs: ResourceSpec[] = [];
+  // The registry is this handler's application state: the 2026-07-28 revision has no
+  // protocol-level session to hang anything off, so everything a request needs must be
+  // reachable from the handler itself. `buildServer()` replays it onto a fresh server for
+  // every request. Keys are `<kind>:<id>` (`tool:vault_list`, `resource:<uri>`,
+  // `resource-template:<name>`, `prompt:<name>`), so each kind's names are unique only
+  // among themselves, as they are in MCP.
+  private readonly registrations: Map<string, Registration> = new Map();
 
   // The sessionless leg, serving protocol revision 2026-07-28. `legacy: "reject"` keeps
   // it strictly sessionless: every request is answered on its own, with no session id
@@ -324,6 +366,7 @@ export class McpHandler {
   private readonly signer: UrlSigner;
   private readonly events: EventStreams | null;
   private readonly imageScaler: ImageScaler | null;
+  private readonly openApiSpec: OpenApiSpec;
   // Handles for the tools that only exist while signed URLs are enabled, so the setting
   // can be toggled without rebuilding the handler.
   private signedUrlToolHandles: Array<{ remove: () => void }> = [];
@@ -336,10 +379,12 @@ export class McpHandler {
       imageScaler?: ImageScaler | null;
       /** Where `events_get_listener_url` registers subscriptions; without it the tool is absent. */
       events?: EventStreams;
+      openApiSpec?: OpenApiSpec;
     } = {},
   ) {
     this.signer = options.signer ?? new UrlSigner();
     this.events = options.events ?? null;
+    this.openApiSpec = options.openApiSpec ?? new OpenApiSpec(openapiYaml);
     this.imageScaler =
       options.imageScaler !== undefined
         ? options.imageScaler
@@ -593,35 +638,68 @@ export class McpHandler {
     };
   }
 
-  // Build a fresh McpServer from the current specs. The sessionless leg discards the tool
+  // Build a fresh McpServer from the current registry. The sessionless leg discards the
   // handles (it builds one server per request, so nothing outlives the exchange); the
   // sessionful leg keeps them, because its server stays connected for a whole session and
-  // has to learn about tools registered after the handshake.
-  private buildServer(): { server: McpServer; toolHandles: Map<string, RegisteredTool> } {
+  // has to learn about registrations made after the handshake.
+  private buildServer(): { server: McpServer; handles: Map<string, RegistrationHandle> } {
+    // Declaring a capability here is what installs its list/get handlers up front. The
+    // SDK otherwise installs them on the first registration and refuses to add a
+    // capability once a server is connected. The host has no prompts of its own, so
+    // without `prompts` a sessionful client that connected before an extension
+    // registered one could never be served it: applying the prompt to the live server
+    // would throw.
     const server = new McpServer(SERVER_INFO, {
-      capabilities: { tools: {}, resources: {} },
+      capabilities: { tools: {}, resources: {}, prompts: {} },
       cacheHints: CACHE_HINTS,
     });
-    for (const spec of this.resourceSpecs) {
-      server.registerResource(spec.name, spec.uri, spec.meta, spec.handler);
+    const handles = new Map<string, RegistrationHandle>();
+    for (const [key, registration] of this.registrations) {
+      handles.set(key, registration.apply(server));
     }
-    const toolHandles = new Map<string, RegisteredTool>();
-    for (const spec of this.toolSpecs.values()) {
-      toolHandles.set(spec.name, this.registerToolOn(server, spec));
-    }
-    return { server, toolHandles };
+    return { server, handles };
   }
 
-  private registerToolOn(server: McpServer, spec: ToolSpec): RegisteredTool {
-    return server.registerTool(
-      spec.name,
-      {
-        description: spec.description,
-        inputSchema: spec.inputSchema,
-        annotations: spec.annotations,
+  /**
+   * Adds a registration to every server: the ones future requests build, and each live
+   * session's. The returned `remove` undoes it everywhere, and is a no-op once the key
+   * has been freed, including when it has since been registered again by someone else.
+   */
+  private register(key: string, registration: Registration): { remove: () => void } {
+    this.registrations.set(key, registration);
+    registration.announce();
+    for (const session of this.sessions.values()) {
+      session.handles.set(key, registration.apply(session.server));
+    }
+    return {
+      remove: () => {
+        if (this.registrations.get(key) !== registration) return;
+        this.registrations.delete(key);
+        registration.announce();
+        for (const session of this.sessions.values()) {
+          session.handles.get(key)?.remove();
+          session.handles.delete(key);
+        }
       },
-      spec.callback,
-    );
+    };
+  }
+
+  private toolRegistration(spec: ToolSpec): Registration {
+    return {
+      apply: (server) =>
+        server.registerTool(
+          spec.name,
+          {
+            title: spec.title,
+            description: spec.description,
+            inputSchema: spec.inputSchema,
+            outputSchema: spec.outputSchema,
+            annotations: spec.annotations,
+          },
+          spec.callback,
+        ),
+      announce: () => this.sessionlessHandler.notify.toolsChanged(),
+    };
   }
 
   /** A client-supplied vault path, refused if it resolves outside the vault root.
@@ -642,17 +720,46 @@ export class McpHandler {
     }
   }
 
-  private addResourceSpec(name: string, uri: string, meta: { mimeType?: string; description?: string }, handler: (uri: URL) => Promise<ReadResourceResult>): void {
-    this.resourceSpecs.push({ name, uri, meta, handler });
+  /** Throws, naming the kind and id, when `key` is already registered. */
+  private assertUnregistered(key: string, what: string): void {
+    if (this.registrations.has(key)) {
+      throw new Error(`Cannot register ${what} — one with this name is already registered.`);
+    }
+  }
+
+  private addResource(
+    name: string,
+    uri: string,
+    meta: ResourceMeta,
+    read: (uri: URL) => Promise<ReadResourceResult>,
+  ): { remove: () => void } {
+    const key = `resource:${uri}`;
+    this.assertUnregistered(key, `MCP resource "${uri}"`);
+    return this.register(key, {
+      apply: (server) => server.registerResource(name, uri, meta, read),
+      announce: () => this.sessionlessHandler.notify.resourcesChanged(),
+    });
   }
 
   // Args is inferred from the callback's own parameter annotation; the zod shape is
   // adapted to the SDK's Standard Schema here, at registration time.
-  private tool<Args>(name: string, description: string, schema: Record<string, z.ZodTypeAny>, annotations: ToolAnnotations, callback: (args: Args) => Promise<CallToolResult>): { remove: () => void } {
+  private tool<Args>(
+    name: string,
+    description: string,
+    schema: Record<string, z.ZodTypeAny>,
+    annotations: ToolAnnotations,
+    callback: (args: Args) => Promise<CallToolResult>,
+    options: { title?: string; outputSchema?: Record<string, z.ZodTypeAny> } = {},
+  ): { remove: () => void } {
     const spec: ToolSpec = {
       name,
+      title: options.title,
       description,
       inputSchema: toStandardSchema(schema),
+      outputSchema:
+        options.outputSchema !== undefined
+          ? toStandardSchema(options.outputSchema, "output")
+          : undefined,
       annotations,
       callback: async (args: unknown) => {
         try {
@@ -669,26 +776,16 @@ export class McpHandler {
         }
       },
     };
-    this.toolSpecs.set(spec.name, spec);
     // Sessionless clients learn about the change through a `subscriptions/listen` stream;
     // sessionful sessions are live server instances, so the tool is registered on each of
     // them, which is what emits `notifications/tools/list_changed` on their stream.
-    this.sessionlessHandler.notify.toolsChanged();
-    for (const session of this.sessions.values()) {
-      session.toolHandles.set(spec.name, this.registerToolOn(session.server, spec));
-    }
-    return {
-      remove: () => {
-        if (!this.toolSpecs.delete(spec.name)) return;
-        this.sessionlessHandler.notify.toolsChanged();
-        for (const session of this.sessions.values()) {
-          session.toolHandles.get(spec.name)?.remove();
-          session.toolHandles.delete(spec.name);
-        }
-      },
-    };
+    return this.register(`tool:${spec.name}`, this.toolRegistration(spec));
   }
 
+  /**
+   * Registers an extension's tool whose result is JSON-encoded into one text block —
+   * the original `addMcpTool` contract.
+   */
   public registerTool(
     name: string,
     description: string,
@@ -696,14 +793,87 @@ export class McpHandler {
     callback: (args: Record<string, unknown>) => Promise<unknown>,
     annotations?: ToolAnnotations,
   ): () => void {
-    if (this.toolSpecs.has(name)) {
-      throw new Error(
-        `Cannot register MCP tool "${name}" — a tool with this name is already registered.`,
-      );
-    }
+    this.assertUnregistered(`tool:${name}`, `MCP tool "${name}"`);
     const registered = this.tool(name, description, schema, annotations ?? {}, async (args) =>
       this.text(await callback(args as Record<string, unknown>)),
     );
+    return () => registered.remove();
+  }
+
+  /** Registers an extension's tool whose callback returns the complete result. */
+  public registerToolDefinition(definition: McpToolDefinition): () => void {
+    const { name } = definition;
+    this.assertUnregistered(`tool:${name}`, `MCP tool "${name}"`);
+    const registered = this.tool(
+      name,
+      definition.description,
+      definition.inputSchema ?? {},
+      definition.annotations ?? {},
+      async (args: Record<string, unknown>) => definition.callback(args),
+      { title: definition.title, outputSchema: definition.outputSchema },
+    );
+    return () => registered.remove();
+  }
+
+  /** Registers an extension's resource at a fixed URI. */
+  public registerResource(definition: McpResourceDefinition): () => void {
+    const registered = this.addResource(
+      definition.name,
+      definition.uri,
+      resourceMeta(definition),
+      (uri) => definition.read(uri),
+    );
+    return () => registered.remove();
+  }
+
+  /** Registers an extension's family of resources addressed by a URI template. */
+  public registerResourceTemplate(definition: McpResourceTemplateDefinition): () => void {
+    const { name, list } = definition;
+    const key = `resource-template:${name}`;
+    this.assertUnregistered(key, `MCP resource template "${name}"`);
+    const meta = resourceMeta(definition);
+    const registered = this.register(key, {
+      apply: (server) =>
+        server.registerResource(
+          name,
+          // A fresh template per server: the SDK keeps per-server state on it.
+          new ResourceTemplate(definition.uriTemplate, {
+            list: list ? async () => ({ resources: await list() }) : undefined,
+          }),
+          meta,
+          (uri, variables) => definition.read(uri, variables),
+        ),
+      announce: () => this.sessionlessHandler.notify.resourcesChanged(),
+    });
+    return () => registered.remove();
+  }
+
+  /** Registers an extension's prompt. */
+  public registerPrompt(definition: McpPromptDefinition): () => void {
+    const { name } = definition;
+    const key = `prompt:${name}`;
+    this.assertUnregistered(key, `MCP prompt "${name}"`);
+    const argsSchema =
+      definition.argsSchema !== undefined ? toStandardSchema(definition.argsSchema) : undefined;
+    const { title, description } = definition;
+    const registered = this.register(key, {
+      // The SDK calls a prompt's callback with the parsed arguments only when it has an
+      // argsSchema; without one, the first parameter is the request context instead.
+      apply: (server) =>
+        argsSchema !== undefined
+          ? server.registerPrompt(
+              name,
+              { title, description, argsSchema },
+              // Validated against argsSchema by the SDK; MCP prompt arguments are strings,
+              // and an optional one the client omitted is simply absent.
+              async (args: Record<string, unknown>) =>
+                definition.callback(args as Record<string, string | undefined>),
+            )
+          : server.registerPrompt(name, { title, description }, async () =>
+              definition.callback({}),
+            ),
+      announce: () => this.sessionlessHandler.notify.promptsChanged(),
+    });
     return () => registered.remove();
   }
 
@@ -752,11 +922,11 @@ export class McpHandler {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
     if (!sessionId) {
-      const { server, toolHandles } = this.buildServer();
+      const { server, handles } = this.buildServer();
       const transport = new NodeStreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
-          this.sessions.set(id, { server, transport, toolHandles });
+          this.sessions.set(id, { server, transport, handles });
         },
         onsessionclosed: (id) => {
           this.sessions.delete(id);
@@ -826,19 +996,19 @@ export class McpHandler {
   }
 
   private registerResources(): void {
-    this.addResourceSpec(
+    this.addResource(
       "openapi-spec",
       "obsidian://local-rest-api/openapi.yaml",
       {
         mimeType: "application/yaml",
-        description: dedent`Full OpenAPI specification for the Obsidian Local REST API. Contains complete request/response schemas, parameter descriptions, and usage examples for every endpoint.`,
+        description: dedent`Full OpenAPI specification for the Obsidian Local REST API. Contains complete request/response schemas, parameter descriptions, and usage examples for every endpoint, including those added by extension plugins that describe their routes.`,
       },
       async (uri: URL) => ({
         contents: [
           {
             uri: uri.href,
             mimeType: "application/yaml",
-            text: openapiYaml,
+            text: this.openApiSpec.yaml(),
           },
         ],
       }),

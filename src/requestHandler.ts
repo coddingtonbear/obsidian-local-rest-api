@@ -71,6 +71,7 @@ import {
   isV2TargetType,
 } from "./typeGuards";
 import LocalRestApiPublicApiImpl from "./api";
+import { OpenApiSpec } from "./openApiSpec";
 import type { LocalRestApiPublicApi } from "./publicApi";
 import {
   CommandNotFoundError,
@@ -83,6 +84,7 @@ import {
   vaultPathIsContained,
 } from "./vaultPath";
 import { McpHandler } from "./mcpHandler";
+import { VaultSubresourceRegistry } from "./vaultSubresources";
 import {
   UrlSigner,
   clampSignedUrlTtl,
@@ -205,6 +207,7 @@ export default class RequestHandler {
 
   apiExtensionRouter: express.Router;
   publicApiExtensionRouter: express.Router;
+  vaultSubresources = new VaultSubresourceRegistry();
   // Holds the implementation type rather than LocalRestApiPublicApi: the `GET /`
   // handler reads getRoutes()/getMcpTools(), which are host-only and therefore
   // absent from the published interface. registerApiExtension still hands
@@ -218,6 +221,9 @@ export default class RequestHandler {
   // that redeems them share a secret — and that secret lives exactly as long as this
   // handler does.
   readonly urlSigner: UrlSigner;
+  // The spec served at /openapi.yaml, /openapi.json, and the MCP openapi-spec resource:
+  // the host's compiled spec plus whatever registered extensions have described.
+  readonly openApiSpec: OpenApiSpec;
 
   constructor(
     app: App,
@@ -230,6 +236,7 @@ export default class RequestHandler {
     this.api = express();
     this.settings = settings;
     this.urlSigner = urlSigner;
+    this.openApiSpec = new OpenApiSpec(openapiYaml);
 
     this.apiExtensionRouter = express.Router();
     this.publicApiExtensionRouter = express.Router();
@@ -238,6 +245,7 @@ export default class RequestHandler {
     this.mcpHandler = new McpHandler(this.operations, this.settings, {
       signer: this.urlSigner,
       events: this.events,
+      openApiSpec: this.openApiSpec,
     });
 
     this.api.set("json spaces", 2);
@@ -263,6 +271,9 @@ export default class RequestHandler {
       router,
       publicRouter,
       this.mcpHandler,
+      this.vaultSubresources,
+      this.openApiSpec,
+      manifest.id,
       () => {
         // A handle unregistered a second time, after a new one was registered for the
         // same plugin, must not take the new one's routes and events down with it.
@@ -364,6 +375,7 @@ export default class RequestHandler {
       "/",
       `/${CERT_NAME}`,
       "/openapi.yaml",
+      "/openapi.json",
     ];
 
     if (authenticationExemptRoutes.includes(req.path) || this.requestIsAuthenticated(req)) {
@@ -2432,7 +2444,14 @@ export default class RequestHandler {
     res: express.Response,
   ): Promise<void> {
     res.setHeader("Content-Type", "application/yaml; charset=utf-8");
-    res.status(200).send(openapiYaml);
+    res.status(200).send(this.openApiSpec.yaml());
+  }
+
+  async openapiJsonGet(
+    _req: express.Request,
+    res: express.Response,
+  ): Promise<void> {
+    res.status(200).json(this.openApiSpec.json());
   }
 
   async notFoundHandler(
@@ -2718,6 +2737,22 @@ export default class RequestHandler {
     );
     this.api.use(express.raw({ type: "*/*", limit: MaximumRequestSize }));
 
+    // Extension sub-resources under a note (`/vault/<note>/<name>/...`). Mounted ahead
+    // of the built-in routes because `/vault/*` would otherwise match them first and 404;
+    // the dispatcher only claims a request that resolves to an existing note followed by
+    // a registered name, so every other request reaches the built-ins unchanged.
+    this.api.use(
+      this.vaultSubresources.middleware({
+        resolvePathAndTarget: (segments) => this._resolvePathAndTarget(segments),
+        getFile: (path) => {
+          const file = this.app.vault.getAbstractFileByPath(path);
+          return file instanceof TFile ? file : null;
+        },
+        getActiveFile: () => this.app.workspace.getActiveFile(),
+        isSigned: (req) => this.requestIsSigned(req),
+      }),
+    );
+
     this.api
       .route("/active/*")
       .get(this.handle((rq, rs) => this.activeFileGet(rq, rs)))
@@ -2763,6 +2798,7 @@ export default class RequestHandler {
 
     this.api.get(`/${CERT_NAME}`, this.handle((rq, rs) => this.certificateGet(rq, rs)));
     this.api.get("/openapi.yaml", this.handle((rq, rs) => this.openapiYamlGet(rq, rs)));
+    this.api.get("/openapi.json", this.handle((rq, rs) => this.openapiJsonGet(rq, rs)));
     this.api.get("/", (rq, rs) => { this.root(rq, rs); });
 
     this.api.use(this.apiExtensionRouter);

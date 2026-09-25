@@ -53,6 +53,17 @@ describe("GET /openapi.yaml", () => {
   });
 });
 
+describe("GET /openapi.json", () => {
+  test("returns the spec as JSON without auth", async () => {
+    const res = await unauthFetch("/openapi.json");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/json/);
+    const body = await res.json();
+    expect(typeof body.openapi).toBe("string");
+    expect(body.paths["/openapi.json"]).toBeDefined();
+  });
+});
+
 describe("certificate material", () => {
   // The integration suite talks to the HTTP server; the certificate checks
   // need the HTTPS one, which the plugin enables by default on 27124.

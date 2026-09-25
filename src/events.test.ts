@@ -487,7 +487,7 @@ describe("event streams over REST", () => {
       test("streams what the extension's serializer returns, under its plugin id", async () => {
         const source = new FakeEvents();
         const api = registerExtension();
-        expect(api.apiVersion).toBe(3);
+        expect(api.apiVersion).toBe(5);
         api.addStreamableEvent("thing:happened", {
           source,
           serialize: (live, count) => ({

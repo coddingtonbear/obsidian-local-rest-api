@@ -31,6 +31,9 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
   * [Available resources](#available-resources)
 - [API Extensions](#api-extensions)
   * [Typed extension API](#typed-extension-api)
+  * [MCP tools, resources, and prompts](#mcp-tools-resources-and-prompts)
+  * [Documenting your routes](#documenting-your-routes)
+  * [Sub-resources under a note](#sub-resources-under-a-note)
   * [Extension events](#extension-events)
   * [Known extensions](#known-extensions)
 - [Contributing](#contributing)
@@ -418,7 +421,7 @@ Two practical notes: whether a chat client renders a linked image inline is up t
 
 | URI | Description |
 |---|---|
-| `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API |
+| `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API, including routes that extensions describe |
 
 ## API Extensions
 
@@ -444,11 +447,92 @@ The package entry point is a small standalone module — it resolves the *runnin
 
 `publicApi.d.ts` is generated from [`src/publicApi.ts`](src/publicApi.ts), which the implementation is compile-time-checked against, so the published types cannot drift from what the plugin actually offers.
 
-### Extension events
+### MCP tools, resources, and prompts
 
-From extension API version 3, an extension can add its own events to the [event streams](#event-streams). Each one is streamed under the extension's plugin id as the emitter:
+`addMcpTool(name, description, schema, callback)` sends whatever your callback returns back to the client as a single block of JSON text. From extension API version 3 you can instead pass a definition object, and the callback returns the complete MCP result, which reaches the client unchanged. Use it when you need images, `structuredContent` checked against an `outputSchema`, or an `isError` result that tells the model a call failed in a way it can recover from.
+
+Everything in this section needs version 3, so ask for it when you call `getAPI`. The types describe the whole interface whichever version you pass, so an extension that asks for `2` still compiles against these methods, and then finds them missing at runtime on an older host:
 
 ```ts
+const api = getAPI(this.app, this.manifest, 3);
+
+api?.addMcpTool({
+  name: "comments_count",
+  description: "Count the comments on a note",
+  inputSchema: { path: z.string() },
+  outputSchema: { count: z.number() },
+  callback: async ({ path }) => {
+    const count = await countComments(path as string);
+    return {
+      content: [{ type: "text", text: `${count} comments` }],
+      structuredContent: { count },
+    };
+  },
+});
+```
+
+Version 3 also lets an extension expose things that aren't tools:
+
+- `addMcpResource({ name, uri, read })` adds a resource at a fixed URI.
+- `addMcpResourceTemplate({ name, uriTemplate, read, list? })` adds a family of resources addressed by an RFC 6570 template such as `tandem://comments/{path}`. `read` gets the matched variables. `list` is optional, and when you provide it, its resources appear in `resources/list`.
+- `addMcpPrompt({ name, argsSchema?, callback })` adds a prompt. MCP passes prompt arguments as strings.
+
+Clients that are already connected are notified when these lists change, and `unregister()` removes everything the handle registered.
+
+### Documenting your routes
+
+The plugin can't see what an extension's routes accept or return, so they don't appear in the OpenAPI spec until the extension describes them. `addOpenApiDescription` (extension API version 4) takes the `paths`, `components`, and `tags` your routes need, in the same shape as the matching parts of an OpenAPI document, and merges them into the spec served at `/openapi.yaml`, `/openapi.json`, and the MCP `openapi-spec` resource:
+
+Request version 4 from `getAPI` so an older host fails loudly instead of lacking the method:
+
+```ts
+const api = getAPI(this.app, this.manifest, 4);
+api.addRoute("/widgets/:id/").get(handler);
+api.addOpenApiDescription({
+  paths: {
+    "/widgets/{id}/": {
+      get: {
+        tags: ["Widgets"],
+        summary: "Return one widget.",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "The widget." } },
+      },
+    },
+  },
+  tags: [{ name: "Widgets", description: "Routes added by the Widgets plugin." }],
+});
+```
+
+Write path parameters the OpenAPI way (`{id}`), not express's (`:id`). Each path you contribute is published with an `x-obsidian-extension` field set to your plugin ID. A path, component, or tag that the plugin or another extension already declares makes the call throw without publishing anything, and `unregister()` removes your description along with your routes.
+
+### Sub-resources under a note
+
+Routes added with `addRoute` can't live under `/vault/`, because the plugin's own `/vault/*` handler claims those paths first. From extension API version 3, `addVaultSubresource(name)` lets an extension serve routes under any note instead:
+
+```ts
+import type { VaultSubresourceRequest } from "obsidian-local-rest-api";
+
+const comments = api.addVaultSubresource("comments");
+comments.get("/", (req, res) => {
+  const { vaultFile } = req as VaultSubresourceRequest;
+  res.json(listComments(vaultFile));
+});
+comments.get("/:id", (req, res) => { /* ... */ });
+```
+
+`GET /vault/Notes/draft.md/comments/a1f3` then reaches that router as `GET /a1f3`, with the note attached as `req.vaultFile`; `/active/comments/a1f3` does the same for the active file. The plugin resolves the note before your router runs, so it only ever sees notes that exist, and a request your router doesn't answer continues to the plugin's own handlers. Requests need the API key; signed URLs never reach a sub-resource.
+
+A `%2F` in the URL is a literal slash inside one segment, which Express's own route matching can't tell apart from a separator. `req.vaultSubresourceSegments` holds the segments after the name, each decoded on its own, for when that matters.
+
+A name is one path segment. `heading`, `block` and `frontmatter` are reserved, and each name can only be registered by one extension at a time.
+
+### Extension events
+
+From extension API version 5, an extension can add its own events to the [event streams](#event-streams). Each one is streamed under the extension's plugin id as the emitter:
+
+```ts
+const api = getAPI(this.app, this.manifest, 5);
+
 // Your plugin's own Events instance; call this.events.trigger("task-completed", ...)
 // wherever the event happens.
 this.events = new Events();
