@@ -412,10 +412,14 @@ The package entry point is a small standalone module — it resolves the *runnin
 
 ### MCP tools, resources, and prompts
 
-`addMcpTool(name, description, schema, callback)` sends whatever your callback returns back to the client as a single block of JSON text. From extension API version 3 you can instead pass a definition object, and the callback returns the complete MCP result, which reaches the client unchanged. Use it when you need images, `structuredContent` checked against an `outputSchema`, or an `isError` result that tells the model a call failed in a way it can recover from:
+`addMcpTool(name, description, schema, callback)` sends whatever your callback returns back to the client as a single block of JSON text. From extension API version 3 you can instead pass a definition object, and the callback returns the complete MCP result, which reaches the client unchanged. Use it when you need images, `structuredContent` checked against an `outputSchema`, or an `isError` result that tells the model a call failed in a way it can recover from.
+
+Everything in this section needs version 3, so ask for it when you call `getAPI`. The types describe the whole interface whichever version you pass, so an extension that asks for `2` still compiles against these methods, and then finds them missing at runtime on an older host:
 
 ```ts
-api.addMcpTool({
+const api = getAPI(this.app, this.manifest, 3);
+
+api?.addMcpTool({
   name: "comments_count",
   description: "Count the comments on a note",
   inputSchema: { path: z.string() },
