@@ -83,4 +83,4 @@ A signed URL is `GET` or `PUT /vault/{filename}?sig=…&exp=…&n=…`. The sign
 
 | URI | Description |
 |---|---|
-| `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API |
+| `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API, including routes that extensions describe |

@@ -2,7 +2,9 @@ import { createHash } from "crypto";
 import http from "http";
 import forge from "node-forge";
 import request from "supertest";
+import { parse } from "yaml";
 
+import openapiYaml from "../docs/openapi.yaml";
 import { generateCryptoSettings } from "./certificates";
 
 // Mock McpHandler so tests don't load the MCP SDK (which bundles ESM-only zod)
@@ -4521,10 +4523,10 @@ describe("requestHandler", () => {
       expect(mockCleanup).toHaveBeenCalledTimes(1);
     });
 
-    test("reports API version 3", () => {
+    test("reports API version 4", () => {
       const extManifest = Object.assign(new PluginManifest(), { id: "test-plugin-version" });
       // @ts-ignore: mock PluginManifest is close enough for runtime
-      expect(handler.registerApiExtension(extManifest).apiVersion).toBe(3);
+      expect(handler.registerApiExtension(extManifest).apiVersion).toBe(4);
     });
 
     test("the object form of addMcpTool registers a tool definition", () => {
@@ -4583,6 +4585,73 @@ describe("requestHandler", () => {
       expect(() =>
         api.addMcpTool({ name: "t", description: "d", callback: async () => ({ content: [] }) }),
       ).toThrow(/unregistered/);
+    });
+
+    describe("addOpenApiDescription", () => {
+      const description = {
+        paths: { "/widgets/": { get: { summary: "List widgets.", responses: { "200": { description: "OK" } } } } },
+      };
+
+      function register(id: string) {
+        const extManifest = Object.assign(new PluginManifest(), { id });
+        // @ts-ignore: mock PluginManifest is close enough for runtime
+        return handler.registerApiExtension(extManifest);
+      }
+
+      test("publishes the description at /openapi.yaml and /openapi.json without auth", async () => {
+        register("widget-plugin").addOpenApiDescription(description);
+
+        const yamlRes = await request(server).get("/openapi.yaml").expect(200);
+        expect(yamlRes.headers["content-type"]).toMatch(/application\/yaml/);
+        const parsed = parse(yamlRes.text);
+        expect(parsed.paths["/widgets/"]["x-obsidian-extension"]).toBe("widget-plugin");
+        expect(parsed.paths["/widgets/"].get.summary).toBe("List widgets.");
+
+        const jsonRes = await request(server).get("/openapi.json").expect(200);
+        expect(jsonRes.headers["content-type"]).toMatch(/application\/json/);
+        expect(jsonRes.body).toEqual(parsed);
+      });
+
+      test("unregister removes the description again", async () => {
+        const api = register("widget-plugin");
+        api.addOpenApiDescription(description);
+        api.unregister();
+
+        const res = await request(server).get("/openapi.yaml").expect(200);
+        expect(res.text).toBe(openapiYaml);
+      });
+
+      test("refuses a path another extension already described", () => {
+        register("first").addOpenApiDescription(description);
+        expect(() => register("second").addOpenApiDescription(description)).toThrow(
+          'already described by extension "first"',
+        );
+      });
+
+      test("refuses once the handle is unregistered", () => {
+        const api = register("gone");
+        api.unregister();
+        expect(() => api.addOpenApiDescription(description)).toThrow("unregistered");
+      });
+    });
+  });
+
+  describe("openapi documents", () => {
+    test("GET /openapi.yaml serves the compiled spec unchanged", async () => {
+      const res = await request(server).get("/openapi.yaml").expect(200);
+      expect(res.text).toBe(openapiYaml);
+    });
+
+    test("GET /openapi.json serves the same document as JSON", async () => {
+      const res = await request(server).get("/openapi.json").expect(200);
+      expect(res.body).toEqual(parse(openapiYaml));
+    });
+
+    test("an extension cannot claim /openapi.json as a public route", () => {
+      const extManifest = Object.assign(new PluginManifest(), { id: "squatter" });
+      // @ts-ignore: mock PluginManifest is close enough for runtime
+      const api = handler.registerApiExtension(extManifest);
+      expect(() => api.addPublicRoute("/openapi.json")).toThrow("reserved");
     });
   });
 
@@ -4795,8 +4864,8 @@ describe("requestHandler", () => {
       expect(() => api.addVaultSubresource("comments")).toThrow(/unregistered/);
     });
 
-    test("reports API version 3", () => {
-      expect(registerExtension("versioned").apiVersion).toBe(3);
+    test("reports an API version that includes sub-resources", () => {
+      expect(registerExtension("versioned").apiVersion).toBeGreaterThanOrEqual(3);
     });
 
     test("lists the sub-resource among the extension's routes", async () => {

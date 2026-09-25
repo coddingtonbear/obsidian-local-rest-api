@@ -3,12 +3,14 @@ import { z } from "zod";
 import type { ToolAnnotations } from "@modelcontextprotocol/server";
 import { BUILT_IN_ROUTES } from "./constants";
 import { McpHandler } from "./mcpHandler";
+import type { OpenApiSpec } from "./openApiSpec";
 import type {
   LocalRestApiPublicApi,
   McpPromptDefinition,
   McpResourceDefinition,
   McpResourceTemplateDefinition,
   McpToolDefinition,
+  OpenApiDescription,
 } from "./publicApi";
 import type { VaultSubresourceRegistry } from "./vaultSubresources";
 
@@ -32,11 +34,13 @@ export interface RegisteredRoute {
 }
 
 export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi {
-  public readonly apiVersion = 3;
+  public readonly apiVersion = 4;
   private router: express.Router;
   private publicRouter: express.Router;
   private mcpHandler: McpHandler;
   private vaultSubresources: VaultSubresourceRegistry;
+  private openApiSpec: OpenApiSpec;
+  private pluginId: string;
   private onUnregister: () => void;
   private unregistered = false;
   private registeredRoutes: RegisteredRoute[] = [];
@@ -44,18 +48,23 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
   private mcpCleanups: (() => void)[] = [];
   private registeredMcpTools: string[] = [];
   private registeredSubresources: { name: string; router: express.Router }[] = [];
+  private openApiCleanups: (() => void)[] = [];
 
   constructor(
     router: express.Router,
     publicRouter: express.Router,
     mcpHandler: McpHandler,
     vaultSubresources: VaultSubresourceRegistry,
+    openApiSpec: OpenApiSpec,
+    pluginId: string,
     onUnregister: () => void,
   ) {
     this.router = router;
     this.publicRouter = publicRouter;
     this.mcpHandler = mcpHandler;
     this.vaultSubresources = vaultSubresources;
+    this.openApiSpec = openApiSpec;
+    this.pluginId = pluginId;
     this.onUnregister = onUnregister;
     this.unregistered = false;
   }
@@ -165,6 +174,12 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     return [...this.registeredMcpTools];
   }
 
+  /** Documents this extension's routes in the published OpenAPI spec. */
+  public addOpenApiDescription(description: OpenApiDescription): void {
+    this.assertRegistered();
+    this.openApiCleanups.push(this.openApiSpec.add(this.pluginId, description));
+  }
+
   public unregister(): void {
     for (const cleanup of this.mcpCleanups) {
       cleanup();
@@ -172,6 +187,10 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     for (const { name, router } of this.registeredSubresources) {
       this.vaultSubresources.unregister(name, router);
     }
+    for (const cleanup of this.openApiCleanups) {
+      cleanup();
+    }
+    this.openApiCleanups = [];
     this.onUnregister();
     this.unregistered = true;
   }

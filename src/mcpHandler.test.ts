@@ -16,7 +16,9 @@ import request from "supertest";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
+import openapiYaml from "../docs/openapi.yaml";
 import { McpHandler, markdownLink } from "./mcpHandler";
+import { OpenApiSpec } from "./openApiSpec";
 import { DEFAULT_SETTINGS, MaximumMcpBinaryBytes } from "./constants";
 import { UrlSigner } from "./signedUrls";
 import type { EventStreams } from "./events";
@@ -248,6 +250,21 @@ describe("McpHandler", () => {
     const [name, uri] = registerResource.mock.calls[0] as [string, string];
     expect(name).toBe("openapi-spec");
     expect(uri).toBe("obsidian://local-rest-api/openapi.yaml");
+  });
+
+  test("the openapi-spec resource serves the spec as extensions have extended it", async () => {
+    const spec = new OpenApiSpec(openapiYaml);
+    registerResource.mockClear();
+    buildServer(new McpHandler(ops, DEFAULT_SETTINGS, { openApiSpec: spec }));
+    const read = registerResource.mock.calls[0][3] as (uri: URL) => Promise<{ contents: { text: string }[] }>;
+    const uri = new URL("obsidian://local-rest-api/openapi.yaml");
+
+    expect((await read(uri)).contents[0].text).toBe(openapiYaml);
+
+    spec.add("widget-plugin", { paths: { "/widgets/": { get: { responses: {} } } } });
+    const extended = (await read(uri)).contents[0].text;
+    expect(extended).toContain("/widgets/:");
+    expect(extended).toContain("x-obsidian-extension: widget-plugin");
   });
 
   // ---- tool registration --------------------------------------------------
