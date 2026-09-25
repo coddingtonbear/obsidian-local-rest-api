@@ -19,6 +19,7 @@ import { ErrorCode, LocalRestApiSettings } from "./types";
 import {
   EVENT_EMITTERS,
   EventStreams,
+  InvalidEventFilterError,
   MaximumOpenStreams,
   STREAMABLE_EVENTS,
   UNSTREAMABLE_EVENTS,
@@ -229,6 +230,16 @@ describe("event streams over REST", () => {
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Content-Type", JSONLOGIC)
         .send(JSON.stringify({ "no-such-operator": [1] }))
+        .expect(400);
+      expect(result.body.errorCode).toBe(ErrorCode.InvalidFilterQuery);
+    });
+
+    test("a filter with a malformed regexp is refused", async () => {
+      const result = await request(server)
+        .post("/events/vault/modify/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", JSONLOGIC)
+        .send(JSON.stringify({ regexp: ["[", { var: "path" }] }))
         .expect(400);
       expect(result.body.errorCode).toBe(ErrorCode.InvalidFilterQuery);
     });
@@ -456,6 +467,46 @@ describe("EventStreams expiry", () => {
     expect(events.get("vault", "modify", subscription.id)).toBe(subscription);
     now += 61_000;
     expect(events.get("vault", "modify", subscription.id)).toBeNull();
+  });
+});
+
+describe("EventStreams filters", () => {
+  function streams(): EventStreams {
+    const app = new App();
+    // @ts-ignore: the mock App does not match Obsidian's App exactly
+    const operations = new VaultOperations(app, {});
+    // @ts-ignore: the mock App does not match Obsidian's App exactly
+    return new EventStreams(app, operations);
+  }
+
+  test.each([
+    ["a var path naming file.content", { in: ["x", { var: "file.content" }] }],
+    ["a var with a default", { in: ["x", { var: ["file.content", ""] }] }],
+    ["a missing check", { missing: ["file.content"] }],
+    ["a missing_some check", { missing_some: [1, ["file.content", "path"]] }],
+  ])("content is included for %s", (_label, filter) => {
+    expect(streams().subscribe("vault", "modify", filter, 60).includeContent).toBe(true);
+  });
+
+  test.each([
+    ["a path compared to the string 'content'", { "==": [{ var: "path" }, "content"] }],
+    ["a glob for *.content", { glob: ["*.content", { var: "path" }] }],
+    ["a frontmatter field called content", { "==": [{ var: "file.frontmatter.content" }, 1] }],
+    ["no filter", null],
+  ])("content is not included for %s", (_label, filter) => {
+    expect(streams().subscribe("vault", "modify", filter, 60).includeContent).toBe(false);
+  });
+
+  test.each([
+    ["a malformed regexp pattern", { regexp: ["[", { var: "path" }] }],
+    [
+      "a malformed regexp nested inside and/or",
+      { and: [true, { or: [{ regexp: ["(", { var: "path" }] }] }] },
+    ],
+  ])("%s is refused at registration", (_label, filter) => {
+    expect(() => streams().subscribe("vault", "modify", filter, 60)).toThrow(
+      InvalidEventFilterError,
+    );
   });
 });
 
