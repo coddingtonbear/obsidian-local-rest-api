@@ -397,7 +397,7 @@ export interface LocalRestApiPublicApi {
    *
    * May be called more than once. Throws, and publishes nothing from that call, if the
    * description declares a path, component, or tag the host or another extension
-   * already declares. Requires extension API version 3.
+   * already declares. Requires extension API version 4.
    */
   addOpenApiDescription(description: OpenApiDescription): void;
 

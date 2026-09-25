@@ -4523,10 +4523,10 @@ describe("requestHandler", () => {
       expect(mockCleanup).toHaveBeenCalledTimes(1);
     });
 
-    test("reports API version 3", () => {
+    test("reports API version 4", () => {
       const extManifest = Object.assign(new PluginManifest(), { id: "test-plugin-version" });
       // @ts-ignore: mock PluginManifest is close enough for runtime
-      expect(handler.registerApiExtension(extManifest).apiVersion).toBe(3);
+      expect(handler.registerApiExtension(extManifest).apiVersion).toBe(4);
     });
 
     test("the object form of addMcpTool registers a tool definition", () => {
@@ -4864,8 +4864,8 @@ describe("requestHandler", () => {
       expect(() => api.addVaultSubresource("comments")).toThrow(/unregistered/);
     });
 
-    test("reports API version 3", () => {
-      expect(registerExtension("versioned").apiVersion).toBe(3);
+    test("reports an API version that includes sub-resources", () => {
+      expect(registerExtension("versioned").apiVersion).toBeGreaterThanOrEqual(3);
     });
 
     test("lists the sub-resource among the extension's routes", async () => {
