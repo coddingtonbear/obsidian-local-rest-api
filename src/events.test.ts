@@ -1,6 +1,6 @@
 import fs from "fs";
 import http from "http";
-import { AddressInfo } from "net";
+import { AddressInfo, connect } from "net";
 import path from "path";
 import request from "supertest";
 
@@ -165,6 +165,28 @@ describe("event streams over REST", () => {
   describe("registration", () => {
     test("requires the API key", async () => {
       await request(server).post("/events/vault/modify/").expect(401);
+    });
+
+    test("a request with no Host header registers nothing", async () => {
+      // HTTP/1.0 may omit Host, and the URL can't be built without it. That has to fail
+      // before a subscription exists, or such requests would fill the subscription cap.
+      const subscribeSpy = jest.spyOn(handler.events, "subscribe");
+      const port = (server.address() as AddressInfo).port;
+      const response = await new Promise<string>((resolve, reject) => {
+        const socket = connect(port, "127.0.0.1", () => {
+          socket.end(
+            `POST /events/vault/modify/ HTTP/1.0\r\nAuthorization: Bearer ${API_KEY}\r\n\r\n`,
+          );
+        });
+        let received = "";
+        socket.setEncoding("utf-8");
+        socket.on("data", (chunk: string) => (received += chunk));
+        socket.on("end", () => resolve(received));
+        socket.on("error", reject);
+      });
+
+      expect(response).toMatch(/^HTTP\/1\.\d 5\d\d/);
+      expect(subscribeSpy).not.toHaveBeenCalled();
     });
 
     test("a bare /events/ is refused, listing what can be streamed", async () => {
