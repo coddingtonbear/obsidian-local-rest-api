@@ -543,6 +543,53 @@ describe("event streams over REST", () => {
         );
       });
 
+      test("an extension whose id is __proto__ is listed like any other", async () => {
+        registerExtension("__proto__").addStreamableEvent("tick", {
+          source: new FakeEvents(),
+          serialize: () => ({}),
+        });
+        const result = await request(server)
+          .post("/events/__proto__/tock/")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(404);
+        const supported = result.body.supportedEvents as Record<string, unknown>;
+        expect(Object.keys(supported)).toContain("__proto__");
+        expect(Object.getOwnPropertyDescriptor(supported, "__proto__")?.value).toEqual(["tick"]);
+      });
+
+      test("an occurrence from before unregister never reaches a re-registered event", async () => {
+        const source = new FakeEvents();
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        const api = registerExtension();
+        api.addStreamableEvent("tick", {
+          source,
+          serialize: async (n) => {
+            await held;
+            return { n, from: "old" };
+          },
+        });
+        await open((await subscribe("/events/some-extension/tick/")).url);
+        await waitFor(() => (source._listeners.get("tick") ?? []).length === 1);
+        // One occurrence is mid-serialization and the next is queued behind it.
+        source.trigger("tick", 1);
+        source.trigger("tick", 2);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        api.unregister();
+        registerExtension().addStreamableEvent("tick", {
+          source,
+          serialize: (n) => ({ n, from: "new" }),
+        });
+        const stream = await open((await subscribe("/events/some-extension/tick/")).url);
+        await waitFor(() => (source._listeners.get("tick") ?? []).length === 1);
+        release();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        source.trigger("tick", 3);
+
+        expect((await stream.next()).data).toMatchObject({ n: 3, from: "new" });
+      });
+
       test.each([
         ["an empty name", ""],
         ["a slash", "a/b"],
