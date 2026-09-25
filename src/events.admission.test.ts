@@ -48,9 +48,11 @@ describe("EventStreams admission", () => {
     expect(settled.filter((result) => result.status === "fulfilled")).toHaveLength(
       MaximumOpenStreams,
     );
-    const rejected = settled.filter((result) => result.status === "rejected");
+    const rejected = settled.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
     expect(rejected).toHaveLength(1);
-    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(TooManyStreamsError);
+    expect(rejected[0].reason).toBeInstanceOf(TooManyStreamsError);
     expect(createSession).toHaveBeenCalledTimes(MaximumOpenStreams);
     expect(events.openStreamCount).toBe(MaximumOpenStreams);
   });

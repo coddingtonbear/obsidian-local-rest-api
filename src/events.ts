@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from "http";
 import { randomBytes } from "crypto";
 import { createSession, Session } from "better-sse";
 import jsonLogic from "json-logic-js";
+import WildcardRegexp from "glob-to-regexp";
 
 import { FileMetadataObject } from "./types";
 import { VaultOperations } from "./vaultOperations";
@@ -24,8 +25,8 @@ import { UrlSigner, buildEventStreamUrl, eventStreamResource } from "./signedUrl
  * its listeners live objects -- `TFile`s, `Editor`s, the full text of a note -- and
  * nothing leaves the plugin except what a serializer chose to copy out. Note content in
  * particular goes out only as the `content` field of a file's NoteJson, and only when the
- * subscription's (signed, so unwidenable) filter mentions `content`, the same rule
- * `/search/` applies.
+ * subscription's (signed, so unwidenable) filter reads `file.content` -- a narrower
+ * test than `/search/`'s, which fetches content for any filter that says "content".
  */
 
 /** The three Obsidian objects whose events can be streamed. */
@@ -113,7 +114,7 @@ export interface StreamedEvent {
 
 /**
  * What a serializer needs: a way to build a file's NoteJson. The NoteJson includes
- * content when at least one subscription listening for the event mentions `content`;
+ * content when at least one subscription listening for the event reads `file.content`;
  * it is stripped again for the ones that don't.
  */
 interface SerializeContext {
@@ -248,7 +249,7 @@ export interface Subscription {
   event: StreamableEventName;
   /** The JSONLogic expression events must satisfy, or null to receive every event. */
   filter: unknown;
-  /** Whether the filter mentions `content`, and so whether events carry it. */
+  /** Whether the filter reads `file.content`, and so whether events carry it. */
   includeContent: boolean;
   /**
    * Unix seconds, the same value the stream URL's signature carries as `exp`. A stream
@@ -262,6 +263,64 @@ export interface Subscription {
 interface NamedEventSource {
   on(name: string, callback: (...data: unknown[]) => unknown): unknown;
   off(name: string, callback: (...data: unknown[]) => unknown): void;
+}
+
+/**
+ * Every operation in a JSONLogic rule, depth first, as `[operator, arguments]`. A rule is
+ * an object with one key, the operator, whose value is its argument or argument list.
+ */
+function* operationsIn(rule: unknown): Generator<[string, unknown[]]> {
+  if (Array.isArray(rule)) {
+    for (const item of rule) yield* operationsIn(item);
+    return;
+  }
+  if (typeof rule !== "object" || rule === null) return;
+  for (const [operator, raw] of Object.entries(rule)) {
+    const args: unknown[] = Array.isArray(raw) ? raw : [raw];
+    yield [operator, args];
+    yield* operationsIn(args);
+  }
+}
+
+/** The data paths a rule reads by name: `var`'s first argument, and `missing`'s lists. */
+function* pathsReadBy(rule: unknown): Generator<string> {
+  for (const [operator, args] of operationsIn(rule)) {
+    if (operator === "var" && typeof args[0] === "string") {
+      yield args[0];
+    } else if (operator === "missing") {
+      yield* args.filter((arg): arg is string => typeof arg === "string");
+    } else if (operator === "missing_some" && Array.isArray(args[1])) {
+      yield* args[1].filter((arg): arg is string => typeof arg === "string");
+    }
+  }
+}
+
+/**
+ * Whether a filter reads note content -- a path that is, or is inside, `file.content`.
+ * Only the paths the rule actually reads count, so a string literal that happens to say
+ * "content" (a path compared against it, a `*.content` glob) doesn't send note bodies.
+ * A `var` whose path is itself computed can't be read here and never counts: its
+ * `file.content` is absent, as it is for any filter that doesn't name it.
+ */
+function readsContent(filter: unknown): boolean {
+  for (const path of pathsReadBy(filter)) {
+    if (path === "file.content" || path.startsWith("file.content.")) return true;
+  }
+  return false;
+}
+
+/**
+ * Compile every literal `regexp` and `glob` pattern in a filter, throwing for one that
+ * won't compile. Applying the filter to an empty event doesn't catch these: both
+ * operators return false without compiling when the field they test is null.
+ */
+function checkPatterns(filter: unknown): void {
+  for (const [operator, args] of operationsIn(filter)) {
+    const [pattern] = args;
+    if (typeof pattern !== "string") continue;
+    if (operator === "regexp") new RegExp(pattern);
+    else if (operator === "glob") WildcardRegexp(pattern);
+  }
 }
 
 function isTruthy(value: unknown): boolean {
@@ -290,6 +349,8 @@ export class EventStreams {
    */
   readonly epoch = randomBytes(4).toString("hex");
   private counter = 0;
+  /** Streams admitted by {@link open} whose session is still being created. */
+  private opening = 0;
 
   constructor(
     private readonly app: App,
@@ -335,8 +396,10 @@ export class EventStreams {
     if (filter != null) {
       // JSONLogic has no validator; applying the filter once to an empty event is how an
       // unknown operator or a malformed rule gets refused now, rather than silently
-      // matching nothing on every event later.
+      // matching nothing on every event later. Patterns are compiled separately, since
+      // an empty event never reaches them.
       try {
+        checkPatterns(filter);
         jsonLogic.apply(filter, {
           emitter,
           event,
@@ -358,9 +421,7 @@ export class EventStreams {
       emitter,
       event,
       filter: filter ?? null,
-      // Search looks for `"content"`; here the content sits one level down, so a filter
-      // names it as `file.content`. Either spelling counts.
-      includeContent: filter != null && /[".]content"/.test(JSON.stringify(filter)),
+      includeContent: readsContent(filter),
       exp: this.nowSeconds() + ttlSeconds,
       sessions: new Set(),
     };
@@ -407,21 +468,30 @@ export class EventStreams {
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<Session> {
-    if (this.openStreamCount >= MaximumOpenStreams) {
+    // Streams still being set up count against the cap too: a session only joins
+    // `sessions` after `createSession` resolves, and without the reservation concurrent
+    // opens could all pass the check before any of them was counted.
+    if (this.openStreamCount + this.opening >= MaximumOpenStreams) {
       throw new TooManyStreamsError(
         `At most ${MaximumOpenStreams} event streams may be open at once.`,
       );
     }
-    const session = await createSession(req, res, {
-      // A client-supplied Last-Event-ID is ignored: nothing is replayed, so it would only
-      // be echoed back.
-      trustClientEventId: false,
-      keepAlive: 15_000,
-      headers: {
-        // Asks a buffering reverse proxy (nginx) not to hold events back.
-        "X-Accel-Buffering": "no",
-      },
-    });
+    this.opening++;
+    let session: Session;
+    try {
+      session = await createSession(req, res, {
+        // A client-supplied Last-Event-ID is ignored: nothing is replayed, so it would
+        // only be echoed back.
+        trustClientEventId: false,
+        keepAlive: 15_000,
+        headers: {
+          // Asks a buffering reverse proxy (nginx) not to hold events back.
+          "X-Accel-Buffering": "no",
+        },
+      });
+    } finally {
+      this.opening--;
+    }
     subscription.sessions.add(session);
     this.responses.set(session, res);
     this.attach(subscription.emitter, subscription.event);
