@@ -264,10 +264,12 @@ export default class RequestHandler {
       publicRouter,
       this.mcpHandler,
       () => {
-        if (this.apiExtensions.delete(manifest.id)) {
-          removeRouter(this.apiExtensionRouter, router);
-          removeRouter(this.publicApiExtensionRouter, publicRouter);
-        }
+        // A handle unregistered a second time, after a new one was registered for the
+        // same plugin, must not take the new one's routes and events down with it.
+        if (this.apiExtensions.get(manifest.id)?.api !== api) return;
+        this.apiExtensions.delete(manifest.id);
+        removeRouter(this.apiExtensionRouter, router);
+        removeRouter(this.publicApiExtensionRouter, publicRouter);
         this.events.removeExtensionEvents(manifest.id);
       },
       (event, definition) => this.events.addExtensionEvent(manifest.id, event, definition),

@@ -90,8 +90,8 @@ export interface LocalRestApiPublicApi {
      * -- never live objects or note text they did not ask for. Returning null drops the
      * occurrence.
      *
-     * Throws if `event` is not 1-128 letters, digits, or `.`, `_`, `:`, `-`, or is already
-     * registered by this extension. Available from extension API version 3.
+     * Throws if `event` is not 1-128 letters, digits, or `.`, `_`, `:`, `-`, is `.` or `..`,
+     * or is already registered by this extension. Available from extension API version 3.
      */
     addStreamableEvent(event: string, definition: StreamableEventDefinition): void;
     /** Removes every route, MCP tool and streamable event registered through this handle. */

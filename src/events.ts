@@ -249,8 +249,11 @@ export interface ExtensionEventDefinition {
   ) => Record<string, unknown> | null | Promise<Record<string, unknown> | null>;
 }
 
-/** Event names an extension may register: one URL path segment, no encoding needed. */
-const EXTENSION_EVENT_NAME = /^[A-Za-z0-9._:-]{1,128}$/;
+/**
+ * Event names an extension may register: one URL path segment, no encoding needed. `.`
+ * and `..` are excluded because URL clients normalize them away.
+ */
+const EXTENSION_EVENT_NAME = /^(?!\.{1,2}$)[A-Za-z0-9._:-]{1,128}$/;
 
 /** What registering a subscription hands back to a client. */
 export interface EventListenerGrant {
@@ -412,7 +415,8 @@ export class EventStreams {
     }
     if (!EXTENSION_EVENT_NAME.test(event)) {
       throw new Error(
-        `Event name "${event}" must be 1-128 letters, digits, or ".", "_", ":", "-".`,
+        `Event name "${event}" must be 1-128 letters, digits, or ".", "_", ":", "-", ` +
+          `and not "." or "..".`,
       );
     }
     const events = this.extensionEvents.get(emitter) ?? new Map<string, ExtensionEventDefinition>();
@@ -571,6 +575,12 @@ export class EventStreams {
       });
     } finally {
       this.opening--;
+    }
+    // The subscription may have been dropped during the await -- its extension
+    // unregistered, or the plugin unloaded. Nothing would ever close this stream then.
+    if (this.subscriptions.get(subscription.id) !== subscription) {
+      res.end();
+      return session;
     }
     subscription.sessions.add(session);
     this.responses.set(session, res);
