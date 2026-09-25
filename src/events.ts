@@ -388,11 +388,14 @@ export class EventStreams {
 
   /** Everything that can be streamed right now, by emitter. */
   supportedEvents(): Record<string, readonly string[]> {
-    const supported: Record<string, readonly string[]> = { ...STREAMABLE_EVENTS };
-    for (const [emitter, events] of this.extensionEvents) {
-      supported[emitter] = [...events.keys()];
-    }
-    return supported;
+    // `fromEntries` defines each key as an own property. Assigning onto an object
+    // literal would send an extension called `__proto__` to Object.prototype's setter.
+    return Object.fromEntries<readonly string[]>([
+      ...Object.entries(STREAMABLE_EVENTS),
+      ...[...this.extensionEvents].map(
+        ([emitter, events]): [string, string[]] => [emitter, [...events.keys()]],
+      ),
+    ]);
   }
 
   /**
@@ -605,7 +608,7 @@ export class EventStreams {
     const listener = (...args: unknown[]) => {
       const previous = this.queues.get(key) ?? Promise.resolve();
       const next = previous
-        .then(() => this.deliver(emitter, event, args))
+        .then(() => this.deliver(emitter, event, args, listener))
         .catch((error: unknown) => {
           console.error(`[REST API] Failed to deliver ${key} event`, error);
         });
@@ -649,7 +652,28 @@ export class EventStreams {
     }
   }
 
-  private async deliver(emitter: string, event: string, args: unknown[]): Promise<void> {
+  /**
+   * Whether `listener` is still the one attached for `<emitter>/<event>`. Detaching can't
+   * cancel a delivery that is already queued or awaiting its serializer, and if the event
+   * is attached again meanwhile -- an extension unregistering and registering it anew --
+   * that delivery would otherwise reach the new subscriptions, serialized by the new
+   * definition. Each occurrence belongs to the listener that heard it.
+   */
+  private isCurrent(
+    emitter: string,
+    event: string,
+    listener: (...args: unknown[]) => void,
+  ): boolean {
+    return this.listeners.get(`${emitter}/${event}`) === listener;
+  }
+
+  private async deliver(
+    emitter: string,
+    event: string,
+    args: unknown[],
+    listener: (...args: unknown[]) => void,
+  ): Promise<void> {
+    if (!this.isCurrent(emitter, event, listener)) return;
     const listening = [...this.subscriptions.values()].filter(
       (subscription) =>
         subscription.emitter === emitter &&
@@ -659,7 +683,7 @@ export class EventStreams {
     if (listening.length === 0) return;
 
     const payloads = await this.serialize(emitter, event, args, listening);
-    if (!payloads) return;
+    if (!payloads || !this.isCurrent(emitter, event, listener)) return;
     const id = `${this.epoch}-${++this.counter}`;
 
     for (const subscription of listening) {
