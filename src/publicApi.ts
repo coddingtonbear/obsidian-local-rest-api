@@ -49,6 +49,188 @@ export interface McpToolAnnotations {
 }
 
 /**
+ * The content types below are structurally identical to the matching types in
+ * `@modelcontextprotocol/server`, and declared here for the same reason as
+ * {@link McpToolAnnotations}: consuming this package's types must not require the SDK.
+ * They cover the content blocks a tool result or prompt message may carry.
+ */
+
+/** Hints about who a content block is for and how much it matters. */
+export interface McpContentAnnotations {
+  audience?: ("user" | "assistant")[];
+  /** From 0 (least important) to 1 (effectively required). */
+  priority?: number;
+  /** An ISO 8601 timestamp, e.g. `2026-09-25T14:00:00Z`. */
+  lastModified?: string;
+}
+
+/** Plain text. */
+export interface McpTextContent {
+  type: "text";
+  text: string;
+  annotations?: McpContentAnnotations;
+  _meta?: Record<string, unknown>;
+}
+
+/** An image, as base64-encoded bytes. */
+export interface McpImageContent {
+  type: "image";
+  /** Base64-encoded image bytes. */
+  data: string;
+  mimeType: string;
+  annotations?: McpContentAnnotations;
+  _meta?: Record<string, unknown>;
+}
+
+/** Audio, as base64-encoded bytes. */
+export interface McpAudioContent {
+  type: "audio";
+  /** Base64-encoded audio bytes. */
+  data: string;
+  mimeType: string;
+  annotations?: McpContentAnnotations;
+  _meta?: Record<string, unknown>;
+}
+
+/** A pointer to a resource the client may read or fetch on its own. */
+export interface McpResourceLinkContent {
+  type: "resource_link";
+  uri: string;
+  name: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+  annotations?: McpContentAnnotations;
+  _meta?: Record<string, unknown>;
+}
+
+/** One resource's contents, as text or as base64-encoded bytes. */
+export type McpResourceContents =
+  | { uri: string; mimeType?: string; text: string; _meta?: Record<string, unknown> }
+  | { uri: string; mimeType?: string; blob: string; _meta?: Record<string, unknown> };
+
+/** A resource embedded in a result, contents and all. */
+export interface McpEmbeddedResourceContent {
+  type: "resource";
+  resource: McpResourceContents;
+  annotations?: McpContentAnnotations;
+  _meta?: Record<string, unknown>;
+}
+
+/** Any content block a tool result or a prompt message may carry. */
+export type McpContentBlock =
+  | McpTextContent
+  | McpImageContent
+  | McpAudioContent
+  | McpResourceLinkContent
+  | McpEmbeddedResourceContent;
+
+/**
+ * A tool call's result, handed to the client as-is.
+ *
+ * Set `isError` to report a failure the model should see and may recover from (a
+ * missing file, a rejected argument), rather than throwing, which the client treats as
+ * the call itself having failed. When the tool declares an `outputSchema`,
+ * `structuredContent` is required and is validated against it.
+ */
+// The result types are type aliases rather than interfaces so that they stay assignable
+// to the SDK's own result types, which carry an index signature an interface lacks.
+export type McpToolResult = {
+  content: McpContentBlock[];
+  structuredContent?: Record<string, unknown>;
+  isError?: boolean;
+  _meta?: Record<string, unknown>;
+};
+
+/** An MCP tool, for the object form of {@link LocalRestApiPublicApi.addMcpTool}. */
+export interface McpToolDefinition {
+  name: string;
+  /** A human-readable name for display. `name` is used when omitted. */
+  title?: string;
+  description: string;
+  /** The tool's arguments. Omit for a tool that takes none. */
+  inputSchema?: Record<string, z.ZodTypeAny>;
+  /**
+   * The shape of the tool's `structuredContent`. When set, the host advertises it in
+   * `tools/list` and rejects a result whose `structuredContent` is missing or does not
+   * match it.
+   */
+  outputSchema?: Record<string, z.ZodTypeAny>;
+  annotations?: McpToolAnnotations;
+  /** Returns the result exactly as the client should receive it. */
+  callback: (args: Record<string, unknown>) => Promise<McpToolResult>;
+}
+
+/** What a resource read returns. */
+export type McpReadResourceResult = {
+  contents: McpResourceContents[];
+  _meta?: Record<string, unknown>;
+};
+
+/** A resource at one fixed URI. */
+export interface McpResourceDefinition {
+  name: string;
+  uri: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+  read: (uri: URL) => Promise<McpReadResourceResult>;
+}
+
+/** One resource a {@link McpResourceTemplateDefinition} lists in `resources/list`. */
+export interface McpListedResource {
+  uri: string;
+  name: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+}
+
+/** A family of resources addressed by an RFC 6570 URI template. */
+export interface McpResourceTemplateDefinition {
+  name: string;
+  /** An RFC 6570 URI template, e.g. `tandem://comments/{path}`. */
+  uriTemplate: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+  /**
+   * The concrete resources to include in `resources/list`. Omit when the family can't
+   * or shouldn't be enumerated; clients can still read any URI matching the template.
+   */
+  list?: () => Promise<McpListedResource[]>;
+  /** `variables` holds the values the template's placeholders matched in `uri`. */
+  read: (uri: URL, variables: Record<string, string | string[]>) => Promise<McpReadResourceResult>;
+}
+
+/** One message of a prompt. */
+export interface McpPromptMessage {
+  role: "user" | "assistant";
+  content: McpContentBlock;
+}
+
+/** What getting a prompt returns. */
+export type McpPromptResult = {
+  description?: string;
+  messages: McpPromptMessage[];
+  _meta?: Record<string, unknown>;
+};
+
+/** An MCP prompt: a message template a client offers its user. */
+export interface McpPromptDefinition {
+  name: string;
+  title?: string;
+  description?: string;
+  /**
+   * The prompt's arguments. MCP passes prompt arguments as strings, so each field
+   * should be a string schema (`z.string()`, optionally `.optional()`).
+   */
+  argsSchema?: Record<string, z.ZodTypeAny>;
+  /** An argument declared `.optional()` is absent from `args` when the client omits it. */
+  callback: (args: Record<string, string | undefined>) => Promise<McpPromptResult>;
+}
+
+/**
  * Thrown by {@link getAPI} when the caller asks for an extension API version newer
  * than the installed plugin implements.
  */
@@ -68,7 +250,7 @@ export class ApiVersionUnsupportedError extends Error {
 /**
  * The handle an extension receives from {@link getAPI}.
  *
- * Every route and tool registered through this handle is torn down together by
+ * Everything registered through this handle is torn down together by
  * {@link unregister}, which an extension should call from its `onunload`.
  */
 export interface LocalRestApiPublicApi {
@@ -91,6 +273,10 @@ export interface LocalRestApiPublicApi {
   /**
    * Registers an MCP tool, exposing it to every MCP client connected to the host.
    *
+   * Whatever `callback` resolves to is sent to the client as a single text block: a
+   * string as-is, anything else JSON-encoded. For images, structured output, or a
+   * deliberate `isError` result, use the {@link McpToolDefinition} form instead.
+   *
    * Throws if a tool with this name is already registered.
    */
   addMcpTool(
@@ -101,7 +287,40 @@ export interface LocalRestApiPublicApi {
     annotations?: McpToolAnnotations,
   ): void;
 
-  /** Removes every route and MCP tool registered through this handle. */
+  /**
+   * Registers an MCP tool whose callback returns a complete {@link McpToolResult}, which
+   * is passed to the client unchanged. Available from API version 3.
+   *
+   * Throws if a tool with this name is already registered.
+   */
+  addMcpTool(definition: McpToolDefinition): void;
+
+  /**
+   * Registers an MCP resource at a fixed URI. Available from API version 3.
+   *
+   * Throws if a resource with this URI is already registered.
+   */
+  addMcpResource(definition: McpResourceDefinition): void;
+
+  /**
+   * Registers a family of MCP resources addressed by a URI template. Available from API
+   * version 3.
+   *
+   * Throws if a resource template with this name is already registered.
+   */
+  addMcpResourceTemplate(definition: McpResourceTemplateDefinition): void;
+
+  /**
+   * Registers an MCP prompt. Available from API version 3.
+   *
+   * Throws if a prompt with this name is already registered.
+   */
+  addMcpPrompt(definition: McpPromptDefinition): void;
+
+  /**
+   * Removes every route, MCP tool, resource, resource template, and prompt registered
+   * through this handle.
+   */
   unregister(): void;
 }
 

@@ -14,6 +14,7 @@ import { existsSync } from "fs";
 import express from "express";
 import request from "supertest";
 import { McpServer } from "@modelcontextprotocol/server";
+import { z } from "zod";
 
 import { McpHandler, markdownLink } from "./mcpHandler";
 import { DEFAULT_SETTINGS, MaximumMcpBinaryBytes } from "./constants";
@@ -2376,6 +2377,467 @@ describe("McpHandler", () => {
       buildServer(mcp);
       const removableCalls = registerTool.mock.calls.filter((c: unknown[]) => c[0] === "removable_tool");
       expect(removableCalls).toHaveLength(1);
+    });
+  });
+
+  // ---- extension tool definitions, resources, and prompts ------------------
+  //
+  // The richer registrations behind the extension API's object-form `addMcpTool`,
+  // `addMcpResource`, `addMcpResourceTemplate`, and `addMcpPrompt`, exercised end to end
+  // so that what reaches the client is what the extension returned.
+
+  describe("extension registrations over HTTP", () => {
+    let mcp: McpHandler;
+    let app: express.Express;
+
+    beforeEach(() => {
+      mcp = new McpHandler(ops, DEFAULT_SETTINGS);
+      app = makeApp(mcp);
+    });
+
+    afterEach(() => {
+      mcp.close();
+    });
+
+    async function send(method: string, params: Record<string, unknown> = {}, name?: string) {
+      let req = request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", method);
+      if (name !== undefined) req = req.set("Mcp-Name", name);
+      const res = await req.send(sessionlessRequest(1, method, params)).expect(200);
+      return res.body;
+    }
+
+    function sseResult(text: string) {
+      const line = text.split("\n").find((l) => l.startsWith("data: "));
+      if (!line) throw new Error(`No SSE data frame in response: ${text}`);
+      return JSON.parse(line.slice("data: ".length));
+    }
+
+    async function openSession(): Promise<string> {
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .send({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: LEGACY_VERSION,
+            capabilities: {},
+            clientInfo: { name: "sessionful-client", version: "1.0.0" },
+          },
+        })
+        .expect(200);
+      return res.headers["mcp-session-id"];
+    }
+
+    async function sendOnSession(sessionId: string, method: string, params: Record<string, unknown> = {}) {
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({ jsonrpc: "2.0", id: 2, method, params })
+        .expect(200);
+      return sseResult(res.text);
+    }
+
+    describe("tool definitions", () => {
+      test("passes the callback's result through unchanged", async () => {
+        const image = { type: "image", data: "aGk=", mimeType: "image/png" } as const;
+        mcp.registerToolDefinition({
+          name: "picture_tool",
+          description: "Returns a picture",
+          callback: async () => ({ content: [{ type: "text", text: "caption" }, image] }),
+        });
+
+        const body = await send("tools/call", { name: "picture_tool", arguments: {} }, "picture_tool");
+        expect(body.result.content).toEqual([{ type: "text", text: "caption" }, image]);
+        expect(body.result.isError).toBeUndefined();
+      });
+
+      test("passes content annotations through unchanged", async () => {
+        const text = {
+          type: "text",
+          text: "For the reader",
+          annotations: { audience: ["user"], priority: 0.9, lastModified: "2026-09-25T14:00:00Z" },
+        } as const;
+        const link = {
+          type: "resource_link",
+          uri: "tandem://index",
+          name: "tandem-index",
+          annotations: { audience: ["assistant"] },
+        } as const;
+        mcp.registerToolDefinition({
+          name: "annotated_tool",
+          description: "Returns annotated content",
+          callback: async () => ({ content: [text, link] }),
+        });
+
+        const body = await send("tools/call", { name: "annotated_tool", arguments: {} }, "annotated_tool");
+        expect(body.result.content).toEqual([text, link]);
+      });
+
+      test("keeps a deliberate isError result rather than treating it as a failure", async () => {
+        mcp.registerToolDefinition({
+          name: "failing_tool",
+          description: "Reports an error",
+          callback: async () => ({ content: [{ type: "text", text: "No such note" }], isError: true }),
+        });
+
+        const body = await send("tools/call", { name: "failing_tool", arguments: {} }, "failing_tool");
+        expect(body.error).toBeUndefined();
+        expect(body.result.isError).toBe(true);
+        expect(body.result.content).toEqual([{ type: "text", text: "No such note" }]);
+      });
+
+      test("hands the callback its validated arguments", async () => {
+        const callback = jest.fn(async (args: Record<string, unknown>) => ({
+          content: [{ type: "text" as const, text: JSON.stringify(args) }],
+        }));
+        mcp.registerToolDefinition({
+          name: "args_tool",
+          description: "Echoes",
+          inputSchema: { path: z.string() },
+          callback,
+        });
+
+        const body = await send(
+          "tools/call",
+          { name: "args_tool", arguments: { path: "a.md" } },
+          "args_tool",
+        );
+        expect(callback).toHaveBeenCalledWith({ path: "a.md" });
+        expect(JSON.parse(body.result.content[0].text)).toEqual({ path: "a.md" });
+      });
+
+      test("advertises title and outputSchema, and returns structuredContent", async () => {
+        mcp.registerToolDefinition({
+          name: "structured_tool",
+          title: "Structured tool",
+          description: "Counts",
+          outputSchema: { count: z.number() },
+          callback: async () => ({
+            content: [{ type: "text", text: '{"count":3}' }],
+            structuredContent: { count: 3 },
+          }),
+        });
+
+        const listed = await send("tools/list");
+        const tool = (listed.result.tools as { name: string }[]).find((t) => t.name === "structured_tool");
+        expect(tool).toMatchObject({
+          title: "Structured tool",
+          outputSchema: { type: "object", properties: { count: { type: "number" } } },
+        });
+
+        const called = await send("tools/call", { name: "structured_tool", arguments: {} }, "structured_tool");
+        expect(called.result.structuredContent).toEqual({ count: 3 });
+      });
+
+      test("rejects structuredContent that does not match the outputSchema", async () => {
+        mcp.registerToolDefinition({
+          name: "lying_tool",
+          description: "Claims a number, returns a string",
+          outputSchema: { count: z.number() },
+          callback: async () => ({
+            content: [{ type: "text", text: "oops" }],
+            structuredContent: { count: "three" },
+          }),
+        });
+
+        const body = await send("tools/call", { name: "lying_tool", arguments: {} }, "lying_tool");
+        const failed = body.error !== undefined || body.result?.isError === true;
+        expect(failed).toBe(true);
+      });
+
+      test("shares the tool namespace with the positional form", () => {
+        mcp.registerTool("shared_name", "Positional", {}, async () => "");
+        expect(() =>
+          mcp.registerToolDefinition({
+            name: "shared_name",
+            description: "Object form",
+            callback: async () => ({ content: [] }),
+          }),
+        ).toThrow(/already registered/);
+        expect(() =>
+          mcp.registerToolDefinition({
+            name: "vault_list",
+            description: "Shadowing a built-in",
+            callback: async () => ({ content: [] }),
+          }),
+        ).toThrow(/already registered/);
+      });
+    });
+
+    describe("resources", () => {
+      test("lists and reads a fixed-URI resource", async () => {
+        mcp.registerResource({
+          name: "tandem-index",
+          uri: "tandem://index",
+          description: "Every note with comments",
+          mimeType: "application/json",
+          read: async (uri) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: "[]" }] }),
+        });
+
+        const listed = await send("resources/list");
+        expect(listed.result.resources).toContainEqual(
+          expect.objectContaining({
+            uri: "tandem://index",
+            name: "tandem-index",
+            description: "Every note with comments",
+            mimeType: "application/json",
+          }),
+        );
+        // The built-in resource is still there alongside it.
+        expect((listed.result.resources as { uri: string }[]).map((r) => r.uri)).toContain(
+          "obsidian://local-rest-api/openapi.yaml",
+        );
+
+        const read = await send("resources/read", { uri: "tandem://index" }, "tandem://index");
+        expect(read.result.contents).toEqual([
+          { uri: "tandem://index", mimeType: "application/json", text: "[]" },
+        ]);
+      });
+
+      test("passes a read result's _meta through", async () => {
+        mcp.registerResource({
+          name: "meta-resource",
+          uri: "tandem://meta",
+          read: async (uri) => ({
+            contents: [{ uri: uri.href, text: "{}" }],
+            _meta: { "tandem/revision": 7 },
+          }),
+        });
+
+        const read = await send("resources/read", { uri: "tandem://meta" }, "tandem://meta");
+        expect(read.result._meta).toMatchObject({ "tandem/revision": 7 });
+      });
+
+      test("refuses a URI that is already registered, including a built-in one", () => {
+        const read = async (uri: URL) => ({ contents: [{ uri: uri.href, text: "" }] });
+        mcp.registerResource({ name: "one", uri: "tandem://index", read });
+        expect(() => mcp.registerResource({ name: "two", uri: "tandem://index", read })).toThrow(
+          /already registered/,
+        );
+        expect(() =>
+          mcp.registerResource({ name: "spec", uri: "obsidian://local-rest-api/openapi.yaml", read }),
+        ).toThrow(/already registered/);
+      });
+
+      test("removal takes the resource off the list and frees its URI", async () => {
+        const read = async (uri: URL) => ({ contents: [{ uri: uri.href, text: "" }] });
+        const cleanup = mcp.registerResource({ name: "temp", uri: "tandem://temp", read });
+        cleanup();
+
+        const listed = await send("resources/list");
+        expect((listed.result.resources as { uri: string }[]).map((r) => r.uri)).not.toContain(
+          "tandem://temp",
+        );
+        expect(() => mcp.registerResource({ name: "temp", uri: "tandem://temp", read })).not.toThrow();
+      });
+    });
+
+    describe("resource templates", () => {
+      test("advertises the template, lists its resources, and reads with matched variables", async () => {
+        const read = jest.fn(async (uri: URL, variables: Record<string, string | string[]>) => ({
+          contents: [{ uri: uri.href, text: `comments on ${String(variables.path)}` }],
+        }));
+        mcp.registerResourceTemplate({
+          name: "tandem-comments",
+          uriTemplate: "tandem://comments/{path}",
+          description: "Comments on one note",
+          mimeType: "text/plain",
+          list: async () => [{ uri: "tandem://comments/draft.md", name: "draft.md" }],
+          read,
+        });
+
+        const templates = await send("resources/templates/list");
+        expect(templates.result.resourceTemplates).toContainEqual(
+          expect.objectContaining({
+            name: "tandem-comments",
+            uriTemplate: "tandem://comments/{path}",
+            description: "Comments on one note",
+          }),
+        );
+
+        const listed = await send("resources/list");
+        expect(listed.result.resources).toContainEqual(
+          expect.objectContaining({ uri: "tandem://comments/draft.md", name: "draft.md" }),
+        );
+
+        const uri = "tandem://comments/draft.md";
+        const body = await send("resources/read", { uri }, uri);
+        expect(body.result.contents[0].text).toBe("comments on draft.md");
+        expect(read).toHaveBeenCalledWith(expect.any(URL), expect.objectContaining({ path: "draft.md" }));
+      });
+
+      test("a template without a list callback is still readable", async () => {
+        mcp.registerResourceTemplate({
+          name: "unlisted",
+          uriTemplate: "tandem://unlisted/{id}",
+          read: async (uri, variables) => ({ contents: [{ uri: uri.href, text: String(variables.id) }] }),
+        });
+
+        const uri = "tandem://unlisted/a1f3";
+        const body = await send("resources/read", { uri }, uri);
+        expect(body.result.contents[0].text).toBe("a1f3");
+      });
+
+      test("refuses a duplicate template name", () => {
+        const definition = {
+          name: "dup",
+          uriTemplate: "tandem://dup/{id}",
+          read: async (uri: URL) => ({ contents: [{ uri: uri.href, text: "" }] }),
+        };
+        mcp.registerResourceTemplate(definition);
+        expect(() => mcp.registerResourceTemplate(definition)).toThrow(/already registered/);
+      });
+    });
+
+    describe("prompts", () => {
+      test("advertises the prompts capability even with no prompt registered", async () => {
+        const discover = await send("server/discover");
+        expect(discover.result.capabilities.prompts).toBeDefined();
+
+        const listed = await send("prompts/list");
+        expect(listed.result.prompts).toEqual([]);
+      });
+
+      test("lists a prompt with its arguments and renders it", async () => {
+        mcp.registerPrompt({
+          name: "summarize_note",
+          title: "Summarize a note",
+          description: "Asks for a summary of one note",
+          argsSchema: { path: z.string().describe("Note to summarize") },
+          callback: async ({ path }) => ({
+            messages: [{ role: "user", content: { type: "text", text: `Summarize ${path}` } }],
+          }),
+        });
+
+        const listed = await send("prompts/list");
+        expect(listed.result.prompts).toEqual([
+          expect.objectContaining({
+            name: "summarize_note",
+            title: "Summarize a note",
+            description: "Asks for a summary of one note",
+            arguments: [expect.objectContaining({ name: "path", required: true })],
+          }),
+        ]);
+
+        const got = await send(
+          "prompts/get",
+          { name: "summarize_note", arguments: { path: "draft.md" } },
+          "summarize_note",
+        );
+        expect(got.result.messages).toEqual([
+          { role: "user", content: { type: "text", text: "Summarize draft.md" } },
+        ]);
+      });
+
+      test("a prompt without arguments is called with an empty object", async () => {
+        const callback = jest.fn(async () => ({
+          messages: [{ role: "user" as const, content: { type: "text" as const, text: "Hello" } }],
+        }));
+        mcp.registerPrompt({ name: "greeting", callback });
+
+        const got = await send("prompts/get", { name: "greeting" }, "greeting");
+        expect(callback).toHaveBeenCalledWith({});
+        expect(got.result.messages[0].content.text).toBe("Hello");
+      });
+
+      test("an omitted optional argument is absent from the callback's arguments", async () => {
+        const callback = jest.fn(async (args: Record<string, string | undefined>) => ({
+          messages: [
+            {
+              role: "user" as const,
+              content: { type: "text" as const, text: `Tone: ${args.tone ?? "neutral"}` },
+            },
+          ],
+          _meta: { "tandem/rendered": true },
+        }));
+        mcp.registerPrompt({
+          name: "toned_prompt",
+          argsSchema: { path: z.string(), tone: z.string().optional() },
+          callback,
+        });
+
+        const got = await send(
+          "prompts/get",
+          { name: "toned_prompt", arguments: { path: "a.md" } },
+          "toned_prompt",
+        );
+        expect(callback).toHaveBeenCalledWith({ path: "a.md" });
+        expect(got.result.messages[0].content.text).toBe("Tone: neutral");
+        expect(got.result._meta).toMatchObject({ "tandem/rendered": true });
+      });
+
+      test("refuses a duplicate prompt name, and removal frees it", () => {
+        const definition = {
+          name: "dup_prompt",
+          callback: async () => ({ messages: [] }),
+        };
+        const cleanup = mcp.registerPrompt(definition);
+        expect(() => mcp.registerPrompt(definition)).toThrow(/already registered/);
+        cleanup();
+        expect(() => mcp.registerPrompt(definition)).not.toThrow();
+      });
+    });
+
+    describe("on a live sessionful connection", () => {
+      test("a prompt registered after the handshake is listed and served", async () => {
+        const sessionId = await openSession();
+        mcp.registerPrompt({
+          name: "late_prompt",
+          callback: async () => ({
+            messages: [{ role: "user", content: { type: "text", text: "late" } }],
+          }),
+        });
+
+        const listed = await sendOnSession(sessionId, "prompts/list");
+        expect((listed.result.prompts as { name: string }[]).map((p) => p.name)).toContain("late_prompt");
+
+        const got = await sendOnSession(sessionId, "prompts/get", { name: "late_prompt" });
+        expect(got.result.messages[0].content.text).toBe("late");
+      });
+
+      test("resources and templates registered after the handshake are listed, and removal notifies", async () => {
+        const sessionId = await openSession();
+        const session = [...(mcp as unknown as {
+          sessions: Map<string, { server: { sendResourceListChanged: () => void } }>;
+        }).sessions.values()][0];
+        const sendResourceListChanged = jest.spyOn(session.server, "sendResourceListChanged");
+
+        const read = async (uri: URL) => ({ contents: [{ uri: uri.href, text: "x" }] });
+        const removeResource = mcp.registerResource({ name: "late", uri: "tandem://late", read });
+        mcp.registerResourceTemplate({ name: "late-template", uriTemplate: "tandem://late/{id}", read });
+        expect(sendResourceListChanged).toHaveBeenCalled();
+
+        const listed = await sendOnSession(sessionId, "resources/list");
+        expect((listed.result.resources as { uri: string }[]).map((r) => r.uri)).toContain("tandem://late");
+        const templates = await sendOnSession(sessionId, "resources/templates/list");
+        expect((templates.result.resourceTemplates as { name: string }[]).map((t) => t.name)).toContain(
+          "late-template",
+        );
+
+        sendResourceListChanged.mockClear();
+        removeResource();
+        expect(sendResourceListChanged).toHaveBeenCalled();
+        const after = await sendOnSession(sessionId, "resources/list");
+        expect((after.result.resources as { uri: string }[]).map((r) => r.uri)).not.toContain("tandem://late");
+      });
+    });
+
+    test("a stale cleanup does not remove a later registration under the same name", async () => {
+      const first = mcp.registerPrompt({ name: "reused", callback: async () => ({ messages: [] }) });
+      first();
+      mcp.registerPrompt({ name: "reused", callback: async () => ({ messages: [] }) });
+      first();
+
+      const listed = await send("prompts/list");
+      expect((listed.result.prompts as { name: string }[]).map((p) => p.name)).toContain("reused");
     });
   });
 

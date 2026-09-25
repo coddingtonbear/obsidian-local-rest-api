@@ -3,7 +3,13 @@ import { z } from "zod";
 import type { ToolAnnotations } from "@modelcontextprotocol/server";
 import { BUILT_IN_ROUTES } from "./constants";
 import { McpHandler } from "./mcpHandler";
-import type { LocalRestApiPublicApi } from "./publicApi";
+import type {
+  LocalRestApiPublicApi,
+  McpPromptDefinition,
+  McpResourceDefinition,
+  McpResourceTemplateDefinition,
+  McpToolDefinition,
+} from "./publicApi";
 
 // The public surface — the interface and ApiVersionUnsupportedError — lives in
 // ./publicApi, which is what the generated publicApi.d.ts is emitted from. Re-exported
@@ -25,14 +31,15 @@ export interface RegisteredRoute {
 }
 
 export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi {
-  public readonly apiVersion = 2;
+  public readonly apiVersion = 3;
   private router: express.Router;
   private publicRouter: express.Router;
   private mcpHandler: McpHandler;
   private onUnregister: () => void;
   private unregistered = false;
   private registeredRoutes: RegisteredRoute[] = [];
-  private mcpToolCleanups: (() => void)[] = [];
+  // One per MCP tool, resource, resource template, and prompt, all undone by unregister().
+  private mcpCleanups: (() => void)[] = [];
   private registeredMcpTools: string[] = [];
 
   constructor(router: express.Router, publicRouter: express.Router, mcpHandler: McpHandler, onUnregister: () => void) {
@@ -88,11 +95,49 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     schema: Record<string, z.ZodTypeAny>,
     callback: (args: Record<string, unknown>) => Promise<unknown>,
     annotations?: ToolAnnotations,
+  ): void;
+  public addMcpTool(definition: McpToolDefinition): void;
+  public addMcpTool(
+    nameOrDefinition: string | McpToolDefinition,
+    description?: string,
+    schema?: Record<string, z.ZodTypeAny>,
+    callback?: (args: Record<string, unknown>) => Promise<unknown>,
+    annotations?: ToolAnnotations,
   ): void {
     this.assertRegistered();
-    const cleanup = this.mcpHandler.registerTool(name, description, schema, callback, annotations);
-    this.mcpToolCleanups.push(cleanup);
-    this.registeredMcpTools.push(name);
+    if (typeof nameOrDefinition !== "string") {
+      this.mcpCleanups.push(this.mcpHandler.registerToolDefinition(nameOrDefinition));
+      this.registeredMcpTools.push(nameOrDefinition.name);
+      return;
+    }
+    // Only reachable from plain JavaScript: the overloads make these required.
+    if (description === undefined || schema === undefined || callback === undefined) {
+      throw new TypeError(
+        "addMcpTool(name, description, schema, callback) requires all four arguments.",
+      );
+    }
+    this.mcpCleanups.push(
+      this.mcpHandler.registerTool(nameOrDefinition, description, schema, callback, annotations),
+    );
+    this.registeredMcpTools.push(nameOrDefinition);
+  }
+
+  /** Registers an MCP resource at a fixed URI. */
+  public addMcpResource(definition: McpResourceDefinition): void {
+    this.assertRegistered();
+    this.mcpCleanups.push(this.mcpHandler.registerResource(definition));
+  }
+
+  /** Registers a family of MCP resources addressed by a URI template. */
+  public addMcpResourceTemplate(definition: McpResourceTemplateDefinition): void {
+    this.assertRegistered();
+    this.mcpCleanups.push(this.mcpHandler.registerResourceTemplate(definition));
+  }
+
+  /** Registers an MCP prompt. */
+  public addMcpPrompt(definition: McpPromptDefinition): void {
+    this.assertRegistered();
+    this.mcpCleanups.push(this.mcpHandler.registerPrompt(definition));
   }
 
   /** Host-only counterpart to {@link getRoutes}, returning a copy for the same reason. */
@@ -101,7 +146,7 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
   }
 
   public unregister(): void {
-    for (const cleanup of this.mcpToolCleanups) {
+    for (const cleanup of this.mcpCleanups) {
       cleanup();
     }
     this.onUnregister();
