@@ -451,6 +451,25 @@ describe("event streams over REST", () => {
       await ended;
       expect(listenerCount(app.vault, "delete")).toBe(1);
     });
+
+    test("a stream still being set up at dispose is closed, not left listening", async () => {
+      const grant = await subscribe("/events/vault/delete/");
+      // Dispose while `open` is awaiting its session, as a plugin unload racing a
+      // connecting client would.
+      const events = handler.events;
+      const original = events.open.bind(events);
+      jest.spyOn(events, "open").mockImplementation((subscription, req, res) => {
+        const opening = original(subscription, req, res);
+        events.dispose();
+        return opening;
+      });
+
+      const stream = await open(grant.url);
+      await new Promise((resolve) => stream.response.on("end", resolve));
+
+      expect(events.openStreamCount).toBe(0);
+      expect(listenerCount(app.vault, "delete")).toBe(1);
+    });
   });
 });
 
