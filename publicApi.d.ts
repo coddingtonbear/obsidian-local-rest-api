@@ -26,8 +26,8 @@
  * as well, but it also freezes the member's signature into the published contract
  * forever.
  */
-import type { App, PluginManifest } from "obsidian";
-import type { IRoute } from "express";
+import type { App, PluginManifest, TFile } from "obsidian";
+import type { IRoute, Request, Router } from "express";
 import type { z } from "zod";
 /** The plugin ID the host registers itself under in Obsidian's plugin registry. */
 export declare const LOCAL_REST_API_PLUGIN_ID = "obsidian-local-rest-api";
@@ -211,6 +211,23 @@ export interface McpPromptDefinition {
     callback: (args: Record<string, string | undefined>) => Promise<McpPromptResult>;
 }
 /**
+ * A request as seen by a router returned from
+ * {@link LocalRestApiPublicApi.addVaultSubresource}.
+ *
+ * Express types every handler's request as a plain `Request`, so a handler reads these
+ * fields by narrowing: `const { vaultFile } = req as VaultSubresourceRequest`.
+ */
+export interface VaultSubresourceRequest extends Request {
+    /** The note the sub-resource belongs to. */
+    vaultFile: TFile;
+    /**
+     * The path segments after the sub-resource name, each decoded on its own. A `%2F` in
+     * the URL is a literal `/` inside one element here, which Express's own path matching
+     * on `req.url` cannot tell apart from a separator.
+     */
+    vaultSubresourceSegments: string[];
+}
+/**
  * Thrown by {@link getAPI} when the caller asks for an extension API version newer
  * than the installed plugin implements.
  */
@@ -276,8 +293,25 @@ export interface LocalRestApiPublicApi {
      */
     addMcpPrompt(definition: McpPromptDefinition): void;
     /**
-     * Removes every route, MCP tool, resource, resource template, and prompt registered
-     * through this handle.
+     * Adds a sub-resource under every note, reachable with the API key at
+     * `/vault/<note path>/<name>/...` and `/active/<name>/...`, and returns the router
+     * that serves it.
+     *
+     * Paths on the router are relative to the sub-resource: a `GET /vault/Notes/a.md/comments/a1f3`
+     * reaches the router as `GET /a1f3`. The host resolves the note first; a request only
+     * reaches the router when the note exists, so it never needs to 404 a missing note.
+     * The note and the decoded remaining segments are attached to the request (see
+     * {@link VaultSubresourceRequest}). A request the router does not answer continues to
+     * the host's own handlers. Signed URLs never reach the router.
+     *
+     * Available from API version 3. Throws if `name` is empty, contains `/`, is reserved
+     * by the host (`heading`, `block`, `frontmatter`), or is already registered by any
+     * extension.
+     */
+    addVaultSubresource(name: string): Router;
+    /**
+     * Removes every route, vault sub-resource, MCP tool, resource, resource template, and
+     * prompt registered through this handle.
      */
     unregister(): void;
 }

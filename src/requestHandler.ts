@@ -83,6 +83,7 @@ import {
   vaultPathIsContained,
 } from "./vaultPath";
 import { McpHandler } from "./mcpHandler";
+import { VaultSubresourceRegistry } from "./vaultSubresources";
 import {
   UrlSigner,
   clampSignedUrlTtl,
@@ -208,6 +209,7 @@ export default class RequestHandler {
 
   apiExtensionRouter: express.Router;
   publicApiExtensionRouter: express.Router;
+  vaultSubresources = new VaultSubresourceRegistry();
   // Holds the implementation type rather than LocalRestApiPublicApi: the `GET /`
   // handler reads getRoutes()/getMcpTools(), which are host-only and therefore
   // absent from the published interface. registerApiExtension still hands
@@ -262,7 +264,7 @@ export default class RequestHandler {
         parent.stack.splice(idx, 1);
       }
     };
-    const api = new LocalRestApiPublicApiImpl(router, publicRouter, this.mcpHandler, () => {
+    const api = new LocalRestApiPublicApiImpl(router, publicRouter, this.mcpHandler, this.vaultSubresources, () => {
       if (this.apiExtensions.delete(manifest.id)) {
         removeRouter(this.apiExtensionRouter, router);
         removeRouter(this.publicApiExtensionRouter, publicRouter);
@@ -2711,6 +2713,22 @@ export default class RequestHandler {
       express.text({ type: "text/*", limit: MaximumRequestSize }),
     );
     this.api.use(express.raw({ type: "*/*", limit: MaximumRequestSize }));
+
+    // Extension sub-resources under a note (`/vault/<note>/<name>/...`). Mounted ahead
+    // of the built-in routes because `/vault/*` would otherwise match them first and 404;
+    // the dispatcher only claims a request that resolves to an existing note followed by
+    // a registered name, so every other request reaches the built-ins unchanged.
+    this.api.use(
+      this.vaultSubresources.middleware({
+        resolvePathAndTarget: (segments) => this._resolvePathAndTarget(segments),
+        getFile: (path) => {
+          const file = this.app.vault.getAbstractFileByPath(path);
+          return file instanceof TFile ? file : null;
+        },
+        getActiveFile: () => this.app.workspace.getActiveFile(),
+        isSigned: (req) => this.requestIsSigned(req),
+      }),
+    );
 
     this.api
       .route("/active/*")
