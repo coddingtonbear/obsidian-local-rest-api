@@ -35,6 +35,7 @@ Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `40
 | `vault_read_binary` | Read an attachment: images as an image block, anything else as a signed download link or embedded bytes |
 | `vault_get_download_url` | Mint a signed, expiring link to a file that works without the API key (only when signed URLs are enabled) |
 | `vault_get_upload_url` | Mint a signed, single-use link for uploading a file over `PUT` (only when signed URLs are enabled) |
+| `events_get_listener_url` | Subscribe to an Obsidian event and mint a signed link to its Server-Sent Events stream, as `POST /events/{emitter}/{event}/` does (only when signed URLs are enabled) |
 | `vault_write` | Create or overwrite a text file; refuses paths whose extension names a binary type |
 | `vault_append` | Append content to the end of a vault file |
 | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
@@ -66,7 +67,7 @@ There is no upload tool that carries bytes through the model. Upload a file with
 
 ### Signed URLs
 
-On by default; can be turned off under Advanced settings, where the lifetime is also set (default 300 seconds). While enabled, `vault_get_download_url` and `vault_get_upload_url` are registered, and `vault_read_binary` links to non-image files instead of embedding them.
+On by default; can be turned off under Advanced settings, where the lifetime is also set (default 300 seconds). While enabled, `vault_get_download_url`, `vault_get_upload_url` and `events_get_listener_url` are registered, and `vault_read_binary` links to non-image files instead of embedding them.
 
 A signed URL authorizes a **whole-file** write to exactly the path it names. The signature covers the method, the normalized path, the expiry and a random per-link nonce (`n`), and nothing else — so a request that also carries `Target-Type`/`Target` headers, or whose path continues into `/heading`, `/block` or `/frontmatter`, is refused with `40102` rather than quietly becoming a targeted edit of a document the link never named. Targeted writes need the API key.
 

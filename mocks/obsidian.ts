@@ -251,6 +251,32 @@ export class Workspace {
   getActiveFile(): TFile {
     return new TFile();
   }
+
+  _listeners: Map<string, ((...data: unknown[]) => unknown)[]> = new Map();
+
+  on(event: string, callback: (...data: unknown[]) => unknown): void {
+    if (!this._listeners.has(event)) {
+      this._listeners.set(event, []);
+    }
+    this._listeners.get(event)!.push(callback);
+  }
+
+  off(event: string, callback: (...data: unknown[]) => unknown): void {
+    const listeners = this._listeners.get(event);
+    if (listeners) {
+      const index = listeners.indexOf(callback);
+      if (index !== -1) {
+        listeners.splice(index, 1);
+      }
+    }
+  }
+
+  _emit(event: string, ...data: unknown[]): void {
+    const listeners = this._listeners.get(event);
+    if (listeners) {
+      listeners.forEach((cb) => cb(...data));
+    }
+  }
 }
 
 class PluginManager {
@@ -307,7 +333,12 @@ export class FileStats {
 export class TFile {
   path = "somefile.md";
   basename = "somefile";
+  extension = "md";
   stat: FileStats = new FileStats();
+}
+
+export class TFolder {
+  path = "somefolder";
 }
 
 export class PluginManifest {

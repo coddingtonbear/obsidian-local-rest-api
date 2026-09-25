@@ -22,7 +22,7 @@ local SignedUrlParams = [
     name: 'sig',
     'in': 'query',
     required: false,
-    description: 'Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` tools. Together with `exp` and `n`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings.',
+    description: 'Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` / `events_get_listener_url` tools or by `POST /events/{emitter}/{event}/`. Together with `exp` and `n`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings.',
     schema: { type: 'string' },
   },
   {
@@ -755,6 +755,155 @@ std.manifestYamlDoc(
                   },
                 },
               },
+            },
+          },
+        },
+      },
+      '/events/{emitter}/{event}/': {
+        parameters: [
+          {
+            name: 'emitter',
+            'in': 'path',
+            required: true,
+            description: 'The Obsidian object whose event to follow.',
+            schema: { type: 'string', enum: ['vault', 'metadataCache', 'workspace'] },
+          },
+          {
+            name: 'event',
+            'in': 'path',
+            required: true,
+            description: "Obsidian's name for the event, one of those listed for the emitter.",
+            schema: { type: 'string' },
+          },
+        ],
+        post: {
+          tags: ['Events'],
+          summary: 'Subscribe to an Obsidian event as a Server-Sent Events stream\n',
+          description: importstr 'lib/descriptions/events.md',
+          parameters: [
+            {
+              name: 'ttl',
+              'in': 'query',
+              required: false,
+              description: "How long the stream URL stays valid, in seconds; clamped to 10-86400. Defaults to the plugin's signed-URL lifetime.",
+              schema: { type: 'integer' },
+            },
+          ],
+          requestBody: {
+            required: false,
+            content: {
+              'application/vnd.olrapi.jsonlogic+json': {
+                schema: {
+                  type: 'object',
+                  externalDocs: { url: 'https://jsonlogic.com/operations.html' },
+                },
+                examples: {
+                  notes_in_folder: {
+                    summary: 'Only files under journal/.',
+                    value: '{"glob": ["journal/*", {"var": "path"}]}\n',
+                  },
+                  frontmatter_value: {
+                    summary: 'Only notes whose status is done (use with metadataCache/changed).',
+                    value: '{"==": [{"var": "file.frontmatter.status"}, "done"]}\n',
+                  },
+                },
+              },
+              'application/json': {
+                schema: { type: 'object' },
+              },
+            },
+          },
+          responses: {
+            '201': {
+              description: 'Subscription registered.',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    required: ['id', 'emitter', 'event', 'url', 'signed', 'expiresAt'],
+                    properties: {
+                      id: { type: 'string', description: 'The subscription id.' },
+                      emitter: { type: 'string' },
+                      event: { type: 'string' },
+                      url: {
+                        type: 'string',
+                        description: 'The stream to open with GET. Signed when signed URLs are enabled.',
+                      },
+                      signed: {
+                        type: 'boolean',
+                        description: 'Whether `url` carries a signature, or needs the API key.',
+                      },
+                      expiresAt: {
+                        type: 'string',
+                        format: 'date-time',
+                        description: 'After this, the stream can no longer be opened; one already open stays open.',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '400': {
+              description: 'No event named (`/events/` or `/events/{emitter}/`), a filter JsonLogic cannot evaluate, or a body that is not JSON.',
+              content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
+            },
+            '404': {
+              description: 'The emitter or event cannot be streamed. The body lists what can, as `supportedEvents`.',
+              content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
+            },
+            '503': {
+              description: 'Too many subscriptions exist.',
+              content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
+            },
+          },
+        },
+      },
+      '/events/{emitter}/{event}/{subscriptionId}/': {
+        get: {
+          tags: ['Events'],
+          summary: 'Open the Server-Sent Events stream of a subscription\n',
+          description: |||
+            Streams the subscription's events as `text/event-stream`, with a keep-alive comment every 15 seconds, until the client disconnects or the plugin reloads. See `POST /events/{emitter}/{event}/` for what each message carries.
+
+            Authenticates with the API key, or with the `sig`, `exp` and `n` parameters of the URL that registering the subscription returned. A stream opened before the subscription expires stays open after it.
+          |||,
+          parameters: [
+            {
+              name: 'emitter',
+              'in': 'path',
+              required: true,
+              schema: { type: 'string', enum: ['vault', 'metadataCache', 'workspace'] },
+            },
+            { name: 'event', 'in': 'path', required: true, schema: { type: 'string' } },
+            {
+              name: 'subscriptionId',
+              'in': 'path',
+              required: true,
+              description: 'The `id` returned when the subscription was registered.',
+              schema: { type: 'string' },
+            },
+          ] + SignedUrlParams,
+          responses: {
+            '200': {
+              description: 'The event stream.',
+              content: {
+                'text/event-stream': {
+                  schema: { type: 'string' },
+                  example: 'event: modify\nid: 3f9a1c2e-7\ndata: {"emitter":"vault","event":"modify","path":"journal/today.md","isFolder":false,"file":{"path":"journal/today.md","tags":[],"frontmatter":{},"stat":{"ctime":1705276800000,"mtime":1705363200000,"size":1024},"links":[],"backlinks":[],"unresolvedLinks":[]}}\n\n',
+                },
+              },
+            },
+            '401': {
+              description: 'No API key, and no valid signature for this subscription.',
+              content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
+            },
+            '404': {
+              description: 'No such subscription for this emitter and event, or it has expired.',
+              content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
+            },
+            '503': {
+              description: 'Too many streams are open.',
+              content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
             },
           },
         },

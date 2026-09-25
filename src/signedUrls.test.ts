@@ -3,8 +3,10 @@ import {
   MaximumSignedUrlTtlSeconds,
   MinimumSignedUrlTtlSeconds,
   UrlSigner,
+  buildEventStreamUrl,
   buildSignedUrl,
   clampSignedUrlTtl,
+  eventStreamResource,
   normalizeVaultFilePath,
 } from "./signedUrls";
 
@@ -162,6 +164,57 @@ describe("signedUrls", () => {
       for (const bad of ["a b", "x".repeat(65), "a/b", "a+b", "a=b"]) {
         expect(signer.verify("GET", "a.png", String(exp), sig, bad)).toBe("invalid");
       }
+    });
+  });
+
+  describe("event-stream signatures", () => {
+    const resource = eventStreamResource("vault", "modify", "abc123");
+
+    test("round-trip for the resource they were minted for", () => {
+      const signer = new UrlSigner(Buffer.from("secret"), () => 1_700_000_000_000);
+      const { sig, exp, nonce } = signer.signEventStream(resource, 1_700_000_300);
+      expect(exp).toBe(1_700_000_300);
+      expect(signer.verifyEventStream(resource, String(exp), sig, nonce)).toBe("ok");
+      expect(
+        signer.verifyEventStream(eventStreamResource("vault", "modify", "other"), String(exp), sig, nonce),
+      ).toBe("invalid");
+    });
+
+    test("expire at the expiry they were given", () => {
+      let now = 1_700_000_000_000;
+      const signer = new UrlSigner(Buffer.from("secret"), () => now);
+      const { sig, exp, nonce } = signer.signEventStream(resource, 1_700_000_010);
+      now += 11_000;
+      expect(signer.verifyEventStream(resource, String(exp), sig, nonce)).toBe("expired");
+    });
+
+    // The two kinds of signature share a secret and a digest, so what keeps one from
+    // redeeming the other is that no normalized vault path can start with "/".
+    test("cannot be redeemed as a vault file, or the other way round", () => {
+      const signer = new UrlSigner(Buffer.from("secret"), () => 1_700_000_000_000);
+      const stream = signer.signEventStream(resource, 1_700_000_300);
+      expect(
+        signer.verify("GET", resource, String(stream.exp), stream.sig, stream.nonce),
+      ).toBe("invalid");
+      const file = signer.sign("GET", "events/vault/modify/abc123", 300);
+      expect(
+        signer.verifyEventStream(resource, String(file.exp), file.sig, file.nonce),
+      ).toBe("invalid");
+    });
+
+    test("refuse anything that is not an event-stream resource", () => {
+      const signer = new UrlSigner();
+      expect(() => signer.signEventStream("notes/a.md", 1)).toThrow();
+      expect(signer.verifyEventStream("notes/a.md", "1", "ab", "n")).toBe("invalid");
+    });
+
+    test("buildEventStreamUrl appends the signature, or nothing", () => {
+      expect(buildEventStreamUrl("http://h/", resource, { sig: "s", exp: 1, nonce: "n1" })).toBe(
+        "http://h/events/vault/modify/abc123/?sig=s&exp=1&n=n1",
+      );
+      expect(buildEventStreamUrl("http://h", resource, null)).toBe(
+        "http://h/events/vault/modify/abc123/",
+      );
     });
   });
 

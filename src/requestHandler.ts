@@ -83,7 +83,23 @@ import {
   vaultPathIsContained,
 } from "./vaultPath";
 import { McpHandler } from "./mcpHandler";
-import { UrlSigner, isSignableMethod, normalizeVaultFilePath } from "./signedUrls";
+import {
+  UrlSigner,
+  clampSignedUrlTtl,
+  eventStreamResource,
+  isSignableMethod,
+  normalizeVaultFilePath,
+  requestBaseUrl,
+} from "./signedUrls";
+import {
+  EventStreams,
+  InvalidEventFilterError,
+  STREAMABLE_EVENTS,
+  TooManyStreamsError,
+  TooManySubscriptionsError,
+  isEventEmitterName,
+  isStreamableEvent,
+} from "./events";
 
 // Import openapi.yaml as a string
 import openapiYaml from "../docs/openapi.yaml";
@@ -199,6 +215,7 @@ export default class RequestHandler {
   apiExtensions: Map<string, { manifest: PluginManifest; api: LocalRestApiPublicApiImpl }> = new Map();
 
   operations: VaultOperations;
+  events: EventStreams;
   mcpHandler: McpHandler;
   // One signer per handler, so the MCP tools that mint links and the REST middleware
   // that redeems them share a secret — and that secret lives exactly as long as this
@@ -220,7 +237,11 @@ export default class RequestHandler {
     this.apiExtensionRouter = express.Router();
     this.publicApiExtensionRouter = express.Router();
     this.operations = new VaultOperations(this.app, this.settings);
-    this.mcpHandler = new McpHandler(this.operations, this.settings, { signer: this.urlSigner });
+    this.events = new EventStreams(this.app, this.operations);
+    this.mcpHandler = new McpHandler(this.operations, this.settings, {
+      signer: this.urlSigner,
+      events: this.events,
+    });
 
     this.api.set("json spaces", 2);
   }
@@ -266,8 +287,9 @@ export default class RequestHandler {
   /**
    * Whether a request carries a valid signed-URL signature for its own path.
    *
-   * Only `GET` and `PUT` on `/vault/<file>` are signable, and only while the setting is
-   * on. The path is decoded the way {@link extractVaultPath} decodes it and normalized
+   * Only `GET` and `PUT` on `/vault/<file>`, and `GET` on an event stream
+   * (`/events/<emitter>/<event>/<id>/`), are signable, and only while the setting is
+   * on. A vault path is decoded the way {@link extractVaultPath} decodes it and normalized
    * the way the signer normalized it, so the signature covers exactly the file the
    * request resolves to. Returns null when the request carries no signature at all;
    * otherwise the signer's verdict.
@@ -282,6 +304,19 @@ export default class RequestHandler {
     if (typeof sig !== "string" || typeof exp !== "string") return null;
     const nonce = typeof n === "string" ? n : "";
     if (!this.settings.enableSignedUrls) return "invalid";
+    // An event stream's URL is signed over its whole path; the subscription it names
+    // carries the filter, so nothing else about the request needs covering.
+    const stream = /^\/events\/([^/]+)\/([^/]+)\/([^/]+)\/?$/.exec(req.path);
+    if (stream) {
+      if (req.method !== "GET") return "invalid";
+      const [, emitter, event, id] = stream;
+      return this.urlSigner.verifyEventStream(
+        eventStreamResource(emitter, event, id),
+        exp,
+        sig,
+        nonce,
+      );
+    }
     if (!isSignableMethod(req.method) || !req.path.startsWith("/vault/")) return "invalid";
     let decoded: string;
     try {
@@ -2438,6 +2473,113 @@ export default class RequestHandler {
     return;
   }
 
+  /** An error body that also lists what can be streamed. */
+  private returnEventError(res: express.Response, errorCode: ErrorCode): void {
+    res.status(Math.floor(errorCode / 100)).json({
+      message: ERROR_CODE_MESSAGES[errorCode],
+      errorCode,
+      supportedEvents: STREAMABLE_EVENTS,
+    });
+  }
+
+  /** `/events/` and `/events/<emitter>/`: there is no wildcard to stream. */
+  async eventsWithoutName(_req: express.Request, res: express.Response): Promise<void> {
+    this.returnEventError(res, ErrorCode.EventNameRequired);
+  }
+
+  /**
+   * `POST /events/<emitter>/<event>/`: register a subscription. The body is an optional
+   * JSONLogic filter; the response names the stream to open.
+   */
+  async eventsSubscribePost(req: express.Request, res: express.Response): Promise<void> {
+    const { emitter, event } = req.params;
+    if (!isEventEmitterName(emitter) || !isStreamableEvent(emitter, event)) {
+      this.returnEventError(res, ErrorCode.UnknownEvent);
+      return;
+    }
+
+    // No body, an empty one, or `{}` (which is what Express leaves behind for an empty
+    // JSON body) means every event. A literal `{}` filter could never match anything,
+    // so reading it as "no filter" loses nothing.
+    let filter: unknown = null;
+    const body: unknown = req.body;
+    const bodyIsEmpty =
+      body === undefined ||
+      ((Buffer.isBuffer(body) || typeof body === "string") && body.length === 0) ||
+      (typeof body === "object" &&
+        body !== null &&
+        !Array.isArray(body) &&
+        !Buffer.isBuffer(body) &&
+        Object.keys(body).length === 0);
+    if (!bodyIsEmpty) {
+      if (!req.is([ContentTypes.jsonLogic, ContentTypes.json])) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidContentType,
+          message: `Send the filter as ${ContentTypes.jsonLogic} or ${ContentTypes.json}.`,
+        });
+        return;
+      }
+      filter = body;
+    }
+
+    const rawTtl = typeof req.query.ttl === "string" ? Number(req.query.ttl) : undefined;
+    const ttlSeconds = clampSignedUrlTtl(rawTtl ?? this.settings.signedUrlTtlSeconds);
+
+    try {
+      const grant = this.events.createListener(
+        emitter,
+        event,
+        filter,
+        ttlSeconds,
+        requestBaseUrl(req),
+        this.settings.enableSignedUrls ? this.urlSigner : null,
+      );
+      res.status(201).json(grant);
+    } catch (e) {
+      if (e instanceof InvalidEventFilterError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidFilterQuery,
+          message: e.message,
+        });
+        return;
+      }
+      if (e instanceof TooManySubscriptionsError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.EventCapacityReached,
+          message: e.message,
+        });
+        return;
+      }
+      throw e;
+    }
+  }
+
+  /** `GET /events/<emitter>/<event>/<id>/`: open the subscription's stream. */
+  async eventsStreamGet(req: express.Request, res: express.Response): Promise<void> {
+    const { emitter, event, id } = req.params;
+    if (!isEventEmitterName(emitter) || !isStreamableEvent(emitter, event)) {
+      this.returnEventError(res, ErrorCode.UnknownEvent);
+      return;
+    }
+    const subscription = this.events.get(emitter, event, id);
+    if (!subscription) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.EventSubscriptionNotFound });
+      return;
+    }
+    try {
+      await this.events.open(subscription, req, res);
+    } catch (e) {
+      if (e instanceof TooManyStreamsError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.EventCapacityReached,
+          message: e.message,
+        });
+        return;
+      }
+      throw e;
+    }
+  }
+
   private handle(
     fn: (req: express.Request, res: express.Response) => Promise<void>,
   ): (req: express.Request, res: express.Response, next: express.NextFunction) => void {
@@ -2601,6 +2743,14 @@ export default class RequestHandler {
     this.api.route("/commands/:commandId/").post(this.handle((rq, rs) => this.commandPost(rq, rs)));
 
     this.api.route("/search/").post(this.handle((rq, rs) => this.searchQueryPost(rq, rs)));
+
+    this.api.all(["/events/", "/events/:emitter/"], this.handle((rq, rs) => this.eventsWithoutName(rq, rs)));
+    this.api
+      .route("/events/:emitter/:event/")
+      .post(this.handle((rq, rs) => this.eventsSubscribePost(rq, rs)));
+    this.api
+      .route("/events/:emitter/:event/:id/")
+      .get(this.handle((rq, rs) => this.eventsStreamGet(rq, rs)));
     this.api.route("/search/simple/").post(this.handle((rq, rs) => this.searchSimplePost(rq, rs)));
 
     this.api.route("/open/*").post(this.handle((rq, rs) => this.openPost(rq, rs)));

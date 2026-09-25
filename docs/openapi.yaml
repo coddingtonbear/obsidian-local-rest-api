@@ -1388,6 +1388,231 @@ paths:
         Execute a command.
       tags:
         - "Commands"
+  "/events/{emitter}/{event}/":
+    parameters:
+      - description: "The Obsidian object whose event to follow."
+        in: "path"
+        name: "emitter"
+        required: true
+        schema:
+          enum:
+            - "vault"
+            - "metadataCache"
+            - "workspace"
+          type: "string"
+      - description: "Obsidian's name for the event, one of those listed for the emitter."
+        in: "path"
+        name: "event"
+        required: true
+        schema:
+          type: "string"
+    post:
+      description: |
+        Registers a subscription to one Obsidian event and returns the URL of a [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html) stream that delivers each matching occurrence as it happens.
+        
+        Streaming is two steps because a browser's `EventSource` can only make `GET` requests, and a `GET` has no body to carry a filter. So the filter is registered here, and the stream is opened with `GET /events/{emitter}/{event}/{subscriptionId}/`, using the returned `url`.
+        
+        #### Events
+        
+        `{emitter}` and `{event}` are Obsidian's own names. Only these can be streamed:
+        
+        | Emitter | Events |
+        |---|---|
+        | `vault` | `create`, `modify`, `delete`, `rename` |
+        | `metadataCache` | `changed`, `deleted`, `resolve`, `resolved` |
+        | `workspace` | `file-open`, `active-leaf-change`, `layout-change` |
+        
+        Anything else gets a `404` whose `supportedEvents` field lists the table above. Some events are left out on purpose. `quick-preview` and `editor-change` fire on every keystroke and carry the note's text, `editor-paste` and `editor-drop` carry clipboard and drag data, and the menu and window events carry UI objects. `/events/` and `/events/{emitter}/` return `400`, because Obsidian has no way to listen for every event at once.
+        
+        To react to a note's frontmatter changing, use `metadataCache` `changed` rather than `vault` `modify`. `modify` fires before Obsidian has re-read the file's metadata, so its frontmatter can be stale.
+        
+        #### What each event carries
+        
+        Every message's `event:` field is the event name. Its `data:` is a JSON object:
+        
+        - `emitter`, `event`: what fired.
+        - `path`: the file or folder the event is about, or `null`.
+        - `file`: that file's NoteJson (the same shape `/search/` evaluates), or `null` for a folder, a deleted file, or an event with no file. `content` is included only when the filter reads `file.content`: a `var`, `missing`, or `missing_some` path naming it. A string that merely says "content", such as a path compared against it, doesn't count.
+        - `isFolder` (`vault` events): whether `path` names a folder.
+        - `oldPath` (`vault` `rename`): the path before the rename.
+        - `previous` (`metadataCache` `deleted`): the `frontmatter` and `tags` the file had.
+        - `viewType` (`workspace` `active-leaf-change`): the type of the newly active view.
+        
+        Obsidian passes some events more than this, such as `changed`'s full note text or `active-leaf-change`'s live view. None of it is sent.
+        
+        The `id:` of each message is `<epoch>-<counter>`. The epoch changes whenever the plugin reloads. A client that reconnects and sees a new epoch, or a gap in the counter, has missed events. Nothing is replayed, so search to catch up.
+        
+        #### The filter
+        
+        The request body is an optional JsonLogic expression, evaluated against the `data` object above. It supports the same extra `glob` and `regexp` operators as `/search/`. Only events for which it is truthy are sent. With no body, or `{}`, every occurrence is sent. A filter JsonLogic can't evaluate, or one whose `regexp` pattern won't compile, is refused with `400`.
+        
+        #### The stream URL
+        
+        When signed URLs are enabled, `url` is signed and opens the stream without an `Authorization` header, so it can be handed to an `EventSource`, `curl -N`, or another process. Otherwise it needs the API key like any other request. The URL expires after `ttl` seconds (default: the signed-URL lifetime in settings). A stream opened before then stays open. A reconnect after that is refused, and the client needs a new subscription. Subscriptions are held in memory, so a plugin reload ends them all.
+        
+        Anyone holding a signed stream URL sees the path and metadata of every event its filter matches, and note content if the filter reads `file.content`, for as long as the stream stays open. The filter is part of the subscription, so the URL can't be used to widen it.
+        
+        At most 16 streams may be open at once, and at most 256 subscriptions may exist. Beyond that, requests get `503`.
+      parameters:
+        - description: "How long the stream URL stays valid, in seconds; clamped to 10-86400. Defaults to the plugin's signed-URL lifetime."
+          in: "query"
+          name: "ttl"
+          required: false
+          schema:
+            type: "integer"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: "object"
+          "application/vnd.olrapi.jsonlogic+json":
+            examples:
+              frontmatter_value:
+                summary: "Only notes whose status is done (use with metadataCache/changed)."
+                value: |
+                  {"==": [{"var": "file.frontmatter.status"}, "done"]}
+              notes_in_folder:
+                summary: "Only files under journal/."
+                value: |
+                  {"glob": ["journal/*", {"var": "path"}]}
+            schema:
+              externalDocs:
+                url: "https://jsonlogic.com/operations.html"
+              type: "object"
+        required: false
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                properties:
+                  emitter:
+                    type: "string"
+                  event:
+                    type: "string"
+                  expiresAt:
+                    description: "After this, the stream can no longer be opened; one already open stays open."
+                    format: "date-time"
+                    type: "string"
+                  id:
+                    description: "The subscription id."
+                    type: "string"
+                  signed:
+                    description: "Whether `url` carries a signature, or needs the API key."
+                    type: "boolean"
+                  url:
+                    description: "The stream to open with GET. Signed when signed URLs are enabled."
+                    type: "string"
+                required:
+                  - "id"
+                  - "emitter"
+                  - "event"
+                  - "url"
+                  - "signed"
+                  - "expiresAt"
+                type: "object"
+          description: "Subscription registered."
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "No event named (`/events/` or `/events/{emitter}/`), a filter JsonLogic cannot evaluate, or a body that is not JSON."
+        "404":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "The emitter or event cannot be streamed. The body lists what can, as `supportedEvents`."
+        "503":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Too many subscriptions exist."
+      summary: |
+        Subscribe to an Obsidian event as a Server-Sent Events stream
+      tags:
+        - "Events"
+  "/events/{emitter}/{event}/{subscriptionId}/":
+    get:
+      description: |
+        Streams the subscription's events as `text/event-stream`, with a keep-alive comment every 15 seconds, until the client disconnects or the plugin reloads. See `POST /events/{emitter}/{event}/` for what each message carries.
+        
+        Authenticates with the API key, or with the `sig`, `exp` and `n` parameters of the URL that registering the subscription returned. A stream opened before the subscription expires stays open after it.
+      parameters:
+        - in: "path"
+          name: "emitter"
+          required: true
+          schema:
+            enum:
+              - "vault"
+              - "metadataCache"
+              - "workspace"
+            type: "string"
+        - in: "path"
+          name: "event"
+          required: true
+          schema:
+            type: "string"
+        - description: "The `id` returned when the subscription was registered."
+          in: "path"
+          name: "subscriptionId"
+          required: true
+          schema:
+            type: "string"
+        - description: "Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` / `events_get_listener_url` tools or by `POST /events/{emitter}/{event}/`. Together with `exp` and `n`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings."
+          in: "query"
+          name: "sig"
+          required: false
+          schema:
+            type: "string"
+        - description: "Expiry of a signed URL as Unix seconds; part of what `sig` signs."
+          in: "query"
+          name: "exp"
+          required: false
+          schema:
+            type: "integer"
+        - description: "Random per-link nonce, minted with the URL and part of what `sig` signs. Required whenever `sig` and `exp` are given: a signed request without it cannot verify. It exists so that two links minted for the same path within the same second are distinct -- `exp` has one-second granularity, so without it they would be byte-identical, and spending one would spend the other."
+          in: "query"
+          name: "n"
+          required: false
+          schema:
+            type: "string"
+      responses:
+        "200":
+          content:
+            text/event-stream:
+              example: |
+                event: modify
+                id: 3f9a1c2e-7
+                data: {"emitter":"vault","event":"modify","path":"journal/today.md","isFolder":false,"file":{"path":"journal/today.md","tags":[],"frontmatter":{},"stat":{"ctime":1705276800000,"mtime":1705363200000,"size":1024},"links":[],"backlinks":[],"unresolvedLinks":[]}}
+                
+              schema:
+                type: "string"
+          description: "The event stream."
+        "401":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "No API key, and no valid signature for this subscription."
+        "404":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "No such subscription for this emitter and event, or it has expired."
+        "503":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Too many streams are open."
+      summary: |
+        Open the Server-Sent Events stream of a subscription
+      tags:
+        - "Events"
   /mcp/:
     get:
       description: |
@@ -1473,6 +1698,7 @@ paths:
         | `vault_read_binary` | Read an attachment: images as an image block, anything else as a signed download link or embedded bytes |
         | `vault_get_download_url` | Mint a signed, expiring link to a file that works without the API key (only when signed URLs are enabled) |
         | `vault_get_upload_url` | Mint a signed, single-use link for uploading a file over `PUT` (only when signed URLs are enabled) |
+        | `events_get_listener_url` | Subscribe to an Obsidian event and mint a signed link to its Server-Sent Events stream, as `POST /events/{emitter}/{event}/` does (only when signed URLs are enabled) |
         | `vault_write` | Create or overwrite a text file; refuses paths whose extension names a binary type |
         | `vault_append` | Append content to the end of a vault file |
         | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
@@ -1504,7 +1730,7 @@ paths:
         
         ### Signed URLs
         
-        On by default; can be turned off under Advanced settings, where the lifetime is also set (default 300 seconds). While enabled, `vault_get_download_url` and `vault_get_upload_url` are registered, and `vault_read_binary` links to non-image files instead of embedding them.
+        On by default; can be turned off under Advanced settings, where the lifetime is also set (default 300 seconds). While enabled, `vault_get_download_url`, `vault_get_upload_url` and `events_get_listener_url` are registered, and `vault_read_binary` links to non-image files instead of embedding them.
         
         A signed URL authorizes a **whole-file** write to exactly the path it names. The signature covers the method, the normalized path, the expiry and a random per-link nonce (`n`), and nothing else — so a request that also carries `Target-Type`/`Target` headers, or whose path continues into `/heading`, `/block` or `/frontmatter`, is refused with `40102` rather than quietly becoming a targeted edit of a document the link never named. Targeted writes need the API key.
         
@@ -2248,7 +2474,7 @@ paths:
               - "marker"
               - "markerAndContent"
             type: "string"
-        - description: "Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` tools. Together with `exp` and `n`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings."
+        - description: "Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` / `events_get_listener_url` tools or by `POST /events/{emitter}/{event}/`. Together with `exp` and `n`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings."
           in: "query"
           name: "sig"
           required: false
@@ -3164,7 +3390,7 @@ paths:
               - "true"
               - "false"
             type: "string"
-        - description: "Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` tools. Together with `exp` and `n`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings."
+        - description: "Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` / `events_get_listener_url` tools or by `POST /events/{emitter}/{event}/`. Together with `exp` and `n`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings."
           in: "query"
           name: "sig"
           required: false
