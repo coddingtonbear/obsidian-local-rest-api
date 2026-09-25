@@ -772,7 +772,7 @@ std.manifestYamlDoc(
             name: 'event',
             'in': 'path',
             required: true,
-            description: "Obsidian's name for the event, one of those listed for the emitter.",
+            description: "The event's name, one of those listed for the emitter: Obsidian's own name for a built-in emitter, or the name the extension registered it under.",
             schema: { type: 'string' },
           },
         ],
