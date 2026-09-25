@@ -2388,6 +2388,28 @@ describe("McpHandler", () => {
         expect(body.result.isError).toBeUndefined();
       });
 
+      test("passes content annotations through unchanged", async () => {
+        const text = {
+          type: "text",
+          text: "For the reader",
+          annotations: { audience: ["user"], priority: 0.9, lastModified: "2026-09-25T14:00:00Z" },
+        } as const;
+        const link = {
+          type: "resource_link",
+          uri: "tandem://index",
+          name: "tandem-index",
+          annotations: { audience: ["assistant"] },
+        } as const;
+        mcp.registerToolDefinition({
+          name: "annotated_tool",
+          description: "Returns annotated content",
+          callback: async () => ({ content: [text, link] }),
+        });
+
+        const body = await send("tools/call", { name: "annotated_tool", arguments: {} }, "annotated_tool");
+        expect(body.result.content).toEqual([text, link]);
+      });
+
       test("keeps a deliberate isError result rather than treating it as a failure", async () => {
         mcp.registerToolDefinition({
           name: "failing_tool",
@@ -2507,6 +2529,20 @@ describe("McpHandler", () => {
         expect(read.result.contents).toEqual([
           { uri: "tandem://index", mimeType: "application/json", text: "[]" },
         ]);
+      });
+
+      test("passes a read result's _meta through", async () => {
+        mcp.registerResource({
+          name: "meta-resource",
+          uri: "tandem://meta",
+          read: async (uri) => ({
+            contents: [{ uri: uri.href, text: "{}" }],
+            _meta: { "tandem/revision": 7 },
+          }),
+        });
+
+        const read = await send("resources/read", { uri: "tandem://meta" }, "tandem://meta");
+        expect(read.result._meta).toMatchObject({ "tandem/revision": 7 });
       });
 
       test("refuses a URI that is already registered, including a built-in one", () => {
@@ -2639,6 +2675,32 @@ describe("McpHandler", () => {
         const got = await send("prompts/get", { name: "greeting" }, "greeting");
         expect(callback).toHaveBeenCalledWith({});
         expect(got.result.messages[0].content.text).toBe("Hello");
+      });
+
+      test("an omitted optional argument is absent from the callback's arguments", async () => {
+        const callback = jest.fn(async (args: Record<string, string | undefined>) => ({
+          messages: [
+            {
+              role: "user" as const,
+              content: { type: "text" as const, text: `Tone: ${args.tone ?? "neutral"}` },
+            },
+          ],
+          _meta: { "tandem/rendered": true },
+        }));
+        mcp.registerPrompt({
+          name: "toned_prompt",
+          argsSchema: { path: z.string(), tone: z.string().optional() },
+          callback,
+        });
+
+        const got = await send(
+          "prompts/get",
+          { name: "toned_prompt", arguments: { path: "a.md" } },
+          "toned_prompt",
+        );
+        expect(callback).toHaveBeenCalledWith({ path: "a.md" });
+        expect(got.result.messages[0].content.text).toBe("Tone: neutral");
+        expect(got.result._meta).toMatchObject({ "tandem/rendered": true });
       });
 
       test("refuses a duplicate prompt name, and removal frees it", () => {

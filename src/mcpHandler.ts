@@ -863,9 +863,10 @@ export class McpHandler {
           ? server.registerPrompt(
               name,
               { title, description, argsSchema },
-              // Validated against argsSchema by the SDK; MCP prompt arguments are strings.
+              // Validated against argsSchema by the SDK; MCP prompt arguments are strings,
+              // and an optional one the client omitted is simply absent.
               async (args: Record<string, unknown>) =>
-                definition.callback(args as Record<string, string>),
+                definition.callback(args as Record<string, string | undefined>),
             )
           : server.registerPrompt(name, { title, description }, async () =>
               definition.callback({}),

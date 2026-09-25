@@ -51,10 +51,19 @@ export interface McpToolAnnotations {
  * {@link McpToolAnnotations}: consuming this package's types must not require the SDK.
  * They cover the content blocks a tool result or prompt message may carry.
  */
+/** Hints about who a content block is for and how much it matters. */
+export interface McpContentAnnotations {
+    audience?: ("user" | "assistant")[];
+    /** From 0 (least important) to 1 (effectively required). */
+    priority?: number;
+    /** An ISO 8601 timestamp, e.g. `2026-09-25T14:00:00Z`. */
+    lastModified?: string;
+}
 /** Plain text. */
 export interface McpTextContent {
     type: "text";
     text: string;
+    annotations?: McpContentAnnotations;
     _meta?: Record<string, unknown>;
 }
 /** An image, as base64-encoded bytes. */
@@ -63,6 +72,7 @@ export interface McpImageContent {
     /** Base64-encoded image bytes. */
     data: string;
     mimeType: string;
+    annotations?: McpContentAnnotations;
     _meta?: Record<string, unknown>;
 }
 /** Audio, as base64-encoded bytes. */
@@ -71,6 +81,7 @@ export interface McpAudioContent {
     /** Base64-encoded audio bytes. */
     data: string;
     mimeType: string;
+    annotations?: McpContentAnnotations;
     _meta?: Record<string, unknown>;
 }
 /** A pointer to a resource the client may read or fetch on its own. */
@@ -81,6 +92,7 @@ export interface McpResourceLinkContent {
     title?: string;
     description?: string;
     mimeType?: string;
+    annotations?: McpContentAnnotations;
     _meta?: Record<string, unknown>;
 }
 /** One resource's contents, as text or as base64-encoded bytes. */
@@ -99,6 +111,7 @@ export type McpResourceContents = {
 export interface McpEmbeddedResourceContent {
     type: "resource";
     resource: McpResourceContents;
+    annotations?: McpContentAnnotations;
     _meta?: Record<string, unknown>;
 }
 /** Any content block a tool result or a prompt message may carry. */
@@ -138,6 +151,7 @@ export interface McpToolDefinition {
 /** What a resource read returns. */
 export type McpReadResourceResult = {
     contents: McpResourceContents[];
+    _meta?: Record<string, unknown>;
 };
 /** A resource at one fixed URI. */
 export interface McpResourceDefinition {
@@ -181,6 +195,7 @@ export interface McpPromptMessage {
 export type McpPromptResult = {
     description?: string;
     messages: McpPromptMessage[];
+    _meta?: Record<string, unknown>;
 };
 /** An MCP prompt: a message template a client offers its user. */
 export interface McpPromptDefinition {
@@ -192,7 +207,8 @@ export interface McpPromptDefinition {
      * should be a string schema (`z.string()`, optionally `.optional()`).
      */
     argsSchema?: Record<string, z.ZodTypeAny>;
-    callback: (args: Record<string, string>) => Promise<McpPromptResult>;
+    /** An argument declared `.optional()` is absent from `args` when the client omits it. */
+    callback: (args: Record<string, string | undefined>) => Promise<McpPromptResult>;
 }
 /**
  * Thrown by {@link getAPI} when the caller asks for an extension API version newer
