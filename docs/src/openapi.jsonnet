@@ -1011,7 +1011,7 @@ std.manifestYamlDoc(
             'System',
           ],
           summary: 'Returns the OpenAPI document describing the capabilities of this API, as JSON.\n',
-          description: 'The same document as `/openapi.yaml`, including the routes extension plugins describe.\n',
+          description: 'The same document as `/openapi.yaml`, including the routes that extension plugins describe.\n',
           responses: {
             '200': {
               description: 'Success',

@@ -1746,7 +1746,7 @@ paths:
         
         | URI | Description |
         |---|---|
-        | `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API |
+        | `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API, including routes that extensions describe |
       parameters:
         - description: "Session ID returned by the server on initialization. A session operation of the sessionful protocol revisions (`2024-10-07` through `2025-11-25`): omit it for the initial `initialize` request, send it on every later request of that session, and expect 404 if the session has ended. The `2026-07-28` revision has no sessions — the header is neither issued nor read there."
           in: "header"
@@ -1945,7 +1945,7 @@ paths:
   /openapi.json:
     get:
       description: |
-        The same document as `/openapi.yaml`, including the routes extension plugins describe.
+        The same document as `/openapi.yaml`, including the routes that extension plugins describe.
       responses:
         "200":
           content:
