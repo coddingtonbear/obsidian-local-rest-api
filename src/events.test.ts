@@ -465,7 +465,8 @@ describe("event streams over REST", () => {
       });
 
       const stream = await open(grant.url);
-      await new Promise((resolve) => stream.response.on("end", resolve));
+      // The response may already have ended by the time `open` hands it back.
+      await waitFor(() => stream.response.complete);
 
       expect(events.openStreamCount).toBe(0);
       expect(listenerCount(app.vault, "delete")).toBe(1);

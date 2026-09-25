@@ -492,6 +492,12 @@ export class EventStreams {
     } finally {
       this.opening--;
     }
+    // The subscription may have been dropped during the await -- the plugin unloaded, or
+    // it expired and was pruned. Nothing would ever close this stream then.
+    if (this.subscriptions.get(subscription.id) !== subscription) {
+      res.end();
+      return session;
+    }
     subscription.sessions.add(session);
     this.responses.set(session, res);
     this.attach(subscription.emitter, subscription.event);
