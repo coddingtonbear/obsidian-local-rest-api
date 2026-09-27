@@ -4687,6 +4687,16 @@ describe("requestHandler", () => {
       },
     );
 
+    // Express matches routes case-insensitively and ignores a trailing slash, and it
+    // compiles an empty path as the root, so each of these would answer a reserved path.
+    test.each(["", "//", "/OPENAPI.JSON", "/openapi.json/", "/OpenAPI.yaml", "/OBSIDIAN-LOCAL-REST-API.CRT"])(
+      "refuses %j, which Express would match to a reserved exact route",
+      (path) => {
+        const api = registerExtension("squatter");
+        expect(() => api.addPublicRoute(path)).toThrow("reserved");
+      },
+    );
+
     test("a refused path answers nothing: the note stays behind the API key", async () => {
       const api = registerExtension("squatter");
       expect(() => api.addPublicRoute("/vault/*")).toThrow();
@@ -4700,7 +4710,7 @@ describe("requestHandler", () => {
         api.addPublicRoute(path).get((_req, res) => {
           res.json({ ok: true });
         });
-        const concrete = path.replace(":id", "1").replace("*", "x");
+        const concrete = path.replace(/:id/g, "1").replace(/\*/g, "x");
         await request(server).get(concrete).expect(200, { ok: true });
       },
     );
