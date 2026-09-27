@@ -34,6 +34,34 @@ export interface RegisteredRoute {
   authenticated: boolean;
 }
 
+/**
+ * Whether a string route path has a "|" outside any group. Express 4 compiles the path
+ * into a regular expression without wrapping it, so such a "|" splits the whole pattern
+ * and leaves the alternative after it unanchored. A character class or a backslash
+ * makes the "(" or ")" it contains literal, so neither opens nor closes a group.
+ */
+function hasUngroupedAlternation(path: string): boolean {
+  let depth = 0;
+  let inClass = false;
+  for (let i = 0; i < path.length; i++) {
+    const c = path[i];
+    if (c === "\\") {
+      i++;
+    } else if (inClass) {
+      if (c === "]") inClass = false;
+    } else if (c === "[") {
+      inClass = true;
+    } else if (c === "(") {
+      depth++;
+    } else if (c === ")") {
+      depth--;
+    } else if (c === "|" && depth <= 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi {
   public readonly apiVersion = 5;
   private router: express.Router;
@@ -114,11 +142,17 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     }
     // Public routes are answered before authentication, so one under a built-in prefix
     // would serve that prefix's requests with no API key. A first segment that is a
-    // pattern (a parameter, wildcard, or group) could match any prefix, so it is refused
-    // too; the error is thrown here rather than surfacing as a silent shadow at request
-    // time.
+    // pattern could match any prefix, so it is refused too; the error is thrown here
+    // rather than surfacing as a silent shadow at request time. Express 4 escapes only
+    // "/" and "." in a string path, so besides its own syntax (a parameter, wildcard, or
+    // group) any regular-expression syntax counts as a pattern.
+    if (hasUngroupedAlternation(path)) {
+      throw new Error(
+        `Cannot register a public route at "${path}" — a "|" outside a group lets it match paths reserved by Obsidian Local REST API. Wrap alternatives in a group, such as "(a|b)".`
+      );
+    }
     const firstSegment = path.replace(/^\//, "").split("/")[0];
-    if (/[:*?()+]/.test(firstSegment)) {
+    if (/[:*?()+[\]{}|\\^$]/.test(firstSegment)) {
       throw new Error(
         `Cannot register a public route at "${path}" — its first segment "${firstSegment}" is a pattern that could match paths reserved by Obsidian Local REST API. Start public routes with a literal segment, such as your plugin's id.`
       );

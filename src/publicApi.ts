@@ -321,8 +321,9 @@ export interface LocalRestApiPublicApi {
    * documents, the certificate, or anything under a prefix the host serves routes under
    * (`/vault/`, `/active/`, `/search/`, `/commands/`, `/events/`, `/mcp/`, `/open/`,
    * `/tags/`, in any letter case). Also throws if the first path segment is a pattern
-   * (a `:parameter`, `*`, or group), since it could match one of those prefixes. Start
-   * public routes with a literal segment of your own, such as your plugin's id.
+   * (a `:parameter`, `*`, group, or any regular-expression syntax), or if the path has a
+   * `|` outside a group, since either could match one of those prefixes. Start public
+   * routes with a literal segment of your own, such as your plugin's id.
    */
   addPublicRoute(path: string): IRoute;
 
