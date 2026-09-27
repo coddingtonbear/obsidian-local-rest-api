@@ -42,6 +42,22 @@ describe("OpenApiSpec", () => {
     expect(spec.json()).toEqual(parse(openapiYaml));
   });
 
+  test("declares every tag the host's own operations use", () => {
+    const host = parse(openapiYaml) as ParsedSpec;
+    const declared = host.tags.map((tag) => tag.name);
+    const used = new Set<string>();
+    for (const item of Object.values(host.paths)) {
+      for (const operation of Object.values(item)) {
+        const tags = (operation as { tags?: unknown }).tags;
+        if (!Array.isArray(tags)) continue;
+        for (const tag of tags as unknown[]) {
+          if (typeof tag === "string") used.add(tag);
+        }
+      }
+    }
+    expect([...used].filter((tag) => !declared.includes(tag))).toEqual([]);
+  });
+
   test("merges a contribution without disturbing the host's own spec", () => {
     const spec = new OpenApiSpec(openapiYaml);
     spec.add("widget-plugin", widgetDescription);
