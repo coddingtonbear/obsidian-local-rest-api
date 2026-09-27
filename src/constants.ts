@@ -5,6 +5,22 @@ export const CERT_NAME = "obsidian-local-rest-api.crt";
 export const BUILT_IN_ROUTES = ["/", "/openapi.yaml", "/openapi.json", `/${CERT_NAME}`];
 
 /**
+ * First path segments the host serves routes under. An extension's public route below
+ * one of these would be answered ahead of the authentication middleware, so
+ * `addPublicRoute` refuses them. Matched case-insensitively, as Express matches routes.
+ */
+export const BUILT_IN_ROUTE_PREFIXES = [
+  "vault",
+  "active",
+  "search",
+  "commands",
+  "events",
+  "mcp",
+  "open",
+  "tags",
+];
+
+/**
  * The MCP protocol revision served by the `/mcp/` endpoint's sessionless leg.
  *
  * The SDK's `SUPPORTED_PROTOCOL_VERSIONS` lists only the sessionful revisions

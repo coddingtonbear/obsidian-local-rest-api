@@ -1,7 +1,7 @@
 import express from "express";
 import { z } from "zod";
 import type { ToolAnnotations } from "@modelcontextprotocol/server";
-import { BUILT_IN_ROUTES } from "./constants";
+import { BUILT_IN_ROUTE_PREFIXES, BUILT_IN_ROUTES } from "./constants";
 import { McpHandler } from "./mcpHandler";
 import type { OpenApiSpec } from "./openApiSpec";
 import type {
@@ -107,6 +107,23 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     if (BUILT_IN_ROUTES.includes(path)) {
       throw new Error(
         `Cannot register a public route at "${path}" — this path is reserved by Obsidian Local REST API.`
+      );
+    }
+    // Public routes are answered before authentication, so one under a built-in prefix
+    // would serve that prefix's requests with no API key. A first segment that is a
+    // pattern (a parameter, wildcard, or group) could match any prefix, so it is refused
+    // too; the error is thrown here rather than surfacing as a silent shadow at request
+    // time.
+    const firstSegment = path.replace(/^\//, "").split("/")[0];
+    if (/[:*?()+]/.test(firstSegment)) {
+      throw new Error(
+        `Cannot register a public route at "${path}" — its first segment "${firstSegment}" is a pattern that could match paths reserved by Obsidian Local REST API. Start public routes with a literal segment, such as your plugin's id.`
+      );
+    }
+    const prefix = firstSegment.toLowerCase();
+    if (BUILT_IN_ROUTE_PREFIXES.includes(prefix)) {
+      throw new Error(
+        `Cannot register a public route at "${path}" — paths under "/${prefix}/" are reserved by Obsidian Local REST API.`
       );
     }
     this.registeredRoutes.push({ path, authenticated: false });
