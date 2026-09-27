@@ -3568,7 +3568,7 @@ x-topics:
       
       You are **not** affected if you only read and write whole files, search, or use the active-file endpoints without section targeting.
       
-      # Nothing fails silently
+      # Old request shapes fail loudly
       
       Old-style requests sent without a version header are rejected loudly rather than reinterpreted:
       
@@ -3580,6 +3580,8 @@ x-topics:
       | Any `Markdown-Patch-Version` other than `1` or `2` | `400 InvalidPatchVersionHeader` |
       
       (The PATCH header case is ambiguous by design: `Target-Type`/`Target` on a PATCH mean the deprecated 1.x format under version `1`, but [raw-content mode](#raw-content-mode-the-low-effort-migration) under an explicit version `2` — so the server refuses to guess.)
+      
+      That covers the *shape* of a request, not its payload. A 2.x request carrying heading `content` written the 1.x way is accepted, and its headings are re-leveled — see [heading levels](#heading-levels-in-content-are-now-relative) below before migrating any client that writes headings.
       
       **The stopgap:** add `Markdown-Patch-Version: 1` to every affected request and everything behaves exactly as before — including the `::`-joined document map on GET. That buys you until plugin 6.0, no other changes required.
       
@@ -3629,6 +3631,24 @@ x-topics:
       - **Heading targets are arrays.** `"target": ["A", "B"]` replaces `A::B`. A heading whose text contains `::` (or any other would-be delimiter) needs no escaping, and `Target-Delimiter` is gone. For a block, `target` is the bare id without `^`; for frontmatter, the key name.
       - **Renaming a heading no longer takes `#` characters.** Under 1.x you supplied the full heading line (`## New Name`); under 2.x, `scope: "marker"` with `"content": "New Name"` renames the heading while preserving its level. The `#`s are *not* stripped anymore — if you keep sending them, they become literal text in the heading. If you are migrating, drop them.
       - **Frontmatter values are typed JSON.** Send them in `"value"` (a list, dict, number, or string), not as a serialized string body.
+      - **Heading levels in `content` are relative to the target.** 1.x wrote your `#`s literally; 2.x rebases them. This one doesn't fail — see the next section.
+      
+      ## Heading levels in `content` are now relative
+      
+      Under 1.x, a heading in your `content` was written exactly as you sent it. Under 2.x, heading levels are relative to where the content lands, and the engine adds the target's depth for you:
+      
+      - with `scope: "content"` (the default), `#` means a direct child of the target, so under a `##` target a `#` is written as `###`;
+      - with `scope: "markerAndContent"`, levels are relative to the target's *parent* heading instead, so the heading line you send for a `##` under a `#` is `# Title`.
+      
+      A 1.x client that keeps sending the same body gets a `200` and a different document. Replacing the content of `## A` with its current text, `### B` and all, writes `##### B`: the `###` is taken as relative and pushed down by the target's two levels. Under a deep enough target, a heading is pushed past h6 and stops being a heading at all; the write still succeeds, and the only sign is a `heading-depth-overflow` warning in the `Markdown-Patch-Warnings` response header.
+      
+      If your client sends headings in `content`, do one of these when you migrate:
+      
+      - **Read the section through the API** and send back what you read. A GET returns the same relative levels a PATCH expects, so read-modify-write round-trips unchanged.
+      - **Subtract the baseline** from every heading in content you took from the raw file, or wrote with absolute levels in mind: the target's level under `content` scope (`###` under a `##` target becomes `#`), its parent's level under `markerAndContent`.
+      - **Stay on `Markdown-Patch-Version: 1`** for those requests until you can do either of the above.
+      
+      Content with no headings in it is unaffected.
       
       See the PATCH operation documentation for the full instruction algebra — scopes, moves (`scope: "parent"` with a `destination`), deletes, and table-row writes.
       
@@ -3645,7 +3665,7 @@ x-topics:
         "https://127.0.0.1:27124/vault/note.md/heading/Heading%201/Subheading%201:1"
       ```
       
-      For many 1.x clients this migration is just "delete the `Target-Type`/`Target`/`Target-Delimiter` headers and append the target to the URL, one path segment per heading level." `Operation`, `Target-Scope` (all four scopes), `Create-Target-If-Missing`, and `Reject-If-Content-Preexists` headers all still work here; `Target-Delimiter` and `Trim-Target-Whitespace` are rejected. A `text/*` body carries `content`, an `application/json` body carries `value`, and no body carries nothing (a `delete`, or a move via a `Destination` header).
+      For many 1.x clients this migration is just "delete the `Target-Type`/`Target`/`Target-Delimiter` headers and append the target to the URL, one path segment per heading level." The exception is a body containing headings: raw-content mode is the 2.x format, so those are [re-leveled](#heading-levels-in-content-are-now-relative) too. `Operation`, `Target-Scope` (all four scopes), `Create-Target-If-Missing`, and `Reject-If-Content-Preexists` headers all still work here; `Target-Delimiter` and `Trim-Target-Whitespace` are rejected. A `text/*` body carries `content`, an `application/json` body carries `value`, and no body carries nothing (a `delete`, or a move via a `Destination` header).
       
       Header-based targeting (`Target-Type`/`Target` instead of URL elements) also exists in raw-content mode, but requires an explicit `Markdown-Patch-Version: 2` and encodes a heading `Target` as percent-encoded JSON — see the PATCH operation documentation.
       
@@ -3710,7 +3730,7 @@ x-topics:
       # Behavior changes to watch for
       
       - **Whitespace is library-owned.** The 2.x engine reduces your `content` to trimmed, canonical form (leading and trailing blank lines are meaningless) and itself supplies the blank line wherever inserted content faces body text, so a naive `append` or `prepend` always lands as its own block and can never merge into an existing paragraph; `Trim-Target-Whitespace` is gone because there is nothing left for it to fix. If your 1.x client added `\n` padding to manage spacing, it is now ignored — and a `content`-scope `append` can no longer continue an existing list or paragraph (use a `^id` block target for inline edits).
-      - **Heading levels in `content` are relative.** A leading `#` becomes a direct child of the target regardless of the target's own depth — you never count `#`s. A level rebased past h6 still writes, but adds a `heading-depth-overflow` warning.
+      - **Heading levels in `content` are relative.** A leading `#` becomes a direct child of the target regardless of the target's own depth — you never count `#`s. A 1.x body sent unchanged is re-leveled rather than rejected; see [heading levels](#heading-levels-in-content-are-now-relative).
       - **The warnings header was renamed** from `MD-Patch-Warnings` to `Markdown-Patch-Warnings`, and its JSON value is now percent-encoded so warnings can embed non-ASCII document text. Run it through `decodeURIComponent` before parsing.
       - **URL targets on `/active/` PATCH now work.** Previously a suffix like `/active/heading/Log` was silently ignored on PATCH and the whole file was patched; it now targets the addressed section, matching PUT/POST.
       - **Cleaner error mapping.** Unparseable frontmatter YAML is a `400`, a frontmatter key collision is a `409`, a mismatched table row or a cell containing a line break is a `400`, and an `ifMatch`/`If-Match` mismatch is a `412` — cases that previously surfaced as generic errors or `500`s.
