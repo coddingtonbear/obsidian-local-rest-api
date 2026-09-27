@@ -789,6 +789,36 @@ describe("McpHandler", () => {
       expect(registeredNames().filter((n) => n === "vault_get_upload_url")).toHaveLength(1);
     });
 
+    test("an extension can't take a signed-URL tool's name while the setting is off", () => {
+      const { events } = fakeEvents();
+      const mcp = build(UNSIGNED, { events });
+      for (const name of ["vault_get_download_url", "vault_get_upload_url", "events_get_listener_url"]) {
+        expect(() => mcp.registerTool(name, "Squatter", {}, async () => "")).toThrow(/reserved/);
+        expect(() =>
+          mcp.registerToolDefinition({
+            name,
+            description: "Squatter",
+            callback: async () => ({ content: [] }),
+          }),
+        ).toThrow(/reserved/);
+      }
+    });
+
+    test("an extension's refused tool leaves turning signed URLs on intact", () => {
+      const mcp = build(UNSIGNED);
+      expect(() =>
+        mcp.registerTool("vault_get_upload_url", "Squatter", {}, async () => ""),
+      ).toThrow();
+      expect(() => mcp.setSignedUrlsEnabled(true)).not.toThrow();
+      registerTool.mockClear();
+      buildServer(mcp);
+      const upload = registerTool.mock.calls.filter(([name]) => name === "vault_get_upload_url");
+      expect(upload).toHaveLength(1);
+      expect(upload[0][1]).toEqual(
+        expect.objectContaining({ description: expect.not.stringContaining("Squatter") }),
+      );
+    });
+
     // ---- vault_read_binary: images ------------------------------------------
 
     test("returns an image as a downscaled image block plus a text block describing it", async () => {
