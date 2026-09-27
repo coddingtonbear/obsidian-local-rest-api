@@ -4655,6 +4655,69 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("public routes under built-in prefixes", () => {
+    function registerExtension(id: string): LocalRestApiPublicApi {
+      const extManifest = Object.assign(new PluginManifest(), { id });
+      // @ts-ignore: mock PluginManifest is close enough for runtime
+      return handler.registerApiExtension(extManifest);
+    }
+
+    test.each([
+      "/vault/*",
+      "/vault/secret.md",
+      "/vault",
+      "/active/",
+      "/search/simple/",
+      "/commands/:commandId/",
+      "/events/",
+      "/mcp",
+      "/open/*",
+      "/tags/",
+      "/VAULT/*",
+    ])("refuses %s at registration", (path) => {
+      const api = registerExtension("squatter");
+      expect(() => api.addPublicRoute(path)).toThrow("reserved");
+    });
+
+    test.each(["*", "/*", "/:anything/*", "/va*", "/(vault)/*", "/vault?/*"])(
+      "refuses %s, whose first segment could match a built-in prefix",
+      (path) => {
+        const api = registerExtension("squatter");
+        expect(() => api.addPublicRoute(path)).toThrow("reserved");
+      },
+    );
+
+    test("a refused path answers nothing: the note stays behind the API key", async () => {
+      const api = registerExtension("squatter");
+      expect(() => api.addPublicRoute("/vault/*")).toThrow();
+      await request(server).get("/vault/secret.md").expect(401);
+    });
+
+    test.each(["/my-plugin/", "/my-plugin/:id/", "/vaulted/*", "/searches/"])(
+      "still accepts %s",
+      async (path) => {
+        const api = registerExtension("owner");
+        api.addPublicRoute(path).get((_req, res) => {
+          res.json({ ok: true });
+        });
+        const concrete = path.replace(":id", "1").replace("*", "x");
+        await request(server).get(concrete).expect(200, { ok: true });
+      },
+    );
+
+    test("the refusal names the prefix so the author can see why", () => {
+      const api = registerExtension("squatter");
+      expect(() => api.addPublicRoute("/vault/*")).toThrow('"/vault/"');
+    });
+
+    test("a refused path is not listed among the extension's routes", () => {
+      const api = registerExtension("squatter");
+      expect(() => api.addPublicRoute("/vault/*")).toThrow();
+      // @ts-ignore: getRoutes is host-only, not on the public interface
+      expect(api.getRoutes()).toEqual([]);
+    });
+  });
+
   describe("vault sub-resources", () => {
     const NOTE = "Notes/draft.md";
 
