@@ -317,7 +317,12 @@ export interface LocalRestApiPublicApi {
   /**
    * Adds a route reachable without an API key.
    *
-   * Throws if `path` collides with a path reserved by the host plugin.
+   * Throws if `path` collides with a path reserved by the host plugin: `/`, the OpenAPI
+   * documents, the certificate, or anything under a prefix the host serves routes under
+   * (`/vault/`, `/active/`, `/search/`, `/commands/`, `/events/`, `/mcp/`, `/open/`,
+   * `/tags/`, in any letter case). Also throws if the first path segment is a pattern
+   * (a `:parameter`, `*`, or group), since it could match one of those prefixes. Start
+   * public routes with a literal segment of your own, such as your plugin's id.
    */
   addPublicRoute(path: string): IRoute;
 

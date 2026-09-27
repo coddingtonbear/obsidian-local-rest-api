@@ -427,6 +427,8 @@ Two practical notes: whether a chat client renders a linked image inline is up t
 
 Other plugins can register their own authenticated routes, public routes, MCP tools, and [streamable events](#extension-events) against this plugin's server. See [Adding your own API Routes via an Extension](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension) for a walkthrough.
 
+Public routes (`addPublicRoute`) are answered before the API key is checked, so they can't sit under a prefix the plugin serves its own routes from: `/vault/`, `/active/`, `/search/`, `/commands/`, `/events/`, `/mcp/`, `/open/`, and `/tags/`, in any letter case, along with `/`, the OpenAPI documents, and the certificate. A path whose first segment is a pattern (`/:name/`, `/*`) is refused for the same reason. `addPublicRoute` throws when you register one of these, so start public routes with a literal segment of your own, such as your plugin's id. Authenticated routes (`addRoute`) and vault sub-resources are unaffected.
+
 ### Typed extension API
 
 Install this package as a development dependency to get `getAPI` and the types for everything it returns:
