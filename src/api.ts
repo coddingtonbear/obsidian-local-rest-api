@@ -104,7 +104,10 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
   /** Adds an unauthenticated route to the request handler. */
   public addPublicRoute(path: string): express.IRoute {
     this.assertRegistered();
-    if (BUILT_IN_ROUTES.includes(path)) {
+    // Compare the way Express matches: case-insensitively, with a trailing slash
+    // optional, and with "" standing for the root.
+    const normalize = (p: string) => p.toLowerCase().replace(/\/+$/, "");
+    if (BUILT_IN_ROUTES.map(normalize).includes(normalize(path))) {
       throw new Error(
         `Cannot register a public route at "${path}" — this path is reserved by Obsidian Local REST API.`
       );
