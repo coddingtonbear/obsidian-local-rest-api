@@ -35,7 +35,7 @@ export interface RegisteredRoute {
 }
 
 export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi {
-  public readonly apiVersion = 5;
+  public readonly apiVersion = 3;
   private router: express.Router;
   private publicRouter: express.Router;
   private mcpHandler: McpHandler;
