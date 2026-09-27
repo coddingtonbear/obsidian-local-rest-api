@@ -4687,6 +4687,39 @@ describe("requestHandler", () => {
       },
     );
 
+    // Express 4's path-to-regexp escapes only "/" and ".", so any other regular-expression
+    // syntax in a string path reaches the compiled pattern intact: "/v[a]ult/*" and
+    // "/v\\x61ult/*" both match /vault/..., and "|" splits the pattern into an unanchored
+    // alternative that matches any path containing "vault/".
+    test.each(["/v[a]ult/*", "/[v]ault", "/v{1}ault/*", "/x|vault/*", "/v\\x61ult/*", "/^vault/*", "/vault$/*"])(
+      "refuses %s, whose first segment is regular-expression syntax",
+      (path) => {
+        const api = registerExtension("squatter");
+        expect(() => api.addPublicRoute(path)).toThrow("reserved");
+      },
+    );
+
+    // A "|" outside a group, in any segment, leaves the pattern after it unanchored. A
+    // bracket or backslash can make a "(" literal, so it doesn't open a group.
+    test.each([
+      "/my-plugin/x|vault/*",
+      "/my-plugin/(a|b)|vault/*",
+      "/my-plugin/[(]|vault/*",
+      "/my-plugin/\\(|vault/*",
+    ])("refuses %s, which contains an ungrouped alternation", (path) => {
+      const api = registerExtension("squatter");
+      expect(() => api.addPublicRoute(path)).toThrow("reserved");
+    });
+
+    test("still accepts an alternation inside a group", async () => {
+      const api = registerExtension("owner");
+      api.addPublicRoute("/my-plugin/(a|b)/").get((_req, res) => {
+        res.json({ ok: true });
+      });
+      await request(server).get("/my-plugin/a/").expect(200, { ok: true });
+      await request(server).get("/vault/secret.md").expect(401);
+    });
+
     // Express matches routes case-insensitively and ignores a trailing slash, and it
     // compiles an empty path as the root, so each of these would answer a reserved path.
     test.each(["", "//", "/OPENAPI.JSON", "/openapi.json/", "/OpenAPI.yaml", "/OBSIDIAN-LOCAL-REST-API.CRT"])(
