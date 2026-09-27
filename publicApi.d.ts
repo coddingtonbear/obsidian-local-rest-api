@@ -350,7 +350,7 @@ export interface LocalRestApiPublicApi {
      *
      * May be called more than once. Throws, and publishes nothing from that call, if the
      * description declares a path, component, or tag the host or another extension
-     * already declares. Requires extension API version 4.
+     * already declares. Requires extension API version 3.
      */
     addOpenApiDescription(description: OpenApiDescription): void;
     /**
@@ -364,7 +364,7 @@ export interface LocalRestApiPublicApi {
      * occurrence.
      *
      * Throws if `event` is not 1-128 letters, digits, or `.`, `_`, `:`, `-`, is `.` or `..`,
-     * or is already registered by this extension. Requires extension API version 5.
+     * or is already registered by this extension. Requires extension API version 3.
      */
     addStreamableEvent(event: string, definition: StreamableEventDefinition): void;
     /**

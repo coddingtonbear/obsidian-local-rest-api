@@ -481,12 +481,12 @@ Clients that are already connected are notified when these lists change, and `un
 
 ### Documenting your routes
 
-The plugin can't see what an extension's routes accept or return, so they don't appear in the OpenAPI spec until the extension describes them. `addOpenApiDescription` (extension API version 4) takes the `paths`, `components`, and `tags` your routes need, in the same shape as the matching parts of an OpenAPI document, and merges them into the spec served at `/openapi.yaml`, `/openapi.json`, and the MCP `openapi-spec` resource:
+The plugin can't see what an extension's routes accept or return, so they don't appear in the OpenAPI spec until the extension describes them. `addOpenApiDescription` (extension API version 3) takes the `paths`, `components`, and `tags` your routes need, in the same shape as the matching parts of an OpenAPI document, and merges them into the spec served at `/openapi.yaml`, `/openapi.json`, and the MCP `openapi-spec` resource:
 
-Request version 4 from `getAPI` so an older host fails loudly instead of lacking the method:
+Request version 3 from `getAPI` so an older host fails loudly instead of lacking the method:
 
 ```ts
-const api = getAPI(this.app, this.manifest, 4);
+const api = getAPI(this.app, this.manifest, 3);
 api.addRoute("/widgets/:id/").get(handler);
 api.addOpenApiDescription({
   paths: {
@@ -528,10 +528,10 @@ A name is one path segment. `heading`, `block` and `frontmatter` are reserved, a
 
 ### Extension events
 
-From extension API version 5, an extension can add its own events to the [event streams](#event-streams). Each one is streamed under the extension's plugin id as the emitter:
+From extension API version 3, an extension can add its own events to the [event streams](#event-streams). Each one is streamed under the extension's plugin id as the emitter:
 
 ```ts
-const api = getAPI(this.app, this.manifest, 5);
+const api = getAPI(this.app, this.manifest, 3);
 
 // Your plugin's own Events instance; call this.events.trigger("task-completed", ...)
 // wherever the event happens.
