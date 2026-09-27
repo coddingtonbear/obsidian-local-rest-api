@@ -328,7 +328,10 @@ export interface LocalRestApiPublicApi {
    * string as-is, anything else JSON-encoded. For images, structured output, or a
    * deliberate `isError` result, use the {@link McpToolDefinition} form instead.
    *
-   * Throws if a tool with this name is already registered.
+   * Throws if a tool with this name is already registered, or if the name belongs to one
+   * of the host's signed-URL tools (`vault_get_download_url`, `vault_get_upload_url`,
+   * `events_get_listener_url`) — those are reserved even while the setting that
+   * registers them is off.
    */
   addMcpTool(
     name: string,
@@ -342,7 +345,8 @@ export interface LocalRestApiPublicApi {
    * Registers an MCP tool whose callback returns a complete {@link McpToolResult}, which
    * is passed to the client unchanged. Available from API version 3.
    *
-   * Throws if a tool with this name is already registered.
+   * Throws if a tool with this name is already registered or is reserved by the host,
+   * as for the positional form.
    */
   addMcpTool(definition: McpToolDefinition): void;
 

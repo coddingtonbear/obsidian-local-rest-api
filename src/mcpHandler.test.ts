@@ -791,8 +791,16 @@ describe("McpHandler", () => {
 
     test("an extension can't take a signed-URL tool's name while the setting is off", () => {
       const { events } = fakeEvents();
+      build(SIGNED, { events });
+      const withSignedUrls = registeredNames();
       const mcp = build(UNSIGNED, { events });
-      for (const name of ["vault_get_download_url", "vault_get_upload_url", "events_get_listener_url"]) {
+      // Derived from what the setting actually toggles, so a signed-URL tool added later
+      // without being reserved fails here.
+      const toggled = withSignedUrls.filter((name) => !registeredNames().includes(name));
+      expect(toggled).toEqual(
+        expect.arrayContaining(["vault_get_download_url", "vault_get_upload_url", "events_get_listener_url"]),
+      );
+      for (const name of toggled) {
         expect(() => mcp.registerTool(name, "Squatter", {}, async () => "")).toThrow(/reserved/);
         expect(() =>
           mcp.registerToolDefinition({

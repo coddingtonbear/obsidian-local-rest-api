@@ -93,6 +93,15 @@ const READ_ONLY_ANNOTATIONS: ToolAnnotations = {
   openWorldHint: false,
 };
 
+// The host tools that come and go with the signed-URL setting (see
+// `registerSignedUrlTools`). Extensions may never take these names, whatever the
+// setting, so turning it on can't collide with an extension's tool.
+const SIGNED_URL_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "vault_get_download_url",
+  "vault_get_upload_url",
+  "events_get_listener_url",
+]);
+
 // Some MCP clients do not resolve anyOf parameter schemas and forward the raw
 // JSON text of an array argument as a plain string, which the `target` union's
 // string branch then accepts (#315). When a heading target arrives as a string,
@@ -720,6 +729,19 @@ export class McpHandler {
     }
   }
 
+  /**
+   * Throws when an extension asks for a name the host registers only while signed URLs
+   * are on. Those names are free while the setting is off, so without this an extension
+   * could take one and turning the setting on would collide with it.
+   */
+  private assertToolNameNotReserved(name: string): void {
+    if (SIGNED_URL_TOOL_NAMES.has(name)) {
+      throw new Error(
+        `Cannot register MCP tool "${name}" — the name is reserved for a built-in tool that is registered while signed URLs are enabled.`,
+      );
+    }
+  }
+
   /** Throws, naming the kind and id, when `key` is already registered. */
   private assertUnregistered(key: string, what: string): void {
     if (this.registrations.has(key)) {
@@ -776,10 +798,14 @@ export class McpHandler {
         }
       },
     };
+    // Checked here rather than only in the public methods, since the host's own tools
+    // come through here too: `register` would otherwise replace a registration silently.
+    const key = `tool:${spec.name}`;
+    this.assertUnregistered(key, `MCP tool "${name}"`);
     // Sessionless clients learn about the change through a `subscriptions/listen` stream;
     // sessionful sessions are live server instances, so the tool is registered on each of
     // them, which is what emits `notifications/tools/list_changed` on their stream.
-    return this.register(`tool:${spec.name}`, this.toolRegistration(spec));
+    return this.register(key, this.toolRegistration(spec));
   }
 
   /**
@@ -793,7 +819,7 @@ export class McpHandler {
     callback: (args: Record<string, unknown>) => Promise<unknown>,
     annotations?: ToolAnnotations,
   ): () => void {
-    this.assertUnregistered(`tool:${name}`, `MCP tool "${name}"`);
+    this.assertToolNameNotReserved(name);
     const registered = this.tool(name, description, schema, annotations ?? {}, async (args) =>
       this.text(await callback(args as Record<string, unknown>)),
     );
@@ -803,7 +829,7 @@ export class McpHandler {
   /** Registers an extension's tool whose callback returns the complete result. */
   public registerToolDefinition(definition: McpToolDefinition): () => void {
     const { name } = definition;
-    this.assertUnregistered(`tool:${name}`, `MCP tool "${name}"`);
+    this.assertToolNameNotReserved(name);
     const registered = this.tool(
       name,
       definition.description,
