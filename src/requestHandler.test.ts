@@ -4655,6 +4655,112 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("public routes under built-in prefixes", () => {
+    function registerExtension(id: string): LocalRestApiPublicApi {
+      const extManifest = Object.assign(new PluginManifest(), { id });
+      // @ts-ignore: mock PluginManifest is close enough for runtime
+      return handler.registerApiExtension(extManifest);
+    }
+
+    test.each([
+      "/vault/*",
+      "/vault/secret.md",
+      "/vault",
+      "/active/",
+      "/search/simple/",
+      "/commands/:commandId/",
+      "/events/",
+      "/mcp",
+      "/open/*",
+      "/tags/",
+      "/VAULT/*",
+    ])("refuses %s at registration", (path) => {
+      const api = registerExtension("squatter");
+      expect(() => api.addPublicRoute(path)).toThrow("reserved");
+    });
+
+    test.each(["*", "/*", "/:anything/*", "/va*", "/(vault)/*", "/vault?/*"])(
+      "refuses %s, whose first segment could match a built-in prefix",
+      (path) => {
+        const api = registerExtension("squatter");
+        expect(() => api.addPublicRoute(path)).toThrow("reserved");
+      },
+    );
+
+    // Express 4's path-to-regexp escapes only "/" and ".", so any other regular-expression
+    // syntax in a string path reaches the compiled pattern intact: "/v[a]ult/*" and
+    // "/v\\x61ult/*" both match /vault/..., and "|" splits the pattern into an unanchored
+    // alternative that matches any path containing "vault/".
+    test.each(["/v[a]ult/*", "/[v]ault", "/v{1}ault/*", "/x|vault/*", "/v\\x61ult/*", "/^vault/*", "/vault$/*"])(
+      "refuses %s, whose first segment is regular-expression syntax",
+      (path) => {
+        const api = registerExtension("squatter");
+        expect(() => api.addPublicRoute(path)).toThrow("reserved");
+      },
+    );
+
+    // A "|" outside a group, in any segment, leaves the pattern after it unanchored. A
+    // bracket or backslash can make a "(" literal, so it doesn't open a group.
+    test.each([
+      "/my-plugin/x|vault/*",
+      "/my-plugin/(a|b)|vault/*",
+      "/my-plugin/[(]|vault/*",
+      "/my-plugin/\\(|vault/*",
+    ])("refuses %s, which contains an ungrouped alternation", (path) => {
+      const api = registerExtension("squatter");
+      expect(() => api.addPublicRoute(path)).toThrow("reserved");
+    });
+
+    test("still accepts an alternation inside a group", async () => {
+      const api = registerExtension("owner");
+      api.addPublicRoute("/my-plugin/(a|b)/").get((_req, res) => {
+        res.json({ ok: true });
+      });
+      await request(server).get("/my-plugin/a/").expect(200, { ok: true });
+      await request(server).get("/vault/secret.md").expect(401);
+    });
+
+    // Express matches routes case-insensitively and ignores a trailing slash, and it
+    // compiles an empty path as the root, so each of these would answer a reserved path.
+    test.each(["", "//", "/OPENAPI.JSON", "/openapi.json/", "/OpenAPI.yaml", "/OBSIDIAN-LOCAL-REST-API.CRT"])(
+      "refuses %j, which Express would match to a reserved exact route",
+      (path) => {
+        const api = registerExtension("squatter");
+        expect(() => api.addPublicRoute(path)).toThrow("reserved");
+      },
+    );
+
+    test("a refused path answers nothing: the note stays behind the API key", async () => {
+      const api = registerExtension("squatter");
+      expect(() => api.addPublicRoute("/vault/*")).toThrow();
+      await request(server).get("/vault/secret.md").expect(401);
+    });
+
+    test.each(["/my-plugin/", "/my-plugin/:id/", "/vaulted/*", "/searches/"])(
+      "still accepts %s",
+      async (path) => {
+        const api = registerExtension("owner");
+        api.addPublicRoute(path).get((_req, res) => {
+          res.json({ ok: true });
+        });
+        const concrete = path.replace(/:id/g, "1").replace(/\*/g, "x");
+        await request(server).get(concrete).expect(200, { ok: true });
+      },
+    );
+
+    test("the refusal names the prefix so the author can see why", () => {
+      const api = registerExtension("squatter");
+      expect(() => api.addPublicRoute("/vault/*")).toThrow('"/vault/"');
+    });
+
+    test("a refused path is not listed among the extension's routes", () => {
+      const api = registerExtension("squatter");
+      expect(() => api.addPublicRoute("/vault/*")).toThrow();
+      // @ts-ignore: getRoutes is host-only, not on the public interface
+      expect(api.getRoutes()).toEqual([]);
+    });
+  });
+
   describe("vault sub-resources", () => {
     const NOTE = "Notes/draft.md";
 
