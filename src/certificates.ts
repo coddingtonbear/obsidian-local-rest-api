@@ -296,7 +296,7 @@ function subjectKeyIdentifierOf(certificate: pki.Certificate): string {
 }
 
 function generateServerCertificate(
-  ca: { certificate: pki.Certificate; privateKey: pki.PrivateKey },
+  ca: { certificate: pki.Certificate; privateKey: pki.rsa.PrivateKey },
   options: GenerateOptions,
 ): GeneratedCertificate {
   const now = options.now ?? new Date();
@@ -374,7 +374,7 @@ export function renewServerCertificateIfNeeded(
   const now = options.now ?? new Date();
 
   let caCertificate: pki.Certificate;
-  let caPrivateKey: pki.PrivateKey;
+  let caPrivateKey: pki.rsa.PrivateKey;
   let leaf: pki.Certificate;
   try {
     caCertificate = pki.certificateFromPem(crypto.caCert);
