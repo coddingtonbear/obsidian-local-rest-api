@@ -252,6 +252,21 @@ export class UrlSigner {
   }
 }
 
+/** The first scheme a proxy's `X-Forwarded-Proto` names, when it is one we serve. */
+function forwardedScheme(header: string | null | undefined): "http" | "https" | null {
+  const forwarded = header?.split(",")[0]?.trim().toLowerCase();
+  return forwarded === "http" || forwarded === "https" ? forwarded : null;
+}
+
+/**
+ * The scheme the caller reached us on: the listener's, unless a proxy in front says
+ * otherwise.
+ */
+function requestScheme(req: Request): "http" | "https" {
+  const socket = req.socket as { encrypted?: boolean } | undefined;
+  return forwardedScheme(req.get("x-forwarded-proto")) ?? (socket?.encrypted ? "https" : "http");
+}
+
 /**
  * Scheme and host as the caller reached us, so a link handed back resolves from wherever
  * the caller is. The scheme is the listener's, unless a proxy in front says otherwise;
@@ -259,15 +274,44 @@ export class UrlSigner {
  * it, so neither is validated further.
  */
 export function requestBaseUrl(req: Request): string {
-  const forwarded = req.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
-  const socket = req.socket as { encrypted?: boolean } | undefined;
-  const scheme =
-    forwarded === "http" || forwarded === "https"
-      ? forwarded
-      : socket?.encrypted
-        ? "https"
-        : "http";
+  const scheme = requestScheme(req);
   const host = req.get("host");
+  if (!host) {
+    throw new Error("Cannot build a URL for this server: the request carried no Host header.");
+  }
+  return `${scheme}://${host}`;
+}
+
+/**
+ * Record on the request itself, as `X-Forwarded-Proto`, the scheme `requestBaseUrl`
+ * would report, replacing whatever the caller sent there.
+ *
+ * The MCP SDK hands a tool callback the request it arrived on, but as a web `Request`
+ * rebuilt from the Node one, and that loses the socket: one of its two conversions
+ * hard-codes `http://` into the URL whatever the listener was. The header is what
+ * survives both conversions, so it is how a tool learns the scheme; see
+ * `webRequestBaseUrl`. Both views of the headers are rewritten because the two
+ * conversions read different ones -- `headers` and `rawHeaders` respectively.
+ */
+export function pinRequestScheme(req: Request): void {
+  const scheme = requestScheme(req);
+  req.headers["x-forwarded-proto"] = scheme;
+  const raw = req.rawHeaders;
+  for (let i = raw.length - 2; i >= 0; i -= 2) {
+    if (raw[i].toLowerCase() === "x-forwarded-proto") raw.splice(i, 2);
+  }
+  raw.push("X-Forwarded-Proto", scheme);
+}
+
+/**
+ * `requestBaseUrl` for the web `Request` the MCP SDK hands a tool callback, which
+ * `pinRequestScheme` has stamped with the scheme the Node request arrived on.
+ */
+export function webRequestBaseUrl(request: { url: string; headers: Headers }): string {
+  const scheme =
+    forwardedScheme(request.headers.get("x-forwarded-proto")) ??
+    (new URL(request.url).protocol === "https:" ? "https" : "http");
+  const host = request.headers.get("host") ?? new URL(request.url).host;
   if (!host) {
     throw new Error("Cannot build a URL for this server: the request carried no Host header.");
   }

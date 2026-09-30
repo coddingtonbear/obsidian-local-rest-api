@@ -14,13 +14,14 @@ import { existsSync } from "fs";
 import express from "express";
 import request from "supertest";
 import { McpServer } from "@modelcontextprotocol/server";
+import type { ServerContext } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 import openapiYaml from "../docs/openapi.yaml";
 import { McpHandler, markdownLink } from "./mcpHandler";
 import { OpenApiSpec } from "./openApiSpec";
 import { DEFAULT_SETTINGS, MaximumMcpBinaryBytes } from "./constants";
-import { UrlSigner } from "./signedUrls";
+import { UrlSigner, pinRequestScheme } from "./signedUrls";
 import type { EventStreams } from "./events";
 import { ImageScaler, MaximumImageEdge } from "./imageScaling";
 import { LocalRestApiSettings } from "./types";
@@ -129,13 +130,22 @@ function makeMockOps() {
 }
 
 // Returns the callback registered for the named tool.
+// The context the SDK would hand a tool callback, as `overHttp` sets it up. Outside
+// `overHttp` a callback gets one with no HTTP request, as over a non-HTTP transport.
+let toolContext: ServerContext | undefined;
+
 function getToolCallback(toolName: string) {
   const call = registerTool.mock.calls.find((c: unknown[]) => c[0] === toolName);
   if (!call) throw new Error(`Tool "${toolName}" was not registered`);
   // registerTool(name, config, callback)
-  return call[2] as (args: Record<string, unknown>) => Promise<{
+  const callback = call[2] as (
+    args: Record<string, unknown>,
+    ctx: ServerContext,
+  ) => Promise<{
     content: Array<{ type: string; text: string }>;
   }>;
+  return (args: Record<string, unknown>) =>
+    callback(args, toolContext ?? ({} as ServerContext));
 }
 
 // Returns the annotations object registered for the named tool.
@@ -728,19 +738,29 @@ describe("McpHandler", () => {
     const UNSIGNED: LocalRestApiSettings = { ...DEFAULT_SETTINGS, enableSignedUrls: false };
 
     // Run a callback as though its tool call had arrived on an HTTP request: the
-    // signed-URL tools read the request's scheme and Host to build their links.
-    function overHttp<T>(
-      mcp: McpHandler,
+    // signed-URL tools read the request's scheme and Host to build their links. The
+    // request goes through `pinRequestScheme`, as `handleRequest` sends it, and reaches
+    // the tool as the SDK hands it on -- a web Request whose URL always says http.
+    async function overHttp<T>(
       fn: () => Promise<T>,
       request: { headers?: Record<string, string>; encrypted?: boolean } = {},
     ): Promise<T> {
       const headers: Record<string, string> = { host: "127.0.0.1:27123", ...request.headers };
       const req = {
+        headers,
+        rawHeaders: Object.entries(headers).flat(),
         get: (name: string) => headers[name.toLowerCase()],
         socket: { encrypted: request.encrypted ?? false },
       } as unknown as express.Request;
-      // @ts-ignore: requestContext is private — the test stands in for handleRequest.
-      return mcp.requestContext.run(req, fn);
+      pinRequestScheme(req);
+      toolContext = {
+        http: { req: new Request("http://127.0.0.1/mcp/", { headers: req.headers as Record<string, string> }) },
+      } as ServerContext;
+      try {
+        return await fn();
+      } finally {
+        toolContext = undefined;
+      }
     }
 
     function registeredNames(): string[] {
@@ -911,9 +931,9 @@ describe("McpHandler", () => {
       // the result used to carry the whole file as base64 -- which killed Obsidian's
       // renderer outright. It has to degrade to a link instead.
       const scaler = passthroughScaler();
-      const mcp = build(SIGNED, { imageScaler: scaler });
+      build(SIGNED, { imageScaler: scaler });
       ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
-      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: PNG_PATH }));
+      const result = await overHttp(() => getToolCallback("vault_read_binary")({ path: PNG_PATH }));
       expect(scaler.scale).toHaveBeenCalledTimes(1);
       expect(result.content[0].type).toBe("resource_link");
       expect(result.content.some((c: { type: string }) => c.type === "image")).toBe(false);
@@ -929,8 +949,8 @@ describe("McpHandler", () => {
           transformed: true,
         })),
       };
-      const mcp = build(SIGNED, { imageScaler: scaler });
-      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: PNG_PATH }));
+      build(SIGNED, { imageScaler: scaler });
+      const result = await overHttp(() => getToolCallback("vault_read_binary")({ path: PNG_PATH }));
       expect(result.content[0].type).toBe("resource_link");
     });
 
@@ -1059,11 +1079,11 @@ describe("McpHandler", () => {
     });
 
     test("an SVG over the embedding ceiling falls through to the non-image path", async () => {
-      const mcp = build(SIGNED);
+      build(SIGNED);
       const svg = makeMockFile(SVG_PATH);
       ops.app.vault.getAbstractFileByPath.mockImplementation((path: string) => (path === SVG_PATH ? svg : null));
       ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
-      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: SVG_PATH }));
+      const result = await overHttp(() => getToolCallback("vault_read_binary")({ path: SVG_PATH }));
       expect(result.content[0]).toMatchObject({ type: "resource_link", mimeType: "image/svg+xml" });
     });
 
@@ -1079,10 +1099,10 @@ describe("McpHandler", () => {
     });
 
     test("an oversized SVG is decided from its stat, without being read", async () => {
-      const mcp = build(SIGNED, { imageScaler: null });
+      build(SIGNED, { imageScaler: null });
       svgFileExists(MaximumMcpBinaryBytes + 1);
       ops.readBinaryFileContent.mockClear();
-      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: SVG_PATH }));
+      const result = await overHttp(() => getToolCallback("vault_read_binary")({ path: SVG_PATH }));
       // An SVG is returned as its own source and is never reduced, so the stat decides.
       // Previously it was read in full, `svgTextResult` returned null at the cap, and the
       // bytes were discarded in favour of exactly this link.
@@ -1091,12 +1111,12 @@ describe("McpHandler", () => {
     });
 
     test("an oversized image with no scaler in the runtime is also decided from its stat", async () => {
-      const mcp = build(SIGNED, { imageScaler: null });
+      build(SIGNED, { imageScaler: null });
       const f = makeMockFile(PNG_PATH);
       f.stat = { ctime: 0, mtime: 0, size: MaximumMcpBinaryBytes + 1 };
       ops.app.vault.getAbstractFileByPath.mockReturnValue(f);
       ops.readBinaryFileContent.mockClear();
-      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: PNG_PATH }));
+      const result = await overHttp(() => getToolCallback("vault_read_binary")({ path: PNG_PATH }));
       // Nothing can shrink it without a scaler, so there is no reason to read it first.
       expect(result.content[0].type).toBe("resource_link");
       expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
@@ -1129,9 +1149,9 @@ describe("McpHandler", () => {
     });
 
     test("returns a signed link for a non-image file when signed URLs are on, whatever its size", async () => {
-      const mcp = build(SIGNED);
+      build(SIGNED);
       ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
-      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: "data.bin" }));
+      const result = await overHttp(() => getToolCallback("vault_read_binary")({ path: "data.bin" }));
       expect(result.content[0]).toMatchObject({
         type: "resource_link",
         name: "data.bin",
@@ -1163,8 +1183,8 @@ describe("McpHandler", () => {
 
     test("as: 'link' returns a signed link even for an image, and never reads the file", async () => {
       const scaler = fakeScaler();
-      const mcp = build(SIGNED, { imageScaler: scaler });
-      const result = await overHttp(mcp, () =>
+      build(SIGNED, { imageScaler: scaler });
+      const result = await overHttp(() =>
         getToolCallback("vault_read_binary")({ path: PNG_PATH, as: "link" }),
       );
       expect(result.content[0].type).toBe("resource_link");
@@ -1180,10 +1200,10 @@ describe("McpHandler", () => {
     });
 
     test("as: 'bytes' over the ceiling suggests a link when signed URLs are on", async () => {
-      const mcp = build(SIGNED);
+      build(SIGNED);
       ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
       await expect(
-        overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: "data.bin", as: "bytes" })),
+        overHttp(() => getToolCallback("vault_read_binary")({ path: "data.bin", as: "bytes" })),
       ).rejects.toThrow(/as: "link"/);
     });
 
@@ -1199,20 +1219,20 @@ describe("McpHandler", () => {
     // ---- vault_get_download_url ---------------------------------------------
 
     test("vault_get_download_url builds the link from the request's scheme and host", async () => {
-      const mcp = build(SIGNED);
+      build(SIGNED);
       const cb = getToolCallback("vault_get_download_url");
-      const plain = await overHttp(mcp, () => cb({ path: PNG_PATH }));
+      const plain = await overHttp(() => cb({ path: PNG_PATH }));
       expect((plain.content[0] as { uri: string }).uri).toMatch(
         /^http:\/\/127\.0\.0\.1:27123\/vault\/attachments\/pixel\.png\?sig=/,
       );
-      const tls = await overHttp(mcp, () => cb({ path: PNG_PATH }), {
+      const tls = await overHttp(() => cb({ path: PNG_PATH }), {
         encrypted: true,
         headers: { host: "vault.example.com:27124" },
       });
       expect((tls.content[0] as { uri: string }).uri).toMatch(
         /^https:\/\/vault\.example\.com:27124\/vault\//,
       );
-      const proxied = await overHttp(mcp, () => cb({ path: PNG_PATH }), {
+      const proxied = await overHttp(() => cb({ path: PNG_PATH }), {
         headers: { "x-forwarded-proto": "https, http" },
       });
       expect((proxied.content[0] as { uri: string }).uri).toMatch(/^https:\/\/127\.0\.0\.1:27123\//);
@@ -1220,8 +1240,8 @@ describe("McpHandler", () => {
 
     test("the minted link verifies against the signer the REST side shares", async () => {
       const signer = new UrlSigner();
-      const mcp = build(SIGNED, { signer });
-      const result = await overHttp(mcp, () => getToolCallback("vault_get_download_url")({ path: PNG_PATH }));
+      build(SIGNED, { signer });
+      const result = await overHttp(() => getToolCallback("vault_get_download_url")({ path: PNG_PATH }));
       const url = new URL((result.content[0] as { uri: string }).uri);
       expect(
         signer.verify("GET", PNG_PATH, url.searchParams.get("exp") ?? "", url.searchParams.get("sig") ?? "", url.searchParams.get("n") ?? ""),
@@ -1232,9 +1252,9 @@ describe("McpHandler", () => {
     });
 
     test("vault_get_download_url refuses a file that does not exist", async () => {
-      const mcp = build(SIGNED);
+      build(SIGNED);
       await expect(
-        overHttp(mcp, () => getToolCallback("vault_get_download_url")({ path: "missing.png" })),
+        overHttp(() => getToolCallback("vault_get_download_url")({ path: "missing.png" })),
       ).rejects.toThrow(/File not found/);
     });
 
@@ -1275,8 +1295,8 @@ describe("McpHandler", () => {
 
     test("events_get_listener_url accepts an event an extension registered", async () => {
       const { events, createListener } = fakeEvents();
-      const mcp = build(SIGNED, { events });
-      await overHttp(mcp, () =>
+      build(SIGNED, { events });
+      await overHttp(() =>
         getToolCallback("events_get_listener_url")({
           emitter: "some-extension",
           event: "thing-happened",
@@ -1302,9 +1322,9 @@ describe("McpHandler", () => {
     test("events_get_listener_url registers a subscription and returns its URL and a curl command", async () => {
       const { events, createListener } = fakeEvents();
       const signer = new UrlSigner();
-      const mcp = build({ ...SIGNED, signedUrlTtlSeconds: 120 }, { events, signer });
+      build({ ...SIGNED, signedUrlTtlSeconds: 120 }, { events, signer });
       const filter = { glob: ["notes/*", { var: "path" }] };
-      const result = await overHttp(mcp, () =>
+      const result = await overHttp(() =>
         getToolCallback("events_get_listener_url")({ emitter: "vault", event: "modify", filter }),
       );
       expect(createListener).toHaveBeenCalledWith(
@@ -1323,8 +1343,8 @@ describe("McpHandler", () => {
 
     test("events_get_listener_url treats an empty filter as no filter", async () => {
       const { events, createListener } = fakeEvents();
-      const mcp = build(SIGNED, { events });
-      await overHttp(mcp, () =>
+      build(SIGNED, { events });
+      await overHttp(() =>
         getToolCallback("events_get_listener_url")({ emitter: "workspace", event: "file-open", filter: {} }),
       );
       expect(createListener.mock.calls[0][2]).toBeNull();
@@ -1332,9 +1352,9 @@ describe("McpHandler", () => {
 
     test("events_get_listener_url refuses an event that is not streamable", async () => {
       const { events, createListener } = fakeEvents();
-      const mcp = build(SIGNED, { events });
+      build(SIGNED, { events });
       await expect(
-        overHttp(mcp, () =>
+        overHttp(() =>
           getToolCallback("events_get_listener_url")({ emitter: "workspace", event: "quick-preview" }),
         ),
       ).rejects.toThrow(/not a streamable workspace event.*file-open.*some-extension: thing-happened/);
@@ -1350,8 +1370,8 @@ describe("McpHandler", () => {
       ["it's.png", "'it'\\''s.png'"],
       ["$HOME.png", "'$HOME.png'"],
     ])("the advertised curl command quotes %s so a shell cannot expand it", async (name, quoted) => {
-      const mcp = build(SIGNED, { signer: new UrlSigner() });
-      const result = await overHttp(mcp, () =>
+      build(SIGNED, { signer: new UrlSigner() });
+      const result = await overHttp(() =>
         getToolCallback("vault_get_upload_url")({ path: `attachments/${name}` }),
       );
       // JSON.stringify would double-quote these, and a shell expands $, ` and $() inside
@@ -1361,9 +1381,8 @@ describe("McpHandler", () => {
     });
 
     test("a hostile Host header cannot break out of the advertised command", async () => {
-      const mcp = build(SIGNED, { signer: new UrlSigner() });
+      build(SIGNED, { signer: new UrlSigner() });
       const result = await overHttp(
-        mcp,
         () => getToolCallback("vault_get_upload_url")({ path: "attachments/a.png" }),
         { headers: { host: '127.0.0.1:27123"; touch /tmp/pwned; echo "' } },
       );
@@ -1387,8 +1406,8 @@ describe("McpHandler", () => {
 
     test("vault_get_upload_url returns a single-use PUT link with a ready-to-run curl command", async () => {
       const signer = new UrlSigner();
-      const mcp = build(SIGNED, { signer });
-      const result = await overHttp(mcp, () =>
+      build(SIGNED, { signer });
+      const result = await overHttp(() =>
         getToolCallback("vault_get_upload_url")({ path: "attachments/new photo.jpg" }),
       );
       const body = parseText(result);
@@ -1414,10 +1433,10 @@ describe("McpHandler", () => {
     });
 
     test("vault_get_upload_url honours the configured lifetime", async () => {
-      const mcp = build({ ...SIGNED, signedUrlTtlSeconds: 60 });
+      build({ ...SIGNED, signedUrlTtlSeconds: 60 });
       const before = Date.now();
       const body = parseText(
-        await overHttp(mcp, () => getToolCallback("vault_get_upload_url")({ path: "a.bin" })),
+        await overHttp(() => getToolCallback("vault_get_upload_url")({ path: "a.bin" })),
       );
       const expiresIn = (new Date(body.expiresAt).getTime() - before) / 1000;
       expect(expiresIn).toBeGreaterThan(55);

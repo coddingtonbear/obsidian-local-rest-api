@@ -9,13 +9,13 @@ import type {
   CallToolResult,
   McpHttpHandler,
   ReadResourceResult,
+  ServerContext,
   StandardSchemaWithJSON,
   ToolAnnotations,
 } from "@modelcontextprotocol/server";
 import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from "@modelcontextprotocol/node";
 import type { NodeMcpRequestHandler } from "@modelcontextprotocol/node";
 import { randomUUID } from "crypto";
-import { AsyncLocalStorage } from "async_hooks";
 import { z } from "zod";
 import express from "express";
 import mime from "mime-types";
@@ -47,7 +47,8 @@ import {
   buildSignedUrl,
   clampSignedUrlTtl,
   normalizeVaultFilePath,
-  requestBaseUrl,
+  pinRequestScheme,
+  webRequestBaseUrl,
 } from "./signedUrls";
 import {
   CanvasImageScaler,
@@ -82,7 +83,7 @@ interface ToolSpec {
   inputSchema: StandardSchemaWithJSON<Record<string, unknown>, Record<string, unknown>>;
   outputSchema?: StandardSchemaWithJSON<Record<string, unknown>, Record<string, unknown>>;
   annotations: ToolAnnotations;
-  callback: (args: unknown) => Promise<CallToolResult>;
+  callback: (args: unknown, ctx: ServerContext) => Promise<CallToolResult>;
 }
 
 // Shared annotation set for tools that only ever read vault/workspace state.
@@ -365,13 +366,6 @@ export class McpHandler {
   // sessionless leg neither issues nor reads `Mcp-Session-Id`.
   private readonly sessions: Map<string, Session> = new Map();
 
-  // The HTTP request a tool call arrived on. The SDK hands tool callbacks no view of
-  // the transport, and the signed-URL tools need the request's scheme and Host to build
-  // a URL the caller can actually reach, so `handleRequest` runs the SDK inside this
-  // store and the callbacks read it back. Async context follows the request through the
-  // SDK's own awaits, which is what makes it per-request rather than a shared field.
-  private readonly requestContext = new AsyncLocalStorage<express.Request>();
-
   private readonly signer: UrlSigner;
   private readonly events: EventStreams | null;
   private readonly imageScaler: ImageScaler | null;
@@ -436,24 +430,33 @@ export class McpHandler {
     return clampSignedUrlTtl(this.settings.signedUrlTtlSeconds);
   }
 
-  private baseUrlFromRequest(): string {
-    const req = this.requestContext.getStore();
+  // The signed-URL tools need the scheme and Host the caller reached us on to build a
+  // URL it can actually reach. The SDK hands each tool callback the request it arrived
+  // on, which `handleRequest` has stamped with the scheme (see `pinRequestScheme`).
+  //
+  // This deliberately does not use `AsyncLocalStorage`, which it once did: under
+  // Electron's Node 24 that keeps its state in a V8 slot Blink also writes for tasks
+  // descended from a user gesture, so after the plugin is toggled on from the settings
+  // screen the first `getStore()` read Blink's value and crashed the renderer outright.
+  private baseUrlFromRequest(ctx: ServerContext): string {
+    const req = ctx.http?.req;
     if (!req) {
       throw new Error(
         "Cannot build a URL for this server: the tool call did not arrive over HTTP.",
       );
     }
-    return requestBaseUrl(req);
+    return webRequestBaseUrl(req);
   }
 
   private signedUrlFor(
     method: "GET" | "PUT",
     normalizedPath: string,
+    ctx: ServerContext,
     extraQuery: Record<string, string> = {},
   ): { url: string; expiresAt: string } {
     const params = this.signer.sign(method, normalizedPath, this.signedUrlTtlSeconds);
     return {
-      url: buildSignedUrl(this.baseUrlFromRequest(), normalizedPath, params, extraQuery),
+      url: buildSignedUrl(this.baseUrlFromRequest(ctx), normalizedPath, params, extraQuery),
       expiresAt: new Date(params.exp * 1000).toISOString(),
     };
   }
@@ -475,11 +478,11 @@ export class McpHandler {
   // A `resource_link` to a signed download URL, plus a markdown link in a text block for
   // clients that render only text. Addressed to the user: the model gains nothing from a
   // URL it cannot follow, and the link is for a person to click or a shell to fetch.
-  private downloadLinkResult(path: string): CallToolResult {
+  private downloadLinkResult(path: string, ctx: ServerContext): CallToolResult {
     const normalized = this.normalizedFilePath(path);
     const file = this.existingFile(normalized);
     const mimeType = mime.lookup(normalized) || "application/octet-stream";
-    const { url, expiresAt } = this.signedUrlFor("GET", normalized);
+    const { url, expiresAt } = this.signedUrlFor("GET", normalized, ctx);
     const name = filenameOf(normalized);
     return {
       content: [
@@ -770,7 +773,7 @@ export class McpHandler {
     description: string,
     schema: Record<string, z.ZodTypeAny>,
     annotations: ToolAnnotations,
-    callback: (args: Args) => Promise<CallToolResult>,
+    callback: (args: Args, ctx: ServerContext) => Promise<CallToolResult>,
     options: { title?: string; outputSchema?: Record<string, z.ZodTypeAny> } = {},
   ): { remove: () => void } {
     const spec: ToolSpec = {
@@ -783,9 +786,9 @@ export class McpHandler {
           ? toStandardSchema(options.outputSchema, "output")
           : undefined,
       annotations,
-      callback: async (args: unknown) => {
+      callback: async (args: unknown, ctx: ServerContext) => {
         try {
-          const result = await callback(args as Args);
+          const result = await callback(args as Args, ctx);
           if (this.settings.enableVerboseLogging) {
             console.debug(`[MCP] ${name} => ok`);
           }
@@ -926,13 +929,12 @@ export class McpHandler {
     req: express.Request,
     res: express.Response,
   ): Promise<void> {
-    await this.requestContext.run(req, async () => {
-      if (await this.isSessionlessRequest(req)) {
-        await this.sessionlessNodeHandler(req, res, req.body);
-        return;
-      }
-      await this.handleSessionfulRequest(req, res);
-    });
+    pinRequestScheme(req);
+    if (await this.isSessionlessRequest(req)) {
+      await this.sessionlessNodeHandler(req, res, req.body);
+      return;
+    }
+    await this.handleSessionfulRequest(req, res);
   }
 
   /**
@@ -1052,7 +1054,7 @@ export class McpHandler {
         `,
         { path: z.string().describe("File path relative to vault root") },
         READ_ONLY_ANNOTATIONS,
-        async ({ path }: { path: string }) => this.downloadLinkResult(path),
+        async ({ path }: { path: string }, ctx) => this.downloadLinkResult(path, ctx),
       ),
       this.tool(
         "vault_get_upload_url",
@@ -1061,10 +1063,10 @@ export class McpHandler {
         `,
         { path: z.string().describe("Destination file path relative to vault root") },
         { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-        async ({ path }: { path: string }) => {
+        async ({ path }: { path: string }, ctx) => {
           const normalized = this.normalizedFilePath(path);
           const mimeType = mime.lookup(normalized) || "application/octet-stream";
-          const { url, expiresAt } = this.signedUrlFor("PUT", normalized);
+          const { url, expiresAt } = this.signedUrlFor("PUT", normalized, ctx);
           // Only what varies per call, plus the ready-to-run command. `method` and
           // `singleUse` used to be here and were dropped: both are constants this tool's
           // own description already states, so sending them cost a client tokens on every
@@ -1130,7 +1132,9 @@ export class McpHandler {
         event: string;
         filter?: Record<string, unknown>;
         ttlSeconds?: number;
-      }) => {
+      },
+      ctx,
+    ) => {
         if (!events.isStreamable(emitter, event)) {
           const available = Object.entries(events.supportedEvents())
             .map(([name, names]) => `${name}: ${names.join(", ")}`)
@@ -1145,7 +1149,7 @@ export class McpHandler {
           event,
           hasFilter ? filter : null,
           clampSignedUrlTtl(ttlSeconds ?? this.signedUrlTtlSeconds),
-          this.baseUrlFromRequest(),
+          this.baseUrlFromRequest(ctx),
           this.signer,
         );
         return this.text({
@@ -1282,14 +1286,14 @@ export class McpHandler {
           .describe("How to return the file: 'auto' (default), 'bytes', or 'link'"),
       },
       READ_ONLY_ANNOTATIONS,
-      async ({ path, as }: { path: string; as?: BinaryReadMode }) => {
+      async ({ path, as }: { path: string; as?: BinaryReadMode }, ctx) => {
         const mode: BinaryReadMode = as ?? "auto";
         const normalized = this.normalizedFilePath(path);
         if (mode === "link") {
           if (!this.signedUrlsEnabled) {
             throw new Error(`Cannot return a link: ${SIGNED_URLS_DISABLED_HINT}`);
           }
-          return this.downloadLinkResult(normalized);
+          return this.downloadLinkResult(normalized, ctx);
         }
         const mimeType = mime.lookup(normalized) || "application/octet-stream";
         const isSvg = mimeType === SVG_MIME_TYPE;
@@ -1308,7 +1312,7 @@ export class McpHandler {
           const size = this.existingFile(normalized).stat.size;
           if (size > MaximumMcpBinaryBytes) {
             if (mode === "auto" && this.signedUrlsEnabled) {
-              return this.downloadLinkResult(normalized);
+              return this.downloadLinkResult(normalized, ctx);
             }
             this.throwOversizedForEmbedding(size);
           }
@@ -1316,7 +1320,7 @@ export class McpHandler {
         // Nothing but an SVG or a raster image needs the bytes in hand at all; with signed
         // URLs on, everything else is a link.
         if (mode === "auto" && this.signedUrlsEnabled && !isSvg && !isRaster) {
-          return this.downloadLinkResult(normalized);
+          return this.downloadLinkResult(normalized, ctx);
         }
         // The post-read checks in `svgTextResult`, `imageResult` and `embeddedBytesResult`
         // stay: they bound what the scaler actually produced, which no stat can predict.
@@ -1329,7 +1333,7 @@ export class McpHandler {
           if (image) return image;
         }
         if (mode === "auto" && this.signedUrlsEnabled) {
-          return this.downloadLinkResult(normalized);
+          return this.downloadLinkResult(normalized, ctx);
         }
         return this.embeddedBytesResult(normalized, bytes, mimeType);
       },
