@@ -45,7 +45,10 @@ import {
   SearchResponseItem,
 } from "./types";
 import { toArrayBuffer } from "./utils";
-import { assertVaultPathIsContained } from "./vaultPath";
+import {
+  assertVaultPathIsContained,
+  assertConfigDirAccessAllowed,
+} from "./vaultPath";
 
 /**
  * Every event Obsidian's metadata cache publicly declares, and every event its
@@ -156,16 +159,54 @@ export class VaultOperations {
     }
   }
 
-  /** Refuse a client-supplied path that resolves outside the vault.
+  /** Refuse a client-supplied path this API is not allowed to touch.
    *
    *  Every caller -- the REST handler, the MCP tools, a plugin holding the
-   *  extension API -- funnels through this class, so the containment check lives
-   *  here as well as at each boundary. The boundaries exist to give a caller a
-   *  well-shaped error (a 400 with errorCode 40021, a legible MCP tool error);
-   *  this exists so that a boundary someone forgets to guard cannot reach the
-   *  filesystem. See ./vaultPath for why Obsidian's own API does not stop it. */
+   *  extension API -- funnels through this class, so the authorization decision
+   *  lives here as well as at each boundary. The boundaries exist to give a
+   *  caller a well-shaped error (a 400/403 with an errorCode, a legible MCP tool
+   *  error); this exists so that a boundary someone forgets to guard cannot reach
+   *  the filesystem. Two rules apply:
+   *
+   *  - The path must stay inside the vault root (see ./vaultPath for why
+   *    Obsidian's own API does not enforce this).
+   *  - The path must not be inside Obsidian's configuration directory unless the
+   *    operator has turned that on. Writing there is code execution (Obsidian
+   *    evals an enabled plugin's main.js) and reading there leaks secrets such as
+   *    this plugin's own API key; see GHSA-66m9-r757-qvq7. */
   private assertContained(filePath: string, label = "Path"): void {
     assertVaultPathIsContained(filePath, label);
+    assertConfigDirAccessAllowed(
+      filePath,
+      this.app.vault.configDir,
+      this.settings.enableConfigDirAccess ?? false,
+      label,
+    );
+  }
+
+  /** Stat a path straight from the adapter, through the authorization gate.
+   *
+   *  The REST whole-file GET handler needs a raw stat to tell a file from a
+   *  directory from a miss, and historically called `adapter.stat` directly --
+   *  the one filesystem access that bypassed this class. Routing it here keeps
+   *  this class the single place a path is authorized before it reaches disk. */
+  async statPath(
+    filePath: string,
+  ): Promise<ReturnType<typeof this.app.vault.adapter.stat>> {
+    this.assertContained(filePath);
+    return this.app.vault.adapter.stat(filePath);
+  }
+
+  /** Read a path's raw bytes straight from the adapter, through the gate.
+   *
+   *  Unlike {@link readBinaryFileContent}, this does not require the path to be an
+   *  indexed vault file: the REST GET handler has already confirmed it exists via
+   *  {@link statPath} and may be serving a target-addressed path. It exists so that
+   *  read, too, funnels through this class rather than touching the adapter
+   *  directly. */
+  async readBinaryPath(filePath: string): Promise<ArrayBuffer> {
+    this.assertContained(filePath);
+    return this.app.vault.adapter.readBinary(filePath);
   }
 
   private waitForFileCache(

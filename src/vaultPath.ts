@@ -3,6 +3,10 @@ import { posix } from "path";
 /** Thrown when a client-supplied vault path resolves outside the vault root. */
 export class PathTraversalError extends Error {}
 
+/** Thrown when a client-supplied path resolves inside Obsidian's configuration
+ *  directory and that access has not been explicitly enabled. */
+export class ConfigDirAccessError extends Error {}
+
 /** The vault root, as a path the resolver can work with. Nothing is ever read
  *  from or written to this location -- it exists so `posix.resolve` can collapse
  *  "." and ".." segments the way the filesystem would, and the result be
@@ -13,6 +17,10 @@ const SYNTHETIC_ROOT = "/vault";
  *  refusal came from the REST handler, an MCP tool, or VaultOperations itself. */
 export const PATH_ESCAPES_VAULT_MESSAGE =
   "must be relative and must not escape the vault root";
+
+/** The message every layer refuses a configuration-directory path with. */
+export const CONFIG_DIR_ACCESS_MESSAGE =
+  "is inside the Obsidian configuration directory, which this API is not permitted to access";
 
 /** Whether a vault-relative path stays inside the vault.
  *
@@ -67,5 +75,45 @@ export function assertVaultPathIsContained(
 ): void {
   if (!vaultPathIsContained(candidate)) {
     throw new PathTraversalError(`${label} ${PATH_ESCAPES_VAULT_MESSAGE}.`);
+  }
+}
+
+/** Whether a vault-relative path is the configuration directory or lives inside it.
+ *
+ *  `configDir` is Obsidian's own `app.vault.configDir` -- normally ".obsidian",
+ *  but a user may set it to something else, and the running value is the one that
+ *  matters. Both the candidate and the config dir are folded and resolved against
+ *  the same synthetic root as {@link vaultPathIsContained}, so the comparison is
+ *  between canonical paths rather than raw spellings: ".obsidian/../.obsidian" and
+ *  ".obsidian" are seen as the same place.
+ *
+ *  The match is the directory itself or a path beneath it, never a sibling that
+ *  merely shares the name as a prefix: ".obsidian-backup" resolves to
+ *  "/vault/.obsidian-backup", which is neither equal to nor prefixed by
+ *  "/vault/.obsidian/", so it is not treated as config. A candidate that escapes
+ *  the vault is not this function's concern -- {@link vaultPathIsContained} rejects
+ *  it first -- and such a path simply returns false here. */
+export function vaultPathIsInConfigDir(
+  candidate: string,
+  configDir: string,
+): boolean {
+  const root = posix.resolve(SYNTHETIC_ROOT, configDir.replace(/\\/g, "/"));
+  const resolved = posix.resolve(SYNTHETIC_ROOT, candidate.replace(/\\/g, "/"));
+  return resolved === root || resolved.startsWith(root + "/");
+}
+
+/** Throw {@link ConfigDirAccessError} when `candidate` is inside the configuration
+ *  directory and `allowed` is false. A no-op when access is permitted.
+ *
+ *  `label` names the offending field in the message, matching
+ *  {@link assertVaultPathIsContained}. */
+export function assertConfigDirAccessAllowed(
+  candidate: string,
+  configDir: string,
+  allowed: boolean,
+  label = "Path",
+): void {
+  if (!allowed && vaultPathIsInConfigDir(candidate, configDir)) {
+    throw new ConfigDirAccessError(`${label} ${CONFIG_DIR_ACCESS_MESSAGE}.`);
   }
 }

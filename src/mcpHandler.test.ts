@@ -1916,6 +1916,7 @@ describe("McpHandler", () => {
 
     describe("is refused by default", () => {
       beforeEach(() => {
+        registerTool.mockClear();
         buildServer(new McpHandler(ops, DEFAULT_SETTINGS));
       });
 
@@ -1958,6 +1959,7 @@ describe("McpHandler", () => {
 
     describe("is permitted when the setting is on", () => {
       beforeEach(() => {
+        registerTool.mockClear();
         buildServer(
           new McpHandler(ops, {
             ...DEFAULT_SETTINGS,

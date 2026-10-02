@@ -1,7 +1,10 @@
 import {
   PathTraversalError,
+  ConfigDirAccessError,
   assertVaultPathIsContained,
+  assertConfigDirAccessAllowed,
   vaultPathIsContained,
+  vaultPathIsInConfigDir,
 } from "./vaultPath";
 
 describe("vaultPathIsContained", () => {
@@ -74,5 +77,73 @@ describe("assertVaultPathIsContained", () => {
     expect(() => assertVaultPathIsContained("../outside.md")).toThrow(
       "Path must be relative and must not escape the vault root.",
     );
+  });
+});
+
+describe("vaultPathIsInConfigDir", () => {
+  const configDir = ".obsidian";
+
+  const inside = [
+    ["the config dir itself", ".obsidian"],
+    ["the config dir with a trailing slash", ".obsidian/"],
+    ["a file directly inside", ".obsidian/app.json"],
+    ["a plugin file", ".obsidian/plugins/foo/main.js"],
+    ["community-plugins.json", ".obsidian/community-plugins.json"],
+    ["a ./ prefix", "./.obsidian/app.json"],
+    ["a descent that resolves back in", ".obsidian/../.obsidian/app.json"],
+    ["a backslash separator", ".obsidian\\plugins\\foo\\main.js"],
+  ] as const;
+
+  const outside = [
+    ["a sibling sharing the prefix", ".obsidian-backup/note.md"],
+    ["a sibling file sharing the prefix", ".obsidianrc"],
+    ["an ordinary note", "notes/a.md"],
+    ["the vault root", ""],
+    ["a differently named config subpath", "obsidian/app.json"],
+  ] as const;
+
+  for (const [label, candidate] of inside) {
+    test(`matches ${label}`, () => {
+      expect(vaultPathIsInConfigDir(candidate, configDir)).toBe(true);
+    });
+  }
+
+  for (const [label, candidate] of outside) {
+    test(`does not match ${label}`, () => {
+      expect(vaultPathIsInConfigDir(candidate, configDir)).toBe(false);
+    });
+  }
+
+  test("honors a non-default config directory", () => {
+    expect(vaultPathIsInConfigDir(".config-obsidian/app.json", ".config-obsidian")).toBe(true);
+    expect(vaultPathIsInConfigDir(".obsidian/app.json", ".config-obsidian")).toBe(false);
+  });
+});
+
+describe("assertConfigDirAccessAllowed", () => {
+  const configDir = ".obsidian";
+
+  test("throws ConfigDirAccessError for a config path when not allowed", () => {
+    expect(() =>
+      assertConfigDirAccessAllowed(".obsidian/app.json", configDir, false),
+    ).toThrow(ConfigDirAccessError);
+  });
+
+  test("is a no-op for a config path when allowed", () => {
+    expect(() =>
+      assertConfigDirAccessAllowed(".obsidian/app.json", configDir, true),
+    ).not.toThrow();
+  });
+
+  test("is a no-op for a non-config path", () => {
+    expect(() =>
+      assertConfigDirAccessAllowed("notes/a.md", configDir, false),
+    ).not.toThrow();
+  });
+
+  test("names the field in the message", () => {
+    expect(() =>
+      assertConfigDirAccessAllowed(".obsidian/x", configDir, false, "Destination path"),
+    ).toThrow(/^Destination path is inside the Obsidian configuration directory/);
   });
 });

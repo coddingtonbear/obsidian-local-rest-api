@@ -81,7 +81,9 @@ import {
 } from "./vaultOperations";
 import {
   PathTraversalError,
+  ConfigDirAccessError,
   vaultPathIsContained,
+  vaultPathIsInConfigDir,
 } from "./vaultPath";
 import { McpHandler } from "./mcpHandler";
 import { VaultSubresourceRegistry } from "./vaultSubresources";
@@ -561,6 +563,19 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { errorCode: ErrorCode.PathTraversalNotAllowed });
       return null;
     }
+    // Config-directory guard: a path inside Obsidian's config dir is refused unless
+    // the operator opted in. Writing there is code execution and reading there leaks
+    // secrets (GHSA-66m9-r757-qvq7). VaultOperations enforces this again before any
+    // filesystem access; this is the early, well-shaped rejection at the boundary.
+    if (
+      !this.settings.enableConfigDirAccess &&
+      vaultPathIsInConfigDir(segments.join("/"), this.app.vault.configDir)
+    ) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.ConfigDirAccessNotAllowed,
+      });
+      return null;
+    }
     return segments;
   }
 
@@ -631,10 +646,16 @@ export default class RequestHandler {
     if (normalizedPath !== null) {
       try {
         exactStat = normalizedPath
-          ? await this.app.vault.adapter.stat(normalizedPath)
+          ? await this.operations.statPath(normalizedPath)
           : null;
-      } catch {
-        // ENOTDIR: a path segment is a file, not a directory — treat as no match.
+      } catch (e) {
+        // A path the gate refuses (traversal, config dir) must fail closed, not be
+        // read as "no match" and fall through to a listing or a 404. Everything
+        // else here is ENOTDIR — a path segment is a file, not a directory — which
+        // is a genuine no-match.
+        if (e instanceof PathTraversalError || e instanceof ConfigDirAccessError) {
+          throw e;
+        }
       }
     }
 
@@ -674,7 +695,7 @@ export default class RequestHandler {
       res.set("Content-Location", encodeVaultPath(filePath));
     }
 
-    const content = await this.app.vault.adapter.readBinary(filePath);
+    const content = await this.operations.readBinaryPath(filePath);
     const mimeType = mime.lookup(filePath);
 
     // A signed link is made to be opened — in a browser tab, in an <img> — so it is
@@ -1973,6 +1994,16 @@ export default class RequestHandler {
       return;
     }
 
+    if (
+      !this.settings.enableConfigDirAccess &&
+      vaultPathIsInConfigDir(normalized, this.app.vault.configDir)
+    ) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.ConfigDirAccessNotAllowed,
+      });
+      return;
+    }
+
     const newPath = !normalized || normalized.endsWith("/")
       ? normalized + sourceFilename
       : normalized;
@@ -2051,6 +2082,16 @@ export default class RequestHandler {
     if (!vaultPathIsContained(normalized)) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.PathTraversalNotAllowed,
+      });
+      return;
+    }
+
+    if (
+      !this.settings.enableConfigDirAccess &&
+      vaultPathIsInConfigDir(normalized, this.app.vault.configDir)
+    ) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.ConfigDirAccessNotAllowed,
       });
       return;
     }
@@ -2488,6 +2529,12 @@ export default class RequestHandler {
     if (err instanceof PathTraversalError) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.PathTraversalNotAllowed,
+      });
+      return;
+    }
+    if (err instanceof ConfigDirAccessError) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.ConfigDirAccessNotAllowed,
       });
       return;
     }
