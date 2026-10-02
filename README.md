@@ -16,6 +16,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
     + [Cursor](#cursor)
     + [Other clients](#other-clients)
 - [API overview](#api-overview)
+  * [The configuration directory is off-limits](#the-configuration-directory-is-off-limits)
   * [Browser clients and response headers](#browser-clients-and-response-headers)
 - [Patching notes](#patching-notes)
   * [Raw-content mode](#raw-content-mode)
@@ -180,6 +181,14 @@ Any MCP client that supports the Streamable HTTP transport can connect to `https
 | `/mcp/` | GET POST | MCP (Model Context Protocol) server — connect AI agents directly to your vault |
 
 For full request/response details, see the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/).
+
+### The configuration directory is off-limits
+
+The API refuses to read or write any file inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`) — for both REST and MCP, reads as well as writes. A request for such a path is rejected with `403` (error code `40321`) at the REST layer or a path error from an MCP tool.
+
+That directory holds plugin code and each plugin's `data.json` — including this plugin's own, where your API key is stored. Writing into it is effectively remote code execution, since Obsidian runs an enabled plugin's `main.js`; reading from it leaks those secrets. Blocking it keeps a credential documented as "vault file access" from silently granting more (see [GHSA-66m9-r757-qvq7](https://github.com/coddingtonbear/obsidian-local-rest-api/security/advisories/GHSA-66m9-r757-qvq7)).
+
+If you deliberately manage your Obsidian configuration through the API, turn on **Settings → Local REST API → Advanced settings → Allow access to the configuration directory**. It is off by default, and turning it on grants every holder of your API key that access.
 
 ### Browser clients and response headers
 
