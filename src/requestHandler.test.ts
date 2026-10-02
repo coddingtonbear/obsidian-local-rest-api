@@ -2903,6 +2903,91 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("configuration directory access (GHSA-66m9-r757-qvq7)", () => {
+    // Writing a plugin here and enabling it is arbitrary code execution; reading
+    // here leaks the API key out of this plugin's own data.json. Blocked for both
+    // reads and writes unless the operator opts in.
+    const configPath = "/vault/.obsidian/plugins/pwn/main.js";
+
+    test("GET a config-dir file is refused with 403 and errorCode 40321", async () => {
+      const res = await request(server)
+        .get(configPath)
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(403);
+      expect(res.body.errorCode).toBe(40321);
+    });
+
+    test("PUT into the config dir is refused with 403 and errorCode 40321", async () => {
+      const res = await request(server)
+        .put(configPath)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("pwned");
+      expect(res.status).toBe(403);
+      expect(res.body.errorCode).toBe(40321);
+    });
+
+    test("POST into the config dir is refused with 403 and errorCode 40321", async () => {
+      const res = await request(server)
+        .post(configPath)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("pwned");
+      expect(res.status).toBe(403);
+      expect(res.body.errorCode).toBe(40321);
+    });
+
+    test("DELETE of a config-dir file is refused with 403 and errorCode 40321", async () => {
+      const res = await request(server)
+        .delete(configPath)
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(403);
+      expect(res.body.errorCode).toBe(40321);
+    });
+
+    test("MOVE into the config dir (destination) is refused", async () => {
+      const res = await request(server)
+        .move("/vault/notes/a.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", ".obsidian/plugins/pwn/main.js");
+      expect(res.status).toBe(403);
+      expect(res.body.errorCode).toBe(40321);
+    });
+
+    test("the config dir itself is refused", async () => {
+      const res = await request(server)
+        .get("/vault/.obsidian")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(403);
+      expect(res.body.errorCode).toBe(40321);
+    });
+
+    test("a sibling directory that merely shares the prefix is not refused", async () => {
+      const res = await request(server)
+        .get("/vault/.obsidian-backup/note.md")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).not.toBe(403);
+    });
+
+    test("GET is allowed when enableConfigDirAccess is on", async () => {
+      settings.enableConfigDirAccess = true;
+      const res = await request(server)
+        .get(configPath)
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(200);
+    });
+
+    test("PUT is allowed when enableConfigDirAccess is on", async () => {
+      settings.enableConfigDirAccess = true;
+      const res = await request(server)
+        .put(configPath)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("ok");
+      expect(res.status).toBe(204);
+    });
+  });
+
   describe("URL path decoding — literal slashes in a target", () => {
     // A `/` inside a heading name is a real thing (e.g. "TODO/DONE"). It reaches
     // the API percent-encoded as %2F; the path must split on the *raw* slashes

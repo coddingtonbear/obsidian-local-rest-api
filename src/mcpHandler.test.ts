@@ -71,6 +71,7 @@ function makeMockOps() {
   return {
     app: {
       vault: {
+        configDir: ".obsidian",
         getAbstractFileByPath: jest.fn().mockReturnValue(mockFile),
       },
       workspace: {
@@ -1901,6 +1902,77 @@ describe("McpHandler", () => {
       await expect(cb({ path: "missing.md", destination: "dest.md" })).rejects.toThrow(
         "File not found",
       );
+    });
+  });
+
+  // ---- configuration directory access -------------------------------------
+
+  describe("configuration directory access (GHSA-66m9-r757-qvq7)", () => {
+    const CONFIG_PATHS = [
+      ".obsidian",
+      ".obsidian/community-plugins.json",
+      ".obsidian/plugins/pwn/main.js",
+    ];
+
+    describe("is refused by default", () => {
+      beforeEach(() => {
+        buildServer(new McpHandler(ops, DEFAULT_SETTINGS));
+      });
+
+      test.each(CONFIG_PATHS)("vault_write refuses %s", async (path) => {
+        await expect(
+          getToolCallback("vault_write")({ path, content: "x" }),
+        ).rejects.toThrow(/configuration directory/i);
+        expect(ops.writeFileContent).not.toHaveBeenCalled();
+      });
+
+      test.each(CONFIG_PATHS)("vault_append refuses %s", async (path) => {
+        await expect(
+          getToolCallback("vault_append")({ path, content: "x" }),
+        ).rejects.toThrow(/configuration directory/i);
+        expect(ops.appendFileContent).not.toHaveBeenCalled();
+      });
+
+      test("vault_delete refuses a config path", async () => {
+        await expect(
+          getToolCallback("vault_delete")({ path: ".obsidian/app.json" }),
+        ).rejects.toThrow(/configuration directory/i);
+        expect(ops.deleteVaultFile).not.toHaveBeenCalled();
+      });
+
+      test("open_file refuses a config path", async () => {
+        await expect(
+          getToolCallback("open_file")({ path: ".obsidian/app.json" }),
+        ).rejects.toThrow(/configuration directory/i);
+        expect(ops.openVaultFile).not.toHaveBeenCalled();
+      });
+
+      test("a sibling directory that merely shares the prefix is allowed", async () => {
+        await getToolCallback("vault_write")({
+          path: ".obsidian-backup/note.md",
+          content: "x",
+        });
+        expect(ops.writeFileContent).toHaveBeenCalled();
+      });
+    });
+
+    describe("is permitted when the setting is on", () => {
+      beforeEach(() => {
+        buildServer(
+          new McpHandler(ops, {
+            ...DEFAULT_SETTINGS,
+            enableConfigDirAccess: true,
+          }),
+        );
+      });
+
+      test("vault_write writes into the config directory", async () => {
+        await getToolCallback("vault_write")({
+          path: ".obsidian/plugins/pwn/main.js",
+          content: "x",
+        });
+        expect(ops.writeFileContent).toHaveBeenCalled();
+      });
     });
   });
 

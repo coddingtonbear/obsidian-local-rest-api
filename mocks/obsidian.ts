@@ -67,6 +67,7 @@ class DataAdapter {
 }
 
 export class Vault {
+  configDir = ".obsidian";
   _getAbstractFileByPath: TFile | null = new TFile();
   _read = "";
   _cachedRead = "";
