@@ -1,4 +1,4 @@
-import * as fs from "fs";
+import fs from "fs";
 import path, { posix } from "path";
 import { FileSystemAdapter, type DataAdapter } from "obsidian";
 
@@ -222,6 +222,7 @@ function memoisingOnDisk(onDisk: OnDiskAccess): OnDiskAccess {
   const answers = new Map<string, string | undefined>();
   return {
     basePath: onDisk.basePath,
+    readlink: onDisk.readlink,
     realpath: (absolutePath) => {
       if (answers.has(absolutePath)) {
         const answer = answers.get(absolutePath);
@@ -250,6 +251,10 @@ function memoisingOnDisk(onDisk: OnDiskAccess): OnDiskAccess {
 export interface OnDiskAccess {
   basePath: string;
   realpath: (absolutePath: string) => string;
+  /** The target stored in the symlink at `absolutePath`, as readlink reports
+   *  it (possibly relative to the link's own directory), or undefined when the
+   *  path is not a symlink or is not there. */
+  readlink: (absolutePath: string) => string | undefined;
 }
 
 /** The on-disk access the running adapter affords, or undefined when it affords
@@ -261,6 +266,13 @@ export function onDiskAccessFor(adapter: DataAdapter): OnDiskAccess | undefined 
   return {
     basePath: adapter.getBasePath(),
     realpath: (absolutePath) => fs.realpathSync.native(absolutePath),
+    readlink: (absolutePath) => {
+      try {
+        return fs.readlinkSync(absolutePath);
+      } catch {
+        return undefined; // EINVAL: not a link; ENOENT: not there. Same answer.
+      }
+    },
   };
 }
 
@@ -274,24 +286,49 @@ function vaultRelativeSegments(candidate: string): string[] {
 }
 
 /** Where a vault-relative path lands on disk, or undefined when the disk cannot
- *  say. The path need not exist: the deepest ancestor that does is resolved and
- *  the remainder joined back on, since a write to "OBSIDI~1/plugins/new/main.js"
- *  lands under the real ".obsidian" even though "new" is not there yet.
- *
- *  The whole path is tried first, so an existing path costs one call. A missing
- *  one is then walked from the vault root *down*, stopping at the first
- *  component that is not there: the work is bounded by how deep the vault
- *  really is, not by how many components a request names, which is what keeps
- *  a long bogus path from turning synchronous realpath calls into a stall.
- *  Nothing above the vault root is consulted; if the root itself cannot be
- *  resolved the caller falls back to the textual check alone. */
+ *  say. See {@link locate} for the rules; this fixes the start at the vault. */
 function onDiskLocation(
   segments: string[],
   onDisk: OnDiskAccess,
 ): string | undefined {
+  return locate(onDisk.basePath, segments, onDisk, 0);
+}
+
+/** How many symlinks a single path may pass through before the walk gives up.
+ *  The kernels' own limit is 40 (ELOOP); nothing a vault owner meant to work
+ *  comes near it. */
+const MAX_LINK_HOPS = 32;
+
+/** Where `root/…segments` lands on disk, or undefined when the disk cannot say.
+ *
+ *  The path need not exist: a write to "OBSIDI~1/plugins/new/main.js" lands
+ *  under the real ".obsidian" even though "new" is not there yet, so the
+ *  deepest ancestor that does exist is resolved and the remainder joined on.
+ *
+ *  The whole path is tried first, so an existing path costs one call. A missing
+ *  one is then walked from the root *down*, stopping at the first component
+ *  that is not there: the work is bounded by how deep the disk really is, not
+ *  by how many components a request names, which is what keeps a long bogus
+ *  path from turning synchronous realpath calls into a stall.
+ *
+ *  A component realpath cannot resolve is not necessarily missing: it may be a
+ *  symlink whose *target* is missing, and a write through such a link creates
+ *  the target. "notes/upload.bin" linking to a not-yet-existing
+ *  ".obsidian/plugins/demo/main.js" is a plugin install. So the component is
+ *  asked whether it is a link, and if so its target -- resolved against the
+ *  link's directory, as the OS would -- is located the same way, with the
+ *  remainder joined on. A chain of links is followed up to
+ *  {@link MAX_LINK_HOPS}; past that, or if the root itself cannot be resolved,
+ *  the answer is undefined and the caller falls back to the textual check. */
+function locate(
+  root: string,
+  segments: string[],
+  onDisk: OnDiskAccess,
+  hops: number,
+): string | undefined {
   const attempt = (prefix: string[]): string | undefined => {
     try {
-      return onDisk.realpath(path.join(onDisk.basePath, ...prefix));
+      return onDisk.realpath(path.join(root, ...prefix));
     } catch {
       return undefined;
     }
@@ -300,14 +337,29 @@ function onDiskLocation(
   if (whole !== undefined) return whole;
   let resolved = attempt([]);
   if (resolved === undefined) return undefined;
-  for (let depth = 1; depth < segments.length; depth++) {
+  for (let depth = 1; depth <= segments.length; depth++) {
     const next = attempt(segments.slice(0, depth));
-    if (next === undefined) {
-      return path.join(resolved, ...segments.slice(depth - 1));
+    if (next !== undefined) {
+      resolved = next;
+      continue;
     }
-    resolved = next;
+    const here = path.join(root, ...segments.slice(0, depth));
+    const remainder = segments.slice(depth);
+    const linkTarget = onDisk.readlink(here);
+    if (linkTarget === undefined) {
+      return path.join(resolved, segments[depth - 1], ...remainder);
+    }
+    if (hops >= MAX_LINK_HOPS) return undefined;
+    const target = path.resolve(path.dirname(here), linkTarget);
+    const targetRoot = path.parse(target).root;
+    const targetSegments = target
+      .slice(targetRoot.length)
+      .split(/[\\/]+/)
+      .filter((segment) => segment !== "");
+    const landed = locate(targetRoot, targetSegments, onDisk, hops + 1);
+    return landed === undefined ? undefined : path.join(landed, ...remainder);
   }
-  return path.join(resolved, ...segments.slice(-1));
+  return resolved;
 }
 
 /** Throw {@link ConfigDirAccessError} when `candidate` is inside the configuration

@@ -580,6 +580,21 @@ export default class RequestHandler {
     return segments;
   }
 
+  /** Let a refusal from the authorization gate out of an endpoint-local catch.
+   *
+   *  Those catches map the errors their operation is known to throw -- not
+   *  found, patch failed -- and answer anything else with a 500 or a coarse
+   *  client error. A PathTraversalError or ConfigDirAccessError is neither: it
+   *  is the gate in VaultOperations refusing a path the boundary never saw
+   *  (`/active/` takes its path from the workspace, not the client), and it has
+   *  to reach `errorHandler`, which answers it with the policy's own status and
+   *  error code. Called first in any catch that would otherwise swallow it. */
+  private rethrowIfRefused(error: unknown): void {
+    if (error instanceof PathTraversalError || error instanceof ConfigDirAccessError) {
+      throw error;
+    }
+  }
+
   /** Whether a contained, vault-relative path is Obsidian's configuration
    *  directory or inside it -- by spelling, and by where it lands on disk, so an
    *  NTFS 8.3 short name or a symlink cannot reach it under another name. */
@@ -1379,6 +1394,7 @@ export default class RequestHandler {
       );
       res.status(200).send(patched);
     } catch (e) {
+      this.rethrowIfRefused(e);
       if (e instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else if (e instanceof PatchFailed) {
@@ -1627,6 +1643,7 @@ export default class RequestHandler {
       res.setHeader("Content-Type", ContentTypes.markdown + "; charset=utf-8");
       res.status(200).send(result.document);
     } catch (e) {
+      this.rethrowIfRefused(e);
       if (e instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else if (e instanceof PreconditionFailedError) {
@@ -1743,6 +1760,7 @@ export default class RequestHandler {
         );
         res.status(200).send(patched);
       } catch (e) {
+        this.rethrowIfRefused(e);
         if (e instanceof FileNotFoundError) {
           this.returnCannedResponse(res, { statusCode: 404 });
         } else if (e instanceof PatchFailed) {
@@ -1927,6 +1945,7 @@ export default class RequestHandler {
     try {
       await this.operations.deleteVaultFile(path, permanent);
     } catch (e) {
+      this.rethrowIfRefused(e);
       if (e instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else {

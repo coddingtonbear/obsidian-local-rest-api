@@ -869,7 +869,13 @@ describe("a write through a dangling symlink into the config dir is refused", ()
     const app = new App();
     app.vault.adapter = new FileSystemAdapter("/vault");
     jest.spyOn(fs.realpathSync, "native").mockImplementation(
-      fakeRealpath({}, ["/vault", "/vault/notes", "/vault/.obsidian", "/vault/.obsidian/plugins"]),
+      fakeRealpath({}, [
+        "/",
+        "/vault",
+        "/vault/notes",
+        "/vault/.obsidian",
+        "/vault/.obsidian/plugins",
+      ]),
     );
     jest.spyOn(fs, "readlinkSync").mockImplementation((p) => {
       const target = fakeReadlink({

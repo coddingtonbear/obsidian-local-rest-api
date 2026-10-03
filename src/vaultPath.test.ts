@@ -1,4 +1,4 @@
-import * as fs from "fs";
+import fs from "fs";
 import { DataAdapter, FileSystemAdapter } from "../mocks/obsidian";
 import { fakeReadlink, fakeRealpath } from "../mocks/disk";
 import {
@@ -419,7 +419,10 @@ describe("a dangling symlink is followed to where a write would land", () => {
   // realpath cannot resolve is asked whether it is a link, and if so its
   // target is resolved the same way.
   const configDir = ".obsidian";
+  // A link target is resolved from the filesystem root down, so the fake disk
+  // has to know the root exists, as a real one always does.
   const existing = [
+    "/",
     "/vault",
     "/vault/notes",
     "/vault/.obsidian",
