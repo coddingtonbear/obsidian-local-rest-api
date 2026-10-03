@@ -152,9 +152,14 @@ export function vaultPathIsInConfigDir(
 ): boolean {
   if (isInConfigDirBySpelling(candidate, configDir)) return true;
   if (onDisk === undefined) return false;
-  const configOnDisk = onDiskLocation(vaultRelativeSegments(configDir), onDisk);
-  const candidateOnDisk = onDiskLocation(vaultRelativeSegments(candidate), onDisk);
-  return sameOrBeneath(candidateOnDisk, configOnDisk);
+  try {
+    const configOnDisk = onDiskLocation(vaultRelativeSegments(configDir), onDisk);
+    const candidateOnDisk = onDiskLocation(vaultRelativeSegments(candidate), onDisk);
+    return sameOrBeneath(candidateOnDisk, configOnDisk);
+  } catch (error) {
+    if (error instanceof UnfinishedWalkError) return true;
+    throw error;
+  }
 }
 
 /** {@link vaultPathIsInConfigDir} for checking many paths in one pass -- a
@@ -180,13 +185,23 @@ export function configDirMatcher(
     return (candidate) => isInConfigDirBySpelling(candidate, configDir);
   }
   const memoised = memoisingOnDisk(onDisk);
-  const configOnDisk = onDiskLocation(vaultRelativeSegments(configDir), memoised);
+  const located = (segments: string[]): string | undefined | UnfinishedWalkError => {
+    try {
+      return onDiskLocation(segments, memoised);
+    } catch (error) {
+      if (error instanceof UnfinishedWalkError) return error;
+      throw error;
+    }
+  };
+  const configOnDisk = located(vaultRelativeSegments(configDir));
   return (candidate) => {
     if (isInConfigDirBySpelling(candidate, configDir)) return true;
+    if (configOnDisk instanceof UnfinishedWalkError) return true;
     if (configOnDisk === undefined) return false;
     const segments = vaultRelativeSegments(candidate);
     const name = segments.pop();
-    const parentOnDisk = onDiskLocation(segments, memoised);
+    const parentOnDisk = located(segments);
+    if (parentOnDisk instanceof UnfinishedWalkError) return true;
     if (parentOnDisk === undefined) return false;
     const candidateOnDisk =
       name === undefined ? parentOnDisk : path.join(parentOnDisk, name);
@@ -295,9 +310,18 @@ function onDiskLocation(
 }
 
 /** How many symlinks a single path may pass through before the walk gives up.
- *  The kernels' own limit is 40 (ELOOP); nothing a vault owner meant to work
- *  comes near it. */
-const MAX_LINK_HOPS = 32;
+ *  Linux refuses a path with more than 40 (ELOOP), so on the platform where a
+ *  chain this long could even resolve, the guard and the kernel agree. Nothing
+ *  a vault owner meant to work comes near it. */
+export const MAX_LINK_HOPS = 40;
+
+/** Thrown when the walk passed {@link MAX_LINK_HOPS} links without reaching the
+ *  end of the path. The disk could not say where the path lands, and saying
+ *  "not the config dir" would be a guess a write could prove wrong, so callers
+ *  treat it as a refusal. Distinct from the undefined a caller gets when the
+ *  vault root itself cannot be resolved: that is the environment failing, not a
+ *  property of the path, and there the textual check is all there is. */
+class UnfinishedWalkError extends Error {}
 
 /** Where `root/…segments` lands on disk, or undefined when the disk cannot say.
  *
@@ -318,8 +342,9 @@ const MAX_LINK_HOPS = 32;
  *  asked whether it is a link, and if so its target -- resolved against the
  *  link's directory, as the OS would -- is located the same way, with the
  *  remainder joined on. A chain of links is followed up to
- *  {@link MAX_LINK_HOPS}; past that, or if the root itself cannot be resolved,
- *  the answer is undefined and the caller falls back to the textual check. */
+ *  {@link MAX_LINK_HOPS}; past that the walk throws {@link UnfinishedWalkError}
+ *  rather than guess. If the root itself cannot be resolved the answer is
+ *  undefined and the caller falls back to the textual check. */
 function locate(
   root: string,
   segments: string[],
@@ -349,7 +374,9 @@ function locate(
     if (linkTarget === undefined) {
       return path.join(resolved, segments[depth - 1], ...remainder);
     }
-    if (hops >= MAX_LINK_HOPS) return undefined;
+    if (hops >= MAX_LINK_HOPS) {
+      throw new UnfinishedWalkError(`More than ${MAX_LINK_HOPS} links at ${here}`);
+    }
     const target = path.resolve(path.dirname(here), linkTarget);
     const targetRoot = path.parse(target).root;
     const targetSegments = target
