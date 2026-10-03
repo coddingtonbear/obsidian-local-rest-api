@@ -227,6 +227,32 @@ describe("MCP resources", () => {
     expect(res.resources.some((r) => r.name === "openapi-spec")).toBe(true);
   });
 
+  test("server-status resource is listed", async () => {
+    const res = await client.listResources();
+    expect(res.resources).toContainEqual(
+      expect.objectContaining({
+        name: "server-status",
+        uri: "obsidian://local-rest-api/status",
+        mimeType: "application/json",
+      }),
+    );
+  });
+
+  test("server-status resource mirrors the authenticated GET / document", async () => {
+    const res = await client.readResource({ uri: "obsidian://local-rest-api/status" });
+    const item = res.contents[0];
+    const text = item && "text" in item ? item.text : undefined;
+    expect(typeof text).toBe("string");
+    const viaMcp = JSON.parse(text);
+    const viaRest = await (await authedFetch("/")).json();
+
+    expect(viaMcp.status).toBe("OK");
+    expect(viaMcp.authenticated).toBe(true);
+    expect(viaMcp.versions).toEqual(viaRest.versions);
+    expect(Object.keys(viaMcp).sort()).toEqual(Object.keys(viaRest).sort());
+    expect(viaMcp.state.metadataCache.listeningSince).toBe(viaRest.state.metadataCache.listeningSince);
+  });
+
   test("openapi-spec content contains 'openapi:'", async () => {
     const res = await client.readResource({
       uri: "obsidian://local-rest-api/openapi.yaml",

@@ -171,3 +171,119 @@ describe("OpenApiSpec", () => {
     expect(spec.yaml()).toBe(openapiYaml);
   });
 });
+
+describe("OpenApiSpec state schemas", () => {
+  interface StateSchema {
+    properties: Record<string, OpenApiObject>;
+  }
+
+  function stateSchemaOf(document: unknown): StateSchema {
+    const paths = (document as { paths: Record<string, OpenApiObject> }).paths;
+    const get = paths["/"].get as { responses: Record<string, OpenApiObject> };
+    const content = get.responses["200"].content as Record<
+      string,
+      { schema: { properties: Record<string, StateSchema> } }
+    >;
+    return content["application/json"].schema.properties.state;
+  }
+
+  const indexerState = {
+    description: "Indexing progress.",
+    schema: {
+      type: "object",
+      required: ["ready"],
+      properties: { ready: { type: "boolean" }, pending: { type: "integer" } },
+    },
+  };
+
+  test("the host documents its own metadataCache namespace", () => {
+    const host = stateSchemaOf(parse(openapiYaml));
+    expect(host.properties.metadataCache).toMatchObject({ type: "object" });
+    const fields = (host.properties.metadataCache as { properties: Record<string, OpenApiObject> })
+      .properties;
+    expect(Object.keys(fields).sort()).toEqual(["lastActivityAt", "lastResolvedAt", "listeningSince"]);
+  });
+
+  test("documents an extension's state under GET /, marked with its plugin id", () => {
+    const spec = new OpenApiSpec(openapiYaml);
+    spec.addStateSchema("vault-indexer", indexerState);
+
+    const merged = parse(spec.yaml());
+    expect(stateSchemaOf(merged).properties["vault-indexer"]).toEqual({
+      ...indexerState.schema,
+      description: indexerState.description,
+      [EXTENSION_PATH_MARKER]: "vault-indexer",
+    });
+    expect(stateSchemaOf(merged).properties.metadataCache).toEqual(
+      stateSchemaOf(parse(openapiYaml)).properties.metadataCache,
+    );
+    expect(spec.json()).toEqual(merged);
+  });
+
+  test("publishes a free-form object when the extension gives no schema", () => {
+    const spec = new OpenApiSpec(openapiYaml);
+    spec.addStateSchema("publisher", { description: "Publishing status." });
+    expect(stateSchemaOf(spec.json()).properties.publisher).toEqual({
+      type: "object",
+      additionalProperties: true,
+      description: "Publishing status.",
+      [EXTENSION_PATH_MARKER]: "publisher",
+    });
+  });
+
+  test("the extension's description wins over one inside its schema", () => {
+    const spec = new OpenApiSpec(openapiYaml);
+    spec.addStateSchema("publisher", {
+      description: "Outer.",
+      schema: { type: "object", description: "Inner." },
+    });
+    expect(stateSchemaOf(spec.json()).properties.publisher.description).toBe("Outer.");
+  });
+
+  test("removing a state schema restores the host spec byte for byte", () => {
+    const spec = new OpenApiSpec(openapiYaml);
+    const remove = spec.addStateSchema("vault-indexer", indexerState);
+    expect(spec.yaml()).not.toBe(openapiYaml);
+    remove();
+    expect(spec.yaml()).toBe(openapiYaml);
+    remove();
+    expect(spec.yaml()).toBe(openapiYaml);
+  });
+
+  test("refuses a second schema for the same extension", () => {
+    const spec = new OpenApiSpec(openapiYaml);
+    spec.addStateSchema("vault-indexer", indexerState);
+    expect(() => spec.addStateSchema("vault-indexer", indexerState)).toThrow(/already/);
+  });
+
+  test("refuses a schema for a namespace the host documents", () => {
+    const spec = new OpenApiSpec(openapiYaml);
+    expect(() => spec.addStateSchema("metadataCache", indexerState)).toThrow(/already/);
+  });
+
+  test("publishes a copy, so later mutation by the extension changes nothing", () => {
+    const spec = new OpenApiSpec(openapiYaml);
+    const schema: OpenApiObject = { type: "object", properties: { ready: { type: "boolean" } } };
+    spec.addStateSchema("vault-indexer", { description: "Indexing progress.", schema });
+    (schema.properties as Record<string, unknown>).leaked = { type: "string" };
+    const published = stateSchemaOf(spec.json()).properties["vault-indexer"] as {
+      properties: Record<string, unknown>;
+    };
+    expect(published.properties.leaked).toBeUndefined();
+  });
+
+  test("coexists with route contributions and is removed independently", () => {
+    const spec = new OpenApiSpec(openapiYaml);
+    const removeRoutes = spec.add("vault-indexer", widgetDescription);
+    const removeState = spec.addStateSchema("vault-indexer", indexerState);
+    expect(stateSchemaOf(spec.json()).properties["vault-indexer"]).toBeDefined();
+    expect(spec.json().paths).toHaveProperty(["/widgets/{id}/"]);
+
+    removeState();
+    expect(stateSchemaOf(spec.json()).properties["vault-indexer"]).toBeUndefined();
+    expect(spec.json().paths).toHaveProperty(["/widgets/{id}/"]);
+
+    removeRoutes();
+    expect(spec.yaml()).toBe(openapiYaml);
+  });
+});

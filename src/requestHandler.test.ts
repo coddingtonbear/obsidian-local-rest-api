@@ -128,6 +128,162 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("state", () => {
+    const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+    function registerExtension(id: string): LocalRestApiPublicApi {
+      const extManifest = Object.assign(new PluginManifest(), { id, name: id, version: "1.0.0" });
+      // @ts-ignore: mock PluginManifest is close enough for runtime
+      return handler.registerApiExtension(extManifest);
+    }
+
+    function getRoot(): request.Test {
+      return request(server).get("/").set("Authorization", `Bearer ${API_KEY}`).expect(200);
+    }
+
+    test("is withheld from unauthenticated callers", async () => {
+      const result = await request(server).get("/").expect(200);
+      expect(result.body.state).toBeUndefined();
+    });
+
+    test("reports what the plugin has heard from the metadata cache", async () => {
+      const before = await getRoot();
+      expect(before.body.state.metadataCache).toEqual({
+        listeningSince: expect.stringMatching(ISO),
+        lastResolvedAt: null,
+        lastActivityAt: null,
+      });
+
+      app.metadataCache._emit("resolved");
+
+      const after = await getRoot();
+      const { listeningSince, lastResolvedAt, lastActivityAt } = after.body.state.metadataCache;
+      expect(listeningSince).toBe(before.body.state.metadataCache.listeningSince);
+      expect(lastResolvedAt).toMatch(ISO);
+      expect(lastActivityAt).toBe(lastResolvedAt);
+      expect(Date.parse(lastResolvedAt)).toBeGreaterThanOrEqual(Date.parse(listeningSince));
+    });
+
+    test("includes each extension's state under its plugin id", async () => {
+      registerExtension("vault-indexer").addState({
+        description: "Indexing progress.",
+        read: async () => ({ ready: false, pending: 3 }),
+      });
+      registerExtension("publisher").addState({
+        description: "Publishing status.",
+        read: async () => ({ lastPublishedAt: null }),
+      });
+
+      const result = await getRoot();
+      expect(result.body.state).toEqual({
+        metadataCache: expect.any(Object),
+        "vault-indexer": { ready: false, pending: 3 },
+        publisher: { lastPublishedAt: null },
+      });
+    });
+
+    test("reads the extension's state afresh on every request", async () => {
+      let pending = 3;
+      registerExtension("vault-indexer").addState({
+        description: "Indexing progress.",
+        read: async () => ({ pending }),
+      });
+      expect((await getRoot()).body.state["vault-indexer"]).toEqual({ pending: 3 });
+      pending = 0;
+      expect((await getRoot()).body.state["vault-indexer"]).toEqual({ pending: 0 });
+    });
+
+    test("serves null for an extension whose read fails, leaving the rest intact", async () => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+      registerExtension("broken").addState({
+        description: "Never works.",
+        read: async () => {
+          throw new Error("boom");
+        },
+      });
+      registerExtension("fine").addState({ description: "Works.", read: async () => ({ ok: true }) });
+
+      const result = await getRoot();
+      expect(result.body.state.broken).toBeNull();
+      expect(result.body.state.fine).toEqual({ ok: true });
+      expect(result.body.state.metadataCache).toBeDefined();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("broken"), expect.anything());
+      warn.mockRestore();
+    });
+
+    test("waits no longer than the configured budget for an extension", async () => {
+      jest.spyOn(console, "warn").mockImplementation(() => undefined);
+      settings.stateReadTimeoutMs = 20;
+      registerExtension("slow").addState({
+        description: "Takes its time.",
+        read: () => new Promise((resolve) => setTimeout(() => resolve({ late: true }), 200)),
+      });
+
+      const started = Date.now();
+      const result = await getRoot();
+      expect(Date.now() - started).toBeLessThan(150);
+      expect(result.body.state.slow).toBeNull();
+    });
+
+    test("unregister removes the extension's state", async () => {
+      const api = registerExtension("gone");
+      api.addState({ description: "Here for now.", read: async () => ({ here: true }) });
+      expect((await getRoot()).body.state.gone).toEqual({ here: true });
+
+      api.unregister();
+      expect((await getRoot()).body.state.gone).toBeUndefined();
+      expect(() => api.addState({ description: "Too late.", read: async () => ({}) })).toThrow(
+        /unregistered/,
+      );
+    });
+
+    test("an extension may register its state only once", () => {
+      const api = registerExtension("twice");
+      api.addState({ description: "First.", read: async () => ({}) });
+      expect(() => api.addState({ description: "Second.", read: async () => ({}) })).toThrow(
+        /already/,
+      );
+    });
+
+    test("an extension cannot take a namespace the host reserves", () => {
+      expect(() =>
+        registerExtension("metadataCache").addState({ description: "Impostor.", read: async () => ({}) }),
+      ).toThrow(/reserved/);
+    });
+
+    test("documents the extension's state in the published OpenAPI spec", async () => {
+      const api = registerExtension("vault-indexer");
+      api.addState({
+        description: "Indexing progress.",
+        schema: {
+          type: "object",
+          required: ["ready"],
+          properties: { ready: { type: "boolean" }, pending: { type: "integer" } },
+        },
+        read: async () => ({ ready: true, pending: 0 }),
+      });
+
+      const stateSchema = async () => {
+        const spec = await request(server).get("/openapi.json").expect(200);
+        return spec.body.paths["/"].get.responses["200"].content["application/json"].schema
+          .properties.state;
+      };
+
+      const documented = await stateSchema();
+      expect(documented.properties["vault-indexer"]).toEqual({
+        type: "object",
+        description: "Indexing progress.",
+        required: ["ready"],
+        properties: { ready: { type: "boolean" }, pending: { type: "integer" } },
+        "x-obsidian-extension": "vault-indexer",
+      });
+      expect(documented.properties.metadataCache).toBeDefined();
+
+      api.unregister();
+      expect((await stateSchema()).properties["vault-indexer"]).toBeUndefined();
+    });
+  });
+
   describe("certificateGet", () => {
     const certPath = `/${CERT_NAME}`;
 
@@ -4840,10 +4996,10 @@ describe("requestHandler", () => {
       expect(mockCleanup).toHaveBeenCalledTimes(1);
     });
 
-    test("reports API version 3", () => {
+    test("reports API version 4", () => {
       const extManifest = Object.assign(new PluginManifest(), { id: "test-plugin-version" });
       // @ts-ignore: mock PluginManifest is close enough for runtime
-      expect(handler.registerApiExtension(extManifest).apiVersion).toBe(3);
+      expect(handler.registerApiExtension(extManifest).apiVersion).toBe(4);
     });
 
     test("the object form of addMcpTool registers a tool definition", () => {
