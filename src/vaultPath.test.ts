@@ -30,6 +30,11 @@ describe("vaultPathIsContained", () => {
     ["a name that merely starts with '..'", "..hidden.md"],
     ["a colon below the top level", "notes/C:not-a-drive.md"],
     ["a colon that is not a drive letter", "CC:notes.md"],
+    // Stripping trailing dots and spaces only ever moves a component toward
+    // "..": a name that merely ends in them stays an ordinary name.
+    ["a name with a trailing space", "notes /a.md"],
+    ["a name with a trailing dot and space", "notes. /a.md"],
+    ["a single dot with a trailing space", ". /a.md"],
   ] as const;
 
   const escaping = [
@@ -43,6 +48,14 @@ describe("vaultPathIsContained", () => {
     ["a windows-style traversal", "..\\..\\outside.md"],
     ["a mixed-separator traversal", "notes\\../../outside.md"],
     ["a UNC-style absolute path", "\\\\server\\share\\file.md"],
+    // Win32 strips trailing dots and spaces from every path component before
+    // it looks anything up, so each of these is ".." there.
+    ["a '..' with a trailing space", ".. /outside.md"],
+    ["a '..' with trailing spaces", "..  /outside.md"],
+    ["a '..' with a trailing space and dot", ".. ./outside.md"],
+    ["a '..' with a trailing dot", "../outside.md".replace("..", "...")],
+    ["a nested '..' with a trailing space", "notes/.. /outside.md"],
+    ["a '..' with a trailing space and a backslash", "notes\\.. \\outside.md"],
     ["a drive-qualified path", "C:/outside.md"],
     ["a drive-qualified path with backslashes", "C:\\outside.md"],
     ["a lowercase drive letter", "c:/outside.md"],

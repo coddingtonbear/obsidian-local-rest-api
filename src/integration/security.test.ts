@@ -60,6 +60,20 @@ describe("GET /vault/{path} — path traversal prevention", () => {
 // PUT — should not be able to write files outside the vault
 // ---------------------------------------------------------------------------
 
+describe("GET /vault/{path} — Win32 dot-space traversal prevention", () => {
+  // Win32 strips trailing dots and spaces from each path component, so ".. " is
+  // ".." there. Read-only: the point is the 400, on every platform.
+  test.each(["/vault/..%20/outside.md", "/vault/...%2Foutside.md", "/vault/notes/..%20./outside.md"])(
+    "rejects %s with 400 and errorCode 40021",
+    async (path) => {
+      const res = await authedFetch(path);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { errorCode?: number };
+      expect(body.errorCode).toBe(40021);
+    },
+  );
+});
+
 describe("PUT /vault/{path} — path traversal prevention", () => {
   test("rejects ..%2F traversal with 400; no file created outside vault", async () => {
     const res = await authedFetch(vaultTraversalUrl(WRITE_CANARY_PATH), {

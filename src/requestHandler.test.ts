@@ -2839,6 +2839,35 @@ describe("requestHandler", () => {
     // Two ..%2F segments are enough to escape the synthetic /vault root.
     const traversal = "/vault/..%2F..%2Fetc%2Fpasswd";
 
+    // Win32 strips trailing dots and spaces from every component, so ".. " is
+    // ".." there and must be refused the same way.
+    test("GET rejects a '.. ' (dot dot space) component with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .get("/vault/..%20/outside.md")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
+    test("PUT rejects a '.. ' (dot dot space) component with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .put("/vault/notes/..%20/outside.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("pwned");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
+    test("MOVE rejects a '.. ' (dot dot space) destination with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .move("/vault/notes/a.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", ".. /outside.md");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
     test("GET rejects ..%2F traversal with 400 and errorCode 40021", async () => {
       const res = await request(server)
         .get(traversal)
