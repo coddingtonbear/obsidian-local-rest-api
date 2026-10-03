@@ -65,10 +65,16 @@ export const CONFIG_DIR_ACCESS_MESSAGE =
  *  "C:outside.md" is drive-relative, which is no better. Anywhere else it names
  *  an NTFS alternate data stream -- "note.md:evil" is a second body on the
  *  note that the index never sees, and "OBSIDI~1:x" is a stream on the config
- *  directory. No vault file has a colon in its name: Obsidian forbids it on
- *  every platform. A NUL byte is refused for the same reason -- it is not a
- *  name, and the filesystem would reject it with an error that is not
- *  "missing".
+ *  directory. Obsidian refuses to create a file with a colon in its name on
+ *  every platform, so the only way one ends up in a vault is from outside
+ *  Obsidian on Linux or macOS, where the filesystem allows it. Such a file is
+ *  unreachable through this API. That is a deliberate limitation, chosen over
+ *  a platform-conditional rule: the guard then behaves the same everywhere,
+ *  a vault that syncs between a Linux machine and a Windows one is held to
+ *  the same rule on both, and the rare file this refuses is one Obsidian
+ *  itself would not have made. A NUL byte is refused for the same reason --
+ *  it is not a name, and the filesystem would reject it with an error that is
+ *  not "missing".
  *
  *  A path with more than {@link MAX_VAULT_PATH_SEGMENTS} components is refused
  *  too: no vault has one, and the cap keeps per-segment work bounded.
