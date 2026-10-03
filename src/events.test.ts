@@ -376,6 +376,88 @@ describe("event streams over REST", () => {
       });
     });
 
+    test.each([
+      ["vault modify", (app: App) => app.vault._emit("modify", file("note.md"))],
+      ["vault create", (app: App) => app.vault._emit("create", file("note.md"))],
+      [
+        "metadataCache changed",
+        (app: App) => app.metadataCache._emit("changed", file("note.md"), "", new CachedMetadata()),
+      ],
+      ["metadataCache resolve", (app: App) => app.metadataCache._emit("resolve", file("note.md"))],
+    ])("a %s event's file carries arrays once startup indexing has finished", async (label, fire) => {
+      // Readiness is a one-way latch, so the event that is itself a change to
+      // the vault does not take the link fields back to null -- the payload is
+      // eventually consistent, like its frontmatter. VaultOperations hears the
+      // event before the stream serializer runs (RequestHandler constructs it
+      // first), which is exactly why this used to stream null, and why it is
+      // pinned.
+      app.metadataCache.resolvedLinks = { "other.md": { "note.md": 1 } };
+      app.metadataCache._emit("resolved");
+      const [emitter, event] = label.split(" ");
+      const grant = await subscribe(`/events/${emitter}/${event}/`);
+      const stream = await open(grant.url);
+      await waitFor(() => handler.events.openStreamCount === 1);
+
+      fire(app);
+
+      const received = await stream.next();
+      expect(received.data.file).toMatchObject({
+        path: "note.md",
+        links: [],
+        backlinks: ["other.md"],
+        unresolvedLinks: [],
+      });
+    });
+
+    test("a vault modify of a file the cache does not index carries its backlinks", async () => {
+      // An attachment has no cache entry of its own, but its backlinks come
+      // from the vault-wide graph and are served once startup has finished.
+      app.metadataCache.resolvedLinks = { "note.md": { "pic.png": 1 } };
+      app.metadataCache._emit("resolved");
+      const grant = await subscribe("/events/vault/modify/");
+      const stream = await open(grant.url);
+      await waitFor(() => handler.events.openStreamCount === 1);
+
+      app.vault._emit("modify", file("pic.png"));
+
+      const received = await stream.next();
+      expect(received.data.file).toMatchObject({
+        path: "pic.png",
+        links: [],
+        backlinks: ["note.md"],
+        unresolvedLinks: [],
+      });
+    });
+
+    test("a non-markdown file's link fields follow readiness like a note's", async () => {
+      // Attachments have no metadata-cache entry, so their NoteJson is built
+      // without one -- but `backlinks` still comes from the vault-wide graph,
+      // and the three fields are documented as null-or-arrays together.
+      app.metadataCache.resolvedLinks = { "note.md": { "pic.png": 1 } };
+      const grant = await subscribe("/events/workspace/file-open/");
+      const stream = await open(grant.url);
+      await waitFor(() => listenerCount(app.workspace, "file-open") === 1);
+
+      app.workspace._emit("file-open", file("pic.png"));
+      const cold = await stream.next();
+      expect(cold.data.file).toMatchObject({
+        path: "pic.png",
+        links: null,
+        backlinks: null,
+        unresolvedLinks: null,
+      });
+
+      app.metadataCache._emit("resolved");
+      app.workspace._emit("file-open", file("pic.png"));
+      const settled = await stream.next();
+      expect(settled.data.file).toMatchObject({
+        path: "pic.png",
+        links: [],
+        backlinks: ["note.md"],
+        unresolvedLinks: [],
+      });
+    });
+
     test("workspace active-leaf-change sends only the path and view type", async () => {
       const grant = await subscribe("/events/workspace/active-leaf-change/");
       const stream = await open(grant.url);

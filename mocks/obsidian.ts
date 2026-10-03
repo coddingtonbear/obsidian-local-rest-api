@@ -210,6 +210,10 @@ export class CachedMetadata {
 }
 
 export class MetadataCache {
+  // Obsidian's undocumented one-way "startup indexing finished" flag. Absent
+  // (undefined) by default, as it is in the public typings; tests of the
+  // signal set it true or false.
+  initialized: boolean | undefined = undefined;
   _getFileCache: CachedMetadata | null = new CachedMetadata();
   _listeners: Map<string, ((...data: unknown[]) => unknown)[]> = new Map();
   resolvedLinks: Record<string, Record<string, number>> = {};
@@ -254,6 +258,25 @@ export class MetadataCache {
 }
 
 export class Workspace {
+  // True once Obsidian has drawn its layout -- the point after which a vault
+  // with nothing left to index stays silent, and the quiet-period fallback in
+  // VaultOperations.isLinkIndexReady starts counting. False by default so that
+  // "not ready" in a test is a fact about events, not about how many real
+  // seconds the test took; tests of the quiet period set it true before
+  // constructing VaultOperations, or call _setLayoutReady() later.
+  layoutReady = false;
+  _layoutReadyCallbacks: (() => void)[] = [];
+
+  onLayoutReady(callback: () => void): void {
+    if (this.layoutReady) callback();
+    else this._layoutReadyCallbacks.push(callback);
+  }
+
+  _setLayoutReady(): void {
+    this.layoutReady = true;
+    for (const callback of this._layoutReadyCallbacks.splice(0)) callback();
+  }
+
   async openLinkText(
     path: string,
     base: string,

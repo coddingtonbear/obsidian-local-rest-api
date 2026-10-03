@@ -1116,7 +1116,7 @@ export class McpHandler {
     return this.tool(
       "events_get_listener_url",
       dedent`
-        Subscribe to one Obsidian event and return a signed URL that streams matching occurrences as Server-Sent Events (text/event-stream). The URL needs no API key, so a process on your host can follow it -- \`curl -N <url>\`, or an EventSource in a browser -- and act on each event as it arrives. Each message's \`event:\` field is the event name, its \`id:\` is \`<epoch>-<counter>\` (a new epoch or a gap in the counter means events were missed; nothing is replayed), and its data is a JSON object. For the built-in emitters that object is {emitter, event, path, file}, where file is the NoteJson search_query evaluates (without content unless your filter reads file.content), plus oldPath on vault rename, isFolder on vault events, previous ({frontmatter, tags}) on metadataCache deleted, and viewType on workspace active-leaf-change. An extension's events carry whatever payload that extension defines, which need not have path or file.
+        Subscribe to one Obsidian event and return a signed URL that streams matching occurrences as Server-Sent Events (text/event-stream). The URL needs no API key, so a process on your host can follow it -- \`curl -N <url>\`, or an EventSource in a browser -- and act on each event as it arrives. Each message's \`event:\` field is the event name, its \`id:\` is \`<epoch>-<counter>\` (a new epoch or a gap in the counter means events were missed; nothing is replayed), and its data is a JSON object. For the built-in emitters that object is {emitter, event, path, file}, where file is the NoteJson search_query evaluates (without content unless your filter reads file.content; its links, backlinks, and unresolvedLinks are null until Obsidian's startup indexing has finished and arrays after that, current as of the event -- for a vault or metadataCache changed event, that is the graph before Obsidian has re-resolved the change being announced; listen for metadataCache resolved to learn when a pass has finished), plus oldPath on vault rename, isFolder on vault events, previous ({frontmatter, tags}) on metadataCache deleted, and viewType on workspace active-leaf-change. An extension's events carry whatever payload that extension defines, which need not have path or file.
 
         Streamable events -- ${supported}. Plugins extending this server can add their own, with their plugin id as the emitter and a payload they define; ask for an emitter or event that does not exist and the error lists everything currently available. For "a note's frontmatter changed", prefer metadataCache changed over vault modify: vault modify fires before Obsidian has re-read the file's metadata.
 
@@ -1195,6 +1195,8 @@ export class McpHandler {
       "vault_read",
       dedent`
         Read a vault file's content and metadata. Returns a JSON object with: content (full markdown text), path, tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), stat ({ctime, mtime, size}), links (array of vault-relative paths this file links to), backlinks (array of vault-relative paths of files that link here), and unresolvedLinks (array of link text in this file that does not resolve to an existing vault file). Throws if the file does not exist.
+
+        links, backlinks, and unresolvedLinks are null -- all three together -- until Obsidian's startup indexing has finished, which takes a few seconds after Obsidian or the plugin starts. null means "not known yet", not "none"; an empty array means none. If you need them, read the file again a moment later. After startup they are arrays, kept consistent with the vault within milliseconds of a change.
 
         When targetType and target are both provided, returns only the matched section as a plain string (markdown) or JSON value (frontmatter) instead of the full object. To save context, call vault_get_document_map first to identify headings, block IDs, or frontmatter keys, and prefer targeted reads over full reads for anything but short files.
 
@@ -1622,6 +1624,8 @@ export class McpHandler {
         }
 
         Call vault_read on any file (without targeting) to see the exact shape for a real file in this vault, including its actual frontmatter fields.
+
+        links, backlinks, and unresolvedLinks are null for every file -- all three together -- until Obsidian's startup indexing has finished, which takes a few seconds after Obsidian or the plugin starts. A query reading one of them sees null for such a file ({"in": [...]} over it is false), and a query returning one yields null results. A search over these fields that has to be exhaustive -- finding every broken link, say -- should be repeated if any result is null. After startup they are arrays, kept consistent with the vault within milliseconds of a change.
 
         Useful JsonLogic operators:
         - {"==": [a, b]} — equal

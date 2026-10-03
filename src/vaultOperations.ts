@@ -5,7 +5,9 @@ import {
   Command,
   Component,
   MarkdownRenderer,
+  MetadataCache,
   prepareSimpleSearch,
+  TAbstractFile,
   TFile,
 } from "obsidian";
 import path from "path";
@@ -80,6 +82,15 @@ export const METADATA_CACHE_EVENTS = [
 export const VAULT_EVENTS = ["create", "modify", "delete", "rename"] as const;
 
 /**
+ * The metadata-cache events that mean the link graph is moving. `resolved`,
+ * the one left out, means the opposite: a pass has just finished.
+ */
+export const METADATA_CACHE_ACTIVITY_EVENTS = METADATA_CACHE_EVENTS.filter(
+  (event): event is Exclude<(typeof METADATA_CACHE_EVENTS)[number], "resolved"> =>
+    event !== "resolved",
+);
+
+/**
  * How long a built backlinks index may be served before it is rebuilt anyway.
  *
  * The listeners above cover everything Obsidian announces, but "everything it
@@ -90,6 +101,53 @@ export const VAULT_EVENTS = ["create", "modify", "delete", "rename"] as const;
  * one, without depending on any part of Obsidian's API being what we think.
  */
 export const BACKLINKS_INDEX_MAX_AGE_MS = 60_000;
+
+/**
+ * How long the vault must stay quiet, once Obsidian's layout is up, before
+ * startup link resolution is assumed to have finished without any other
+ * signal saying so.
+ *
+ * `links`, `backlinks`, and `unresolvedLinks` are vault-global: which of the
+ * first two a wikilink lands in depends on whether its *target* has been
+ * indexed, and a backlink exists only once the file holding it has. Until
+ * Obsidian's startup indexing has finished, some files have never been
+ * parsed and the fields are wrong for reasons unrelated to the note asked
+ * about, so they are served as null (issue 327). Readiness is a one-way
+ * latch; see {@link VaultOperations.isLinkIndexReady} for what sets it.
+ *
+ * This constant is the last-resort setter. The first `resolved` announces
+ * the end of a resolution pass, and Obsidian's own `metadataCache.initialized`
+ * announces the end of startup -- but a plugin enabled into a vault that
+ * finished long ago (a toggle, a community-plugins reload, a dev rebuild) is
+ * told nothing it was not listening for, and `initialized` is undocumented
+ * and may not exist. Silence is the only evidence such a vault offers, so
+ * after this much of it startup is taken as finished. Before
+ * `workspace.layoutReady` silence proves nothing: a cold Obsidian may still
+ * be loading its persisted cache.
+ *
+ * Because the latch never clears, this fallback carries more weight than it
+ * did when readiness was recomputed per event: a cold start on a large vault
+ * that falls silent for this long after layout-ready while still indexing
+ * would latch early and not self-correct. Accepted because `initialized`
+ * reads false in exactly that state wherever it exists and blocks the
+ * fallback, because indexing is a stream of `changed`/`resolve` events each
+ * of which restarts the period, and because the alternative -- never
+ * latching for a warm-reloaded plugin -- was certain rather than unlikely.
+ */
+export const LINK_INDEX_SETTLE_MS = 5000;
+
+/**
+ * Obsidian's `metadataCache.initialized`, read through a typed narrowing.
+ *
+ * Not in the public typings, so it is never relied on: `undefined` means the
+ * running Obsidian does not expose it (or no longer does), and the caller
+ * falls back to what it can observe. Where it exists it is a one-way flag
+ * for "startup indexing has finished", which is the exact question asked.
+ */
+function metadataCacheInitialized(cache: MetadataCache): boolean | undefined {
+  const flag = (cache as { initialized?: unknown }).initialized;
+  return typeof flag === "boolean" ? flag : undefined;
+}
 
 /**
  * Writes go through Vault.modify/Vault.create rather than Vault.adapter.write.
@@ -106,27 +164,74 @@ export class VaultOperations {
   private cachedBacklinksIndexBuiltAt = 0;
 
   /**
-   * Called whenever Obsidian says anything at all has happened.
+   * Whether startup link resolution has finished. A one-way latch, mirroring
+   * Obsidian's own undocumented `metadataCache.initialized`: Obsidian never
+   * re-enters the partially-indexed state short of a restart, which restarts
+   * this plugin too. Set by {@link isLinkIndexReady}; never cleared.
+   */
+  private linkIndexReady = false;
+  /** When Obsidian last announced indexing activity; see {@link LINK_INDEX_SETTLE_MS}. */
+  private linkIndexLastActivityAt = Date.now();
+
+  /**
+   * Called whenever Obsidian says anything has happened, other than that
+   * resolution has finished.
    *
    * Deliberately one handler for every announcement rather than a targeted
-   * update per event: rebuilding is the same work the uncached code did on
-   * every request, so an invalidation too many costs a scan we were paying for
-   * anyway, while one too few serves a client stale backlinks.
+   * update per event: rebuilding the backlinks index is the same work the
+   * uncached code did on every request, so an invalidation too many costs a
+   * scan we were paying for anyway, while one too few serves a client stale
+   * backlinks. For readiness the same announcement only restarts the quiet
+   * period, and only until the latch sets: a cold start that is still
+   * emitting `resolve` events keeps waiting, and a settled vault is not
+   * un-settled by being edited.
    */
-  private readonly invalidateBacklinksIndex = (): void => {
+  private readonly onVaultActivity = (): void => {
     this.cachedBacklinksIndex = null;
+    if (!this.linkIndexReady) this.linkIndexLastActivityAt = Date.now();
+  };
+
+  /**
+   * `vault modify` alone: counted as indexing activity only for a file the
+   * metadata cache indexes.
+   *
+   * An attachment, a drawing, a plugin's data file being rewritten is not
+   * indexing, and one that autosaves every few seconds would otherwise keep a
+   * plugin enabled into an already-indexed vault -- which never sees a
+   * `resolved` -- from ever latching. The backlinks cache is still dropped,
+   * since that costs a scan rather than a client's trust. `create`, `delete`,
+   * and `rename` stay unconditional: a path of any type appearing or
+   * vanishing is something Obsidian re-resolves over.
+   */
+  private readonly onVaultModify = (file: TAbstractFile): void => {
+    if (file instanceof TFile && file.extension === "md") {
+      this.onVaultActivity();
+    } else {
+      this.cachedBacklinksIndex = null;
+    }
+  };
+
+  /** Called when Obsidian announces a vault-wide resolution pass has finished. */
+  private readonly onLinksResolved = (): void => {
+    this.cachedBacklinksIndex = null;
+    this.linkIndexReady = true;
   };
 
   constructor(readonly app: App, readonly settings: LocalRestApiSettings) {
-    for (const event of METADATA_CACHE_EVENTS) {
-      this.app.metadataCache.on(
-        event as "resolved",
-        this.invalidateBacklinksIndex,
-      );
+    this.app.metadataCache.on("resolved", this.onLinksResolved);
+    for (const event of METADATA_CACHE_ACTIVITY_EVENTS) {
+      this.app.metadataCache.on(event as "changed", this.onVaultActivity);
     }
+    this.app.vault.on("modify", this.onVaultModify);
     for (const event of VAULT_EVENTS) {
-      this.app.vault.on(event as "modify", this.invalidateBacklinksIndex);
+      if (event !== "modify") this.app.vault.on(event as "create", this.onVaultActivity);
     }
+    // Quiet before the layout is up proves nothing (see LINK_INDEX_SETTLE_MS),
+    // so the period only starts counting from there. Obsidian calls this at
+    // once when the layout is already ready.
+    this.app.workspace.onLayoutReady(() => {
+      this.linkIndexLastActivityAt = Date.now();
+    });
 
     jsonLogic.add_operation(
       "glob",
@@ -156,12 +261,54 @@ export class VaultOperations {
    * goes on invalidating a cache nobody will read again.
    */
   dispose(): void {
-    for (const event of METADATA_CACHE_EVENTS) {
-      this.app.metadataCache.off(event, this.invalidateBacklinksIndex);
+    this.app.metadataCache.off("resolved", this.onLinksResolved);
+    for (const event of METADATA_CACHE_ACTIVITY_EVENTS) {
+      this.app.metadataCache.off(event, this.onVaultActivity);
     }
+    this.app.vault.off("modify", this.onVaultModify);
     for (const event of VAULT_EVENTS) {
-      this.app.vault.off(event, this.invalidateBacklinksIndex);
+      if (event !== "modify") this.app.vault.off(event, this.onVaultActivity);
     }
+  }
+
+  /**
+   * Whether Obsidian's startup link resolution has finished, so that
+   * `links`, `backlinks`, and `unresolvedLinks` describe every file in the
+   * vault rather than only those indexed so far.
+   *
+   * A one-way latch, set by the first of: a `resolved` event (the end of a
+   * vault-wide resolution pass); Obsidian's own `metadataCache.initialized`
+   * reading true, where that undocumented flag exists; or the vault staying
+   * quiet for {@link LINK_INDEX_SETTLE_MS} with the layout up and
+   * `initialized` not reading false. Once set it stays set for the life of
+   * the instance.
+   *
+   * This is a deliberate compromise, chosen to match the semantics of
+   * `metadataCache.initialized` itself. What it gives up: after startup the
+   * three fields are *eventually consistent* with the vault rather than
+   * guaranteed settled -- a read that lands during the milliseconds between a
+   * change and the next `resolved` can see the graph as it was, exactly as a
+   * read of `frontmatter` or `tags` can. A client that needs a settled graph
+   * after a change listens for `metadataCache resolved`, which marks the end
+   * of each pass, or re-reads. The alternative, clearing the latch on every
+   * event, nulled every write-then-read and every streamed vault payload for
+   * a guarantee it could not keep across a cascading rename.
+   *
+   * Callers serving link fields sample this once per note, after reading all
+   * three, so a row is always null together or arrays together.
+   */
+  isLinkIndexReady(): boolean {
+    if (this.linkIndexReady) return true;
+    const initialized = metadataCacheInitialized(this.app.metadataCache);
+    if (initialized === false) return false;
+    if (
+      initialized === true ||
+      (this.app.workspace.layoutReady &&
+        Date.now() - this.linkIndexLastActivityAt >= LINK_INDEX_SETTLE_MS)
+    ) {
+      this.linkIndexReady = true;
+    }
+    return this.linkIndexReady;
   }
 
   /** Refuse a client-supplied path this API is not allowed to touch.
@@ -482,6 +629,10 @@ export class VaultOperations {
     // reach every caller after it.
     const backlinks = [...(index[file.path] ?? [])];
 
+    // Sampled once for all three, after the reads, so a row is never an array
+    // beside a null.
+    const linkIndexReady = this.isLinkIndexReady();
+
     return {
       tags: filteredTags,
       frontmatter: frontmatter,
@@ -490,9 +641,9 @@ export class VaultOperations {
       content: includeContent
         ? (content ?? (await this.app.vault.cachedRead(file)))
         : "",
-      links,
-      backlinks,
-      unresolvedLinks,
+      links: linkIndexReady ? links : null,
+      backlinks: linkIndexReady ? backlinks : null,
+      unresolvedLinks: linkIndexReady ? unresolvedLinks : null,
     };
   }
 

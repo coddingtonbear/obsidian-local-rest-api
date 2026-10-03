@@ -4,6 +4,7 @@ import {
   ensureServerReachable,
   resetFixture,
   deleteFixture,
+  waitForLinkIndexReady,
 } from "./client";
 import {
   TEST_DIR,
@@ -112,6 +113,10 @@ describe("GET /vault/{file} with Accept: application/vnd.olrapi.note+json", () =
 describe("GET /vault/{file} with Accept: application/vnd.olrapi.note+json — unresolvedLinks", () => {
   const LINKS_PATH = `${TEST_DIR}/unresolved-links-fixture.md`;
 
+  beforeAll(async () => {
+    await waitForLinkIndexReady();
+  });
+
   beforeEach(async () => {
     await resetFixture("Links to [[xylophone-does-not-exist]].\n", LINKS_PATH);
   });
@@ -130,6 +135,19 @@ describe("GET /vault/{file} with Accept: application/vnd.olrapi.note+json — un
     expect(
       body.unresolvedLinks.some((link: string) => link.includes("xylophone-does-not-exist")),
     ).toBe(true);
+  });
+
+  test("the link fields are arrays once startup indexing has finished, even straight after a write", async () => {
+    // Readiness is a one-way latch: the fixture write just made does not take
+    // the fields back to null.
+    const body = await (
+      await authedFetch(`/vault/${LINKS_PATH}`, {
+        headers: { Accept: "application/vnd.olrapi.note+json" },
+      })
+    ).json();
+    expect(Array.isArray(body.links)).toBe(true);
+    expect(Array.isArray(body.backlinks)).toBe(true);
+    expect(Array.isArray(body.unresolvedLinks)).toBe(true);
   });
 });
 

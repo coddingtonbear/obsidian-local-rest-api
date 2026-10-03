@@ -37,6 +37,18 @@ describe("GET /", () => {
     expect(typeof body.versions?.obsidian).toBe("string");
     expect(typeof body.versions?.self).toBe("string");
   });
+
+  test("authenticated reports linkIndexReady as a boolean", async () => {
+    const res = await authedFetch("/");
+    const body = await res.json();
+    expect(typeof body.linkIndexReady).toBe("boolean");
+  });
+
+  test("unauthenticated omits linkIndexReady", async () => {
+    const res = await unauthFetch("/");
+    const body = await res.json();
+    expect(body).not.toHaveProperty("linkIndexReady");
+  });
 });
 
 describe("GET /openapi.yaml", () => {

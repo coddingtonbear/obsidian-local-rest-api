@@ -27,6 +27,24 @@ export async function ensureServerReachable(): Promise<void> {
   }
 }
 
+// Poll GET / until Obsidian's startup indexing has finished, so that a note's
+// links/backlinks/unresolvedLinks are arrays rather than null.
+//
+// Readiness is a one-way latch, so this only needs to run once per suite (a beforeAll),
+// not after every fixture write.
+export async function waitForLinkIndexReady(timeoutMs = 15000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const res = await authedFetch("/");
+    if (res.status === 200) {
+      const body = (await res.json()) as { linkIndexReady?: boolean };
+      if (body.linkIndexReady === true) return;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`waitForLinkIndexReady: link resolution did not settle within ${timeoutMs}ms`);
+}
+
 // PUT the fixture doc to the vault, then poll until Obsidian's metadata cache reflects
 // the content we just wrote.
 //

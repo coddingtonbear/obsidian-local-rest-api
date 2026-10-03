@@ -26,3 +26,13 @@ are returned.  To see that, access the `GET` `/vault/{filePath}`
 route setting the header:
 `Accept: application/vnd.olrapi.note+json`.  See examples below
 for working examples of queries performing common search operations.
+
+Note that `links`, `backlinks`, and `unresolvedLinks` are `null` for
+every file until Obsidian's startup indexing has finished -- the first
+few seconds after Obsidian or the plugin starts. A query that reads one
+of them yields `null` for such a file (`{"in": [...]}` over it is
+`false`), and a query that returns one yields `null` rows. When the
+search needs to be exhaustive, poll `GET /` until `linkIndexReady` is
+`true` first. After startup the fields are arrays, eventually consistent
+with the vault.
+See the NoteJson schema for details.

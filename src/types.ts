@@ -192,15 +192,25 @@ export interface SearchJsonResponseItem {
   result: unknown;
 }
 
+/**
+ * A note as the API describes it: the `NoteJson` schema.
+ *
+ * `links`, `backlinks`, and `unresolvedLinks` are derived from Obsidian's
+ * vault-wide link resolution, not from this file alone, and are `null` --
+ * all three together -- whenever that resolution may be incomplete: after the
+ * plugin loads, and briefly after any change to the vault. `null` is "not
+ * known yet"; `[]` is "known to be none". See
+ * `VaultOperations.isLinkIndexReady`.
+ */
 export interface FileMetadataObject {
   tags: string[];
   frontmatter: Record<string, unknown>;
   stat: FileStats;
   path: string;
   content: string;
-  links: string[];
-  backlinks: string[];
-  unresolvedLinks: string[];
+  links: string[] | null;
+  backlinks: string[] | null;
+  unresolvedLinks: string[] | null;
 }
 
 export interface DocumentMapObject {
