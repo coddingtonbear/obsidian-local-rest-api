@@ -11,6 +11,7 @@ import { fakeReadlink, fakeRealpath } from "../mocks/disk";
 import { ConfigDirAccessError } from "./vaultPath";
 import {
   BACKLINKS_INDEX_MAX_AGE_MS,
+  LINK_INDEX_SETTLE_MS,
   METADATA_CACHE_EVENTS,
   VAULT_EVENTS,
   VaultOperations,
@@ -448,6 +449,199 @@ describe("backlinks index caching", () => {
 
     await backlinks();
     expect(build).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// links / backlinks / unresolvedLinks are vault-global, not per-file.
+//
+// Whether [[Foo]] lands in `links` or `unresolvedLinks` depends on whether
+// Foo.md has been indexed, and a backlink exists only once the file that holds
+// it has been. Both are decided by Obsidian's vault-wide resolution pass, which
+// runs after load and again after every change -- so a per-file cache being
+// ready says nothing about these three fields. While that pass may still be in
+// flight they are served as null, which a client can tell from an empty list
+// (issue 327). The only positive signal Obsidian gives is `resolved`; a vault
+// the plugin loaded into after it had already settled never fires it, so a
+// quiet vault is also taken as settled once the layout is up.
+// ---------------------------------------------------------------------------
+
+describe("link fields are null until vault-wide resolution has settled", () => {
+  type LinkFields = [string[] | null, string[] | null, string[] | null];
+  const RESOLVED: LinkFields = [["target.md"], ["a.md"], ["missing.md"]];
+  const UNSETTLED: LinkFields = [null, null, null];
+
+  function readinessSetup(layoutReady = true): {
+    app: App;
+    ops: VaultOperations;
+    linkFields: () => Promise<LinkFields>;
+  } {
+    const app = new App();
+    app.workspace.layoutReady = layoutReady;
+    const file = new TFile();
+    file.path = "note.md";
+    app.vault._getAbstractFileByPath = file;
+    app.metadataCache.resolvedLinks = {
+      "note.md": { "target.md": 1 },
+      "a.md": { "note.md": 1 },
+    };
+    app.metadataCache.unresolvedLinks = { "note.md": { "missing.md": 1 } };
+
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    return {
+      app,
+      ops,
+      linkFields: async () => {
+        const meta = await ops.getFileMetadataObject(file);
+        return [meta.links, meta.backlinks, meta.unresolvedLinks];
+      },
+    };
+  }
+
+  test("a freshly loaded plugin serves null, not empty lists", async () => {
+    const { ops, linkFields } = readinessSetup();
+
+    expect(ops.isLinkIndexReady()).toBe(false);
+    expect(await linkFields()).toEqual(UNSETTLED);
+  });
+
+  test("the first `resolved` makes them arrays", async () => {
+    const { app, ops, linkFields } = readinessSetup();
+
+    app.metadataCache._emit("resolved");
+
+    expect(ops.isLinkIndexReady()).toBe(true);
+    expect(await linkFields()).toEqual(RESOLVED);
+  });
+
+  const activity: [string, (app: App) => void][] = [
+    ...METADATA_CACHE_EVENTS.filter((event) => event !== "resolved").map(
+      (event): [string, (app: App) => void] => [
+        `metadataCache ${event}`,
+        (app) => app.metadataCache._emit(event, new TFile(), null),
+      ],
+    ),
+    ...VAULT_EVENTS.map((event): [string, (app: App) => void] => [
+      `vault ${event}`,
+      (app) => app.vault._emit(event, new TFile(), "old.md"),
+    ]),
+  ];
+
+  test.each(activity)(
+    "%s after `resolved` is re-resolution in flight: null again until the next `resolved`",
+    async (_label, fire) => {
+      // Latching on the first `resolved` would read "ready" during exactly the
+      // window a rename is propagating -- the one a client repairing links
+      // most needs to be warned about.
+      const { app, ops, linkFields } = readinessSetup();
+      app.metadataCache._emit("resolved");
+      expect(await linkFields()).toEqual(RESOLVED);
+
+      fire(app);
+
+      expect(ops.isLinkIndexReady()).toBe(false);
+      expect(await linkFields()).toEqual(UNSETTLED);
+
+      app.metadataCache._emit("resolved");
+
+      expect(await linkFields()).toEqual(RESOLVED);
+    },
+  );
+
+  test("a vault that stays quiet after the layout is up is taken as settled", async () => {
+    // `resolved` only fires when a resolution pass finishes. A plugin enabled
+    // into a vault that settled long ago (a toggle, a reload, a dev rebuild)
+    // sees no pass and so no event; without this it would answer null forever.
+    jest.useFakeTimers();
+    try {
+      const { ops, linkFields } = readinessSetup();
+
+      jest.advanceTimersByTime(LINK_INDEX_SETTLE_MS - 1);
+      expect(ops.isLinkIndexReady()).toBe(false);
+      expect(await linkFields()).toEqual(UNSETTLED);
+
+      jest.advanceTimersByTime(1);
+      expect(ops.isLinkIndexReady()).toBe(true);
+      expect(await linkFields()).toEqual(RESOLVED);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("silence before the layout is ready proves nothing", async () => {
+    // During a cold start Obsidian may be loading its persisted cache with no
+    // events to show for it. Quiet only counts once the app is actually up.
+    jest.useFakeTimers();
+    try {
+      const { app, ops } = readinessSetup(false);
+
+      jest.advanceTimersByTime(LINK_INDEX_SETTLE_MS * 10);
+      expect(ops.isLinkIndexReady()).toBe(false);
+
+      app.workspace.layoutReady = true;
+      expect(ops.isLinkIndexReady()).toBe(false);
+      jest.advanceTimersByTime(LINK_INDEX_SETTLE_MS);
+      expect(ops.isLinkIndexReady()).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test.each(activity)("%s restarts the quiet period", (_label, fire) => {
+    jest.useFakeTimers();
+    try {
+      const { app, ops } = readinessSetup();
+
+      jest.advanceTimersByTime(LINK_INDEX_SETTLE_MS - 1);
+      fire(app);
+      jest.advanceTimersByTime(LINK_INDEX_SETTLE_MS - 1);
+      expect(ops.isLinkIndexReady()).toBe(false);
+
+      jest.advanceTimersByTime(1);
+      expect(ops.isLinkIndexReady()).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("`resolved` settles the vault even when the quiet period has not elapsed", () => {
+    jest.useFakeTimers();
+    try {
+      const { app, ops } = readinessSetup();
+
+      app.metadataCache._emit("changed", new TFile(), "");
+      app.metadataCache._emit("resolved");
+
+      expect(ops.isLinkIndexReady()).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("the fields are decided together: never an array beside a null", async () => {
+    // A client is told "null means not settled"; a row mixing the two would
+    // make that rule unreadable. Checked at the instant readiness flips.
+    const { app, ops, linkFields } = readinessSetup();
+    app.metadataCache._emit("resolved");
+    const original = ops.isLinkIndexReady.bind(ops);
+    jest.spyOn(ops, "isLinkIndexReady").mockImplementation(() => {
+      app.metadataCache._emit("changed", new TFile(), "");
+      return original();
+    });
+
+    const fields = await linkFields();
+
+    expect(new Set(fields.map((field) => field === null)).size).toBe(1);
+  });
+
+  test("after dispose, nothing moves the state", async () => {
+    const { app, ops, linkFields } = readinessSetup();
+    ops.dispose();
+
+    app.metadataCache._emit("resolved");
+
+    expect(ops.isLinkIndexReady()).toBe(false);
+    expect(await linkFields()).toEqual(UNSETTLED);
   });
 });
 

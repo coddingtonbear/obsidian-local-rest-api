@@ -126,6 +126,38 @@ describe("requestHandler", () => {
       expect(result.body.status).toEqual("OK");
       expect(result.body.authenticated).toBeTruthy();
     });
+
+    describe("linkIndexReady", () => {
+      // The same fact a note's null link fields express, as one place a client
+      // can poll before a bulk query rather than after discovering nulls in it.
+      test("is false until Obsidian's vault-wide link resolution has settled", async () => {
+        const result = await request(server)
+          .get("/")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(200);
+
+        expect(result.body.linkIndexReady).toBe(false);
+      });
+
+      test("is true once it has", async () => {
+        app.metadataCache._emit("resolved");
+
+        const result = await request(server)
+          .get("/")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(200);
+
+        expect(result.body.linkIndexReady).toBe(true);
+      });
+
+      test("is withheld from an unauthenticated request, like everything else about the vault", async () => {
+        app.metadataCache._emit("resolved");
+
+        const result = await request(server).get("/").expect(200);
+
+        expect(result.body).not.toHaveProperty("linkIndexReady");
+      });
+    });
   });
 
   describe("certificateGet", () => {
@@ -355,6 +387,7 @@ describe("requestHandler", () => {
       app.metadataCache.unresolvedLinks = {
         [targetPath]: { "not-yet-created.md": 1 },
       };
+      app.metadataCache._emit("resolved");
 
       const result = await request(server)
         .get(`/vault/${targetPath}`)
@@ -366,6 +399,33 @@ describe("requestHandler", () => {
       expect(result.body.backlinks).toEqual(["other.md"]);
       expect(result.body.unresolvedLinks).toEqual(["not-yet-created.md"]);
 
+    });
+
+    test("the link fields are null while vault-wide link resolution may be incomplete", async () => {
+      // Which of `links` and `unresolvedLinks` a wikilink lands in depends on
+      // whether its *target* has been indexed, and a backlink exists only once
+      // the file holding it has been: all three are vault-global. Until
+      // Obsidian's resolution pass has settled they are null -- which, unlike
+      // [], a client can tell apart from "this note has none" (issue 327).
+      const targetPath = app.vault._getAbstractFileByPath.path;
+
+      app.metadataCache.resolvedLinks = {
+        [targetPath]: { "resolved-target.md": 1 },
+        "other.md": { [targetPath]: 1 },
+      };
+      app.metadataCache.unresolvedLinks = {
+        [targetPath]: { "not-yet-created.md": 1 },
+      };
+
+      const result = await request(server)
+        .get(`/vault/${targetPath}`)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Accept", "application/vnd.olrapi.note+json")
+        .expect(200);
+
+      expect(result.body.links).toBeNull();
+      expect(result.body.backlinks).toBeNull();
+      expect(result.body.unresolvedLinks).toBeNull();
     });
   });
 

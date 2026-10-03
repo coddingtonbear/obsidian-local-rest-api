@@ -254,6 +254,11 @@ export class MetadataCache {
 }
 
 export class Workspace {
+  // True once Obsidian has drawn its layout -- the point after which a vault
+  // with nothing left to index stays silent. Tests of the cold start set it
+  // false.
+  layoutReady = true;
+
   async openLinkText(
     path: string,
     base: string,

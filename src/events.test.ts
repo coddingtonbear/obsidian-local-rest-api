@@ -376,6 +376,35 @@ describe("event streams over REST", () => {
       });
     });
 
+    test("a non-markdown file's link fields follow readiness like a note's", async () => {
+      // Attachments have no metadata-cache entry, so their NoteJson is built
+      // without one -- but `backlinks` still comes from the vault-wide graph,
+      // and the three fields are documented as null-or-arrays together.
+      app.metadataCache.resolvedLinks = { "note.md": { "pic.png": 1 } };
+      const grant = await subscribe("/events/workspace/file-open/");
+      const stream = await open(grant.url);
+      await waitFor(() => listenerCount(app.workspace, "file-open") === 1);
+
+      app.workspace._emit("file-open", file("pic.png"));
+      const cold = await stream.next();
+      expect(cold.data.file).toMatchObject({
+        path: "pic.png",
+        links: null,
+        backlinks: null,
+        unresolvedLinks: null,
+      });
+
+      app.metadataCache._emit("resolved");
+      app.workspace._emit("file-open", file("pic.png"));
+      const settled = await stream.next();
+      expect(settled.data.file).toMatchObject({
+        path: "pic.png",
+        links: [],
+        backlinks: ["note.md"],
+        unresolvedLinks: [],
+      });
+    });
+
     test("workspace active-leaf-change sends only the path and view type", async () => {
       const grant = await subscribe("/events/workspace/active-leaf-change/");
       const stream = await open(grant.url);
