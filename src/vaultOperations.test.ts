@@ -842,6 +842,22 @@ describe("resolvePathAndTarget authorizes every prefix it stats", () => {
     expect(resolved).toBeNull();
   });
 
+  test("a failure that is not a gate refusal surfaces instead of reading as a miss", async () => {
+    // The gate answers with PathTraversalError or ConfigDirAccessError. Anything
+    // else thrown while deciding -- here the adapter failing to say where the
+    // vault is -- is a fault, and turning it into "no file here" would hide it
+    // behind a 404.
+    const app = new App();
+    app.vault.adapter = new FileSystemAdapter("/vault");
+    jest.spyOn(app.vault.adapter, "getBasePath").mockImplementation(() => {
+      throw new Error("adapter has no base path");
+    });
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    await expect(
+      ops.resolvePathAndTarget(["notes", "a.md", "heading", "Intro"]),
+    ).rejects.toThrow("adapter has no base path");
+  });
+
   test("the same walk still finds an ordinary file", async () => {
     const app = new App();
     app.vault.adapter = new FileSystemAdapter("/vault");
