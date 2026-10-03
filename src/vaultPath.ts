@@ -55,17 +55,32 @@ export const CONFIG_DIR_ACCESS_MESSAGE =
  *  is drive-relative, which is no better. Neither is a name a vault file can
  *  have anyway, since Windows does not allow ":" in one.
  *
+ *  A path with more than {@link MAX_VAULT_PATH_SEGMENTS} components is refused
+ *  too: no vault has one, and the cap keeps per-segment work bounded.
+ *
  *  What this does not do is resolve symlinks: a vault-relative path that stays
  *  inside the vault textually can still point outside it through a symlinked
- *  folder. Obsidian's API exposes no real-path primitive to check that with, and
- *  a symlink inside the vault is something the vault's owner put there. */
+ *  folder. The config-dir check below does consult the disk, but containment
+ *  does not: a symlink inside the vault that leads out of it is something the
+ *  vault's owner put there. */
 export function vaultPathIsContained(candidate: string): boolean {
   const normalized = candidate.replace(/\\/g, "/");
   if (normalized.startsWith("/")) return false;
   if (/^[A-Za-z]:/.test(normalized)) return false;
   const resolved = posix.resolve(SYNTHETIC_ROOT, normalized);
-  return resolved === SYNTHETIC_ROOT || resolved.startsWith(SYNTHETIC_ROOT + "/");
+  if (resolved !== SYNTHETIC_ROOT && !resolved.startsWith(SYNTHETIC_ROOT + "/")) {
+    return false;
+  }
+  return resolved.split("/").length - 2 <= MAX_VAULT_PATH_SEGMENTS;
 }
+
+/** The most path components a vault path may have once "." and ".." are
+ *  collapsed. No real vault comes near it -- Windows' MAX_PATH is 260
+ *  *characters* -- and the cap means every per-segment piece of work below,
+ *  and anything a caller does per segment, is bounded by a constant rather
+ *  than by how long a request a client cares to send. An over-long path is
+ *  simply not a vault path, so it is refused as uncontained. */
+export const MAX_VAULT_PATH_SEGMENTS = 256;
 
 /** Throw {@link PathTraversalError} unless the path stays inside the vault.
  *
@@ -135,14 +150,94 @@ export function vaultPathIsInConfigDir(
   configDir: string,
   onDisk?: OnDiskAccess,
 ): boolean {
+  if (isInConfigDirBySpelling(candidate, configDir)) return true;
+  if (onDisk === undefined) return false;
+  const configOnDisk = onDiskLocation(vaultRelativeSegments(configDir), onDisk);
+  const candidateOnDisk = onDiskLocation(vaultRelativeSegments(candidate), onDisk);
+  return sameOrBeneath(candidateOnDisk, configOnDisk);
+}
+
+/** {@link vaultPathIsInConfigDir} for checking many paths in one pass -- a
+ *  search over the whole index -- without paying one on-disk lookup per file.
+ *
+ *  Files in the same directory share its resolution: each candidate's *parent*
+ *  is resolved on disk, memoised, and the file name joined back on, so a vault
+ *  of ten thousand notes in a few hundred folders costs a few hundred realpath
+ *  calls, not ten thousand. The trade is that a symlink that *is* the file --
+ *  "notes/readme.md" linking to a markdown file inside the config dir -- is not
+ *  followed here, where it would be by the single-path check; a per-file
+ *  lstat would cost what this exists to avoid, and a config-dir *markdown*
+ *  file the owner has linked into the vault by name is well short of the
+ *  plugin code and data.json the guard is for.
+ *
+ *  Make one per operation and let it go: the memo does not see a symlink
+ *  created after it was built. */
+export function configDirMatcher(
+  configDir: string,
+  onDisk?: OnDiskAccess,
+): (candidate: string) => boolean {
+  if (onDisk === undefined) {
+    return (candidate) => isInConfigDirBySpelling(candidate, configDir);
+  }
+  const memoised = memoisingOnDisk(onDisk);
+  const configOnDisk = onDiskLocation(vaultRelativeSegments(configDir), memoised);
+  return (candidate) => {
+    if (isInConfigDirBySpelling(candidate, configDir)) return true;
+    if (configOnDisk === undefined) return false;
+    const segments = vaultRelativeSegments(candidate);
+    const name = segments.pop();
+    const parentOnDisk = onDiskLocation(segments, memoised);
+    if (parentOnDisk === undefined) return false;
+    const candidateOnDisk =
+      name === undefined ? parentOnDisk : path.join(parentOnDisk, name);
+    return sameOrBeneath(candidateOnDisk, configOnDisk);
+  };
+}
+
+function isInConfigDirBySpelling(candidate: string, configDir: string): boolean {
   const root = canonicalNameForm(
     posix.resolve(SYNTHETIC_ROOT, configDir.replace(/\\/g, "/")),
   );
   const resolved = canonicalNameForm(
     posix.resolve(SYNTHETIC_ROOT, candidate.replace(/\\/g, "/")),
   );
-  if (resolved === root || resolved.startsWith(root + "/")) return true;
-  return onDisk !== undefined && isInConfigDirOnDisk(candidate, configDir, onDisk);
+  return resolved === root || resolved.startsWith(root + "/");
+}
+
+/** Whether one on-disk location is the other or beneath it, compared in
+ *  canonical name form. Undefined -- the disk could not say -- never matches. */
+function sameOrBeneath(
+  candidateOnDisk: string | undefined,
+  rootOnDisk: string | undefined,
+): boolean {
+  if (candidateOnDisk === undefined || rootOnDisk === undefined) return false;
+  const resolved = canonicalNameForm(candidateOnDisk.replace(/\\/g, "/"));
+  const root = canonicalNameForm(rootOnDisk.replace(/\\/g, "/"));
+  return resolved === root || resolved.startsWith(root + "/");
+}
+
+/** An {@link OnDiskAccess} that remembers every answer, misses included, for
+ *  as long as it lives. */
+function memoisingOnDisk(onDisk: OnDiskAccess): OnDiskAccess {
+  const answers = new Map<string, string | undefined>();
+  return {
+    basePath: onDisk.basePath,
+    realpath: (absolutePath) => {
+      if (answers.has(absolutePath)) {
+        const answer = answers.get(absolutePath);
+        if (answer === undefined) throw new Error(`ENOENT: ${absolutePath}`);
+        return answer;
+      }
+      try {
+        const answer = onDisk.realpath(absolutePath);
+        answers.set(absolutePath, answer);
+        return answer;
+      } catch (error) {
+        answers.set(absolutePath, undefined);
+        throw error;
+      }
+    },
+  };
 }
 
 /** How the guard asks the filesystem where a vault-relative path really lands.
@@ -181,38 +276,38 @@ function vaultRelativeSegments(candidate: string): string[] {
 /** Where a vault-relative path lands on disk, or undefined when the disk cannot
  *  say. The path need not exist: the deepest ancestor that does is resolved and
  *  the remainder joined back on, since a write to "OBSIDI~1/plugins/new/main.js"
- *  lands under the real ".obsidian" even though "new" is not there yet. Nothing
- *  below the vault root is consulted; if the root itself cannot be resolved the
- *  caller falls back to the textual check alone. */
+ *  lands under the real ".obsidian" even though "new" is not there yet.
+ *
+ *  The whole path is tried first, so an existing path costs one call. A missing
+ *  one is then walked from the vault root *down*, stopping at the first
+ *  component that is not there: the work is bounded by how deep the vault
+ *  really is, not by how many components a request names, which is what keeps
+ *  a long bogus path from turning synchronous realpath calls into a stall.
+ *  Nothing above the vault root is consulted; if the root itself cannot be
+ *  resolved the caller falls back to the textual check alone. */
 function onDiskLocation(
   segments: string[],
   onDisk: OnDiskAccess,
 ): string | undefined {
-  const pending = [...segments];
-  const tail: string[] = [];
-  for (;;) {
-    const current = path.join(onDisk.basePath, ...pending);
+  const attempt = (prefix: string[]): string | undefined => {
     try {
-      return path.join(onDisk.realpath(current), ...tail);
+      return onDisk.realpath(path.join(onDisk.basePath, ...prefix));
     } catch {
-      const last = pending.pop();
-      if (last === undefined) return undefined;
-      tail.unshift(last);
+      return undefined;
     }
+  };
+  const whole = attempt(segments);
+  if (whole !== undefined) return whole;
+  let resolved = attempt([]);
+  if (resolved === undefined) return undefined;
+  for (let depth = 1; depth < segments.length; depth++) {
+    const next = attempt(segments.slice(0, depth));
+    if (next === undefined) {
+      return path.join(resolved, ...segments.slice(depth - 1));
+    }
+    resolved = next;
   }
-}
-
-function isInConfigDirOnDisk(
-  candidate: string,
-  configDir: string,
-  onDisk: OnDiskAccess,
-): boolean {
-  const candidateOnDisk = onDiskLocation(vaultRelativeSegments(candidate), onDisk);
-  const configOnDisk = onDiskLocation(vaultRelativeSegments(configDir), onDisk);
-  if (candidateOnDisk === undefined || configOnDisk === undefined) return false;
-  const resolved = canonicalNameForm(candidateOnDisk.replace(/\\/g, "/"));
-  const root = canonicalNameForm(configOnDisk.replace(/\\/g, "/"));
-  return resolved === root || resolved.startsWith(root + "/");
+  return path.join(resolved, ...segments.slice(-1));
 }
 
 /** Throw {@link ConfigDirAccessError} when `candidate` is inside the configuration

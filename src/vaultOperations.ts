@@ -48,6 +48,7 @@ import { toArrayBuffer } from "./utils";
 import {
   assertVaultPathIsContained,
   assertConfigDirAccessAllowed,
+  configDirMatcher,
   onDiskAccessFor,
 } from "./vaultPath";
 
@@ -184,6 +185,24 @@ export class VaultOperations {
       label,
       onDiskAccessFor(this.app.vault.adapter),
     );
+  }
+
+  /** The indexed markdown files a bulk read -- a search, the tag census -- may
+   *  touch: everything Obsidian indexes, minus whatever lives in the
+   *  configuration directory. Obsidian never indexes a dot-directory itself, so
+   *  a config-dir file only gets here through a symlink the owner planted in the
+   *  vault; a direct read of that path is refused, and a search handing its
+   *  contents out instead would be the same disclosure by another route. The
+   *  matcher is built once per call so the whole index costs one on-disk lookup
+   *  per directory, not per file. */
+  private readableMarkdownFiles(): TFile[] {
+    const files = this.app.vault.getMarkdownFiles();
+    if (this.settings.enableConfigDirAccess) return files;
+    const inConfigDir = configDirMatcher(
+      this.app.vault.configDir,
+      onDiskAccessFor(this.app.vault.adapter),
+    );
+    return files.filter((file) => !inConfigDir(file.path));
   }
 
   /** Stat a path straight from the adapter, through the authorization gate.
@@ -382,6 +401,21 @@ export class VaultOperations {
     includeContent = true,
     content?: string,
   ): Promise<FileMetadataObject> {
+    // A TFile came from the index, which only ever says the file exists -- not
+    // that this API may read it. Gated here so a caller handing over a TFile it
+    // found by other means is held to the same rule as one naming a path.
+    this.assertContained(file.path);
+    return this.metadataObjectFor(file, backlinksIndex, includeContent, content);
+  }
+
+  /** {@link getFileMetadataObject} without the gate, for {@link searchJsonLogic},
+   *  which has already authorized every file it iterates in one pass. */
+  private async metadataObjectFor(
+    file: TFile,
+    backlinksIndex?: Record<string, string[]>,
+    includeContent = true,
+    content?: string,
+  ): Promise<FileMetadataObject> {
     const cache = await this.waitForFileCache(file);
 
     const frontmatter = { ...(cache?.frontmatter ?? {}) };
@@ -426,6 +460,7 @@ export class VaultOperations {
   }
 
   async renderFileToHtml(file: TFile, content?: string): Promise<string> {
+    this.assertContained(file.path);
     const markdown = content ?? (await this.app.vault.cachedRead(file));
     const el = activeDocument.createElement("div");
     const component = new Component();
@@ -458,14 +493,16 @@ export class VaultOperations {
         : rawSegments;
     if (segments.length === 0) return null;
 
-    // The stats below go straight to the adapter, so this is the one place in
-    // the class where a path is touched by something other than a gated method.
-    // Every candidate the walk stats is a prefix of this joined path, and the
-    // config-dir rule is decided by the first segment, so one check up front
-    // covers them all. A refused path is a no-match, not an error: both callers
+    // The joined address is checked first so an escaping or refused address is
+    // a no-match before anything is statted. That check does *not* cover the
+    // prefixes the walk below stats: "notes/cfg/README.md/comments/../../../safe"
+    // resolves to "notes/safe" and passes, while the walk would stat
+    // "notes/cfg/README.md" -- a protected file if "cfg" is a symlink into the
+    // config dir. So every stat goes through the gate (statPath), and a refused
+    // candidate is a miss. A refusal is a no-match, not an error: both callers
     // (the REST GET and the sub-resource dispatcher) read null as "not a file
     // here", and the REST boundary has already sent its own 403 for anything
-    // this would refuse.
+    // the joined check would refuse.
     try {
       this.assertContained(segments.join("/"));
     } catch {
@@ -483,7 +520,7 @@ export class VaultOperations {
     if (isFilePath(segments)) {
       let exactStat = null;
       try {
-        exactStat = await this.app.vault.adapter.stat(segments.join("/"));
+        exactStat = await this.statPath(segments.join("/"));
       } catch {
         // ENOTDIR: a path component is a file, not a directory;
         // fall through to the backward walk which will find the actual file.
@@ -499,8 +536,9 @@ export class VaultOperations {
       const candidate = prefix.join("/");
       let s = null;
       try {
-        s = await this.app.vault.adapter.stat(candidate);
+        s = await this.statPath(candidate);
       } catch {
+        // ENOTDIR, or a candidate the gate refused: either way not a file here.
         continue;
       }
       if (s?.type === "file") {
@@ -790,7 +828,7 @@ export class VaultOperations {
     const results: SearchResponseItem[] = [];
     const search = prepareSimpleSearch(query);
 
-    for (const file of this.app.vault.getMarkdownFiles()) {
+    for (const file of this.readableMarkdownFiles()) {
       const cachedContents = await this.app.vault.cachedRead(file);
 
       const filenamePrefix = file.basename + "\n\n";
@@ -846,8 +884,8 @@ export class VaultOperations {
     const backlinksIndex = this.getBacklinksIndex();
     const includeContent = JSON.stringify(query).includes('"content"');
 
-    for (const file of this.app.vault.getMarkdownFiles()) {
-      const fileContext = await this.getFileMetadataObject(file, backlinksIndex, includeContent);
+    for (const file of this.readableMarkdownFiles()) {
+      const fileContext = await this.metadataObjectFor(file, backlinksIndex, includeContent);
 
       try {
         const fileResult = jsonLogic.apply(query, fileContext);
@@ -921,7 +959,7 @@ export class VaultOperations {
 
   getAllTags(): Array<{ name: string; count: number }> {
     const tagCounts: Record<string, number> = {};
-    for (const file of this.app.vault.getMarkdownFiles()) {
+    for (const file of this.readableMarkdownFiles()) {
       const cache = this.app.metadataCache.getFileCache(file);
       if (!cache) continue;
       const fileTags = getAllTags(cache);
