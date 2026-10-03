@@ -3077,6 +3077,90 @@ describe("requestHandler", () => {
       });
     });
 
+    describe("the active file is inside the config dir through a symlink", () => {
+      // /active/ takes its path from the workspace, not the client, so the
+      // boundary check never runs and only the VaultOperations gate refuses.
+      // That refusal has to surface as 403/40321 from every verb, not be
+      // swallowed by an endpoint-local catch into a 500 or a patch error.
+      beforeEach(() => {
+        app.vault.adapter = new FileSystemAdapter("/vault");
+        jest.spyOn(fs.realpathSync, "native").mockImplementation(
+          fakeRealpath({ "/vault/notes/cfg": "/vault/.obsidian" }, [
+            "/vault",
+            "/vault/.obsidian",
+            "/vault/.obsidian/README.md",
+            "/vault/notes",
+          ]),
+        );
+        const active = Object.assign(new TFile(), { path: "notes/cfg/README.md" });
+        jest.spyOn(app.workspace, "getActiveFile").mockReturnValue(active);
+      });
+
+      afterEach(() => {
+        jest.restoreAllMocks();
+      });
+
+      test("GET /active/ is refused with 403 and errorCode 40321", async () => {
+        const res = await request(server)
+          .get("/active/")
+          .set("Authorization", `Bearer ${API_KEY}`);
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("PUT /active/ is refused with 403 and errorCode 40321", async () => {
+        const res = await request(server)
+          .put("/active/")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("pwned");
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("POST /active/ is refused with 403 and errorCode 40321", async () => {
+        const res = await request(server)
+          .post("/active/")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("pwned");
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("PATCH /active/ (2.0) is refused with 403 and errorCode 40321", async () => {
+        const res = await request(server)
+          .patch("/active/")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .send({ targetType: "heading", target: ["Intro"], operation: "append", content: "x" });
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("PATCH /active/ (1.x) is refused with 403 and errorCode 40321", async () => {
+        const res = await request(server)
+          .patch("/active/")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Markdown-Patch-Version", "1")
+          .set("Content-Type", "text/markdown")
+          .set("Operation", "append")
+          .set("Target-Type", "heading")
+          .set("Target", "Intro")
+          .send("x");
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("DELETE /active/ is refused with 403 and errorCode 40321", async () => {
+        const res = await request(server)
+          .delete("/active/")
+          .set("Authorization", `Bearer ${API_KEY}`);
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+    });
+
     describe("a refusal raised below the handler keeps its error code", () => {
       // VaultOperations re-checks the final path before touching disk. If that
       // backstop is what fires, the client should still see 40321, not a generic

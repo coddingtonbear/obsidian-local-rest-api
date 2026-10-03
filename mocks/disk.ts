@@ -26,3 +26,17 @@ export function fakeRealpath(
     return resolved;
   };
 }
+
+/** A stand-in for `fs.readlinkSync` over the same imaginary disk: `links` maps
+ *  an absolute path that is a symlink to the target string stored in it, which
+ *  may be relative to the link's directory, exactly as readlink reports it.
+ *  Anything else is "not a symlink" (undefined), which is also what the guard
+ *  makes of a missing entry. A dangling link is one listed here but absent
+ *  from `fakeRealpath`'s `existing`, so realpath fails on it the way the real
+ *  call does. */
+export function fakeReadlink(
+  links: Record<string, string>,
+): (absolutePath: string) => string | undefined {
+  return (absolutePath: string): string | undefined =>
+    links[absolutePath.replace(/\\/g, "/")];
+}

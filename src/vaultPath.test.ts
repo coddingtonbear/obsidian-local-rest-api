@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import { DataAdapter, FileSystemAdapter } from "../mocks/obsidian";
-import { fakeRealpath } from "../mocks/disk";
+import { fakeReadlink, fakeRealpath } from "../mocks/disk";
 import {
   PathTraversalError,
   ConfigDirAccessError,
@@ -187,7 +187,11 @@ describe("vaultPathIsInConfigDir with on-disk resolution", () => {
     aliases: Record<string, string>,
     existing: string[],
   ): OnDiskAccess {
-    return { basePath: "/vault", realpath: fakeRealpath(aliases, existing) };
+    return {
+      basePath: "/vault",
+      realpath: fakeRealpath(aliases, existing),
+      readlink: fakeReadlink({}),
+    };
   }
 
   const vaultWithConfig = ["/vault", "/vault/.obsidian", "/vault/.obsidian/plugins"];
@@ -273,6 +277,7 @@ describe("assertConfigDirAccessAllowed with on-disk resolution", () => {
       "/vault",
       "/vault/.obsidian",
     ]),
+    readlink: fakeReadlink({}),
   };
 
   test("throws ConfigDirAccessError for an aliased config path when not allowed", () => {
@@ -297,10 +302,19 @@ describe("onDiskAccessFor", () => {
     const realpath = jest
       .spyOn(fs.realpathSync, "native")
       .mockImplementation(fakeRealpath({}, ["/disk/vault"]));
+    const readlink = jest
+      .spyOn(fs, "readlinkSync")
+      .mockImplementation((p) => {
+        if (p === "/disk/vault/link") return "target";
+        throw Object.assign(new Error("EINVAL"), { code: "EINVAL" });
+      });
     const access = onDiskAccessFor(new FileSystemAdapter("/disk/vault"));
     expect(access?.basePath).toBe("/disk/vault");
     expect(access?.realpath("/disk/vault")).toBe("/disk/vault");
     expect(realpath).toHaveBeenCalledWith("/disk/vault");
+    expect(access?.readlink("/disk/vault/link")).toBe("target");
+    expect(access?.readlink("/disk/vault/plain")).toBeUndefined();
+    expect(readlink).toHaveBeenCalledWith("/disk/vault/plain");
   });
 
   test("is undefined for an adapter with no base path", () => {
@@ -334,7 +348,7 @@ describe("the on-disk walk is bounded by what exists, not by the request", () =>
   // Obsidian with one synchronous realpath per component.
   test("a deep missing path costs a handful of realpath calls", () => {
     const realpath = jest.fn(fakeRealpath({}, ["/vault", "/vault/notes"]));
-    const access: OnDiskAccess = { basePath: "/vault", realpath };
+    const access: OnDiskAccess = { basePath: "/vault", realpath, readlink: fakeReadlink({}) };
     const deep = "notes/" + Array(200).fill("missing").join("/");
     expect(vaultPathIsInConfigDir(deep, ".obsidian", access)).toBe(false);
     expect(realpath.mock.calls.length).toBeLessThan(10);
@@ -344,7 +358,7 @@ describe("the on-disk walk is bounded by what exists, not by the request", () =>
     const realpath = jest.fn(
       fakeRealpath({}, ["/vault", "/vault/notes", "/vault/notes/a.md", "/vault/.obsidian"]),
     );
-    const access: OnDiskAccess = { basePath: "/vault", realpath };
+    const access: OnDiskAccess = { basePath: "/vault", realpath, readlink: fakeReadlink({}) };
     expect(vaultPathIsInConfigDir("notes/a.md", ".obsidian", access)).toBe(false);
     // Candidate once, config dir once.
     expect(realpath).toHaveBeenCalledTimes(2);
@@ -370,6 +384,7 @@ describe("configDirMatcher", () => {
         "/vault/.obsidian",
         "/vault/notes",
       ]),
+      readlink: fakeReadlink({}),
     });
     expect(matches("notes/cfg/README.md")).toBe(true);
     expect(matches("notes/cfg/plugins/x/README.md")).toBe(true);
@@ -381,12 +396,83 @@ describe("configDirMatcher", () => {
     const realpath = jest.fn(
       fakeRealpath({}, ["/vault", "/vault/.obsidian", "/vault/notes", "/vault/other"]),
     );
-    const matches = configDirMatcher(configDir, { basePath: "/vault", realpath });
+    const matches = configDirMatcher(configDir, {
+      basePath: "/vault",
+      realpath,
+      readlink: fakeReadlink({}),
+    });
     for (let i = 0; i < 50; i++) {
       matches(`notes/n${i}.md`);
       matches(`other/o${i}.md`);
     }
     // The config dir, "notes", and "other": three lookups, not a hundred.
     expect(realpath).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("a dangling symlink is followed to where a write would land", () => {
+  // realpath fails on a symlink whose target does not exist yet, and the
+  // "deepest existing ancestor" fallback would then report the link's own
+  // location -- an ordinary vault path. But a write through the link creates
+  // the target: "notes/upload.bin" linking to a missing
+  // ".obsidian/plugins/demo/main.js" is a plugin install. So a component that
+  // realpath cannot resolve is asked whether it is a link, and if so its
+  // target is resolved the same way.
+  const configDir = ".obsidian";
+  const existing = [
+    "/vault",
+    "/vault/notes",
+    "/vault/.obsidian",
+    "/vault/.obsidian/plugins",
+    "/vault/.obsidian/plugins/demo",
+  ];
+
+  function disk(links: Record<string, string>, aliases: Record<string, string> = {}): OnDiskAccess {
+    return {
+      basePath: "/vault",
+      realpath: fakeRealpath(aliases, existing),
+      readlink: fakeReadlink(links),
+    };
+  }
+
+  test("a relative link target into the config dir", () => {
+    const access = disk({ "/vault/notes/upload.bin": "../.obsidian/plugins/demo/main.js" });
+    expect(vaultPathIsInConfigDir("notes/upload.bin", configDir, access)).toBe(true);
+  });
+
+  test("an absolute link target into the config dir", () => {
+    const access = disk({ "/vault/notes/upload.bin": "/vault/.obsidian/plugins/demo/main.js" });
+    expect(vaultPathIsInConfigDir("notes/upload.bin", configDir, access)).toBe(true);
+  });
+
+  test("a dangling link whose target's own ancestor is a short name", () => {
+    const access = disk(
+      { "/vault/notes/upload.bin": "../OBSIDI~1/plugins/demo/main.js" },
+      { "/vault/OBSIDI~1": "/vault/.obsidian" },
+    );
+    expect(vaultPathIsInConfigDir("notes/upload.bin", configDir, access)).toBe(true);
+  });
+
+  test("a dangling link part-way along the path", () => {
+    const access = disk({ "/vault/notes/plugins": "../.obsidian/plugins/missing" });
+    expect(vaultPathIsInConfigDir("notes/plugins/demo/main.js", configDir, access)).toBe(true);
+  });
+
+  test("a dangling link to somewhere harmless", () => {
+    const access = disk({ "/vault/notes/upload.bin": "../attachments/missing.bin" });
+    expect(vaultPathIsInConfigDir("notes/upload.bin", configDir, access)).toBe(false);
+  });
+
+  test("a link loop does not hang and is not a match", () => {
+    const access = disk({
+      "/vault/notes/a": "b",
+      "/vault/notes/b": "a",
+    });
+    expect(vaultPathIsInConfigDir("notes/a/x.md", configDir, access)).toBe(false);
+  });
+
+  test("a plain missing entry is still just missing", () => {
+    const access = disk({});
+    expect(vaultPathIsInConfigDir("notes/new.md", configDir, access)).toBe(false);
   });
 });

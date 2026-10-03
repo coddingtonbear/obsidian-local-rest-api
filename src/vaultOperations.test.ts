@@ -7,7 +7,7 @@ import {
   TFile,
   _prepareSimpleSearchMock,
 } from "../mocks/obsidian";
-import { fakeRealpath } from "../mocks/disk";
+import { fakeReadlink, fakeRealpath } from "../mocks/disk";
 import { ConfigDirAccessError } from "./vaultPath";
 import {
   BACKLINKS_INDEX_MAX_AGE_MS,
@@ -857,5 +857,30 @@ describe("resolvePathAndTarget authorizes every prefix it stats", () => {
       target: "Intro",
       targetSegments: ["Intro"],
     });
+  });
+});
+
+describe("a write through a dangling symlink into the config dir is refused", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("writeFileContent follows the link to where the file would be created", async () => {
+    const app = new App();
+    app.vault.adapter = new FileSystemAdapter("/vault");
+    jest.spyOn(fs.realpathSync, "native").mockImplementation(
+      fakeRealpath({}, ["/vault", "/vault/notes", "/vault/.obsidian", "/vault/.obsidian/plugins"]),
+    );
+    jest.spyOn(fs, "readlinkSync").mockImplementation((p) => {
+      const target = fakeReadlink({
+        "/vault/notes/upload.bin": "../.obsidian/plugins/demo/main.js",
+      })(String(p));
+      if (target === undefined) throw Object.assign(new Error("EINVAL"), { code: "EINVAL" });
+      return target;
+    });
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    await expect(
+      ops.writeFileContent("notes/upload.bin", Buffer.from("pwned")),
+    ).rejects.toThrow(ConfigDirAccessError);
   });
 });
