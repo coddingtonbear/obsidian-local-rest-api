@@ -234,23 +234,26 @@ function sameOrBeneath(
 /** An {@link OnDiskAccess} that remembers every answer, misses included, for
  *  as long as it lives. */
 function memoisingOnDisk(onDisk: OnDiskAccess): OnDiskAccess {
-  const answers = new Map<string, string | undefined>();
+  const answers = new Map<string, string | Error>();
   return {
     basePath: onDisk.basePath,
     readlink: onDisk.readlink,
     realpath: (absolutePath) => {
-      if (answers.has(absolutePath)) {
-        const answer = answers.get(absolutePath);
-        if (answer === undefined) throw new Error(`ENOENT: ${absolutePath}`);
-        return answer;
+      const remembered = answers.get(absolutePath);
+      if (remembered !== undefined) {
+        if (remembered instanceof Error) throw remembered;
+        return remembered;
       }
       try {
         const answer = onDisk.realpath(absolutePath);
         answers.set(absolutePath, answer);
         return answer;
       } catch (error) {
-        answers.set(absolutePath, undefined);
-        throw error;
+        // The error itself is remembered, code and all, so a later caller
+        // classifies the failure exactly as the first one did.
+        const failure = error instanceof Error ? error : new Error(String(error));
+        answers.set(absolutePath, failure);
+        throw failure;
       }
     },
   };
@@ -284,11 +287,29 @@ export function onDiskAccessFor(adapter: DataAdapter): OnDiskAccess | undefined 
     readlink: (absolutePath) => {
       try {
         return fs.readlinkSync(absolutePath);
-      } catch {
-        return undefined; // EINVAL: not a link; ENOENT: not there. Same answer.
+      } catch (error) {
+        // EINVAL: not a link. ENOENT/ENOTDIR: not there. Both mean "nothing to
+        // follow". Anything else means the disk did not answer, and the walk
+        // must not read that as "nothing there".
+        if (isNothingToFollow(error)) return undefined;
+        throw new UnfinishedWalkError(`readlink failed at ${absolutePath}: ${errorCode(error)}`);
       }
     },
   };
+}
+
+function errorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
+  const { code } = error;
+  return typeof code === "string" ? code : undefined;
+}
+
+/** Whether a failed realpath or readlink means the path is simply not there
+ *  (or ends in a file where a directory was expected), as opposed to the disk
+ *  declining to say. Only the first is a "miss" the walk may build on. */
+function isNothingToFollow(error: unknown): boolean {
+  const code = errorCode(error);
+  return code === "ENOENT" || code === "ENOTDIR" || code === "EINVAL";
 }
 
 /** The vault-relative path with "." and ".." collapsed, as a list of segments:
@@ -315,12 +336,14 @@ function onDiskLocation(
  *  a vault owner meant to work comes near it. */
 export const MAX_LINK_HOPS = 40;
 
-/** Thrown when the walk passed {@link MAX_LINK_HOPS} links without reaching the
- *  end of the path. The disk could not say where the path lands, and saying
- *  "not the config dir" would be a guess a write could prove wrong, so callers
- *  treat it as a refusal. Distinct from the undefined a caller gets when the
- *  vault root itself cannot be resolved: that is the environment failing, not a
- *  property of the path, and there the textual check is all there is. */
+/** Thrown when the walk could not finish: it passed {@link MAX_LINK_HOPS}
+ *  links without reaching the end of the path, or the disk answered a realpath
+ *  or readlink with something other than "not there" -- EACCES, EIO, ELOOP.
+ *  Either way the disk could not say where the path lands, and "not the config
+ *  dir" would be a guess a write could prove wrong, so callers treat it as a
+ *  refusal. Distinct from the undefined a caller gets when the vault root is
+ *  simply not there: that is the environment failing, not a property of the
+ *  path, and there the textual check is all there is. */
 class UnfinishedWalkError extends Error {}
 
 /** Where `root/…segments` lands on disk, or undefined when the disk cannot say.
@@ -352,10 +375,16 @@ function locate(
   hops: number,
 ): string | undefined {
   const attempt = (prefix: string[]): string | undefined => {
+    const where = path.join(root, ...prefix);
     try {
-      return onDisk.realpath(path.join(root, ...prefix));
-    } catch {
-      return undefined;
+      return onDisk.realpath(where);
+    } catch (error) {
+      // Only "not there" is a miss. EACCES, EIO, ELOOP or anything else means
+      // the disk did not say, and an existing component read as missing would
+      // let the fallback below invent a harmless-looking location for a path
+      // the adapter may still traverse.
+      if (isNothingToFollow(error)) return undefined;
+      throw new UnfinishedWalkError(`realpath failed at ${where}: ${errorCode(error)}`);
     }
   };
   const whole = attempt(segments);
@@ -370,7 +399,13 @@ function locate(
     }
     const here = path.join(root, ...segments.slice(0, depth));
     const remainder = segments.slice(depth);
-    const linkTarget = onDisk.readlink(here);
+    let linkTarget: string | undefined;
+    try {
+      linkTarget = onDisk.readlink(here);
+    } catch (error) {
+      if (error instanceof UnfinishedWalkError) throw error;
+      throw new UnfinishedWalkError(`readlink failed at ${here}: ${errorCode(error)}`);
+    }
     if (linkTarget === undefined) {
       return path.join(resolved, segments[depth - 1], ...remainder);
     }
