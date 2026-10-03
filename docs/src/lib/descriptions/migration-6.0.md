@@ -39,6 +39,6 @@ Expect `null`:
 
 **JsonLogic searches.** `{"var": "backlinks"}` yields `null` for an unsettled note, so `{"in": ["x", {"var": "backlinks"}]}` is `false` for it and a query that returns `{"var": "unresolvedLinks"}` returns `null` rows. Check `linkIndexReady` on `GET /` first when the search is meant to be exhaustive -- a "find broken links" query run while resolution is incomplete would otherwise report fewer, or more, than there are.
 
-**Event streams.** A `vault` event (`create`, `modify`, `delete`, `rename`) is itself the change that starts a resolution pass, so its `file` always carries `null` link fields. Subscribe to `metadataCache` `resolved` to be told when the pass has finished, then read what you need.
+**Event streams.** A `vault` event about a note (`create`, `modify`, `delete`, `rename`) and every `metadataCache` event (`changed`, `deleted`, `resolve`) is itself the change that starts a resolution pass, so its `file` always carries `null` link fields; only a `workspace` event's `file`, or a `vault` `modify` of an attachment, can carry arrays. Subscribe to `metadataCache` `resolved` to be told when the pass has finished, then read what you need.
 
 **MCP agents.** `vault_read` and `search_query` return `null` link fields in the same cases. The tool descriptions say so; an agent asked to find broken links should treat `null` as "not yet" rather than "none".

@@ -6,6 +6,7 @@ import {
   Component,
   MarkdownRenderer,
   prepareSimpleSearch,
+  TAbstractFile,
   TFile,
 } from "obsidian";
 import path from "path";
@@ -78,6 +79,15 @@ export const METADATA_CACHE_EVENTS = [
   "resolved",
 ] as const;
 export const VAULT_EVENTS = ["create", "modify", "delete", "rename"] as const;
+
+/**
+ * The metadata-cache events that mean the link graph is moving. `resolved`,
+ * the one left out, means the opposite: a pass has just finished.
+ */
+export const METADATA_CACHE_ACTIVITY_EVENTS = METADATA_CACHE_EVENTS.filter(
+  (event): event is Exclude<(typeof METADATA_CACHE_EVENTS)[number], "resolved"> =>
+    event !== "resolved",
+);
 
 /**
  * How long a built backlinks index may be served before it is rebuilt anyway.
@@ -158,22 +168,42 @@ export class VaultOperations {
     this.linkIndexLastActivityAt = Date.now();
   };
 
+  /**
+   * `vault modify` alone: counted as activity only for a file the metadata
+   * cache indexes.
+   *
+   * Only a change to a file Obsidian parses is followed by a `resolved` to
+   * close the window again. An attachment, a drawing, a plugin's data file
+   * being rewritten starts no resolution pass, so treating it as activity
+   * would hold the link fields at null for LINK_INDEX_SETTLE_MS each time
+   * with nothing in the graph changed -- and a file that autosaves every few
+   * seconds would hold them there for good. The backlinks cache is still
+   * dropped, since that costs a scan rather than a client's trust. `create`,
+   * `delete`, and `rename` stay unconditional: a path of any type appearing
+   * or vanishing can flip a link between resolved and unresolved.
+   */
+  private readonly onVaultModify = (file: TAbstractFile): void => {
+    if (file instanceof TFile && file.extension === "md") {
+      this.onVaultActivity();
+    } else {
+      this.cachedBacklinksIndex = null;
+    }
+  };
+
   /** Called when Obsidian announces a vault-wide resolution pass has finished. */
   private readonly onLinksResolved = (): void => {
     this.cachedBacklinksIndex = null;
     this.linkIndexSettled = true;
   };
 
-  private handlerFor(event: (typeof METADATA_CACHE_EVENTS)[number]): () => void {
-    return event === "resolved" ? this.onLinksResolved : this.onVaultActivity;
-  }
-
   constructor(readonly app: App, readonly settings: LocalRestApiSettings) {
-    for (const event of METADATA_CACHE_EVENTS) {
-      this.app.metadataCache.on(event as "resolved", this.handlerFor(event));
+    this.app.metadataCache.on("resolved", this.onLinksResolved);
+    for (const event of METADATA_CACHE_ACTIVITY_EVENTS) {
+      this.app.metadataCache.on(event as "changed", this.onVaultActivity);
     }
+    this.app.vault.on("modify", this.onVaultModify);
     for (const event of VAULT_EVENTS) {
-      this.app.vault.on(event as "modify", this.onVaultActivity);
+      if (event !== "modify") this.app.vault.on(event as "create", this.onVaultActivity);
     }
     // Quiet before the layout is up proves nothing (see LINK_INDEX_SETTLE_MS),
     // so the period only starts counting from there. Obsidian calls this at
@@ -210,11 +240,13 @@ export class VaultOperations {
    * goes on invalidating a cache nobody will read again.
    */
   dispose(): void {
-    for (const event of METADATA_CACHE_EVENTS) {
-      this.app.metadataCache.off(event, this.handlerFor(event));
+    this.app.metadataCache.off("resolved", this.onLinksResolved);
+    for (const event of METADATA_CACHE_ACTIVITY_EVENTS) {
+      this.app.metadataCache.off(event, this.onVaultActivity);
     }
+    this.app.vault.off("modify", this.onVaultModify);
     for (const event of VAULT_EVENTS) {
-      this.app.vault.off(event, this.onVaultActivity);
+      if (event !== "modify") this.app.vault.off(event, this.onVaultActivity);
     }
   }
 
