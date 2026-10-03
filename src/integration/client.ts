@@ -27,6 +27,25 @@ export async function ensureServerReachable(): Promise<void> {
   }
 }
 
+// Poll GET / until Obsidian's vault-wide link resolution has settled, so that a note's
+// links/backlinks/unresolvedLinks are arrays rather than null.
+//
+// Every fixture write reopens that window (the write is itself a change Obsidian has to
+// re-resolve), so a test that asserts on the link fields calls this after its reset
+// rather than reading straight away and racing the resolution pass.
+export async function waitForLinkIndexReady(timeoutMs = 15000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const res = await authedFetch("/");
+    if (res.status === 200) {
+      const body = (await res.json()) as { linkIndexReady?: boolean };
+      if (body.linkIndexReady === true) return;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`waitForLinkIndexReady: link resolution did not settle within ${timeoutMs}ms`);
+}
+
 // PUT the fixture doc to the vault, then poll until Obsidian's metadata cache reflects
 // the content we just wrote.
 //

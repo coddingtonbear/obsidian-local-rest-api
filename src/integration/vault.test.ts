@@ -4,6 +4,7 @@ import {
   ensureServerReachable,
   resetFixture,
   deleteFixture,
+  waitForLinkIndexReady,
 } from "./client";
 import {
   TEST_DIR,
@@ -121,6 +122,7 @@ describe("GET /vault/{file} with Accept: application/vnd.olrapi.note+json — un
   });
 
   test("includes links to non-existent files in unresolvedLinks", async () => {
+    await waitForLinkIndexReady();
     const res = await authedFetch(`/vault/${LINKS_PATH}`, {
       headers: { Accept: "application/vnd.olrapi.note+json" },
     });
@@ -130,6 +132,33 @@ describe("GET /vault/{file} with Accept: application/vnd.olrapi.note+json — un
     expect(
       body.unresolvedLinks.some((link: string) => link.includes("xylophone-does-not-exist")),
     ).toBe(true);
+  });
+
+  test("the link fields are null together or arrays together, and arrays once resolution has settled", async () => {
+    // Straight after the fixture write the vault may still be re-resolving, so
+    // the first read is allowed either answer -- but never a mixed one.
+    const first = await (
+      await authedFetch(`/vault/${LINKS_PATH}`, {
+        headers: { Accept: "application/vnd.olrapi.note+json" },
+      })
+    ).json();
+    const shapes = new Set(
+      [first.links, first.backlinks, first.unresolvedLinks].map((field) =>
+        field === null ? "null" : Array.isArray(field) ? "array" : typeof field,
+      ),
+    );
+    expect(shapes.size).toBe(1);
+    expect(["null", "array"]).toContain([...shapes][0]);
+
+    await waitForLinkIndexReady();
+    const settled = await (
+      await authedFetch(`/vault/${LINKS_PATH}`, {
+        headers: { Accept: "application/vnd.olrapi.note+json" },
+      })
+    ).json();
+    expect(Array.isArray(settled.links)).toBe(true);
+    expect(Array.isArray(settled.backlinks)).toBe(true);
+    expect(Array.isArray(settled.unresolvedLinks)).toBe(true);
   });
 });
 
