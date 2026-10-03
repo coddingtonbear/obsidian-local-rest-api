@@ -92,6 +92,29 @@ export const VAULT_EVENTS = ["create", "modify", "delete", "rename"] as const;
 export const BACKLINKS_INDEX_MAX_AGE_MS = 60_000;
 
 /**
+ * How long the vault must stay quiet, once Obsidian's layout is up, before
+ * link resolution is assumed to have settled without `resolved` saying so.
+ *
+ * `links`, `backlinks`, and `unresolvedLinks` are vault-global: which of the
+ * first two a wikilink lands in depends on whether its *target* has been
+ * indexed, and a backlink exists only once the file holding it has. Obsidian
+ * announces the end of a vault-wide resolution pass with `resolved`, and that
+ * is the signal {@link VaultOperations.isLinkIndexReady} trusts. But a pass
+ * that finished before this plugin loaded -- the normal case for a toggle, a
+ * community-plugins reload, or a dev rebuild -- was announced to nobody, and
+ * waiting for the next one would mean answering null until the vault changed.
+ * Silence is the only evidence such a vault offers, so after this much of it
+ * the pass is taken as complete. Before `workspace.layoutReady` silence proves
+ * nothing: a cold Obsidian may still be loading its persisted cache.
+ *
+ * It also bounds the other direction. Should some change fail to be followed
+ * by a `resolved` -- an event Obsidian stops sending, an internal path that
+ * resolves without announcing it -- the fields are null for this long after
+ * the last announcement rather than for the rest of the session.
+ */
+export const LINK_INDEX_SETTLE_MS = 5000;
+
+/**
  * Writes go through Vault.modify/Vault.create rather than Vault.adapter.write.
  *
  * The adapter writes straight to disk, behind Obsidian's back: the change is only
@@ -106,27 +129,58 @@ export class VaultOperations {
   private cachedBacklinksIndexBuiltAt = 0;
 
   /**
-   * Called whenever Obsidian says anything at all has happened.
+   * Whether Obsidian has announced the end of a vault-wide resolution pass
+   * (`resolved`) with no change announced since. Not a latch: any later
+   * announcement clears it, because a pass is in flight again and the link
+   * graph is mid-rewrite -- during a rename, precisely the moment a client
+   * repairing links most needs to be told the answer is provisional.
+   */
+  private linkIndexSettled = false;
+  /** When Obsidian last announced anything; see {@link LINK_INDEX_SETTLE_MS}. */
+  private linkIndexLastActivityAt = Date.now();
+
+  /**
+   * Called whenever Obsidian says anything has happened, other than that
+   * resolution has finished.
    *
    * Deliberately one handler for every announcement rather than a targeted
    * update per event: rebuilding is the same work the uncached code did on
    * every request, so an invalidation too many costs a scan we were paying for
-   * anyway, while one too few serves a client stale backlinks.
+   * anyway, while one too few serves a client stale backlinks. Readiness is
+   * handled the same way, for the same reason: every announcement means the
+   * graph may be about to move, and reopening the window too often costs a
+   * client a retry, while reopening it too seldom hands them a partial graph
+   * labelled as complete.
    */
-  private readonly invalidateBacklinksIndex = (): void => {
+  private readonly onVaultActivity = (): void => {
     this.cachedBacklinksIndex = null;
+    this.linkIndexSettled = false;
+    this.linkIndexLastActivityAt = Date.now();
   };
+
+  /** Called when Obsidian announces a vault-wide resolution pass has finished. */
+  private readonly onLinksResolved = (): void => {
+    this.cachedBacklinksIndex = null;
+    this.linkIndexSettled = true;
+  };
+
+  private handlerFor(event: (typeof METADATA_CACHE_EVENTS)[number]): () => void {
+    return event === "resolved" ? this.onLinksResolved : this.onVaultActivity;
+  }
 
   constructor(readonly app: App, readonly settings: LocalRestApiSettings) {
     for (const event of METADATA_CACHE_EVENTS) {
-      this.app.metadataCache.on(
-        event as "resolved",
-        this.invalidateBacklinksIndex,
-      );
+      this.app.metadataCache.on(event as "resolved", this.handlerFor(event));
     }
     for (const event of VAULT_EVENTS) {
-      this.app.vault.on(event as "modify", this.invalidateBacklinksIndex);
+      this.app.vault.on(event as "modify", this.onVaultActivity);
     }
+    // Quiet before the layout is up proves nothing (see LINK_INDEX_SETTLE_MS),
+    // so the period only starts counting from there. Obsidian calls this at
+    // once when the layout is already ready.
+    this.app.workspace.onLayoutReady(() => {
+      this.linkIndexLastActivityAt = Date.now();
+    });
 
     jsonLogic.add_operation(
       "glob",
@@ -157,11 +211,34 @@ export class VaultOperations {
    */
   dispose(): void {
     for (const event of METADATA_CACHE_EVENTS) {
-      this.app.metadataCache.off(event, this.invalidateBacklinksIndex);
+      this.app.metadataCache.off(event, this.handlerFor(event));
     }
     for (const event of VAULT_EVENTS) {
-      this.app.vault.off(event, this.invalidateBacklinksIndex);
+      this.app.vault.off(event, this.onVaultActivity);
     }
+  }
+
+  /**
+   * Whether `links`, `backlinks`, and `unresolvedLinks` can currently be
+   * trusted to describe the whole vault.
+   *
+   * True when Obsidian has announced the end of a vault-wide resolution pass
+   * and nothing since, or -- for a vault whose last pass finished before this
+   * plugin was listening -- when the vault has been quiet for
+   * {@link LINK_INDEX_SETTLE_MS} with the layout up. Recomputed on every call
+   * rather than cached as a verdict, so it cannot go stale between
+   * announcements.
+   *
+   * Callers serving link fields sample this *after* reading them: a change
+   * announced between the read and the sample makes the sample false, which
+   * errs towards null rather than towards an array read from a moving graph.
+   */
+  isLinkIndexReady(): boolean {
+    if (this.linkIndexSettled) return true;
+    return (
+      this.app.workspace.layoutReady &&
+      Date.now() - this.linkIndexLastActivityAt >= LINK_INDEX_SETTLE_MS
+    );
   }
 
   /** Refuse a client-supplied path this API is not allowed to touch.
@@ -482,6 +559,10 @@ export class VaultOperations {
     // reach every caller after it.
     const backlinks = [...(index[file.path] ?? [])];
 
+    // Sampled after the three reads above, and once for all three: see
+    // isLinkIndexReady for why after, and the NoteJson docs for why together.
+    const linkIndexReady = this.isLinkIndexReady();
+
     return {
       tags: filteredTags,
       frontmatter: frontmatter,
@@ -490,9 +571,9 @@ export class VaultOperations {
       content: includeContent
         ? (content ?? (await this.app.vault.cachedRead(file)))
         : "",
-      links,
-      backlinks,
-      unresolvedLinks,
+      links: linkIndexReady ? links : null,
+      backlinks: linkIndexReady ? backlinks : null,
+      unresolvedLinks: linkIndexReady ? unresolvedLinks : null,
     };
   }
 

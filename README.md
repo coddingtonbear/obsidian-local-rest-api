@@ -17,6 +17,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
     + [Other clients](#other-clients)
 - [API overview](#api-overview)
   * [The configuration directory is off-limits](#the-configuration-directory-is-off-limits)
+  * [Link fields can be `null`](#link-fields-can-be-null)
   * [Browser clients and response headers](#browser-clients-and-response-headers)
 - [Patching notes](#patching-notes)
   * [Raw-content mode](#raw-content-mode)
@@ -192,6 +193,12 @@ The check is against where a path lands on disk, not just how it is spelled: a W
 
 If you deliberately manage your Obsidian configuration through the API, turn on **Settings → Local REST API → Advanced settings → Allow access to the configuration directory**. It is off by default, and turning it on grants every holder of your API key that access.
 
+### Link fields can be `null`
+
+A note's `links`, `backlinks`, and `unresolvedLinks` describe the vault-wide link graph, not the note alone, and Obsidian resolves that graph in a vault-wide pass after it loads and again after every change. Until that pass has settled, all three fields are `null` -- together, never an array beside a `null`. `null` means "not known yet"; `[]` means "known to be none". Expect `null` for a few seconds after Obsidian or the plugin starts, and briefly after any write, including your own. This applies wherever a NoteJson appears: `GET /vault/{path}` with `Accept: application/vnd.olrapi.note+json`, `POST /search/` (where a query reading one of them sees `null`), event streams (where a `vault` event's `file` always has them `null`, since the event is the change itself), and the MCP tools `vault_read` and `search_query`.
+
+`GET /` reports the same fact as `linkIndexReady` on authenticated requests, so a client can wait for `true` before a bulk query -- say, a search for broken links that has to be exhaustive -- instead of finding `null` in the results. See the [6.x migration guide](https://coddingtonbear.github.io/obsidian-local-rest-api/) for what to change in a client written against 5.x.
+
 ### Browser clients and response headers
 
 Several endpoints answer in a response header rather than in the body: `Content-Location` tells you which file a targeted or `/active/` request actually resolved to, `Markdown-Patch-Warnings` reports what a `PATCH` had to work around, `Deprecation` warns that a format is sunsetting, and `Mcp-Session-Id` carries the session for a sessionful MCP connection.
@@ -303,7 +310,7 @@ curl -k -H "Authorization: Bearer <your-api-key>" \
 
 `POST /search/simple/?query=your+terms` runs Obsidian's built-in fuzzy search and returns matching filenames with scored context snippets.
 
-`POST /search/` accepts a [JsonLogic](https://jsonlogic.com/) expression (content type `application/vnd.olrapi.jsonlogic+json`) and evaluates it against each note's metadata (frontmatter, tags, path, content).
+`POST /search/` accepts a [JsonLogic](https://jsonlogic.com/) expression (content type `application/vnd.olrapi.jsonlogic+json`) and evaluates it against each note's metadata (frontmatter, tags, path, content, and the link fields -- which are `null` while [link resolution may be incomplete](#link-fields-can-be-null)).
 
 ## Event streams
 

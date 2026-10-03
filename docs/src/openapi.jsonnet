@@ -105,6 +105,10 @@ std.manifestYamlDoc(
     // customized Stoplight Elements bundle (Bump.sh's x-topics convention).
     'x-topics': [
       {
+        title: 'Migrating from 5.x to 6.x',
+        content: importstr 'lib/descriptions/migration-6.0.md',
+      },
+      {
         title: 'Migrating from 1.x to 2.x',
         content: importstr 'lib/descriptions/migration-2.0.md',
       },
@@ -150,6 +154,11 @@ std.manifestYamlDoc(
       schemas: {
         NoteJson: {
           type: 'object',
+          description: |||
+            A note's metadata, as `GET /vault/{filename}` returns it with `Accept: application/vnd.olrapi.note+json`, as `POST /search/` evaluates each query against, and as event streams carry under `file`.
+
+            `links`, `backlinks`, and `unresolvedLinks` describe the vault-wide link graph, not this note alone: which of `links` and `unresolvedLinks` a wikilink lands in depends on whether its *target* has been indexed, and a backlink exists only once the file holding it has been. Obsidian resolves that graph in a vault-wide pass after it loads and again after every change. Until that pass has settled, all three fields are `null`, together -- never an array beside a `null`. `null` means "not known yet"; `[]` means "known to be none". Expect `null` for a few seconds after Obsidian or the plugin starts, and briefly after any write (including your own). `GET /` reports the same fact as `linkIndexReady`, so a client can wait for `true` before a bulk query, or retry a note that answered `null`.
+          |||,
           required: [
             'tags',
             'frontmatter',
@@ -196,22 +205,22 @@ std.manifestYamlDoc(
               type: 'string',
             },
             links: {
-              type: 'array',
-              description: 'Vault-relative paths of files this file links to.',
+              type: ['array', 'null'],
+              description: 'Vault-relative paths of files this file links to, or `null` while vault-wide link resolution may be incomplete (see above).',
               items: {
                 type: 'string',
               },
             },
             backlinks: {
-              type: 'array',
-              description: 'Vault-relative paths of files that link to this file.',
+              type: ['array', 'null'],
+              description: 'Vault-relative paths of files that link to this file, or `null` while vault-wide link resolution may be incomplete (see above).',
               items: {
                 type: 'string',
               },
             },
             unresolvedLinks: {
-              type: 'array',
-              description: 'Link text found in this file that does not resolve to an existing vault file.',
+              type: ['array', 'null'],
+              description: 'Link text found in this file that does not resolve to an existing vault file, or `null` while vault-wide link resolution may be incomplete (see above).',
               items: {
                 type: 'string',
               },
@@ -999,6 +1008,12 @@ std.manifestYamlDoc(
                       authenticated: {
                         type: 'boolean',
                         description: 'Is your current request authenticated?',
+                      },
+                      linkIndexReady: {
+                        type: 'boolean',
+                        description: |||
+                          Whether Obsidian's vault-wide link resolution has settled, so that a note's `links`, `backlinks`, and `unresolvedLinks` are arrays rather than `null`. `false` for a few seconds after Obsidian or the plugin starts and briefly after any change to the vault. Poll for `true` before a bulk query over those fields. Only present on an authenticated request.
+                        |||,
                       },
                     },
                   },

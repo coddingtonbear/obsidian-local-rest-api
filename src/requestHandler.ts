@@ -518,6 +518,12 @@ export default class RequestHandler {
       },
       service: "Obsidian Local REST API",
       authenticated: this.requestIsAuthenticated(req),
+      // The fact behind a note's null link fields, in one place a client can
+      // poll before a bulk query. Withheld from unauthenticated callers along
+      // with everything else that describes the vault.
+      linkIndexReady: this.requestIsAuthenticated(req)
+        ? this.operations.isLinkIndexReady()
+        : undefined,
       certificateInfo:
         this.requestIsAuthenticated(req) && certificate
           ? {

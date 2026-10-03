@@ -51,6 +51,10 @@ Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `40
 | `command_execute` | Execute an Obsidian command by ID |
 | `open_file` | Open a file in the Obsidian UI |
 
+### Link fields
+
+`vault_read`, `search_query`, and the events streamed by `events_get_listener_url` describe each note with the same NoteJson the REST API uses, and its `links`, `backlinks`, and `unresolvedLinks` are `null` -- all three together -- whenever Obsidian's vault-wide link resolution may be incomplete: for a few seconds after Obsidian or the plugin starts, and briefly after any change to the vault. `null` means "not known yet", `[]` means "known to be none"; the tool descriptions say so, and an agent should treat `null` as a reason to retry rather than as an empty result. There is no MCP tool for the readiness flag itself; a client that wants to wait for it rather than retry reads `linkIndexReady` from `GET /` over REST.
+
 ### Binary files
 
 `vault_read` and `vault_write` are text tools: they decode and encode UTF-8, which is lossy for anything that is not text. `vault_read` refuses a file whose bytes are not valid UTF-8, and `vault_write` and `vault_append` refuse a path whose extension names a binary type (image other than SVG, audio, video, font, PDF, archive), so the read-as-text-then-write-back mistake that destroys attachments is refused at both ends.

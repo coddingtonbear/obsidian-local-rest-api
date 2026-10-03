@@ -753,15 +753,21 @@ export class EventStreams {
    */
   private async note(file: TFile, includeContent: boolean): Promise<FileMetadataObject> {
     if (file.extension !== "md") {
+      // An attachment holds no links of its own, but its backlinks come from
+      // the vault-wide graph, and the three fields are documented as null or
+      // arrays together -- so all three follow readiness, sampled after the
+      // read as getFileMetadataObject does.
+      const backlinks = [...(this.operations.getBacklinksIndex()[file.path] ?? [])];
+      const linkIndexReady = this.operations.isLinkIndexReady();
       return {
         path: file.path,
         stat: file.stat,
         tags: [],
         frontmatter: {},
         content: "",
-        links: [],
-        backlinks: [...(this.operations.getBacklinksIndex()[file.path] ?? [])],
-        unresolvedLinks: [],
+        links: linkIndexReady ? [] : null,
+        backlinks: linkIndexReady ? backlinks : null,
+        unresolvedLinks: linkIndexReady ? [] : null,
       };
     }
     return this.operations.getFileMetadataObject(file, undefined, includeContent);

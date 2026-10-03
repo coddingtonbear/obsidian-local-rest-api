@@ -256,8 +256,19 @@ export class MetadataCache {
 export class Workspace {
   // True once Obsidian has drawn its layout -- the point after which a vault
   // with nothing left to index stays silent. Tests of the cold start set it
-  // false.
+  // false and later call _setLayoutReady().
   layoutReady = true;
+  _layoutReadyCallbacks: (() => void)[] = [];
+
+  onLayoutReady(callback: () => void): void {
+    if (this.layoutReady) callback();
+    else this._layoutReadyCallbacks.push(callback);
+  }
+
+  _setLayoutReady(): void {
+    this.layoutReady = true;
+    for (const callback of this._layoutReadyCallbacks.splice(0)) callback();
+  }
 
   async openLinkText(
     path: string,

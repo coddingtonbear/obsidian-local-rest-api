@@ -294,6 +294,11 @@ describe("backlinks index caching", () => {
     app.metadataCache.resolvedLinks = { "a.md": { "note.md": 1 } };
 
     const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    // Settled, so the two tests below that read through getFileMetadataObject
+    // get arrays. The invalidation tests fire events that reopen the window,
+    // so they read the index itself: what they test is the cache, not the
+    // null-while-unsettled rule, which has its own suite.
+    app.metadataCache._emit("resolved");
     const build = jest.spyOn(ops, "buildBacklinksIndex");
 
     return {
@@ -301,7 +306,7 @@ describe("backlinks index caching", () => {
       ops,
       file,
       build,
-      backlinks: async () => (await ops.getFileMetadataObject(file)).backlinks,
+      backlinks: async () => ops.getBacklinksIndex()[file.path] ?? [],
     };
   }
 
@@ -578,9 +583,11 @@ describe("link fields are null until vault-wide resolution has settled", () => {
       jest.advanceTimersByTime(LINK_INDEX_SETTLE_MS * 10);
       expect(ops.isLinkIndexReady()).toBe(false);
 
-      app.workspace.layoutReady = true;
+      app.workspace._setLayoutReady();
       expect(ops.isLinkIndexReady()).toBe(false);
-      jest.advanceTimersByTime(LINK_INDEX_SETTLE_MS);
+      jest.advanceTimersByTime(LINK_INDEX_SETTLE_MS - 1);
+      expect(ops.isLinkIndexReady()).toBe(false);
+      jest.advanceTimersByTime(1);
       expect(ops.isLinkIndexReady()).toBe(true);
     } finally {
       jest.useRealTimers();

@@ -22,7 +22,7 @@ Every message's `event:` field is the event name. Its `data:` is a JSON object:
 
 - `emitter`, `event`: what fired.
 - `path`: the file or folder the event is about, or `null`.
-- `file`: that file's NoteJson (the same shape `/search/` evaluates), or `null` for a folder, a deleted file, or an event with no file. `content` is included only when the filter reads `file.content`: a `var`, `missing`, or `missing_some` path naming it. A string that merely says "content", such as a path compared against it, doesn't count.
+- `file`: that file's NoteJson (the same shape `/search/` evaluates), or `null` for a folder, a deleted file, or an event with no file. `content` is included only when the filter reads `file.content`: a `var`, `missing`, or `missing_some` path naming it. A string that merely says "content", such as a path compared against it, doesn't count. Its `links`, `backlinks`, and `unresolvedLinks` are `null` while vault-wide link resolution may be incomplete -- which, for a `vault` event, is always, since the event is itself the change that starts a resolution pass. Subscribe to `metadataCache` `resolved` to learn when a pass has finished, then read what you need.
 - `isFolder` (`vault` events): whether `path` names a folder.
 - `oldPath` (`vault` `rename`): the path before the rename.
 - `previous` (`metadataCache` `deleted`): the `frontmatter` and `tags` the file had.
