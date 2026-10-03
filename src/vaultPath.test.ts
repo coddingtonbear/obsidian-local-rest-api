@@ -124,6 +124,12 @@ describe("vaultPathIsInConfigDir", () => {
     // these to the real config dir, so the guard must too.
     ["an upper-cased spelling", ".OBSIDIAN/plugins/foo/main.js"],
     ["a mixed-case spelling", ".Obsidian/plugins/foo/main.js"],
+    // Case-insensitive APFS folds names with Unicode CaseFolding.txt, under
+    // which long s (U+017F) and the Kelvin sign (U+212A) are "s" and "k". A
+    // lowercase-only comparison misses the first: "\u017F".toLowerCase() is
+    // still "\u017F", while "\u017F".toUpperCase() is "S".
+    ["a long-s spelling (U+017F) of the config dir", ".ob\u017Fidian/plugins/foo/main.js"],
+    ["a Kelvin-sign spelling (U+212A) in a config dir name", "\u212Aonfig/app.json", "konfig"],
     // Windows strips trailing dots and spaces from each path component.
     ["a trailing dot on the config segment", ".obsidian./plugins/foo/main.js"],
     ["a trailing space on the config segment", ".obsidian /plugins/foo/main.js"],
@@ -138,9 +144,9 @@ describe("vaultPathIsInConfigDir", () => {
     ["a differently named config subpath", "obsidian/app.json"],
   ] as const;
 
-  for (const [label, candidate] of inside) {
+  for (const [label, candidate, dir = configDir] of inside) {
     test(`matches ${label}`, () => {
-      expect(vaultPathIsInConfigDir(candidate, configDir)).toBe(true);
+      expect(vaultPathIsInConfigDir(candidate, dir)).toBe(true);
     });
   }
 
