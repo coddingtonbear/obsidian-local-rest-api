@@ -34,6 +34,10 @@ variable, because each needs something of the person running them:
 - `OBSIDIAN_TEST_OPEN_FILE=1` — enables the `open_file` test. It is off by default
   because opening a file pulls Obsidian to the foreground and takes keyboard focus
   mid-run, so keystrokes meant for another window can land in the opened note.
+- `OBSIDIAN_VAULT_PATH=<absolute path to the vault>` — enables the configuration-directory
+  symlink test, which plants a symlink to `.obsidian` under the integration fixture
+  directory (and removes it afterwards) to check the guard follows a path to where it
+  lands on disk.
 
 One group runs by default and opts *out* instead, because the feature it needs is on by
 default:

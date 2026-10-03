@@ -13,9 +13,18 @@
  * They assume the running plugin has "Allow access to the configuration
  * directory" OFF, which is the default. Set OBSIDIAN_CONFIG_DIR_ACCESS=1 to skip
  * them when you have deliberately turned that setting on.
+ *
+ * One test needs the vault's location on disk, because it plants a symlink there
+ * and checks the guard follows it: set OBSIDIAN_VAULT_PATH to the vault's absolute
+ * path to enable it. The symlink lives under the integration fixture directory and
+ * is removed afterwards.
  */
 
+import { existsSync, mkdirSync, rmSync, symlinkSync } from "fs";
+import path from "path";
+
 import { authedFetch, ensureServerReachable } from "./client";
+import { TEST_DIR } from "./fixtures";
 
 const STAMP = Date.now();
 const CONFIG_PLUGIN_PATH = `/vault/.obsidian/plugins/olrapi-canary-${STAMP}/main.js`;
@@ -86,5 +95,41 @@ run("configuration-directory access is refused", () => {
     // config-dir refusal.
     const res = await authedFetch(SIBLING_PATH);
     expect(res.status).not.toBe(403);
+  });
+});
+
+// A spelling the guard can only catch by asking the disk where it lands. An NTFS
+// 8.3 short name is the motivating case but needs Windows; a symlink exercises the
+// same realpath walk on every platform. The link is planted in the vault from
+// outside the API, which is why this needs the vault's path on disk.
+const vaultPath = process.env.OBSIDIAN_VAULT_PATH;
+const runOnDisk =
+  process.env.OBSIDIAN_CONFIG_DIR_ACCESS === "1" || !vaultPath ? describe.skip : describe;
+
+runOnDisk("a symlink into the configuration directory is refused", () => {
+  const linkName = `olrapi-cfglink-${STAMP}`;
+  const linkPath = path.join(vaultPath ?? "", TEST_DIR, linkName);
+
+  beforeAll(() => {
+    mkdirSync(path.dirname(linkPath), { recursive: true });
+    symlinkSync(path.join("..", ".obsidian"), linkPath, "dir");
+  });
+
+  afterAll(() => {
+    if (existsSync(linkPath)) rmSync(linkPath);
+  });
+
+  test("GET through the symlink is refused and leaks nothing", async () => {
+    const res = await authedFetch(`/vault/${TEST_DIR}/${linkName}/community-plugins.json`);
+    await expectConfigRefusal(res);
+  });
+
+  test("PUT through the symlink is refused", async () => {
+    const res = await authedFetch(`/vault/${TEST_DIR}/${linkName}/plugins/olrapi-canary-${STAMP}/main.js`, {
+      method: "PUT",
+      headers: { "Content-Type": "text/plain" },
+      body: "module.exports = class { onload() {} };",
+    });
+    await expectConfigRefusal(res);
   });
 });
