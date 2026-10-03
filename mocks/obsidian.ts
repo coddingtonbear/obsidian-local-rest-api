@@ -210,6 +210,10 @@ export class CachedMetadata {
 }
 
 export class MetadataCache {
+  // Obsidian's undocumented one-way "startup indexing finished" flag. Absent
+  // (undefined) by default, as it is in the public typings; tests of the
+  // signal set it true or false.
+  initialized: boolean | undefined = undefined;
   _getFileCache: CachedMetadata | null = new CachedMetadata();
   _listeners: Map<string, ((...data: unknown[]) => unknown)[]> = new Map();
   resolvedLinks: Record<string, Record<string, number>> = {};

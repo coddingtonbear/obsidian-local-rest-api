@@ -462,16 +462,18 @@ describe("backlinks index caching", () => {
 //
 // Whether [[Foo]] lands in `links` or `unresolvedLinks` depends on whether
 // Foo.md has been indexed, and a backlink exists only once the file that holds
-// it has been. Both are decided by Obsidian's vault-wide resolution pass, which
-// runs after load and again after every change -- so a per-file cache being
-// ready says nothing about these three fields. While that pass may still be in
-// flight they are served as null, which a client can tell from an empty list
-// (issue 327). The only positive signal Obsidian gives is `resolved`; a vault
-// the plugin loaded into after it had already settled never fires it, so a
-// quiet vault is also taken as settled once the layout is up.
+// it has been. Both are decided by Obsidian's vault-wide resolution pass, so a
+// per-file cache being ready says nothing about these three fields. Until
+// Obsidian's *startup* indexing has finished they are served as null, which a
+// client can tell from an empty list (issue 327). Readiness is a one-way latch
+// mirroring Obsidian's own `metadataCache.initialized`: set by the first
+// `resolved`, by that flag where it exists, or by a quiet vault once the layout
+// is up (a plugin enabled into an already-indexed vault never sees a
+// `resolved`); never cleared. After startup the fields are eventually
+// consistent with the vault, like frontmatter and tags already are.
 // ---------------------------------------------------------------------------
 
-describe("link fields are null until vault-wide resolution has settled", () => {
+describe("link fields are null until startup link resolution has finished", () => {
   type LinkFields = [string[] | null, string[] | null, string[] | null];
   const RESOLVED: LinkFields = [["target.md"], ["a.md"], ["missing.md"]];
   const UNSETTLED: LinkFields = [null, null, null];
@@ -533,66 +535,101 @@ describe("link fields are null until vault-wide resolution has settled", () => {
   ];
 
   test.each(activity)(
-    "%s after `resolved` is re-resolution in flight: null again until the next `resolved`",
+    "%s after the first `resolved` leaves readiness latched and the fields arrays",
     async (_label, fire) => {
-      // Latching on the first `resolved` would read "ready" during exactly the
-      // window a rename is propagating -- the one a client repairing links
-      // most needs to be warned about.
+      // Readiness is one-way, like Obsidian's own `metadataCache.initialized`:
+      // after startup every file is indexed and the graph only lags a change
+      // by milliseconds, the same eventual consistency frontmatter and tags
+      // already have. Reopening the window here would have cost every
+      // write-then-read and every streamed vault/metadataCache payload a null,
+      // while still reading "ready" between the cycles of a cascading rename.
       const { app, ops, linkFields } = readinessSetup();
       app.metadataCache._emit("resolved");
       expect(await linkFields()).toEqual(RESOLVED);
 
       fire(app);
 
-      expect(ops.isLinkIndexReady()).toBe(false);
-      expect(await linkFields()).toEqual(UNSETTLED);
-
-      app.metadataCache._emit("resolved");
-
+      expect(ops.isLinkIndexReady()).toBe(true);
       expect(await linkFields()).toEqual(RESOLVED);
     },
   );
 
-  test("a `modify` to a file the cache does not index leaves readiness alone", async () => {
-    // Only a change to a file Obsidian parses is followed by a `resolved` to
-    // close the window again. An attachment or a plugin's data file being
-    // rewritten -- a drawing autosaving every few seconds, say -- starts no
-    // resolution pass, so counting it would hold the fields at null for
-    // LINK_INDEX_SETTLE_MS each time with nothing in the link graph changed.
-    const { app, ops, linkFields } = readinessSetup();
-    app.metadataCache._emit("resolved");
-    const build = jest.spyOn(ops, "buildBacklinksIndex");
-    await linkFields();
+  test("a `modify` to a file the cache does not index does not restart the quiet period", () => {
+    // Only a change to a file Obsidian parses is indexing activity. An
+    // attachment or a plugin's data file autosaving every few seconds would
+    // otherwise keep a plugin enabled into an already-indexed vault -- which
+    // never sees a `resolved` -- from ever latching.
+    jest.useFakeTimers();
+    try {
+      const { app, ops } = readinessSetup();
+      const build = jest.spyOn(ops, "buildBacklinksIndex");
+      ops.getBacklinksIndex();
 
-    const drawing = new TFile();
-    drawing.path = "sketch.excalidraw";
-    drawing.extension = "excalidraw";
-    app.vault._emit("modify", drawing);
+      jest.advanceTimersByTime(LINK_INDEX_SETTLE_MS - 1);
+      const drawing = new TFile();
+      drawing.path = "sketch.excalidraw";
+      drawing.extension = "excalidraw";
+      app.vault._emit("modify", drawing);
+      jest.advanceTimersByTime(1);
 
-    expect(ops.isLinkIndexReady()).toBe(true);
-    expect(await linkFields()).toEqual(RESOLVED);
-    // The backlinks cache is still dropped: that costs a scan, not a client's
-    // trust, and the listener-for-everything rule it rests on is unchanged.
-    expect(build).toHaveBeenCalledTimes(2);
+      expect(ops.isLinkIndexReady()).toBe(true);
+      // The backlinks cache is still dropped: that costs a scan, not a
+      // client's trust, and the listener-for-everything rule it rests on is
+      // unchanged.
+      ops.getBacklinksIndex();
+      expect(build).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
-  test.each(["create", "delete", "rename"] as const)(
-    "a `%s` of a file the cache does not index still reopens the window",
-    async (event) => {
-      // A path of any type appearing or disappearing can flip a link between
-      // resolved and unresolved, and Obsidian re-resolves on it.
-      const { app, ops, linkFields } = readinessSetup();
+  describe("Obsidian's own `metadataCache.initialized`, where it exists", () => {
+    // Undocumented, so it is read through a typed narrowing and only ever as
+    // a second positive signal. The public typings do not declare it, which is
+    // the case the mock's default (undefined) stands for.
+    test("true at load latches readiness before any event or quiet period", async () => {
+      const { app, ops, linkFields } = readinessSetup(false);
+      app.metadataCache.initialized = true;
+
+      expect(ops.isLinkIndexReady()).toBe(true);
+      expect(await linkFields()).toEqual(RESOLVED);
+    });
+
+    test("false means startup indexing is still running, and a quiet vault does not override it", () => {
+      jest.useFakeTimers();
+      try {
+        const { app, ops } = readinessSetup();
+        app.metadataCache.initialized = false;
+
+        jest.advanceTimersByTime(LINK_INDEX_SETTLE_MS * 10);
+        expect(ops.isLinkIndexReady()).toBe(false);
+
+        app.metadataCache.initialized = true;
+        expect(ops.isLinkIndexReady()).toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    test("`resolved` latches even while it still reads false", () => {
+      const { app, ops } = readinessSetup();
+      app.metadataCache.initialized = false;
+
       app.metadataCache._emit("resolved");
 
-      const image = new TFile();
-      image.path = "pic.png";
-      image.extension = "png";
-      app.vault._emit(event, image, "old.png");
+      expect(ops.isLinkIndexReady()).toBe(true);
+    });
 
-      expect(ops.isLinkIndexReady()).toBe(false);
-      expect(await linkFields()).toEqual(UNSETTLED);
-    },
-  );
+    test("once latched, the flag is not consulted again", () => {
+      const { app, ops } = readinessSetup(false);
+      app.metadataCache.initialized = true;
+      expect(ops.isLinkIndexReady()).toBe(true);
+
+      app.metadataCache.initialized = false;
+
+      expect(ops.isLinkIndexReady()).toBe(true);
+    });
+  });
 
   test("a vault that stays quiet after the layout is up is taken as settled", async () => {
     // `resolved` only fires when a resolution pass finishes. A plugin enabled
@@ -635,7 +672,8 @@ describe("link fields are null until vault-wide resolution has settled", () => {
     }
   });
 
-  test.each(activity)("%s restarts the quiet period", (_label, fire) => {
+  test.each(activity)("%s restarts the quiet period until the latch sets", (_label, fire) => {
+    // A cold start that is still emitting `resolve` events keeps waiting.
     jest.useFakeTimers();
     try {
       const { app, ops } = readinessSetup();
@@ -667,15 +705,15 @@ describe("link fields are null until vault-wide resolution has settled", () => {
   });
 
   test("the fields are decided together: never an array beside a null", async () => {
-    // A client is told "null means not settled"; a row mixing the two would
-    // make that rule unreadable. Checked at the instant readiness flips.
-    const { app, ops, linkFields } = readinessSetup();
-    app.metadataCache._emit("resolved");
-    const original = ops.isLinkIndexReady.bind(ops);
-    jest.spyOn(ops, "isLinkIndexReady").mockImplementation(() => {
-      app.metadataCache._emit("changed", new TFile(), "");
-      return original();
-    });
+    // A client is told "null means not ready yet"; a row mixing the two would
+    // make that rule unreadable. Readiness must be sampled once per note, not
+    // once per field -- so a readiness that flipped between fields would show.
+    const { ops, linkFields } = readinessSetup();
+    jest
+      .spyOn(ops, "isLinkIndexReady")
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false)
+      .mockReturnValue(true);
 
     const fields = await linkFields();
 

@@ -384,12 +384,13 @@ describe("event streams over REST", () => {
         (app: App) => app.metadataCache._emit("changed", file("note.md"), "", new CachedMetadata()),
       ],
       ["metadataCache resolve", (app: App) => app.metadataCache._emit("resolve", file("note.md"))],
-    ])("a %s event's file always carries null link fields", async (label, fire) => {
-      // The event is itself the change that reopens the readiness window, and
-      // VaultOperations hears it before the stream serializer runs -- an
-      // ordering fixed at construction (RequestHandler builds VaultOperations
-      // first) that nothing but this test would notice a refactor breaking.
-      // The docs promise this, so it is pinned here.
+    ])("a %s event's file carries arrays once startup indexing has finished", async (label, fire) => {
+      // Readiness is a one-way latch, so the event that is itself a change to
+      // the vault does not take the link fields back to null -- the payload is
+      // eventually consistent, like its frontmatter. VaultOperations hears the
+      // event before the stream serializer runs (RequestHandler constructs it
+      // first), which is exactly why this used to stream null, and why it is
+      // pinned.
       app.metadataCache.resolvedLinks = { "other.md": { "note.md": 1 } };
       app.metadataCache._emit("resolved");
       const [emitter, event] = label.split(" ");
@@ -402,15 +403,15 @@ describe("event streams over REST", () => {
       const received = await stream.next();
       expect(received.data.file).toMatchObject({
         path: "note.md",
-        links: null,
-        backlinks: null,
-        unresolvedLinks: null,
+        links: [],
+        backlinks: ["other.md"],
+        unresolvedLinks: [],
       });
     });
 
-    test("a vault modify of a file the cache does not index keeps its link fields", async () => {
-      // The one vault event that does not reopen the window: rewriting an
-      // attachment starts no resolution pass, so there is nothing to wait for.
+    test("a vault modify of a file the cache does not index carries its backlinks", async () => {
+      // An attachment has no cache entry of its own, but its backlinks come
+      // from the vault-wide graph and are served once startup has finished.
       app.metadataCache.resolvedLinks = { "note.md": { "pic.png": 1 } };
       app.metadataCache._emit("resolved");
       const grant = await subscribe("/events/vault/modify/");
