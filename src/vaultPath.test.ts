@@ -508,3 +508,80 @@ describe("a dangling symlink is followed to where a write would land", () => {
     expect(vaultPathIsInConfigDir("notes/new.md", configDir, access)).toBe(false);
   });
 });
+
+describe("a disk error that is not 'missing' is a refusal, not a miss", () => {
+  // The walk reads ENOENT (and ENOTDIR) as "not there, so the write would create
+  // it here". EACCES, EIO or anything else means the disk did not answer, and
+  // an existing component rewritten as missing would let the fallback invent a
+  // harmless-looking location for a path the adapter may still traverse.
+  const configDir = ".obsidian";
+  const existing = ["/vault", "/vault/notes", "/vault/.obsidian"];
+
+  test.each(["EACCES", "EPERM", "EIO", "ELOOP"])("realpath failing with %s refuses", (code) => {
+    const access: OnDiskAccess = {
+      basePath: "/vault",
+      realpath: fakeRealpath({}, existing, { "/vault/notes/private": code }),
+      readlink: fakeReadlink({}),
+    };
+    expect(vaultPathIsInConfigDir("notes/private/x.md", configDir, access)).toBe(true);
+    expect(configDirMatcher(configDir, access)("notes/private/x.md")).toBe(true);
+  });
+
+  test("ENOTDIR is still a miss: a component that is a file, not a directory", () => {
+    const access: OnDiskAccess = {
+      basePath: "/vault",
+      realpath: fakeRealpath({}, [...existing, "/vault/notes/a.md"], {
+        "/vault/notes/a.md/comments": "ENOTDIR",
+      }),
+      readlink: fakeReadlink({}),
+    };
+    expect(vaultPathIsInConfigDir("notes/a.md/comments", configDir, access)).toBe(false);
+  });
+
+  test("readlink failing with something other than 'not a link' refuses", () => {
+    const access: OnDiskAccess = {
+      basePath: "/vault",
+      realpath: fakeRealpath({}, existing),
+      readlink: (absolutePath) => {
+        if (absolutePath === "/vault/notes/odd") {
+          throw Object.assign(new Error("EIO"), { code: "EIO" });
+        }
+        return undefined;
+      },
+    };
+    expect(vaultPathIsInConfigDir("notes/odd/x.md", configDir, access)).toBe(true);
+  });
+
+  test("the vault root failing with something other than 'missing' also refuses", () => {
+    // Unlike a root that is simply not there, a root the disk refuses to
+    // describe is not a case the textual check should be trusted alone with.
+    const access: OnDiskAccess = {
+      basePath: "/vault",
+      realpath: fakeRealpath({}, [], { "/vault": "EACCES" }),
+      readlink: fakeReadlink({}),
+    };
+    expect(vaultPathIsInConfigDir("notes/a.md", configDir, access)).toBe(true);
+  });
+});
+
+describe("onDiskAccessFor's readlink", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test.each(["EINVAL", "ENOENT", "ENOTDIR"])("%s means 'nothing to follow'", (code) => {
+    jest.spyOn(fs, "readlinkSync").mockImplementation(() => {
+      throw Object.assign(new Error(code), { code });
+    });
+    const access = onDiskAccessFor(new FileSystemAdapter("/disk/vault"));
+    expect(access?.readlink("/disk/vault/x")).toBeUndefined();
+  });
+
+  test("any other failure is thrown, so the walk refuses", () => {
+    jest.spyOn(fs, "readlinkSync").mockImplementation(() => {
+      throw Object.assign(new Error("EIO"), { code: "EIO" });
+    });
+    const access = onDiskAccessFor(new FileSystemAdapter("/disk/vault"));
+    expect(() => access?.readlink("/disk/vault/x")).toThrow();
+  });
+});

@@ -5,14 +5,24 @@
  *  to anything beneath that path too. `existing` lists the real paths that are
  *  present. Anything else throws ENOENT, the way the real call does, so the
  *  guard's walk up to the deepest existing ancestor is exercised. Backslashes
- *  are folded so the same fixtures hold if the test host joins with "\\". */
+ *  are folded so the same fixtures hold if the test host joins with "\\".
+ *  `failures` maps a path to an error code other than ENOENT -- EACCES, EIO --
+ *  that realpath should fail with instead, for the cases where the disk did
+ *  not say "missing" but something the guard must not read as missing. */
 export function fakeRealpath(
   aliases: Record<string, string>,
   existing: string[],
+  failures: Record<string, string> = {},
 ): (absolutePath: string) => string {
   const present = new Set(existing);
   return (absolutePath: string): string => {
     let resolved = absolutePath.replace(/\\/g, "/");
+    const failure = failures[resolved];
+    if (failure !== undefined) {
+      const error = new Error(`${failure}: realpath '${absolutePath}'`);
+      (error as NodeJS.ErrnoException).code = failure;
+      throw error;
+    }
     for (const [alias, target] of Object.entries(aliases)) {
       if (resolved === alias) resolved = target;
       else if (resolved.startsWith(alias + "/"))

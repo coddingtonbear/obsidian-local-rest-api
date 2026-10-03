@@ -1364,6 +1364,42 @@ describe("McpHandler", () => {
       expect(parseText(result).command).not.toContain(`--data-binary @"`);
     });
 
+    describe("minting refuses a configuration-directory path", () => {
+      // A signed URL lets its holder read or write the path with no API key, so
+      // the config-dir rule has to hold at mint time, by spelling and by where
+      // the path lands on disk.
+      afterEach(() => {
+        jest.restoreAllMocks();
+      });
+
+      test.each(["vault_get_upload_url", "vault_get_download_url"])(
+        "%s refuses .obsidian/plugins/pwn/main.js",
+        async (tool) => {
+          const mcp = build(SIGNED, { signer: new UrlSigner() });
+          await expect(
+            overHttp(mcp, () => getToolCallback(tool)({ path: ".obsidian/plugins/pwn/main.js" })),
+          ).rejects.toThrow(/configuration directory/i);
+        },
+      );
+
+      test.each(["vault_get_upload_url", "vault_get_download_url"])(
+        "%s refuses an 8.3 short name for the config dir",
+        async (tool) => {
+          ops.app.vault.adapter = new FileSystemAdapter("/vault");
+          jest.spyOn(fs.realpathSync, "native").mockImplementation(
+            fakeRealpath({ "/vault/OBSIDI~1": "/vault/.obsidian" }, [
+              "/vault",
+              "/vault/.obsidian",
+            ]),
+          );
+          const mcp = build(SIGNED, { signer: new UrlSigner() });
+          await expect(
+            overHttp(mcp, () => getToolCallback(tool)({ path: "OBSIDI~1/plugins/pwn/main.js" })),
+          ).rejects.toThrow(/configuration directory/i);
+        },
+      );
+    });
+
     test("a hostile Host header cannot break out of the advertised command", async () => {
       const mcp = build(SIGNED, { signer: new UrlSigner() });
       const result = await overHttp(
