@@ -142,7 +142,7 @@ std.manifestYamlDoc(
     components: {
       securitySchemes: {
         apiKeyAuth: {
-          description: 'Find your API Key in your Obsidian settings\nin the "Local REST API" section under "Plugins".\n',
+          description: 'Find your API Key in your Obsidian settings\nin the "Local REST API" section under "Plugins".\n\nFailed authentication is throttled. A source that presents a wrong credential -- an incorrect API key, or an invalid, expired or spent signed URL -- ten times within a minute has its further wrong credentials refused with `429` (error code `42901`) and a `Retry-After` header until the minute is up. Requests that carry the correct key or a valid signed URL are never counted or delayed, and neither are requests that present no credential at all; they are answered `401` (or, on the routes that need no authentication, served) exactly as before. The count is kept in memory per source address and does not survive a plugin reload.\n',
           type: 'http',
           scheme: 'bearer',
         },
@@ -966,7 +966,7 @@ std.manifestYamlDoc(
             'System',
           ],
           summary: 'Returns basic details about the server.\n',
-          description: 'Returns basic details about the server as well as your authentication status.\n\nThis is the only API request that does *not* require authentication.\n',
+          description: 'Returns basic details about the server as well as your authentication status.\n\nThis is the only API request that does *not* require authentication.\n\nA request that sends an API key still has that key checked: `authenticated` reports whether it was correct, and a wrong one counts towards the failed-authentication throttle like a wrong key anywhere else, so once a source is throttled this route answers `429` to wrong keys too. A request with no key at all is not counted and always answers `200` with `authenticated: false`.\n',
           responses: {
             '200': {
               description: 'Success',

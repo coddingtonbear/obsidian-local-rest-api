@@ -9,6 +9,7 @@ import forge from "node-forge";
 import express from "express";
 import http from "http";
 import cors, { CorsOptions } from "cors";
+import rateLimit from "express-rate-limit";
 import mime from "mime-types";
 import responseTime from "response-time";
 import queryString from "query-string";
@@ -59,6 +60,8 @@ import {
   ERROR_CODE_MESSAGES,
   MCP_SESSIONLESS_PROTOCOL_VERSION,
   MaximumRequestSize,
+  AuthenticationFailureLimit,
+  AuthenticationFailureWindowMs,
 } from "./constants";
 import {
   isContentType,
@@ -87,6 +90,7 @@ import {
   vaultPathIsInConfigDir,
 } from "./vaultPath";
 import { McpHandler } from "./mcpHandler";
+import { FailureWindowStore } from "./authThrottle";
 import { VaultSubresourceRegistry } from "./vaultSubresources";
 import {
   UrlSigner,
@@ -95,6 +99,7 @@ import {
   isSignableMethod,
   normalizeVaultFilePath,
   requestBaseUrl,
+  type SignatureVerdict,
 } from "./signedUrls";
 import {
   EventStreams,
@@ -114,6 +119,8 @@ export const MARKDOWN_PATCH_VERSION_HEADER = "Markdown-Patch-Version";
 // cast at every site.
 interface RequestState {
   signedUrl?: boolean;
+  /** The signer's verdict on this request, computed once; `null` when it carries no signature. */
+  signedUrlVerdict?: SignatureVerdict | null;
 }
 /**
  * Blank the credential-bearing parts of a URL for logging.
@@ -210,6 +217,8 @@ export default class RequestHandler {
 
   apiExtensionRouter: express.Router;
   publicApiExtensionRouter: express.Router;
+  /** The clock the failed-authentication throttle keeps time by; injectable for tests. */
+  private readonly now: () => number;
   vaultSubresources = new VaultSubresourceRegistry();
   // Holds the implementation type rather than LocalRestApiPublicApi: the `GET /`
   // handler reads getRoutes()/getMcpTools(), which are host-only and therefore
@@ -233,8 +242,10 @@ export default class RequestHandler {
     manifest: PluginManifest,
     settings: LocalRestApiSettings,
     urlSigner: UrlSigner = new UrlSigner(),
+    now: () => number = Date.now,
   ) {
     this.app = app;
+    this.now = now;
     this.manifest = manifest;
     this.api = express();
     this.settings = settings;
@@ -314,7 +325,17 @@ export default class RequestHandler {
    * request resolves to. Returns null when the request carries no signature at all;
    * otherwise the signer's verdict.
    */
-  private signedUrlVerdict(req: express.Request): "ok" | "expired" | "invalid" | "consumed" | null {
+  private signedUrlVerdict(req: express.Request): SignatureVerdict | null {
+    // Verifying is an HMAC, and the throttle asks the question before the
+    // authentication middleware does, so the answer is computed once per request.
+    const state = res_locals(req);
+    if (state.signedUrlVerdict === undefined) {
+      state.signedUrlVerdict = this.computeSignedUrlVerdict(req);
+    }
+    return state.signedUrlVerdict;
+  }
+
+  private computeSignedUrlVerdict(req: express.Request): SignatureVerdict | null {
     const { sig, exp, n } = req.query;
     // `sig` and `exp` together are what makes this *look* like a signed request; without
     // them it is an ordinary one and falls through to API-key auth, so the absence of
@@ -367,6 +388,25 @@ export default class RequestHandler {
   /** True when the request was authenticated by a signed URL rather than the API key. */
   requestIsSigned(req: express.Request): boolean {
     return res_locals(req).signedUrl === true;
+  }
+
+  /**
+   * Whether the request presents a credential that does not check out.
+   *
+   * This is what the failed-authentication throttle counts and, past the limit,
+   * refuses. A request with the correct API key or a valid signed URL is not a failure;
+   * neither is one that presents nothing at all, because it has made no guess -- it is
+   * answered 401 (or, on the exempt routes, served) exactly as before, however many of
+   * them arrive. Only a request that offers a key or a signature, and offers a wrong one,
+   * counts. That includes a wrong key sent to `GET /`, which answers 200 either way and
+   * would otherwise be the cheapest oracle on the server.
+   */
+  private credentialIsRejected(req: express.Request): boolean {
+    if (this.requestIsAuthenticated(req)) return false;
+    const verdict = this.signedUrlVerdict(req);
+    if (verdict === "ok") return false;
+    if (verdict !== null) return true;
+    return req.get(this.settings.authorizationHeaderName ?? "Authorization") !== undefined;
   }
 
   async authenticationMiddleware(
@@ -2712,6 +2752,31 @@ export default class RequestHandler {
     });
     this.api.use(responseTime());
     this.api.use(cors(corsOptions));
+
+    // Failed-authentication throttle. Installed ahead of every router so that the MCP
+    // endpoint, the public extension routes, the authentication-exempt routes and the
+    // authenticated API are all behind it, and placed after `cors` so that a 429 carries
+    // the same CORS headers as any other answer and a preflight never reaches it. `skip`
+    // keeps everything but a wrong credential out of the counter entirely: a request
+    // with the right key costs one string comparison here and is never delayed.
+    const authenticationFailureLimiter = rateLimit({
+      windowMs: AuthenticationFailureWindowMs,
+      limit: AuthenticationFailureLimit,
+      store: new FailureWindowStore(AuthenticationFailureWindowMs, this.now),
+      skip: (req) => !this.credentialIsRejected(req),
+      standardHeaders: "draft-7",
+      legacyHeaders: false,
+      handler: (_req, res) => {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.TooManyAuthenticationFailures,
+        });
+      },
+      // The plugin never sits behind a proxy it trusts, so a forwarded-for header is
+      // just a header; the library's warning about ignoring it would only be noise in
+      // the developer console.
+      validate: { xForwardedForHeader: false },
+    });
+    this.api.use(authenticationFailureLimiter);
 
     const mcpRouter = express.Router();
     mcpRouter.use(cors(corsOptions));

@@ -5589,7 +5589,9 @@ describe("requestHandler", () => {
     let clock: number;
 
     beforeEach(() => {
-      clock = 1_700_000_000_000;
+      // Starts at the real time rather than a fixed instant because Retry-After is
+      // computed against the wall clock, and a window that closed years ago rounds to 0.
+      clock = Date.now();
       settings.enableSignedUrls = true;
       // The same clock drives signature expiry and the failure window, so a test can
       // move time forward for both at once.
