@@ -77,6 +77,21 @@ local WithResolvedContentLocation(codes) = {
   responses+: { [c]+: { headers+: ResolvedContentLocationHeader } for c in codes },
 };
 
+// Mixed into every `/vault/{filename}` operation: a path inside Obsidian's
+// configuration directory is refused for reads and writes alike unless the
+// operator opts in. `responses+:` so the operation's own responses survive.
+local ConfigDirForbidden = {
+  description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). The check is against where the path lands on disk, so a Windows 8.3 short name, a differently cased spelling, or a symlink into that directory is refused the same way. Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it.",
+  content: {
+    'application/json': {
+      schema: { '$ref': '#/components/schemas/Error' },
+    },
+  },
+};
+local WithConfigDirForbidden = {
+  responses+: { '403': ConfigDirForbidden },
+};
+
 
 std.manifestYamlDoc(
   {
@@ -309,7 +324,7 @@ std.manifestYamlDoc(
         },
       },
       '/vault/{filename}': {
-        get: Get + WithResolvedContentLocation(['200']) {
+        get: Get + WithResolvedContentLocation(['200']) + WithConfigDirForbidden {
           tags: [
             'Vault Files',
           ],
@@ -317,7 +332,7 @@ std.manifestYamlDoc(
           description: (importstr 'lib/descriptions/vault-file-get.md') + '\n' + GetShared,
           parameters: [ParamPath] + super.parameters + SignedUrlParams + [DownloadParam],
         },
-        put: Put + WithResolvedContentLocation(['200']) {
+        put: Put + WithResolvedContentLocation(['200']) + WithConfigDirForbidden {
           tags: [
             'Vault Files',
           ],
@@ -325,7 +340,7 @@ std.manifestYamlDoc(
           description: 'Creates a new file in your vault or updates the content of an existing one if the specified file already exists.\n\nAny content type is accepted: a request body that is not text or JSON is stored as raw bytes, so attachments -- images, PDFs, audio -- can be uploaded here as well as notes. A body sent with no `Content-Type` at all is treated as `application/octet-stream` and stored as raw bytes, which is what RFC 9110 allows. There is no size limit beyond the request-size cap.\n\nA signed upload URL (`?sig=…&exp=…&n=…`, from the MCP `vault_get_upload_url` tool) authenticates a single whole-file `PUT` in place of the `Authorization` header; the link is consumed by the request that succeeds. A signed `PUT` stores exactly the bytes sent, whatever `Content-Type` it declares -- it is not routed through the JSON or text parsers, which would otherwise reparse and re-serialize the body. It authorizes a whole-file write only: a request that also targets part of the document, through `Target-Type`/`Target` headers or through `/heading`, `/block` or `/frontmatter` path elements, is refused.\n\n' + PutShared,
           parameters: [ParamPath] + super.parameters + SignedUrlParams,
         },
-        post: Post + WithResolvedContentLocation(['200']) {
+        post: Post + WithResolvedContentLocation(['200']) + WithConfigDirForbidden {
           tags: [
             'Vault Files',
           ],
@@ -333,7 +348,7 @@ std.manifestYamlDoc(
           description: (importstr 'lib/descriptions/vault-file-post.md') + '\n' + PostShared,
           parameters: [ParamPath] + super.parameters,
         },
-        patch: Patch + WithResolvedContentLocation(['200']) {
+        patch: Patch + WithResolvedContentLocation(['200']) + WithConfigDirForbidden {
           tags: [
             'Vault Files',
           ],
@@ -342,14 +357,14 @@ std.manifestYamlDoc(
           parameters: [ParamPath] + super.parameters,
         },
         additionalOperations: {
-          move: Move {
+          move: Move + WithConfigDirForbidden {
             parameters: Move.parameters + [ParamPath],
           },
-          copy: Copy {
+          copy: Copy + WithConfigDirForbidden {
             parameters: Copy.parameters + [ParamPath],
           },
         },
-        delete: Delete {
+        delete: Delete + WithConfigDirForbidden {
           tags: [
             'Vault Files',
           ],

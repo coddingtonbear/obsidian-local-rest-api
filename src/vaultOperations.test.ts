@@ -1,6 +1,14 @@
 import fs from "fs";
 import path from "path";
-import { App, TFile, _prepareSimpleSearchMock } from "../mocks/obsidian";
+import {
+  App,
+  CachedMetadata,
+  FileSystemAdapter,
+  TFile,
+  _prepareSimpleSearchMock,
+} from "../mocks/obsidian";
+import { fakeReadlink, fakeRealpath } from "../mocks/disk";
+import { ConfigDirAccessError } from "./vaultPath";
 import {
   BACKLINKS_INDEX_MAX_AGE_MS,
   METADATA_CACHE_EVENTS,
@@ -683,5 +691,355 @@ describe("vault path containment", () => {
       const { ops } = opsFor();
       await expect(ops.listVaultDirectory("")).resolves.toBeDefined();
     });
+  });
+});
+
+describe("the configuration-directory backstop consults the disk", () => {
+  // VaultOperations is the last gate before the adapter, so a spelling the
+  // filesystem resolves to the config dir -- an NTFS 8.3 short name, a symlink
+  // -- must be refused here too, not only at the REST and MCP boundaries.
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  function setupOnDisk(): VaultOperations {
+    const app = new App();
+    app.vault.adapter = new FileSystemAdapter("/vault");
+    jest.spyOn(fs.realpathSync, "native").mockImplementation(
+      fakeRealpath({ "/vault/OBSIDI~1": "/vault/.obsidian" }, [
+        "/vault",
+        "/vault/.obsidian",
+      ]),
+    );
+    return new VaultOperations(app, {} as LocalRestApiSettings);
+  }
+
+  test("readBinaryPath refuses an 8.3 short name for the config dir", async () => {
+    const ops = setupOnDisk();
+    await expect(ops.readBinaryPath("OBSIDI~1/plugins/pwn/data.json")).rejects.toThrow(
+      ConfigDirAccessError,
+    );
+  });
+
+  test("writeFileContent refuses an 8.3 short name for the config dir", async () => {
+    const ops = setupOnDisk();
+    await expect(
+      ops.writeFileContent("OBSIDI~1/plugins/pwn/main.js", Buffer.from("pwned")),
+    ).rejects.toThrow(ConfigDirAccessError);
+  });
+
+  test("statPath refuses an 8.3 short name for the config dir", async () => {
+    const ops = setupOnDisk();
+    await expect(ops.statPath("OBSIDI~1")).rejects.toThrow(ConfigDirAccessError);
+  });
+});
+
+describe("bulk reads skip indexed files that live in the configuration directory", () => {
+  // Obsidian never indexes a dot-directory, so the only way a config-dir file is
+  // in getMarkdownFiles() is a symlink the owner planted in the vault. Direct
+  // reads of such a path are refused; a search must not hand its contents out
+  // instead.
+  afterEach(() => {
+    jest.restoreAllMocks();
+    _prepareSimpleSearchMock.behavior = null;
+  });
+
+  function mdFile(filePath: string): TFile {
+    const file = new TFile();
+    file.path = filePath;
+    file.basename = path.basename(filePath, ".md");
+    return file;
+  }
+
+  function setupIndexedAlias(): { app: App; ops: VaultOperations } {
+    const app = new App();
+    app.vault.adapter = new FileSystemAdapter("/vault");
+    jest.spyOn(fs.realpathSync, "native").mockImplementation(
+      fakeRealpath({ "/vault/notes/cfg": "/vault/.obsidian" }, [
+        "/vault",
+        "/vault/.obsidian",
+        "/vault/notes",
+      ]),
+    );
+    app.vault._markdownFiles = [mdFile("notes/a.md"), mdFile("notes/cfg/README.md")];
+    app.vault._cachedRead = "needle";
+    return { app, ops: new VaultOperations(app, {} as LocalRestApiSettings) };
+  }
+
+  test("simpleSearch does not read or return the aliased file", async () => {
+    const { ops } = setupIndexedAlias();
+    _prepareSimpleSearchMock.behavior = () => () => ({ score: 1, matches: [[0, 6]] });
+    const results = await ops.simpleSearch("needle");
+    expect(results.map((r) => r.filename)).toEqual(["notes/a.md"]);
+  });
+
+  test("searchJsonLogic does not read or return the aliased file", async () => {
+    const { ops } = setupIndexedAlias();
+    const results = await ops.searchJsonLogic({ var: "content" });
+    expect(results.map((r) => r.filename)).toEqual(["notes/a.md"]);
+  });
+
+  test("getAllTags does not count the aliased file", async () => {
+    const { app, ops } = setupIndexedAlias();
+    app.metadataCache._getFileCache = { tags: [{ tag: "#t" }] } as unknown as CachedMetadata;
+    expect(ops.getAllTags()).toEqual([{ name: "t", count: 1 }]);
+  });
+
+  test("both are served when access is enabled", async () => {
+    const { app } = setupIndexedAlias();
+    const ops = new VaultOperations(app, {
+      enableConfigDirAccess: true,
+    } as LocalRestApiSettings);
+    const results = await ops.searchJsonLogic({ var: "path" });
+    expect(results.map((r) => r.filename)).toEqual(["notes/a.md", "notes/cfg/README.md"]);
+  });
+
+  test("getFileMetadataObject refuses a TFile inside the config dir", async () => {
+    const { ops } = setupIndexedAlias();
+    await expect(ops.getFileMetadataObject(mdFile("notes/cfg/README.md"))).rejects.toThrow(
+      ConfigDirAccessError,
+    );
+  });
+
+  test("renderFileToHtml refuses a TFile inside the config dir", async () => {
+    const { ops } = setupIndexedAlias();
+    await expect(ops.renderFileToHtml(mdFile("notes/cfg/README.md"))).rejects.toThrow(
+      ConfigDirAccessError,
+    );
+  });
+});
+
+describe("resolvePathAndTarget authorizes every prefix it stats", () => {
+  // The joined address can resolve to a harmless place while a prefix of it is
+  // the protected file: "notes/cfg/README.md/comments/../../../safe" is
+  // "notes/safe" once resolved, but the backward walk stats "notes/cfg/README.md"
+  // on the way there. Each stat goes through the gate, so a refused prefix is a
+  // miss rather than a hit.
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("a protected prefix behind a resolving address is not found", async () => {
+    const app = new App();
+    app.vault.adapter = new FileSystemAdapter("/vault");
+    app.vault.adapter._statForPath = "notes/cfg/README.md";
+    jest.spyOn(fs.realpathSync, "native").mockImplementation(
+      fakeRealpath({ "/vault/notes/cfg": "/vault/.obsidian" }, [
+        "/vault",
+        "/vault/.obsidian",
+        "/vault/.obsidian/README.md",
+        "/vault/notes",
+      ]),
+    );
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    const resolved = await ops.resolvePathAndTarget([
+      "notes",
+      "cfg",
+      "README.md",
+      "comments",
+      "../../../safe",
+    ]);
+    expect(resolved).toBeNull();
+  });
+
+  test("a failure that is not a gate refusal surfaces instead of reading as a miss", async () => {
+    // The gate answers with PathTraversalError or ConfigDirAccessError. Anything
+    // else thrown while deciding -- here the adapter failing to say where the
+    // vault is -- is a fault, and turning it into "no file here" would hide it
+    // behind a 404.
+    const app = new App();
+    app.vault.adapter = new FileSystemAdapter("/vault");
+    jest.spyOn(app.vault.adapter, "getBasePath").mockImplementation(() => {
+      throw new Error("adapter has no base path");
+    });
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    await expect(
+      ops.resolvePathAndTarget(["notes", "a.md", "heading", "Intro"]),
+    ).rejects.toThrow("adapter has no base path");
+  });
+
+  test("the same walk still finds an ordinary file", async () => {
+    const app = new App();
+    app.vault.adapter = new FileSystemAdapter("/vault");
+    app.vault.adapter._statForPath = "notes/a.md";
+    jest.spyOn(fs.realpathSync, "native").mockImplementation(
+      fakeRealpath({}, ["/vault", "/vault/.obsidian", "/vault/notes", "/vault/notes/a.md"]),
+    );
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    const resolved = await ops.resolvePathAndTarget(["notes", "a.md", "heading", "Intro"]);
+    expect(resolved).toEqual({
+      filePath: "notes/a.md",
+      targetType: "heading",
+      target: "Intro",
+      targetSegments: ["Intro"],
+    });
+  });
+});
+
+describe("a write through a dangling symlink into the config dir is refused", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("writeFileContent follows the link to where the file would be created", async () => {
+    const app = new App();
+    app.vault.adapter = new FileSystemAdapter("/vault");
+    jest.spyOn(fs.realpathSync, "native").mockImplementation(
+      fakeRealpath({}, [
+        "/",
+        "/vault",
+        "/vault/notes",
+        "/vault/.obsidian",
+        "/vault/.obsidian/plugins",
+      ]),
+    );
+    jest.spyOn(fs, "readlinkSync").mockImplementation((p) => {
+      const target = fakeReadlink({
+        "/vault/notes/upload.bin": "../.obsidian/plugins/demo/main.js",
+      })(String(p));
+      if (target === undefined) throw Object.assign(new Error("EINVAL"), { code: "EINVAL" });
+      return target;
+    });
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    await expect(
+      ops.writeFileContent("notes/upload.bin", Buffer.from("pwned")),
+    ).rejects.toThrow(ConfigDirAccessError);
+  });
+});
+
+describe("a write that replaces an entry checks where the entry's parent lands", () => {
+  // The gate follows a symlink to its target. A symlink the owner planted
+  // *inside* the config dir that points back into the vault therefore passes,
+  // and an overwrite then removes the link and creates a real file at the same
+  // spelling -- inside the config dir. The entry is created in its parent, so
+  // the parent has to be allowed too, before anything is removed.
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const LINK = "notes/cfg/plugins/foo/link.md";
+
+  function setup(): App {
+    const app = new App();
+    app.vault.adapter = new FileSystemAdapter("/vault");
+    jest.spyOn(fs.realpathSync, "native").mockImplementation(
+      fakeRealpath(
+        {
+          "/vault/notes/cfg": "/vault/.obsidian",
+          "/vault/.obsidian/plugins/foo/link.md": "/vault/notes/z.md",
+        },
+        [
+          "/vault",
+          "/vault/notes",
+          "/vault/notes/z.md",
+          "/vault/notes/payload.md",
+          "/vault/.obsidian",
+          "/vault/.obsidian/plugins",
+          "/vault/.obsidian/plugins/foo",
+        ],
+      ),
+    );
+    return app;
+  }
+
+  test("MOVE with overwrite onto such a link is refused before the link is removed", async () => {
+    const app = setup();
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    await expect(ops.moveVaultFile("notes/payload.md", LINK, true)).rejects.toThrow(
+      ConfigDirAccessError,
+    );
+    expect(app.vault.adapter._remove).toBeUndefined();
+  });
+
+  test("COPY with overwrite onto such a link is refused before the link is removed", async () => {
+    const app = setup();
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    await expect(ops.copyVaultFile("notes/payload.md", LINK, true)).rejects.toThrow(
+      ConfigDirAccessError,
+    );
+    expect(app.vault.adapter._remove).toBeUndefined();
+  });
+
+  test("permanent DELETE of such a link is refused", async () => {
+    const app = setup();
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    await expect(ops.deleteVaultFile(LINK, true)).rejects.toThrow(ConfigDirAccessError);
+    expect(app.vault.adapter._remove).toBeUndefined();
+  });
+
+  test("DELETE to trash of such a link is refused", async () => {
+    const app = setup();
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    await expect(ops.deleteVaultFile(LINK, false)).rejects.toThrow(ConfigDirAccessError);
+  });
+
+  test("an ordinary overwrite still proceeds", async () => {
+    const app = setup();
+    Object.assign(app.fileManager, { renameFile: jest.fn() });
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    await ops.moveVaultFile("notes/payload.md", "notes/z.md", true);
+    expect(app.vault.adapter._remove).toEqual(["notes/z.md"]);
+  });
+});
+
+describe("bulk reads skip a .md-named symlink into the configuration directory", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+    _prepareSimpleSearchMock.behavior = null;
+  });
+
+  function mdFile(filePath: string): TFile {
+    const file = new TFile();
+    file.path = filePath;
+    file.basename = path.basename(filePath, ".md");
+    return file;
+  }
+
+  function setup(): { app: App; ops: VaultOperations; readlink: jest.SpyInstance } {
+    const app = new App();
+    app.vault.adapter = new FileSystemAdapter("/vault");
+    jest.spyOn(fs.realpathSync, "native").mockImplementation(
+      fakeRealpath({ "/vault/notes/key.md": "/vault/.obsidian/plugins/x/data.json" }, [
+        "/vault",
+        "/vault/notes",
+        "/vault/notes/a.md",
+        "/vault/.obsidian",
+        "/vault/.obsidian/plugins",
+        "/vault/.obsidian/plugins/x",
+        "/vault/.obsidian/plugins/x/data.json",
+      ]),
+    );
+    const readlink = jest.spyOn(fs, "readlinkSync").mockImplementation((p) => {
+      const target = fakeReadlink({
+        "/vault/notes/key.md": "../.obsidian/plugins/x/data.json",
+      })(String(p));
+      if (target === undefined) throw Object.assign(new Error("EINVAL"), { code: "EINVAL" });
+      return target;
+    });
+    app.vault._markdownFiles = [mdFile("notes/a.md"), mdFile("notes/key.md")];
+    app.vault._cachedRead = "apiKey";
+    return { app, ops: new VaultOperations(app, {} as LocalRestApiSettings), readlink };
+  }
+
+  test("simpleSearch does not return the link", async () => {
+    const { ops } = setup();
+    _prepareSimpleSearchMock.behavior = () => () => ({ score: 1, matches: [[0, 6]] });
+    const results = await ops.simpleSearch("apiKey");
+    expect(results.map((r) => r.filename)).toEqual(["notes/a.md"]);
+  });
+
+  test("searchJsonLogic does not return the link", async () => {
+    const { ops } = setup();
+    const results = await ops.searchJsonLogic({ var: "content" });
+    expect(results.map((r) => r.filename)).toEqual(["notes/a.md"]);
+  });
+
+  test("the per-file readlink is remembered across searches while the file is unchanged", async () => {
+    const { ops, readlink } = setup();
+    await ops.searchJsonLogic({ var: "path" });
+    const afterFirst = readlink.mock.calls.length;
+    expect(afterFirst).toBe(2);
+    await ops.searchJsonLogic({ var: "path" });
+    expect(readlink.mock.calls.length).toBe(afterFirst);
   });
 });

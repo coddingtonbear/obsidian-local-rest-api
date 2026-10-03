@@ -831,6 +831,11 @@ class LocalRestApiSettingTab extends PluginSettingTab {
           max: MaximumSignedUrlTtlSeconds,
         },
       },
+      {
+        name: "Allow access to the configuration directory",
+        desc: `When off (the default), the API refuses to read or write any file inside Obsidian's configuration directory (currently '${this.app.vault.configDir}'). That directory holds plugin code and each plugin's data.json — including this plugin's own, where your API key lives — so writing there is effectively arbitrary code execution and reading there leaks secrets. Leave this off unless you specifically need to manage your Obsidian configuration through the API, and understand that turning it on grants every holder of your API key that power.`,
+        control: { type: "toggle", key: "enableConfigDirAccess" },
+      },
     ];
   }
 
@@ -924,6 +929,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         return this.plugin.settings.enableVerboseLogging ?? false;
       case "enableSignedUrls":
         return this.plugin.settings.enableSignedUrls ?? true;
+      case "enableConfigDirAccess":
+        return this.plugin.settings.enableConfigDirAccess ?? false;
       case "signedUrlTtlSeconds":
         return clampSignedUrlTtl(this.plugin.settings.signedUrlTtlSeconds);
       default:
@@ -1020,6 +1027,13 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         break;
       case "enableVerboseLogging":
         this.plugin.settings.enableVerboseLogging = (value as boolean) || undefined;
+        await this.plugin.saveSettings();
+        break;
+      case "enableConfigDirAccess":
+        // Stored only when on: the default is off, so an absent key means off and the
+        // REST and MCP layers read it as false. Both read the setting live, so no
+        // server restart is needed.
+        this.plugin.settings.enableConfigDirAccess = (value as boolean) || undefined;
         await this.plugin.saveSettings();
         break;
       case "enableSignedUrls":

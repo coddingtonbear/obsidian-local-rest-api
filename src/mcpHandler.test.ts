@@ -24,7 +24,9 @@ import { UrlSigner } from "./signedUrls";
 import type { EventStreams } from "./events";
 import { ImageScaler, MaximumImageEdge } from "./imageScaling";
 import { LocalRestApiSettings } from "./types";
-import { TFile } from "../mocks/obsidian";
+import { DataAdapter, FileSystemAdapter, TFile } from "../mocks/obsidian";
+import { fakeRealpath } from "../mocks/disk";
+import * as fs from "fs";
 
 const MODERN_VERSION = "2026-07-28";
 const LEGACY_VERSION = "2025-06-18";
@@ -71,6 +73,8 @@ function makeMockOps() {
   return {
     app: {
       vault: {
+        configDir: ".obsidian",
+        adapter: new DataAdapter(),
         getAbstractFileByPath: jest.fn().mockReturnValue(mockFile),
       },
       workspace: {
@@ -1360,6 +1364,42 @@ describe("McpHandler", () => {
       expect(parseText(result).command).not.toContain(`--data-binary @"`);
     });
 
+    describe("minting refuses a configuration-directory path", () => {
+      // A signed URL lets its holder read or write the path with no API key, so
+      // the config-dir rule has to hold at mint time, by spelling and by where
+      // the path lands on disk.
+      afterEach(() => {
+        jest.restoreAllMocks();
+      });
+
+      test.each(["vault_get_upload_url", "vault_get_download_url"])(
+        "%s refuses .obsidian/plugins/pwn/main.js",
+        async (tool) => {
+          const mcp = build(SIGNED, { signer: new UrlSigner() });
+          await expect(
+            overHttp(mcp, () => getToolCallback(tool)({ path: ".obsidian/plugins/pwn/main.js" })),
+          ).rejects.toThrow(/configuration directory/i);
+        },
+      );
+
+      test.each(["vault_get_upload_url", "vault_get_download_url"])(
+        "%s refuses an 8.3 short name for the config dir",
+        async (tool) => {
+          ops.app.vault.adapter = new FileSystemAdapter("/vault");
+          jest.spyOn(fs.realpathSync, "native").mockImplementation(
+            fakeRealpath({ "/vault/OBSIDI~1": "/vault/.obsidian" }, [
+              "/vault",
+              "/vault/.obsidian",
+            ]),
+          );
+          const mcp = build(SIGNED, { signer: new UrlSigner() });
+          await expect(
+            overHttp(mcp, () => getToolCallback(tool)({ path: "OBSIDI~1/plugins/pwn/main.js" })),
+          ).rejects.toThrow(/configuration directory/i);
+        },
+      );
+    });
+
     test("a hostile Host header cannot break out of the advertised command", async () => {
       const mcp = build(SIGNED, { signer: new UrlSigner() });
       const result = await overHttp(
@@ -1901,6 +1941,117 @@ describe("McpHandler", () => {
       await expect(cb({ path: "missing.md", destination: "dest.md" })).rejects.toThrow(
         "File not found",
       );
+    });
+  });
+
+  // ---- configuration directory access -------------------------------------
+
+  describe("configuration directory access (GHSA-66m9-r757-qvq7)", () => {
+    const CONFIG_PATHS = [
+      ".obsidian",
+      ".obsidian/community-plugins.json",
+      ".obsidian/plugins/pwn/main.js",
+    ];
+
+    describe("is refused by default", () => {
+      beforeEach(() => {
+        registerTool.mockClear();
+        buildServer(new McpHandler(ops, DEFAULT_SETTINGS));
+      });
+
+      test.each(CONFIG_PATHS)("vault_write refuses %s", async (path) => {
+        await expect(
+          getToolCallback("vault_write")({ path, content: "x" }),
+        ).rejects.toThrow(/configuration directory/i);
+        expect(ops.writeFileContent).not.toHaveBeenCalled();
+      });
+
+      test.each(CONFIG_PATHS)("vault_append refuses %s", async (path) => {
+        await expect(
+          getToolCallback("vault_append")({ path, content: "x" }),
+        ).rejects.toThrow(/configuration directory/i);
+        expect(ops.appendFileContent).not.toHaveBeenCalled();
+      });
+
+      test("vault_delete refuses a config path", async () => {
+        await expect(
+          getToolCallback("vault_delete")({ path: ".obsidian/app.json" }),
+        ).rejects.toThrow(/configuration directory/i);
+        expect(ops.deleteVaultFile).not.toHaveBeenCalled();
+      });
+
+      test("open_file refuses a config path", async () => {
+        await expect(
+          getToolCallback("open_file")({ path: ".obsidian/app.json" }),
+        ).rejects.toThrow(/configuration directory/i);
+        expect(ops.openVaultFile).not.toHaveBeenCalled();
+      });
+
+      test("a sibling directory that merely shares the prefix is allowed", async () => {
+        await getToolCallback("vault_write")({
+          path: ".obsidian-backup/note.md",
+          content: "x",
+        });
+        expect(ops.writeFileContent).toHaveBeenCalled();
+      });
+    });
+
+    describe("is refused through a spelling only the filesystem resolves", () => {
+      // An NTFS 8.3 short name ("OBSIDI~1") or a symlink reaches the config dir
+      // without containing ".obsidian"; the tools ask the disk where it lands.
+      beforeEach(() => {
+        registerTool.mockClear();
+        ops.app.vault.adapter = new FileSystemAdapter("/vault");
+        jest.spyOn(fs.realpathSync, "native").mockImplementation(
+          fakeRealpath({ "/vault/OBSIDI~1": "/vault/.obsidian" }, [
+            "/vault",
+            "/vault/.obsidian",
+          ]),
+        );
+        buildServer(new McpHandler(ops, DEFAULT_SETTINGS));
+      });
+
+      afterEach(() => {
+        jest.restoreAllMocks();
+      });
+
+      test("vault_write refuses an 8.3 short name", async () => {
+        await expect(
+          getToolCallback("vault_write")({ path: "OBSIDI~1/plugins/pwn/main.js", content: "x" }),
+        ).rejects.toThrow(/configuration directory/i);
+        expect(ops.writeFileContent).not.toHaveBeenCalled();
+      });
+
+      test("vault_read refuses an 8.3 short name", async () => {
+        await expect(
+          getToolCallback("vault_read")({ path: "OBSIDI~1/plugins/pwn/data.json" }),
+        ).rejects.toThrow(/configuration directory/i);
+      });
+
+      test("an ordinary path is still written", async () => {
+        await getToolCallback("vault_write")({ path: "notes/a.md", content: "x" });
+        expect(ops.writeFileContent).toHaveBeenCalled();
+      });
+    });
+
+    describe("is permitted when the setting is on", () => {
+      beforeEach(() => {
+        registerTool.mockClear();
+        buildServer(
+          new McpHandler(ops, {
+            ...DEFAULT_SETTINGS,
+            enableConfigDirAccess: true,
+          }),
+        );
+      });
+
+      test("vault_write writes into the config directory", async () => {
+        await getToolCallback("vault_write")({
+          path: ".obsidian/plugins/pwn/main.js",
+          content: "x",
+        });
+        expect(ops.writeFileContent).toHaveBeenCalled();
+      });
     });
   });
 

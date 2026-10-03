@@ -81,7 +81,10 @@ import {
 } from "./vaultOperations";
 import {
   PathTraversalError,
+  ConfigDirAccessError,
   vaultPathIsContained,
+  onDiskAccessFor,
+  vaultPathIsInConfigDir,
 } from "./vaultPath";
 import { McpHandler } from "./mcpHandler";
 import { VaultSubresourceRegistry } from "./vaultSubresources";
@@ -561,7 +564,46 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { errorCode: ErrorCode.PathTraversalNotAllowed });
       return null;
     }
+    // Config-directory guard: a path inside Obsidian's config dir is refused unless
+    // the operator opted in. Writing there is code execution and reading there leaks
+    // secrets (GHSA-66m9-r757-qvq7). VaultOperations enforces this again before any
+    // filesystem access; this is the early, well-shaped rejection at the boundary.
+    if (
+      !this.settings.enableConfigDirAccess &&
+      this.pathIsInConfigDir(segments.join("/"))
+    ) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.ConfigDirAccessNotAllowed,
+      });
+      return null;
+    }
     return segments;
+  }
+
+  /** Let a refusal from the authorization gate out of an endpoint-local catch.
+   *
+   *  Those catches map the errors their operation is known to throw -- not
+   *  found, patch failed -- and answer anything else with a 500 or a coarse
+   *  client error. A PathTraversalError or ConfigDirAccessError is neither: it
+   *  is the gate in VaultOperations refusing a path the boundary never saw
+   *  (`/active/` takes its path from the workspace, not the client), and it has
+   *  to reach `errorHandler`, which answers it with the policy's own status and
+   *  error code. Called first in any catch that would otherwise swallow it. */
+  private rethrowIfRefused(error: unknown): void {
+    if (error instanceof PathTraversalError || error instanceof ConfigDirAccessError) {
+      throw error;
+    }
+  }
+
+  /** Whether a contained, vault-relative path is Obsidian's configuration
+   *  directory or inside it -- by spelling, and by where it lands on disk, so an
+   *  NTFS 8.3 short name or a symlink cannot reach it under another name. */
+  private pathIsInConfigDir(candidate: string): boolean {
+    return vaultPathIsInConfigDir(
+      candidate,
+      this.app.vault.configDir,
+      onDiskAccessFor(this.app.vault.adapter),
+    );
   }
 
   /** Join decoded segments into a whole-file path, or null when a segment holds
@@ -631,10 +673,16 @@ export default class RequestHandler {
     if (normalizedPath !== null) {
       try {
         exactStat = normalizedPath
-          ? await this.app.vault.adapter.stat(normalizedPath)
+          ? await this.operations.statPath(normalizedPath)
           : null;
-      } catch {
-        // ENOTDIR: a path segment is a file, not a directory — treat as no match.
+      } catch (e) {
+        // A path the gate refuses (traversal, config dir) must fail closed, not be
+        // read as "no match" and fall through to a listing or a 404. Everything
+        // else here is ENOTDIR — a path segment is a file, not a directory — which
+        // is a genuine no-match.
+        if (e instanceof PathTraversalError || e instanceof ConfigDirAccessError) {
+          throw e;
+        }
       }
     }
 
@@ -674,7 +722,7 @@ export default class RequestHandler {
       res.set("Content-Location", encodeVaultPath(filePath));
     }
 
-    const content = await this.app.vault.adapter.readBinary(filePath);
+    const content = await this.operations.readBinaryPath(filePath);
     const mimeType = mime.lookup(filePath);
 
     // A signed link is made to be opened — in a browser tab, in an <img> — so it is
@@ -1346,6 +1394,7 @@ export default class RequestHandler {
       );
       res.status(200).send(patched);
     } catch (e) {
+      this.rethrowIfRefused(e);
       if (e instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else if (e instanceof PatchFailed) {
@@ -1594,6 +1643,7 @@ export default class RequestHandler {
       res.setHeader("Content-Type", ContentTypes.markdown + "; charset=utf-8");
       res.status(200).send(result.document);
     } catch (e) {
+      this.rethrowIfRefused(e);
       if (e instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else if (e instanceof PreconditionFailedError) {
@@ -1710,6 +1760,7 @@ export default class RequestHandler {
         );
         res.status(200).send(patched);
       } catch (e) {
+        this.rethrowIfRefused(e);
         if (e instanceof FileNotFoundError) {
           this.returnCannedResponse(res, { statusCode: 404 });
         } else if (e instanceof PatchFailed) {
@@ -1894,6 +1945,7 @@ export default class RequestHandler {
     try {
       await this.operations.deleteVaultFile(path, permanent);
     } catch (e) {
+      this.rethrowIfRefused(e);
       if (e instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else {
@@ -1973,6 +2025,16 @@ export default class RequestHandler {
       return;
     }
 
+    if (
+      !this.settings.enableConfigDirAccess &&
+      this.pathIsInConfigDir(normalized)
+    ) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.ConfigDirAccessNotAllowed,
+      });
+      return;
+    }
+
     const newPath = !normalized || normalized.endsWith("/")
       ? normalized + sourceFilename
       : normalized;
@@ -1987,6 +2049,10 @@ export default class RequestHandler {
       } else if (error instanceof DestinationAlreadyExistsError) {
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.DestinationAlreadyExists,
+        });
+      } else if (error instanceof ConfigDirAccessError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ConfigDirAccessNotAllowed,
         });
       } else {
         const msg = error instanceof Error ? error.message : String(error);
@@ -2055,6 +2121,16 @@ export default class RequestHandler {
       return;
     }
 
+    if (
+      !this.settings.enableConfigDirAccess &&
+      this.pathIsInConfigDir(normalized)
+    ) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.ConfigDirAccessNotAllowed,
+      });
+      return;
+    }
+
     const newPath = !normalized || normalized.endsWith("/")
       ? normalized + sourceFilename
       : normalized;
@@ -2069,6 +2145,10 @@ export default class RequestHandler {
       } else if (error instanceof DestinationAlreadyExistsError) {
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.DestinationAlreadyExists,
+        });
+      } else if (error instanceof ConfigDirAccessError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ConfigDirAccessNotAllowed,
         });
       } else {
         const msg = error instanceof Error ? error.message : String(error);
@@ -2488,6 +2568,12 @@ export default class RequestHandler {
     if (err instanceof PathTraversalError) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.PathTraversalNotAllowed,
+      });
+      return;
+    }
+    if (err instanceof ConfigDirAccessError) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.ConfigDirAccessNotAllowed,
       });
       return;
     }

@@ -42,9 +42,13 @@ import {
   TFile,
   Command,
   CachedMetadata,
+  FileSystemAdapter,
   PluginManifest,
   _prepareSimpleSearchMock,
 } from "../mocks/obsidian";
+import { fakeRealpath } from "../mocks/disk";
+import * as fs from "fs";
+import { ConfigDirAccessError } from "./vaultPath";
 
 describe("requestHandler", () => {
   const API_KEY = "my api key";
@@ -2835,6 +2839,35 @@ describe("requestHandler", () => {
     // Two ..%2F segments are enough to escape the synthetic /vault root.
     const traversal = "/vault/..%2F..%2Fetc%2Fpasswd";
 
+    // Win32 strips trailing dots and spaces from every component, so ".. " is
+    // ".." there and must be refused the same way.
+    test("GET rejects a '.. ' (dot dot space) component with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .get("/vault/..%20/outside.md")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
+    test("PUT rejects a '.. ' (dot dot space) component with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .put("/vault/notes/..%20/..%20/outside.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("pwned");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
+    test("MOVE rejects a '.. ' (dot dot space) destination with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .move("/vault/notes/a.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", ".. /outside.md");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
     test("GET rejects ..%2F traversal with 400 and errorCode 40021", async () => {
       const res = await request(server)
         .get(traversal)
@@ -2900,6 +2933,290 @@ describe("requestHandler", () => {
         .set("Destination", "safe/destination.md");
       expect(res.status).toBe(400);
       expect(res.body.errorCode).toBe(40021);
+    });
+  });
+
+  describe("configuration directory access (GHSA-66m9-r757-qvq7)", () => {
+    // Writing a plugin here and enabling it is arbitrary code execution; reading
+    // here leaks the API key out of this plugin's own data.json. Blocked for both
+    // reads and writes unless the operator opts in.
+    const configPath = "/vault/.obsidian/plugins/pwn/main.js";
+
+    test("GET a config-dir file is refused with 403 and errorCode 40321", async () => {
+      const res = await request(server)
+        .get(configPath)
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(403);
+      expect(res.body.errorCode).toBe(40321);
+    });
+
+    test("PUT into the config dir is refused with 403 and errorCode 40321", async () => {
+      const res = await request(server)
+        .put(configPath)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("pwned");
+      expect(res.status).toBe(403);
+      expect(res.body.errorCode).toBe(40321);
+    });
+
+    test("POST into the config dir is refused with 403 and errorCode 40321", async () => {
+      const res = await request(server)
+        .post(configPath)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("pwned");
+      expect(res.status).toBe(403);
+      expect(res.body.errorCode).toBe(40321);
+    });
+
+    test("DELETE of a config-dir file is refused with 403 and errorCode 40321", async () => {
+      const res = await request(server)
+        .delete(configPath)
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(403);
+      expect(res.body.errorCode).toBe(40321);
+    });
+
+    test("MOVE into the config dir (destination) is refused", async () => {
+      const res = await request(server)
+        .move("/vault/notes/a.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", ".obsidian/plugins/pwn/main.js");
+      expect(res.status).toBe(403);
+      expect(res.body.errorCode).toBe(40321);
+    });
+
+    test("the config dir itself is refused", async () => {
+      const res = await request(server)
+        .get("/vault/.obsidian")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(403);
+      expect(res.body.errorCode).toBe(40321);
+    });
+
+    test("a sibling directory that merely shares the prefix is not refused", async () => {
+      const res = await request(server)
+        .get("/vault/.obsidian-backup/note.md")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).not.toBe(403);
+    });
+
+    test("GET is allowed when enableConfigDirAccess is on", async () => {
+      settings.enableConfigDirAccess = true;
+      const res = await request(server)
+        .get(configPath)
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(200);
+    });
+
+    test("PUT is allowed when enableConfigDirAccess is on", async () => {
+      settings.enableConfigDirAccess = true;
+      const res = await request(server)
+        .put(configPath)
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("ok");
+      expect(res.status).toBe(204);
+    });
+
+    describe("spellings only the filesystem resolves to the config dir", () => {
+      // On an NTFS volume with 8.3 names enabled -- the default for the system
+      // drive -- ".obsidian" also answers to "OBSIDI~1", and a symlink answers to
+      // wherever it points. Neither spelling contains ".obsidian", so the textual
+      // check passes it; the handler must ask the disk where the path lands.
+      const aliasPath = "/vault/OBSIDI~1/plugins/pwn/main.js";
+
+      beforeEach(() => {
+        app.vault.adapter = new FileSystemAdapter("/vault");
+        jest.spyOn(fs.realpathSync, "native").mockImplementation(
+          fakeRealpath(
+            {
+              "/vault/OBSIDI~1": "/vault/.obsidian",
+              "/vault/notes/cfg": "/vault/.obsidian",
+            },
+            ["/vault", "/vault/.obsidian", "/vault/.obsidian/plugins", "/vault/notes"],
+          ),
+        );
+      });
+
+      afterEach(() => {
+        jest.restoreAllMocks();
+      });
+
+      test("GET through an 8.3 short name is refused with 403 and errorCode 40321", async () => {
+        const res = await request(server)
+          .get(aliasPath)
+          .set("Authorization", `Bearer ${API_KEY}`);
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("PUT through an 8.3 short name is refused with 403 and errorCode 40321", async () => {
+        const res = await request(server)
+          .put(aliasPath)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("pwned");
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("PUT through a symlink into the config dir is refused", async () => {
+        const res = await request(server)
+          .put("/vault/notes/cfg/plugins/pwn/main.js")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("pwned");
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("MOVE with an aliased config-dir destination is refused", async () => {
+        const res = await request(server)
+          .move("/vault/notes/a.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Destination", "OBSIDI~1/plugins/pwn/main.js");
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("COPY with an aliased config-dir destination is refused", async () => {
+        const res = await request(server)
+          .copy("/vault/notes/a.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Destination", "OBSIDI~1/plugins/pwn/main.js");
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("an ordinary path is still served", async () => {
+        const res = await request(server)
+          .get("/vault/notes/a.md")
+          .set("Authorization", `Bearer ${API_KEY}`);
+        expect(res.status).toBe(200);
+      });
+
+      test("an aliased path is allowed when enableConfigDirAccess is on", async () => {
+        settings.enableConfigDirAccess = true;
+        const res = await request(server)
+          .get(aliasPath)
+          .set("Authorization", `Bearer ${API_KEY}`);
+        expect(res.status).toBe(200);
+      });
+    });
+
+    describe("the active file is inside the config dir through a symlink", () => {
+      // /active/ takes its path from the workspace, not the client, so the
+      // boundary check never runs and only the VaultOperations gate refuses.
+      // That refusal has to surface as 403/40321 from every verb, not be
+      // swallowed by an endpoint-local catch into a 500 or a patch error.
+      beforeEach(() => {
+        app.vault.adapter = new FileSystemAdapter("/vault");
+        jest.spyOn(fs.realpathSync, "native").mockImplementation(
+          fakeRealpath({ "/vault/notes/cfg": "/vault/.obsidian" }, [
+            "/vault",
+            "/vault/.obsidian",
+            "/vault/.obsidian/README.md",
+            "/vault/notes",
+          ]),
+        );
+        const active = Object.assign(new TFile(), { path: "notes/cfg/README.md" });
+        jest.spyOn(app.workspace, "getActiveFile").mockReturnValue(active);
+      });
+
+      afterEach(() => {
+        jest.restoreAllMocks();
+      });
+
+      test("GET /active/ is refused with 403 and errorCode 40321", async () => {
+        const res = await request(server)
+          .get("/active/")
+          .set("Authorization", `Bearer ${API_KEY}`);
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("PUT /active/ is refused with 403 and errorCode 40321", async () => {
+        const res = await request(server)
+          .put("/active/")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("pwned");
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("POST /active/ is refused with 403 and errorCode 40321", async () => {
+        const res = await request(server)
+          .post("/active/")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("pwned");
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("PATCH /active/ (2.0) is refused with 403 and errorCode 40321", async () => {
+        const res = await request(server)
+          .patch("/active/")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .send({ targetType: "heading", target: ["Intro"], operation: "append", content: "x" });
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("PATCH /active/ (1.x) is refused with 403 and errorCode 40321", async () => {
+        const res = await request(server)
+          .patch("/active/")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Markdown-Patch-Version", "1")
+          .set("Content-Type", "text/markdown")
+          .set("Operation", "append")
+          .set("Target-Type", "heading")
+          .set("Target", "Intro")
+          .send("x");
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("DELETE /active/ is refused with 403 and errorCode 40321", async () => {
+        const res = await request(server)
+          .delete("/active/")
+          .set("Authorization", `Bearer ${API_KEY}`);
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+    });
+
+    describe("a refusal raised below the handler keeps its error code", () => {
+      // VaultOperations re-checks the final path before touching disk. If that
+      // backstop is what fires, the client should still see 40321, not a generic
+      // "failed to move file".
+      test("MOVE", async () => {
+        jest
+          .spyOn(handler["operations"], "moveVaultFile")
+          .mockRejectedValue(new ConfigDirAccessError("Destination path is inside the config dir."));
+        const res = await request(server)
+          .move("/vault/notes/a.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Destination", "elsewhere/a.md");
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("COPY", async () => {
+        jest
+          .spyOn(handler["operations"], "copyVaultFile")
+          .mockRejectedValue(new ConfigDirAccessError("Destination path is inside the config dir."));
+        const res = await request(server)
+          .copy("/vault/notes/a.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Destination", "elsewhere/a.md");
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
     });
   });
 

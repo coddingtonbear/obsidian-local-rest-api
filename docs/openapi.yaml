@@ -2234,6 +2234,12 @@ paths:
                   "$ref": "#/components/schemas/Error"
             description: |
               Bad request - Missing Destination header, malformed percent-encoding, or path escapes the vault root (e.g. starts with "/").
+          "403":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). The check is against where the path lands on disk, so a Windows 8.3 short name, a differently cased spelling, or a symlink into that directory is refused the same way. Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it."
           "404":
             content:
               application/json:
@@ -2302,6 +2308,12 @@ paths:
                   "$ref": "#/components/schemas/Error"
             description: |
               Bad request - Missing Destination header, malformed percent-encoding, or path escapes the vault root (e.g. starts with "/").
+          "403":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). The check is against where the path lands on disk, so a Windows 8.3 short name, a differently cased spelling, or a symlink into that directory is refused the same way. Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it."
           "404":
             content:
               application/json:
@@ -2348,6 +2360,12 @@ paths:
       responses:
         "204":
           description: "Success"
+        "403":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). The check is against where the path lands on disk, so a Windows 8.3 short name, a differently cased spelling, or a symlink into that directory is refused the same way. Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it."
         "404":
           content:
             application/json:
@@ -2578,6 +2596,12 @@ paths:
                 "$ref": "#/components/schemas/Error"
           description: |
             The `Markdown-Patch-Version` header was invalid (not `1` or `2`), the deprecated `Target-Type`/`Target` headers were invalid, the `Target-Scope` header was not a readable scope (`content`, `marker`, `markerAndContent`), or a frontmatter target was combined with `Accept: text/html` (frontmatter has no HTML rendering).
+        "403":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). The check is against where the path lands on disk, so a Windows 8.3 short name, a differently cased spelling, or a symlink into that directory is refused the same way. Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it."
         "404":
           description: "File or target section does not exist"
       summary: |
@@ -3130,6 +3154,12 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, an instruction-mode request had a non-object body, or a raw-content-mode header could not be decoded (a heading `Target` that is not percent-encoded JSON, a malformed `Destination`, an unsupported body content type). Header-based targeting without an explicit `Markdown-Patch-Version` returns `PatchHeaderTargetingRequiresExplicitVersion` here. See response message for details."
+        "403":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). The check is against where the path lands on disk, so a Windows 8.3 short name, a differently cased spelling, or a symlink into that directory is refused the same way. Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it."
         "404":
           content:
             application/json:
@@ -3296,6 +3326,12 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "Bad Request"
+        "403":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). The check is against where the path lands on disk, so a Windows 8.3 short name, a differently cased spelling, or a symlink into that directory is refused the same way. Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it."
         "405":
           content:
             application/json:
@@ -3458,6 +3494,12 @@ paths:
                 "$ref": "#/components/schemas/Error"
           description: |
             Incoming file could not be processed.  Make sure you have specified a reasonable file name, and make sure you have set a reasonable 'Content-Type' header; if you are uploading a note, 'text/markdown' is likely the right choice.
+        "403":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). The check is against where the path lands on disk, so a Windows 8.3 short name, a differently cased spelling, or a symlink into that directory is refused the same way. Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it."
         "405":
           content:
             application/json:

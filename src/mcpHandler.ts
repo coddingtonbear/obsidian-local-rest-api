@@ -29,7 +29,11 @@ import openapiYaml from "../docs/openapi.yaml";
 import { OpenApiSpec } from "./openApiSpec";
 import { toStandardSchema } from "./mcpSchema";
 import { MaximumMcpBinaryBytes } from "./constants";
-import { assertVaultPathIsContained } from "./vaultPath";
+import {
+  assertVaultPathIsContained,
+  assertConfigDirAccessAllowed,
+  onDiskAccessFor,
+} from "./vaultPath";
 import { LocalRestApiSettings } from "./types";
 import type {
   McpPromptDefinition,
@@ -463,6 +467,15 @@ export class McpHandler {
     if (normalized === null) {
       throw new Error(`Not a file path inside the vault: ${path}`);
     }
+    // A signed URL would let its holder read or write the path with no API key, so a
+    // config-dir path must be refused at mint time, not only at redemption.
+    assertConfigDirAccessAllowed(
+      normalized,
+      this.ops.app.vault.configDir,
+      this.settings.enableConfigDirAccess ?? false,
+      "Path",
+      onDiskAccessFor(this.ops.app.vault.adapter),
+    );
     return normalized;
   }
 
@@ -720,6 +733,13 @@ export class McpHandler {
    *  a refusal that names what was wrong instead of a bare failure. */
   private vaultPath(candidate: string, label = "Path"): string {
     assertVaultPathIsContained(candidate, label);
+    assertConfigDirAccessAllowed(
+      candidate,
+      this.ops.app.vault.configDir,
+      this.settings.enableConfigDirAccess ?? false,
+      label,
+      onDiskAccessFor(this.ops.app.vault.adapter),
+    );
     return candidate;
   }
 

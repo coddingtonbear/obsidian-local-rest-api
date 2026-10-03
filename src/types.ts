@@ -27,6 +27,7 @@ export enum ErrorCode {
   EventNameRequired = 40095,
   ApiKeyAuthorizationRequired = 40101,
   SignedUrlIsWholeFileOnly = 40102,
+  ConfigDirAccessNotAllowed = 40321,
   UnknownEvent = 40460,
   EventSubscriptionNotFound = 40461,
   RequestMethodValidOnlyForFiles = 40510,
@@ -77,6 +78,25 @@ export interface LocalRestApiSettings {
   enableSignedUrls?: boolean;
   /** How long a signed URL stays valid, in seconds. See `clampSignedUrlTtl`. */
   signedUrlTtlSeconds?: number;
+
+  /**
+   * Whether the API may read or write files inside Obsidian's configuration
+   * directory (`app.vault.configDir`, normally `.obsidian`). Off by default and
+   * absent unless explicitly turned on.
+   *
+   * That directory holds plugin code, `community-plugins.json`, and each
+   * plugin's `data.json` -- including this plugin's own, where the API key
+   * lives. Writing into it is arbitrary code execution: Obsidian `eval`s an
+   * enabled plugin's `main.js`, so an authenticated client that can drop a
+   * plugin there and enable it runs code at full user privilege (GHSA-66m9-r757-qvq7).
+   * Reading from it leaks those same secrets. The guard therefore covers reads
+   * as well as writes.
+   *
+   * It exists as a setting at all because a few users deliberately manage their
+   * config through the API; turning it on re-grants that access and, with it,
+   * the risk above.
+   */
+  enableConfigDirAccess?: boolean;
 }
 
 declare module "obsidian" {
