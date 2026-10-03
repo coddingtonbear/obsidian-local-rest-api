@@ -1,6 +1,12 @@
 import fs from "fs";
 import path from "path";
-import { App, FileSystemAdapter, TFile, _prepareSimpleSearchMock } from "../mocks/obsidian";
+import {
+  App,
+  CachedMetadata,
+  FileSystemAdapter,
+  TFile,
+  _prepareSimpleSearchMock,
+} from "../mocks/obsidian";
 import { fakeRealpath } from "../mocks/disk";
 import { ConfigDirAccessError } from "./vaultPath";
 import {
@@ -725,5 +731,131 @@ describe("the configuration-directory backstop consults the disk", () => {
   test("statPath refuses an 8.3 short name for the config dir", async () => {
     const ops = setupOnDisk();
     await expect(ops.statPath("OBSIDI~1")).rejects.toThrow(ConfigDirAccessError);
+  });
+});
+
+describe("bulk reads skip indexed files that live in the configuration directory", () => {
+  // Obsidian never indexes a dot-directory, so the only way a config-dir file is
+  // in getMarkdownFiles() is a symlink the owner planted in the vault. Direct
+  // reads of such a path are refused; a search must not hand its contents out
+  // instead.
+  afterEach(() => {
+    jest.restoreAllMocks();
+    _prepareSimpleSearchMock.behavior = null;
+  });
+
+  function mdFile(filePath: string): TFile {
+    const file = new TFile();
+    file.path = filePath;
+    file.basename = path.basename(filePath, ".md");
+    return file;
+  }
+
+  function setupIndexedAlias(): { app: App; ops: VaultOperations } {
+    const app = new App();
+    app.vault.adapter = new FileSystemAdapter("/vault");
+    jest.spyOn(fs.realpathSync, "native").mockImplementation(
+      fakeRealpath({ "/vault/notes/cfg": "/vault/.obsidian" }, [
+        "/vault",
+        "/vault/.obsidian",
+        "/vault/notes",
+      ]),
+    );
+    app.vault._markdownFiles = [mdFile("notes/a.md"), mdFile("notes/cfg/README.md")];
+    app.vault._cachedRead = "needle";
+    return { app, ops: new VaultOperations(app, {} as LocalRestApiSettings) };
+  }
+
+  test("simpleSearch does not read or return the aliased file", async () => {
+    const { ops } = setupIndexedAlias();
+    _prepareSimpleSearchMock.behavior = () => () => ({ score: 1, matches: [[0, 6]] });
+    const results = await ops.simpleSearch("needle");
+    expect(results.map((r) => r.filename)).toEqual(["notes/a.md"]);
+  });
+
+  test("searchJsonLogic does not read or return the aliased file", async () => {
+    const { ops } = setupIndexedAlias();
+    const results = await ops.searchJsonLogic({ var: "content" });
+    expect(results.map((r) => r.filename)).toEqual(["notes/a.md"]);
+  });
+
+  test("getAllTags does not count the aliased file", async () => {
+    const { app, ops } = setupIndexedAlias();
+    app.metadataCache._getFileCache = { tags: [{ tag: "#t" }] } as unknown as CachedMetadata;
+    expect(ops.getAllTags()).toEqual([{ name: "t", count: 1 }]);
+  });
+
+  test("both are served when access is enabled", async () => {
+    const { app } = setupIndexedAlias();
+    const ops = new VaultOperations(app, {
+      enableConfigDirAccess: true,
+    } as LocalRestApiSettings);
+    const results = await ops.searchJsonLogic({ var: "path" });
+    expect(results.map((r) => r.filename)).toEqual(["notes/a.md", "notes/cfg/README.md"]);
+  });
+
+  test("getFileMetadataObject refuses a TFile inside the config dir", async () => {
+    const { ops } = setupIndexedAlias();
+    await expect(ops.getFileMetadataObject(mdFile("notes/cfg/README.md"))).rejects.toThrow(
+      ConfigDirAccessError,
+    );
+  });
+
+  test("renderFileToHtml refuses a TFile inside the config dir", async () => {
+    const { ops } = setupIndexedAlias();
+    await expect(ops.renderFileToHtml(mdFile("notes/cfg/README.md"))).rejects.toThrow(
+      ConfigDirAccessError,
+    );
+  });
+});
+
+describe("resolvePathAndTarget authorizes every prefix it stats", () => {
+  // The joined address can resolve to a harmless place while a prefix of it is
+  // the protected file: "notes/cfg/README.md/comments/../../../safe" is
+  // "notes/safe" once resolved, but the backward walk stats "notes/cfg/README.md"
+  // on the way there. Each stat goes through the gate, so a refused prefix is a
+  // miss rather than a hit.
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("a protected prefix behind a resolving address is not found", async () => {
+    const app = new App();
+    app.vault.adapter = new FileSystemAdapter("/vault");
+    app.vault.adapter._statForPath = "notes/cfg/README.md";
+    jest.spyOn(fs.realpathSync, "native").mockImplementation(
+      fakeRealpath({ "/vault/notes/cfg": "/vault/.obsidian" }, [
+        "/vault",
+        "/vault/.obsidian",
+        "/vault/.obsidian/README.md",
+        "/vault/notes",
+      ]),
+    );
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    const resolved = await ops.resolvePathAndTarget([
+      "notes",
+      "cfg",
+      "README.md",
+      "comments",
+      "../../../safe",
+    ]);
+    expect(resolved).toBeNull();
+  });
+
+  test("the same walk still finds an ordinary file", async () => {
+    const app = new App();
+    app.vault.adapter = new FileSystemAdapter("/vault");
+    app.vault.adapter._statForPath = "notes/a.md";
+    jest.spyOn(fs.realpathSync, "native").mockImplementation(
+      fakeRealpath({}, ["/vault", "/vault/.obsidian", "/vault/notes", "/vault/notes/a.md"]),
+    );
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    const resolved = await ops.resolvePathAndTarget(["notes", "a.md", "heading", "Intro"]);
+    expect(resolved).toEqual({
+      filePath: "notes/a.md",
+      targetType: "heading",
+      target: "Intro",
+      targetSegments: ["Intro"],
+    });
   });
 });

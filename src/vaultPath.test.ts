@@ -6,6 +6,8 @@ import {
   ConfigDirAccessError,
   assertVaultPathIsContained,
   assertConfigDirAccessAllowed,
+  configDirMatcher,
+  MAX_VAULT_PATH_SEGMENTS,
   onDiskAccessFor,
   vaultPathIsContained,
   vaultPathIsInConfigDir,
@@ -303,5 +305,88 @@ describe("onDiskAccessFor", () => {
 
   test("is undefined for an adapter with no base path", () => {
     expect(onDiskAccessFor(new DataAdapter())).toBeUndefined();
+  });
+});
+
+describe("vaultPathIsContained bounds path depth", () => {
+  test("a path at the segment limit is contained", () => {
+    const atLimit = Array(MAX_VAULT_PATH_SEGMENTS).fill("d").join("/");
+    expect(vaultPathIsContained(atLimit)).toBe(true);
+  });
+
+  test("a path over the segment limit is not", () => {
+    const overLimit = Array(MAX_VAULT_PATH_SEGMENTS + 1).fill("d").join("/");
+    expect(vaultPathIsContained(overLimit)).toBe(false);
+    expect(() => assertVaultPathIsContained(overLimit)).toThrow(PathTraversalError);
+  });
+
+  test("empty segments do not count toward the limit", () => {
+    // "a//b" and "a/./b" both resolve to two segments.
+    const padded = Array(MAX_VAULT_PATH_SEGMENTS).fill("d").join("//") + "/./";
+    expect(vaultPathIsContained(padded)).toBe(true);
+  });
+});
+
+describe("the on-disk walk is bounded by what exists, not by the request", () => {
+  // A request can name thousands of components that are not there. Resolving
+  // from the top and stopping at the first missing one keeps the work
+  // proportional to the on-disk depth, so a long bogus path cannot stall
+  // Obsidian with one synchronous realpath per component.
+  test("a deep missing path costs a handful of realpath calls", () => {
+    const realpath = jest.fn(fakeRealpath({}, ["/vault", "/vault/notes"]));
+    const access: OnDiskAccess = { basePath: "/vault", realpath };
+    const deep = "notes/" + Array(200).fill("missing").join("/");
+    expect(vaultPathIsInConfigDir(deep, ".obsidian", access)).toBe(false);
+    expect(realpath.mock.calls.length).toBeLessThan(10);
+  });
+
+  test("an existing path still resolves in one call", () => {
+    const realpath = jest.fn(
+      fakeRealpath({}, ["/vault", "/vault/notes", "/vault/notes/a.md", "/vault/.obsidian"]),
+    );
+    const access: OnDiskAccess = { basePath: "/vault", realpath };
+    expect(vaultPathIsInConfigDir("notes/a.md", ".obsidian", access)).toBe(false);
+    // Candidate once, config dir once.
+    expect(realpath).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("configDirMatcher", () => {
+  // Built once per bulk operation -- a search over the whole index -- so that
+  // files sharing a directory share one on-disk lookup.
+  const configDir = ".obsidian";
+
+  test("matches by spelling without on-disk access", () => {
+    const matches = configDirMatcher(configDir);
+    expect(matches(".obsidian/app.json")).toBe(true);
+    expect(matches("notes/a.md")).toBe(false);
+  });
+
+  test("matches a file reached through a symlinked directory", () => {
+    const matches = configDirMatcher(configDir, {
+      basePath: "/vault",
+      realpath: fakeRealpath({ "/vault/notes/cfg": "/vault/.obsidian" }, [
+        "/vault",
+        "/vault/.obsidian",
+        "/vault/notes",
+      ]),
+    });
+    expect(matches("notes/cfg/README.md")).toBe(true);
+    expect(matches("notes/cfg/plugins/x/README.md")).toBe(true);
+    expect(matches("notes/a.md")).toBe(false);
+    expect(matches("")).toBe(false);
+  });
+
+  test("resolves each directory on disk once, however many files it holds", () => {
+    const realpath = jest.fn(
+      fakeRealpath({}, ["/vault", "/vault/.obsidian", "/vault/notes", "/vault/other"]),
+    );
+    const matches = configDirMatcher(configDir, { basePath: "/vault", realpath });
+    for (let i = 0; i < 50; i++) {
+      matches(`notes/n${i}.md`);
+      matches(`other/o${i}.md`);
+    }
+    // The config dir, "notes", and "other": three lookups, not a hundred.
+    expect(realpath).toHaveBeenCalledTimes(3);
   });
 });
