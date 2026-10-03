@@ -7,6 +7,7 @@ import {
   assertVaultPathIsContained,
   assertConfigDirAccessAllowed,
   configDirMatcher,
+  MAX_LINK_HOPS,
   MAX_VAULT_PATH_SEGMENTS,
   onDiskAccessFor,
   vaultPathIsContained,
@@ -466,12 +467,40 @@ describe("a dangling symlink is followed to where a write would land", () => {
     expect(vaultPathIsInConfigDir("notes/upload.bin", configDir, access)).toBe(false);
   });
 
-  test("a link loop does not hang and is not a match", () => {
+  test("a link loop does not hang and is refused rather than guessed about", () => {
+    // The walk cannot say where this lands. Saying "not the config dir" would
+    // be a guess the write could prove wrong, so the answer is a refusal.
     const access = disk({
       "/vault/notes/a": "b",
       "/vault/notes/b": "a",
     });
-    expect(vaultPathIsInConfigDir("notes/a/x.md", configDir, access)).toBe(false);
+    expect(vaultPathIsInConfigDir("notes/a/x.md", configDir, access)).toBe(true);
+    expect(configDirMatcher(configDir, access)("notes/a/x.md")).toBe(true);
+  });
+
+  test("a chain of links longer than the hop limit is refused, a shorter one followed", () => {
+    const chain = (length: number): Record<string, string> => {
+      const links: Record<string, string> = {};
+      for (let i = 0; i < length; i++) links[`/vault/notes/l${i}`] = `l${i + 1}`;
+      links[`/vault/notes/l${length}`] = "../attachments/missing.bin";
+      return links;
+    };
+    const within = disk(chain(MAX_LINK_HOPS - 1));
+    expect(vaultPathIsInConfigDir("notes/l0", configDir, within)).toBe(false);
+    const beyond = disk(chain(MAX_LINK_HOPS + 1));
+    expect(vaultPathIsInConfigDir("notes/l0", configDir, beyond)).toBe(true);
+  });
+
+  test("an unresolvable vault root still falls back to the textual check", () => {
+    // Distinct from a chain the walk cannot finish: here the disk could not be
+    // consulted at all, and the textual check is all there is.
+    const access: OnDiskAccess = {
+      basePath: "/vault",
+      realpath: fakeRealpath({}, []),
+      readlink: fakeReadlink({}),
+    };
+    expect(vaultPathIsInConfigDir("notes/a.md", configDir, access)).toBe(false);
+    expect(vaultPathIsInConfigDir(".obsidian/a.md", configDir, access)).toBe(true);
   });
 
   test("a plain missing entry is still just missing", () => {
