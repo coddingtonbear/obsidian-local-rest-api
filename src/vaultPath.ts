@@ -150,9 +150,15 @@ function stripTrailingDotsAndSpaces(segment: string): string {
  *  send to the same directory compare equal here.
  *
  *  Per segment: Unicode NFC (macOS may hand back a decomposed form of a name
- *  stored composed), lower-case (APFS and NTFS are case-insensitive by default,
+ *  stored composed), case-folded (APFS and NTFS are case-insensitive by default,
  *  so ".OBSIDIAN" *is* ".obsidian" there), and trailing dots and spaces stripped
  *  (Win32 removes them from every component, so ".obsidian." opens ".obsidian").
+ *
+ *  The case fold is upper-then-lower, not lower alone. APFS folds with Unicode
+ *  CaseFolding.txt, which sends long s (U+017F) to "s"; `toLowerCase` leaves
+ *  U+017F as it is, since it is already lowercase, while `toUpperCase` takes it
+ *  to "S" and the lowercase of that is "s". Going up first and then down merges
+ *  every spelling the one-way fold does and that one too.
  *
  *  Every step only merges spellings together, never splits them apart, so this
  *  can only make a path *more* likely to be seen as the config dir. On a
@@ -162,7 +168,9 @@ function stripTrailingDotsAndSpaces(segment: string): string {
 function canonicalNameForm(resolvedPath: string): string {
   return resolvedPath
     .split("/")
-    .map((segment) => stripTrailingDotsAndSpaces(segment.normalize("NFC").toLowerCase()))
+    .map((segment) =>
+      stripTrailingDotsAndSpaces(segment.normalize("NFC").toUpperCase().toLowerCase()),
+    )
     .join("/");
 }
 
