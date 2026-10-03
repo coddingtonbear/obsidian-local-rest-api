@@ -890,3 +890,140 @@ describe("a write through a dangling symlink into the config dir is refused", ()
     ).rejects.toThrow(ConfigDirAccessError);
   });
 });
+
+describe("a write that replaces an entry checks where the entry's parent lands", () => {
+  // The gate follows a symlink to its target. A symlink the owner planted
+  // *inside* the config dir that points back into the vault therefore passes,
+  // and an overwrite then removes the link and creates a real file at the same
+  // spelling -- inside the config dir. The entry is created in its parent, so
+  // the parent has to be allowed too, before anything is removed.
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const LINK = "notes/cfg/plugins/foo/link.md";
+
+  function setup(): App {
+    const app = new App();
+    app.vault.adapter = new FileSystemAdapter("/vault");
+    jest.spyOn(fs.realpathSync, "native").mockImplementation(
+      fakeRealpath(
+        {
+          "/vault/notes/cfg": "/vault/.obsidian",
+          "/vault/.obsidian/plugins/foo/link.md": "/vault/notes/z.md",
+        },
+        [
+          "/vault",
+          "/vault/notes",
+          "/vault/notes/z.md",
+          "/vault/notes/payload.md",
+          "/vault/.obsidian",
+          "/vault/.obsidian/plugins",
+          "/vault/.obsidian/plugins/foo",
+        ],
+      ),
+    );
+    return app;
+  }
+
+  test("MOVE with overwrite onto such a link is refused before the link is removed", async () => {
+    const app = setup();
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    await expect(ops.moveVaultFile("notes/payload.md", LINK, true)).rejects.toThrow(
+      ConfigDirAccessError,
+    );
+    expect(app.vault.adapter._remove).toBeUndefined();
+  });
+
+  test("COPY with overwrite onto such a link is refused before the link is removed", async () => {
+    const app = setup();
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    await expect(ops.copyVaultFile("notes/payload.md", LINK, true)).rejects.toThrow(
+      ConfigDirAccessError,
+    );
+    expect(app.vault.adapter._remove).toBeUndefined();
+  });
+
+  test("permanent DELETE of such a link is refused", async () => {
+    const app = setup();
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    await expect(ops.deleteVaultFile(LINK, true)).rejects.toThrow(ConfigDirAccessError);
+    expect(app.vault.adapter._remove).toBeUndefined();
+  });
+
+  test("DELETE to trash of such a link is refused", async () => {
+    const app = setup();
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    await expect(ops.deleteVaultFile(LINK, false)).rejects.toThrow(ConfigDirAccessError);
+  });
+
+  test("an ordinary overwrite still proceeds", async () => {
+    const app = setup();
+    Object.assign(app.fileManager, { renameFile: jest.fn() });
+    const ops = new VaultOperations(app, {} as LocalRestApiSettings);
+    await ops.moveVaultFile("notes/payload.md", "notes/z.md", true);
+    expect(app.vault.adapter._remove).toEqual(["notes/z.md"]);
+  });
+});
+
+describe("bulk reads skip a .md-named symlink into the configuration directory", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+    _prepareSimpleSearchMock.behavior = null;
+  });
+
+  function mdFile(filePath: string): TFile {
+    const file = new TFile();
+    file.path = filePath;
+    file.basename = path.basename(filePath, ".md");
+    return file;
+  }
+
+  function setup(): { app: App; ops: VaultOperations; readlink: jest.SpyInstance } {
+    const app = new App();
+    app.vault.adapter = new FileSystemAdapter("/vault");
+    jest.spyOn(fs.realpathSync, "native").mockImplementation(
+      fakeRealpath({ "/vault/notes/key.md": "/vault/.obsidian/plugins/x/data.json" }, [
+        "/vault",
+        "/vault/notes",
+        "/vault/notes/a.md",
+        "/vault/.obsidian",
+        "/vault/.obsidian/plugins",
+        "/vault/.obsidian/plugins/x",
+        "/vault/.obsidian/plugins/x/data.json",
+      ]),
+    );
+    const readlink = jest.spyOn(fs, "readlinkSync").mockImplementation((p) => {
+      const target = fakeReadlink({
+        "/vault/notes/key.md": "../.obsidian/plugins/x/data.json",
+      })(String(p));
+      if (target === undefined) throw Object.assign(new Error("EINVAL"), { code: "EINVAL" });
+      return target;
+    });
+    app.vault._markdownFiles = [mdFile("notes/a.md"), mdFile("notes/key.md")];
+    app.vault._cachedRead = "apiKey";
+    return { app, ops: new VaultOperations(app, {} as LocalRestApiSettings), readlink };
+  }
+
+  test("simpleSearch does not return the link", async () => {
+    const { ops } = setup();
+    _prepareSimpleSearchMock.behavior = () => () => ({ score: 1, matches: [[0, 6]] });
+    const results = await ops.simpleSearch("apiKey");
+    expect(results.map((r) => r.filename)).toEqual(["notes/a.md"]);
+  });
+
+  test("searchJsonLogic does not return the link", async () => {
+    const { ops } = setup();
+    const results = await ops.searchJsonLogic({ var: "content" });
+    expect(results.map((r) => r.filename)).toEqual(["notes/a.md"]);
+  });
+
+  test("the per-file readlink is remembered across searches while the file is unchanged", async () => {
+    const { ops, readlink } = setup();
+    await ops.searchJsonLogic({ var: "path" });
+    const afterFirst = readlink.mock.calls.length;
+    expect(afterFirst).toBe(2);
+    await ops.searchJsonLogic({ var: "path" });
+    expect(readlink.mock.calls.length).toBe(afterFirst);
+  });
+});

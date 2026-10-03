@@ -28,8 +28,6 @@ describe("vaultPathIsContained", () => {
     ["a descent that comes back but stays inside", "folder/../other/note.md"],
     ["a backslash in a filename", "folder/a\\b.md"],
     ["a name that merely starts with '..'", "..hidden.md"],
-    ["a colon below the top level", "notes/C:not-a-drive.md"],
-    ["a colon that is not a drive letter", "CC:notes.md"],
     // Stripping trailing dots and spaces only ever moves a component toward
     // "..": a name that merely ends in them stays an ordinary name.
     ["a name with a trailing space", "notes /a.md"],
@@ -57,6 +55,14 @@ describe("vaultPathIsContained", () => {
     ["a '..' with a trailing dot", "../outside.md".replace("..", "...")],
     ["nested '..'s with trailing spaces", "notes/.. /.. /outside.md"],
     ["'..'s with trailing spaces and backslashes", "notes\\.. \\.. \\outside.md"],
+    // A colon anywhere names an NTFS alternate data stream ("note.md:evil"),
+    // which the index never sees, and Obsidian forbids ":" in a name on every
+    // platform anyway. Refused outright, which also closes "OBSIDI~1:x".
+    ["a colon below the top level", "notes/C:not-a-drive.md"],
+    ["a colon that is not a drive letter", "CC:notes.md"],
+    ["an alternate data stream on a note", "notes/a.md:evil"],
+    ["an alternate data stream on the config dir's short name", "OBSIDI~1:x"],
+    ["a NUL byte", "notes/a\u0000.md"],
     ["a drive-qualified path", "C:/outside.md"],
     ["a drive-qualified path with backslashes", "C:\\outside.md"],
     ["a lowercase drive letter", "c:/outside.md"],
@@ -597,5 +603,74 @@ describe("onDiskAccessFor's readlink", () => {
     });
     const access = onDiskAccessFor(new FileSystemAdapter("/disk/vault"));
     expect(() => access?.readlink("/disk/vault/x")).toThrow();
+  });
+});
+
+describe("a configDir that is not a plain folder name fails closed", () => {
+  // Obsidian's setting is a folder name. If something else ever arrives --
+  // "..", an absolute path, empty -- the guard cannot tell what it protects,
+  // and the only safe answer is to refuse everything until it can.
+  test.each(["../elsewhere", "/abs/config", "", ".", "notes/.."])(
+    "configDir %j refuses an ordinary path",
+    (configDir) => {
+      expect(vaultPathIsInConfigDir("notes/a.md", configDir)).toBe(true);
+      expect(configDirMatcher(configDir)("notes/a.md")).toBe(true);
+    },
+  );
+});
+
+describe("configDirMatcher follows a symlink that is itself the file", () => {
+  // The index names a file by the link's extension, so "notes/key.md" linking
+  // to data.json is indexed as markdown and would be read by a search. One
+  // readlink per file finds it; a fingerprint lets a caller memoise that.
+  const configDir = ".obsidian";
+  const existing = [
+    "/vault",
+    "/vault/notes",
+    "/vault/notes/a.md",
+    "/vault/.obsidian",
+    "/vault/.obsidian/plugins",
+    "/vault/.obsidian/plugins/x",
+    "/vault/.obsidian/plugins/x/data.json",
+  ];
+  const links = { "/vault/notes/key.md": "../.obsidian/plugins/x/data.json" };
+
+  function access(readlink = fakeReadlink(links)): OnDiskAccess {
+    return {
+      basePath: "/vault",
+      realpath: fakeRealpath({ "/vault/notes/key.md": "/vault/.obsidian/plugins/x/data.json" }, existing),
+      readlink,
+    };
+  }
+
+  test("a .md-named link into the config dir matches", () => {
+    const matches = configDirMatcher(configDir, access());
+    expect(matches("notes/key.md")).toBe(true);
+    expect(matches("notes/a.md")).toBe(false);
+  });
+
+  test("a dangling .md-named link into the config dir matches", () => {
+    const matches = configDirMatcher(configDir, {
+      basePath: "/vault",
+      realpath: fakeRealpath({}, existing),
+      readlink: fakeReadlink({ "/vault/notes/new.md": "../.obsidian/plugins/x/main.js" }),
+    });
+    expect(matches("notes/new.md")).toBe(true);
+  });
+
+  test("a fingerprint memoises the readlink across matchers", () => {
+    const readlink = jest.fn(fakeReadlink(links));
+    const memo = new Map<string, { fingerprint: string; target: string | undefined }>();
+    const first = configDirMatcher(configDir, access(readlink), memo);
+    expect(first("notes/a.md", "a-v1")).toBe(false);
+    expect(first("notes/key.md", "k-v1")).toBe(true);
+    const second = configDirMatcher(configDir, access(readlink), memo);
+    expect(second("notes/a.md", "a-v1")).toBe(false);
+    expect(second("notes/key.md", "k-v1")).toBe(true);
+    // Two files, each read once; the second matcher reused both answers.
+    expect(readlink).toHaveBeenCalledTimes(2);
+    // A changed fingerprint is read again.
+    expect(second("notes/a.md", "a-v2")).toBe(false);
+    expect(readlink).toHaveBeenCalledTimes(3);
   });
 });
