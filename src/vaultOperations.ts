@@ -50,6 +50,7 @@ import {
   assertConfigDirAccessAllowed,
   configDirMatcher,
   onDiskAccessFor,
+  type LinkMemo,
 } from "./vaultPath";
 
 /**
@@ -201,8 +202,42 @@ export class VaultOperations {
     const inConfigDir = configDirMatcher(
       this.app.vault.configDir,
       onDiskAccessFor(this.app.vault.adapter),
+      this.linkMemo,
     );
-    return files.filter((file) => !inConfigDir(file.path));
+    const readable = files.filter(
+      (file) => !inConfigDir(file.path, `${file.stat.ctime}:${file.stat.mtime}:${file.stat.size}`),
+    );
+    // Forget files that have left the index, so the memo tracks the vault's
+    // size rather than its history.
+    if (this.linkMemo.size > files.length * 2) {
+      const current = new Set(files.map((file) => file.path));
+      for (const key of this.linkMemo.keys()) {
+        if (!current.has(key)) this.linkMemo.delete(key);
+      }
+    }
+    return readable;
+  }
+
+  /** What {@link readableMarkdownFiles} remembers between searches: whether each
+   *  indexed file is a symlink, keyed by the file's literal path and valid while
+   *  its indexed ctime/mtime/size are unchanged. See {@link configDirMatcher}. */
+  private readonly linkMemo: LinkMemo = new Map();
+
+  /** The gate for an operation that creates or removes an *entry* -- a move,
+   *  a copy, a delete -- rather than reading or writing a file's contents.
+   *
+   *  {@link assertContained} follows a symlink to its target, which is right
+   *  for a read or a content write: those act on the target. But an entry is
+   *  created or removed in its *parent*, and a symlink the owner planted inside
+   *  the config dir that points back into the vault passes the target check
+   *  while living somewhere this API may not touch: removing it removes a
+   *  config-dir entry, and an overwrite would then create a real file at that
+   *  spelling inside the config dir. So the parent is checked too, before
+   *  anything is removed. */
+  private assertEntryContained(filePath: string, label = "Path"): void {
+    this.assertContained(filePath, label);
+    const parent = path.posix.dirname(filePath);
+    this.assertContained(parent === "." ? "" : parent, label);
   }
 
   /** Stat a path straight from the adapter, through the authorization gate.
@@ -651,7 +686,7 @@ export class VaultOperations {
   }
 
   async deleteVaultFile(filePath: string, permanent = false): Promise<void> {
-    this.assertContained(filePath);
+    this.assertEntryContained(filePath);
     if (permanent) {
       const pathExists = await this.app.vault.adapter.exists(filePath);
       if (!pathExists) {
@@ -673,8 +708,8 @@ export class VaultOperations {
     destinationPath: string,
     allowOverwrite = false,
   ): Promise<string> {
-    this.assertContained(sourcePath, "Source path");
-    this.assertContained(destinationPath, "Destination path");
+    this.assertEntryContained(sourcePath, "Source path");
+    this.assertEntryContained(destinationPath, "Destination path");
     if (!destinationPath) {
       throw new Error("Destination path must not be empty.");
     }
@@ -716,8 +751,8 @@ export class VaultOperations {
     destinationPath: string,
     allowOverwrite = false,
   ): Promise<string> {
-    this.assertContained(sourcePath, "Source path");
-    this.assertContained(destinationPath, "Destination path");
+    this.assertEntryContained(sourcePath, "Source path");
+    this.assertEntryContained(destinationPath, "Destination path");
     if (!destinationPath) {
       throw new Error("Destination path must not be empty.");
     }

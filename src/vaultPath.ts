@@ -58,13 +58,17 @@ export const CONFIG_DIR_ACCESS_MESSAGE =
  *  root by coincidence of spelling and has nothing to do with where the vault
  *  actually lives. A vault-relative path never begins with "/".
  *
- *  A drive-qualified path is refused for the same reason, and needs saying
- *  separately because it does not begin with "/": "C:/outside.md" survives the
- *  backslash fold, looks relative to `posix.resolve`, and lands inside the
- *  synthetic root as "/vault/C:/outside.md". On Windows it is absolute --
- *  `path.win32.resolve` reads it as the root of drive C -- and "C:outside.md"
- *  is drive-relative, which is no better. Neither is a name a vault file can
- *  have anyway, since Windows does not allow ":" in one.
+ *  A colon anywhere is refused. As the second character it makes a
+ *  drive-qualified path: "C:/outside.md" survives the backslash fold, looks
+ *  relative to `posix.resolve`, and lands inside the synthetic root as
+ *  "/vault/C:/outside.md", while on Windows it is the root of drive C, and
+ *  "C:outside.md" is drive-relative, which is no better. Anywhere else it names
+ *  an NTFS alternate data stream -- "note.md:evil" is a second body on the
+ *  note that the index never sees, and "OBSIDI~1:x" is a stream on the config
+ *  directory. No vault file has a colon in its name: Obsidian forbids it on
+ *  every platform. A NUL byte is refused for the same reason -- it is not a
+ *  name, and the filesystem would reject it with an error that is not
+ *  "missing".
  *
  *  A path with more than {@link MAX_VAULT_PATH_SEGMENTS} components is refused
  *  too: no vault has one, and the cap keeps per-segment work bounded.
@@ -75,9 +79,9 @@ export const CONFIG_DIR_ACCESS_MESSAGE =
  *  does not: a symlink inside the vault that leads out of it is something the
  *  vault's owner put there. */
 export function vaultPathIsContained(candidate: string): boolean {
+  if (candidate.includes("\0") || candidate.includes(":")) return false;
   const normalized = foldForResolution(candidate);
   if (normalized.startsWith("/")) return false;
-  if (/^[A-Za-z]:/.test(normalized)) return false;
   const resolved = posix.resolve(SYNTHETIC_ROOT, normalized);
   if (resolved !== SYNTHETIC_ROOT && !resolved.startsWith(SYNTHETIC_ROOT + "/")) {
     return false;
@@ -179,6 +183,7 @@ export function vaultPathIsInConfigDir(
   configDir: string,
   onDisk?: OnDiskAccess,
 ): boolean {
+  if (!configDirIsUsable(configDir)) return true;
   if (isInConfigDirBySpelling(candidate, configDir)) return true;
   if (onDisk === undefined) return false;
   try {
@@ -191,25 +196,35 @@ export function vaultPathIsInConfigDir(
   }
 }
 
+/** What a {@link configDirMatcher} remembers about a file between calls: the
+ *  readlink answer for its literal path, valid while the caller's fingerprint
+ *  of the file (its indexed ctime/mtime/size) is unchanged. */
+export type LinkMemo = Map<string, { fingerprint: string; target: string | undefined }>;
+
 /** {@link vaultPathIsInConfigDir} for checking many paths in one pass -- a
- *  search over the whole index -- without paying one on-disk lookup per file.
+ *  search over the whole index -- without paying a full on-disk resolution per
+ *  file.
  *
  *  Files in the same directory share its resolution: each candidate's *parent*
- *  is resolved on disk, memoised, and the file name joined back on, so a vault
- *  of ten thousand notes in a few hundred folders costs a few hundred realpath
- *  calls, not ten thousand. The trade is that a symlink that *is* the file --
- *  "notes/readme.md" linking to a markdown file inside the config dir -- is not
- *  followed here, where it would be by the single-path check; a per-file
- *  lstat would cost what this exists to avoid, and a config-dir *markdown*
- *  file the owner has linked into the vault by name is well short of the
- *  plugin code and data.json the guard is for.
+ *  is resolved on disk once and memoised, and the file name joined back on, so
+ *  a vault of ten thousand notes in a few hundred folders costs a few hundred
+ *  realpath calls for the directories. The file itself gets one readlink, not a
+ *  realpath, because the index names a file by the *link's* extension: a
+ *  "notes/key.md" that is a symlink to data.json is indexed as markdown and
+ *  would otherwise be read by a search that refuses the same path directly. A
+ *  link's target is then located like any other path. When the caller supplies
+ *  a `linkMemo` and a per-file fingerprint, the readlink answer is remembered
+ *  across matchers while the fingerprint holds, so a repeat search over an
+ *  unchanged vault costs the directory lookups alone.
  *
- *  Make one per operation and let it go: the memo does not see a symlink
- *  created after it was built. */
+ *  Make one per operation and let it go: the directory memo does not see a
+ *  symlink created after it was built. */
 export function configDirMatcher(
   configDir: string,
   onDisk?: OnDiskAccess,
-): (candidate: string) => boolean {
+  linkMemo?: LinkMemo,
+): (candidate: string, fingerprint?: string) => boolean {
+  if (!configDirIsUsable(configDir)) return () => true;
   if (onDisk === undefined) {
     return (candidate) => isInConfigDirBySpelling(candidate, configDir);
   }
@@ -222,8 +237,23 @@ export function configDirMatcher(
       throw error;
     }
   };
+  const readlinkOf = (literal: string, fingerprint: string | undefined): string | undefined => {
+    const remembered = fingerprint === undefined ? undefined : linkMemo?.get(literal);
+    if (remembered !== undefined && remembered.fingerprint === fingerprint) {
+      return remembered.target;
+    }
+    let target: string | undefined;
+    try {
+      target = memoised.readlink(literal);
+    } catch (error) {
+      if (error instanceof UnfinishedWalkError) throw error;
+      throw new UnfinishedWalkError(`readlink failed at ${literal}: ${errorCode(error)}`);
+    }
+    if (fingerprint !== undefined) linkMemo?.set(literal, { fingerprint, target });
+    return target;
+  };
   const configOnDisk = located(vaultRelativeSegments(configDir));
-  return (candidate) => {
+  return (candidate, fingerprint) => {
     if (isInConfigDirBySpelling(candidate, configDir)) return true;
     if (configOnDisk instanceof UnfinishedWalkError) return true;
     if (configOnDisk === undefined) return false;
@@ -232,10 +262,29 @@ export function configDirMatcher(
     const parentOnDisk = located(segments);
     if (parentOnDisk instanceof UnfinishedWalkError) return true;
     if (parentOnDisk === undefined) return false;
-    const candidateOnDisk =
-      name === undefined ? parentOnDisk : path.join(parentOnDisk, name);
-    return sameOrBeneath(candidateOnDisk, configOnDisk);
+    if (name === undefined) return sameOrBeneath(parentOnDisk, configOnDisk);
+    try {
+      const literal = path.join(memoised.basePath, ...segments, name);
+      const target = readlinkOf(literal, fingerprint);
+      const candidateOnDisk =
+        target === undefined
+          ? path.join(parentOnDisk, name)
+          : locateAbsolute(path.resolve(path.dirname(literal), target), memoised);
+      return sameOrBeneath(candidateOnDisk, configOnDisk);
+    } catch (error) {
+      if (error instanceof UnfinishedWalkError) return true;
+      throw error;
+    }
   };
+}
+
+/** Whether the running config dir is something the guard can protect: a
+ *  folder name inside the vault. Obsidian only ever supplies that, but if
+ *  anything else arrived -- "..", an absolute path, the vault root itself --
+ *  the guard could not tell what it was protecting, and the one safe answer is
+ *  to treat every path as off-limits until it can. */
+function configDirIsUsable(configDir: string): boolean {
+  return vaultPathIsContained(configDir) && vaultRelativeSegments(configDir).length > 0;
 }
 
 function isInConfigDirBySpelling(candidate: string, configDir: string): boolean {
@@ -359,6 +408,20 @@ function onDiskLocation(
   return locate(onDisk.basePath, segments, onDisk, 0);
 }
 
+/** {@link locate} for an absolute path, split into its root and components. */
+function locateAbsolute(
+  absolute: string,
+  onDisk: OnDiskAccess,
+  hops = 0,
+): string | undefined {
+  const root = path.parse(absolute).root;
+  const segments = absolute
+    .slice(root.length)
+    .split(/[\\/]+/)
+    .filter((segment) => segment !== "");
+  return locate(root, segments, onDisk, hops);
+}
+
 /** How many symlinks a single path may pass through before the walk gives up.
  *  Linux refuses a path with more than 40 (ELOOP), so on the platform where a
  *  chain this long could even resolve, the guard and the kernel agree. Nothing
@@ -442,12 +505,7 @@ function locate(
       throw new UnfinishedWalkError(`More than ${MAX_LINK_HOPS} links at ${here}`);
     }
     const target = path.resolve(path.dirname(here), linkTarget);
-    const targetRoot = path.parse(target).root;
-    const targetSegments = target
-      .slice(targetRoot.length)
-      .split(/[\\/]+/)
-      .filter((segment) => segment !== "");
-    const landed = locate(targetRoot, targetSegments, onDisk, hops + 1);
+    const landed = locateAbsolute(target, onDisk, hops + 1);
     return landed === undefined ? undefined : path.join(landed, ...remainder);
   }
   return resolved;

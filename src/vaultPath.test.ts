@@ -650,9 +650,11 @@ describe("configDirMatcher follows a symlink that is itself the file", () => {
   });
 
   test("a dangling .md-named link into the config dir matches", () => {
+    // The link's target is located from the filesystem root down, which the
+    // fake disk has to know exists, as a real one always does.
     const matches = configDirMatcher(configDir, {
       basePath: "/vault",
-      realpath: fakeRealpath({}, existing),
+      realpath: fakeRealpath({}, ["/", ...existing]),
       readlink: fakeReadlink({ "/vault/notes/new.md": "../.obsidian/plugins/x/main.js" }),
     });
     expect(matches("notes/new.md")).toBe(true);
