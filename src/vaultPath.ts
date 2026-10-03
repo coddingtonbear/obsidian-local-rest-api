@@ -120,12 +120,23 @@ function foldForResolution(candidate: string): string {
     .replace(/\\/g, "/")
     .split("/")
     .map((segment) => {
-      const stripped = segment.replace(/[. ]+$/, "");
+      const stripped = stripTrailingDotsAndSpaces(segment);
       if (stripped !== "") return stripped;
-      const dots = segment.replace(/ /g, "").length;
+      let dots = 0;
+      for (const char of segment) if (char === ".") dots++;
       return dots === 0 ? "" : dots === 1 ? "." : "..";
     })
     .join("/");
+}
+
+/** The segment without its trailing dots and spaces. A loop rather than
+ *  `/[. ]+$/`: that pattern backtracks from every position in a run of dots
+ *  and spaces that is followed by anything else, which is quadratic in a
+ *  segment the client sizes, and a path segment is exactly that. */
+function stripTrailingDotsAndSpaces(segment: string): string {
+  let end = segment.length;
+  while (end > 0 && (segment[end - 1] === "." || segment[end - 1] === " ")) end--;
+  return segment.slice(0, end);
 }
 
 /** Canonicalize a resolved path for *name identity*, the way the filesystems
@@ -145,7 +156,7 @@ function foldForResolution(candidate: string): string {
 function canonicalNameForm(resolvedPath: string): string {
   return resolvedPath
     .split("/")
-    .map((segment) => segment.normalize("NFC").toLowerCase().replace(/[. ]+$/, ""))
+    .map((segment) => stripTrailingDotsAndSpaces(segment.normalize("NFC").toLowerCase()))
     .join("/");
 }
 
