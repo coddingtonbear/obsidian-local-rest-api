@@ -32,6 +32,7 @@ import { MaximumMcpBinaryBytes } from "./constants";
 import {
   assertVaultPathIsContained,
   assertConfigDirAccessAllowed,
+  onDiskAccessFor,
 } from "./vaultPath";
 import { LocalRestApiSettings } from "./types";
 import type {
@@ -472,6 +473,8 @@ export class McpHandler {
       normalized,
       this.ops.app.vault.configDir,
       this.settings.enableConfigDirAccess ?? false,
+      "Path",
+      onDiskAccessFor(this.ops.app.vault.adapter),
     );
     return normalized;
   }
@@ -735,6 +738,7 @@ export class McpHandler {
       this.ops.app.vault.configDir,
       this.settings.enableConfigDirAccess ?? false,
       label,
+      onDiskAccessFor(this.ops.app.vault.adapter),
     );
     return candidate;
   }

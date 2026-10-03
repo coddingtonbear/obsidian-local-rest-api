@@ -74,7 +74,7 @@ function makeMockOps() {
     app: {
       vault: {
         configDir: ".obsidian",
-        adapter: new DataAdapter() as DataAdapter,
+        adapter: new DataAdapter(),
         getAbstractFileByPath: jest.fn().mockReturnValue(mockFile),
       },
       workspace: {

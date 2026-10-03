@@ -48,6 +48,7 @@ import { toArrayBuffer } from "./utils";
 import {
   assertVaultPathIsContained,
   assertConfigDirAccessAllowed,
+  onDiskAccessFor,
 } from "./vaultPath";
 
 /**
@@ -181,6 +182,7 @@ export class VaultOperations {
       this.app.vault.configDir,
       this.settings.enableConfigDirAccess ?? false,
       label,
+      onDiskAccessFor(this.app.vault.adapter),
     );
   }
 

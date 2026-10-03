@@ -1,4 +1,6 @@
-import { posix } from "path";
+import * as fs from "fs";
+import path, { posix } from "path";
+import { FileSystemAdapter, type DataAdapter } from "obsidian";
 
 /** Thrown when a client-supplied vault path resolves outside the vault root. */
 export class PathTraversalError extends Error {}
@@ -118,13 +120,20 @@ function canonicalNameForm(resolvedPath: string): string {
  *  the vault is not this function's concern -- {@link vaultPathIsContained} rejects
  *  it first -- and such a path simply returns false here.
  *
- *  What this does not do is resolve symlinks or Windows 8.3 short names
- *  ("OBSIDI~1"); neither can be checked without a real-path primitive Obsidian's
- *  API does not expose, and both require something already on the vault owner's
- *  disk rather than a spelling an attacker chooses. */
+ *  Spelling is not the whole story. NTFS generates an 8.3 short name for every
+ *  long name on a volume that has them enabled (the default for the system
+ *  drive, where most vaults live), and the one for ".obsidian" is predictable:
+ *  "OBSIDI~1". A symlink inside the vault goes wherever it points. Neither
+ *  spelling contains the config dir's name, so when `onDisk` is given -- see
+ *  {@link onDiskAccessFor} -- the candidate is also resolved to where it really
+ *  lands on disk and compared against where the config dir really lands. The
+ *  textual check stays first because it needs no filesystem and catches the
+ *  common case; the on-disk check is what makes the guard match the filesystem
+ *  rather than approximate it. */
 export function vaultPathIsInConfigDir(
   candidate: string,
   configDir: string,
+  onDisk?: OnDiskAccess,
 ): boolean {
   const root = canonicalNameForm(
     posix.resolve(SYNTHETIC_ROOT, configDir.replace(/\\/g, "/")),
@@ -132,6 +141,77 @@ export function vaultPathIsInConfigDir(
   const resolved = canonicalNameForm(
     posix.resolve(SYNTHETIC_ROOT, candidate.replace(/\\/g, "/")),
   );
+  if (resolved === root || resolved.startsWith(root + "/")) return true;
+  return onDisk !== undefined && isInConfigDirOnDisk(candidate, configDir, onDisk);
+}
+
+/** How the guard asks the filesystem where a vault-relative path really lands.
+ *
+ *  `basePath` is the vault's absolute location on disk; `realpath` is
+ *  `fs.realpathSync.native` or a stand-in, and must throw when the path does not
+ *  exist. The *native* variant matters: on Windows it goes through
+ *  GetFinalPathNameByHandle, which expands 8.3 short names, where the JavaScript
+ *  implementation only follows symlinks. */
+export interface OnDiskAccess {
+  basePath: string;
+  realpath: (absolutePath: string) => string;
+}
+
+/** The on-disk access the running adapter affords, or undefined when it affords
+ *  none. Only the desktop `FileSystemAdapter` knows where the vault lives; this
+ *  plugin is desktop-only, so that is the adapter in practice, and the undefined
+ *  branch exists for a test's bare adapter and for safety should that change. */
+export function onDiskAccessFor(adapter: DataAdapter): OnDiskAccess | undefined {
+  if (!(adapter instanceof FileSystemAdapter)) return undefined;
+  return {
+    basePath: adapter.getBasePath(),
+    realpath: (absolutePath) => fs.realpathSync.native(absolutePath),
+  };
+}
+
+/** The vault-relative path with "." and ".." collapsed, as a list of segments:
+ *  "" for the root. Assumes the candidate is contained -- an escaping path is
+ *  {@link vaultPathIsContained}'s business and is refused before this runs. */
+function vaultRelativeSegments(candidate: string): string[] {
+  const resolved = posix.resolve(SYNTHETIC_ROOT, candidate.replace(/\\/g, "/"));
+  const relative = resolved.slice(SYNTHETIC_ROOT.length + 1);
+  return relative === "" ? [] : relative.split("/");
+}
+
+/** Where a vault-relative path lands on disk, or undefined when the disk cannot
+ *  say. The path need not exist: the deepest ancestor that does is resolved and
+ *  the remainder joined back on, since a write to "OBSIDI~1/plugins/new/main.js"
+ *  lands under the real ".obsidian" even though "new" is not there yet. Nothing
+ *  below the vault root is consulted; if the root itself cannot be resolved the
+ *  caller falls back to the textual check alone. */
+function onDiskLocation(
+  segments: string[],
+  onDisk: OnDiskAccess,
+): string | undefined {
+  const pending = [...segments];
+  const tail: string[] = [];
+  for (;;) {
+    const current = path.join(onDisk.basePath, ...pending);
+    try {
+      return path.join(onDisk.realpath(current), ...tail);
+    } catch {
+      const last = pending.pop();
+      if (last === undefined) return undefined;
+      tail.unshift(last);
+    }
+  }
+}
+
+function isInConfigDirOnDisk(
+  candidate: string,
+  configDir: string,
+  onDisk: OnDiskAccess,
+): boolean {
+  const candidateOnDisk = onDiskLocation(vaultRelativeSegments(candidate), onDisk);
+  const configOnDisk = onDiskLocation(vaultRelativeSegments(configDir), onDisk);
+  if (candidateOnDisk === undefined || configOnDisk === undefined) return false;
+  const resolved = canonicalNameForm(candidateOnDisk.replace(/\\/g, "/"));
+  const root = canonicalNameForm(configOnDisk.replace(/\\/g, "/"));
   return resolved === root || resolved.startsWith(root + "/");
 }
 
@@ -145,8 +225,9 @@ export function assertConfigDirAccessAllowed(
   configDir: string,
   allowed: boolean,
   label = "Path",
+  onDisk?: OnDiskAccess,
 ): void {
-  if (!allowed && vaultPathIsInConfigDir(candidate, configDir)) {
+  if (!allowed && vaultPathIsInConfigDir(candidate, configDir, onDisk)) {
     throw new ConfigDirAccessError(`${label} ${CONFIG_DIR_ACCESS_MESSAGE}.`);
   }
 }

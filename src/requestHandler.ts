@@ -83,6 +83,7 @@ import {
   PathTraversalError,
   ConfigDirAccessError,
   vaultPathIsContained,
+  onDiskAccessFor,
   vaultPathIsInConfigDir,
 } from "./vaultPath";
 import { McpHandler } from "./mcpHandler";
@@ -569,7 +570,7 @@ export default class RequestHandler {
     // filesystem access; this is the early, well-shaped rejection at the boundary.
     if (
       !this.settings.enableConfigDirAccess &&
-      vaultPathIsInConfigDir(segments.join("/"), this.app.vault.configDir)
+      this.pathIsInConfigDir(segments.join("/"))
     ) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.ConfigDirAccessNotAllowed,
@@ -577,6 +578,17 @@ export default class RequestHandler {
       return null;
     }
     return segments;
+  }
+
+  /** Whether a contained, vault-relative path is Obsidian's configuration
+   *  directory or inside it -- by spelling, and by where it lands on disk, so an
+   *  NTFS 8.3 short name or a symlink cannot reach it under another name. */
+  private pathIsInConfigDir(candidate: string): boolean {
+    return vaultPathIsInConfigDir(
+      candidate,
+      this.app.vault.configDir,
+      onDiskAccessFor(this.app.vault.adapter),
+    );
   }
 
   /** Join decoded segments into a whole-file path, or null when a segment holds
@@ -1996,7 +2008,7 @@ export default class RequestHandler {
 
     if (
       !this.settings.enableConfigDirAccess &&
-      vaultPathIsInConfigDir(normalized, this.app.vault.configDir)
+      this.pathIsInConfigDir(normalized)
     ) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.ConfigDirAccessNotAllowed,
@@ -2018,6 +2030,10 @@ export default class RequestHandler {
       } else if (error instanceof DestinationAlreadyExistsError) {
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.DestinationAlreadyExists,
+        });
+      } else if (error instanceof ConfigDirAccessError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ConfigDirAccessNotAllowed,
         });
       } else {
         const msg = error instanceof Error ? error.message : String(error);
@@ -2088,7 +2104,7 @@ export default class RequestHandler {
 
     if (
       !this.settings.enableConfigDirAccess &&
-      vaultPathIsInConfigDir(normalized, this.app.vault.configDir)
+      this.pathIsInConfigDir(normalized)
     ) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.ConfigDirAccessNotAllowed,
@@ -2110,6 +2126,10 @@ export default class RequestHandler {
       } else if (error instanceof DestinationAlreadyExistsError) {
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.DestinationAlreadyExists,
+        });
+      } else if (error instanceof ConfigDirAccessError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ConfigDirAccessNotAllowed,
         });
       } else {
         const msg = error instanceof Error ? error.message : String(error);
