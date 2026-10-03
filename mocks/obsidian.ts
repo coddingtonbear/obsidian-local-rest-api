@@ -255,9 +255,12 @@ export class MetadataCache {
 
 export class Workspace {
   // True once Obsidian has drawn its layout -- the point after which a vault
-  // with nothing left to index stays silent. Tests of the cold start set it
-  // false and later call _setLayoutReady().
-  layoutReady = true;
+  // with nothing left to index stays silent, and the quiet-period fallback in
+  // VaultOperations.isLinkIndexReady starts counting. False by default so that
+  // "not ready" in a test is a fact about events, not about how many real
+  // seconds the test took; tests of the quiet period set it true before
+  // constructing VaultOperations, or call _setLayoutReady() later.
+  layoutReady = false;
   _layoutReadyCallbacks: (() => void)[] = [];
 
   onLayoutReady(callback: () => void): void {

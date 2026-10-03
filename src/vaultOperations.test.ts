@@ -553,6 +553,47 @@ describe("link fields are null until vault-wide resolution has settled", () => {
     },
   );
 
+  test("a `modify` to a file the cache does not index leaves readiness alone", async () => {
+    // Only a change to a file Obsidian parses is followed by a `resolved` to
+    // close the window again. An attachment or a plugin's data file being
+    // rewritten -- a drawing autosaving every few seconds, say -- starts no
+    // resolution pass, so counting it would hold the fields at null for
+    // LINK_INDEX_SETTLE_MS each time with nothing in the link graph changed.
+    const { app, ops, linkFields } = readinessSetup();
+    app.metadataCache._emit("resolved");
+    const build = jest.spyOn(ops, "buildBacklinksIndex");
+    await linkFields();
+
+    const drawing = new TFile();
+    drawing.path = "sketch.excalidraw";
+    drawing.extension = "excalidraw";
+    app.vault._emit("modify", drawing);
+
+    expect(ops.isLinkIndexReady()).toBe(true);
+    expect(await linkFields()).toEqual(RESOLVED);
+    // The backlinks cache is still dropped: that costs a scan, not a client's
+    // trust, and the listener-for-everything rule it rests on is unchanged.
+    expect(build).toHaveBeenCalledTimes(2);
+  });
+
+  test.each(["create", "delete", "rename"] as const)(
+    "a `%s` of a file the cache does not index still reopens the window",
+    async (event) => {
+      // A path of any type appearing or disappearing can flip a link between
+      // resolved and unresolved, and Obsidian re-resolves on it.
+      const { app, ops, linkFields } = readinessSetup();
+      app.metadataCache._emit("resolved");
+
+      const image = new TFile();
+      image.path = "pic.png";
+      image.extension = "png";
+      app.vault._emit(event, image, "old.png");
+
+      expect(ops.isLinkIndexReady()).toBe(false);
+      expect(await linkFields()).toEqual(UNSETTLED);
+    },
+  );
+
   test("a vault that stays quiet after the layout is up is taken as settled", async () => {
     // `resolved` only fires when a resolution pass finishes. A plugin enabled
     // into a vault that settled long ago (a toggle, a reload, a dev rebuild)

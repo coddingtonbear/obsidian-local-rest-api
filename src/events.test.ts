@@ -376,6 +376,58 @@ describe("event streams over REST", () => {
       });
     });
 
+    test.each([
+      ["vault modify", (app: App) => app.vault._emit("modify", file("note.md"))],
+      ["vault create", (app: App) => app.vault._emit("create", file("note.md"))],
+      [
+        "metadataCache changed",
+        (app: App) => app.metadataCache._emit("changed", file("note.md"), "", new CachedMetadata()),
+      ],
+      ["metadataCache resolve", (app: App) => app.metadataCache._emit("resolve", file("note.md"))],
+    ])("a %s event's file always carries null link fields", async (label, fire) => {
+      // The event is itself the change that reopens the readiness window, and
+      // VaultOperations hears it before the stream serializer runs -- an
+      // ordering fixed at construction (RequestHandler builds VaultOperations
+      // first) that nothing but this test would notice a refactor breaking.
+      // The docs promise this, so it is pinned here.
+      app.metadataCache.resolvedLinks = { "other.md": { "note.md": 1 } };
+      app.metadataCache._emit("resolved");
+      const [emitter, event] = label.split(" ");
+      const grant = await subscribe(`/events/${emitter}/${event}/`);
+      const stream = await open(grant.url);
+      await waitFor(() => handler.events.openStreamCount === 1);
+
+      fire(app);
+
+      const received = await stream.next();
+      expect(received.data.file).toMatchObject({
+        path: "note.md",
+        links: null,
+        backlinks: null,
+        unresolvedLinks: null,
+      });
+    });
+
+    test("a vault modify of a file the cache does not index keeps its link fields", async () => {
+      // The one vault event that does not reopen the window: rewriting an
+      // attachment starts no resolution pass, so there is nothing to wait for.
+      app.metadataCache.resolvedLinks = { "note.md": { "pic.png": 1 } };
+      app.metadataCache._emit("resolved");
+      const grant = await subscribe("/events/vault/modify/");
+      const stream = await open(grant.url);
+      await waitFor(() => handler.events.openStreamCount === 1);
+
+      app.vault._emit("modify", file("pic.png"));
+
+      const received = await stream.next();
+      expect(received.data.file).toMatchObject({
+        path: "pic.png",
+        links: [],
+        backlinks: ["note.md"],
+        unresolvedLinks: [],
+      });
+    });
+
     test("a non-markdown file's link fields follow readiness like a note's", async () => {
       // Attachments have no metadata-cache entry, so their NoteJson is built
       // without one -- but `backlinks` still comes from the vault-wide graph,
