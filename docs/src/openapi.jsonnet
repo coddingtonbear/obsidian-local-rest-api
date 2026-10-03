@@ -81,7 +81,7 @@ local WithResolvedContentLocation(codes) = {
 // configuration directory is refused for reads and writes alike unless the
 // operator opts in. `responses+:` so the operation's own responses survive.
 local ConfigDirForbidden = {
-  description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it.",
+  description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). The check is against where the path lands on disk, so a Windows 8.3 short name, a differently cased spelling, or a symlink into that directory is refused the same way. Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it.",
   content: {
     'application/json': {
       schema: { '$ref': '#/components/schemas/Error' },

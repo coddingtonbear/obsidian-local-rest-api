@@ -188,6 +188,8 @@ The API refuses to read or write any file inside Obsidian's configuration direct
 
 That directory holds plugin code and each plugin's `data.json` — including this plugin's own, where your API key is stored. Writing into it is effectively remote code execution, since Obsidian runs an enabled plugin's `main.js`; reading from it leaks those secrets. Blocking it keeps a credential documented as "vault file access" from silently granting more (see [GHSA-66m9-r757-qvq7](https://github.com/coddingtonbear/obsidian-local-rest-api/security/advisories/GHSA-66m9-r757-qvq7)).
 
+The check is against where a path lands on disk, not just how it is spelled: a Windows 8.3 short name such as `OBSIDI~1`, a differently cased spelling on a case-insensitive filesystem, or a symlink that points into the configuration directory is refused the same way.
+
 If you deliberately manage your Obsidian configuration through the API, turn on **Settings → Local REST API → Advanced settings → Allow access to the configuration directory**. It is off by default, and turning it on grants every holder of your API key that access.
 
 ### Browser clients and response headers
