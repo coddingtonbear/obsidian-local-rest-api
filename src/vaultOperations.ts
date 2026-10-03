@@ -50,6 +50,8 @@ import {
   assertConfigDirAccessAllowed,
   configDirMatcher,
   onDiskAccessFor,
+  ConfigDirAccessError,
+  PathTraversalError,
   type LinkMemo,
 } from "./vaultPath";
 
@@ -537,11 +539,16 @@ export class VaultOperations {
     // candidate is a miss. A refusal is a no-match, not an error: both callers
     // (the REST GET and the sub-resource dispatcher) read null as "not a file
     // here", and the REST boundary has already sent its own 403 for anything
-    // the joined check would refuse.
+    // the joined check would refuse. Only a refusal is a miss, though: anything
+    // else thrown while deciding is a fault, and swallowing it would hide it
+    // behind a 404.
     try {
       this.assertContained(segments.join("/"));
-    } catch {
-      return null;
+    } catch (error) {
+      if (error instanceof PathTraversalError || error instanceof ConfigDirAccessError) {
+        return null;
+      }
+      throw error;
     }
 
     // A file or folder name cannot contain `/`, so a candidate file path is only
