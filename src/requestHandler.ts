@@ -509,6 +509,10 @@ export default class RequestHandler {
       ? getCertificateStandardsIssue(certificate)
       : null;
 
+    // Checked once so the three gated fields below cannot disagree, and so
+    // the endpoint clients are told to poll parses the header once.
+    const authenticated = this.requestIsAuthenticated(req);
+
     res.status(200).json({
       status: "OK",
       manifest: this.manifest,
@@ -517,22 +521,20 @@ export default class RequestHandler {
         self: this.manifest.version,
       },
       service: "Obsidian Local REST API",
-      authenticated: this.requestIsAuthenticated(req),
+      authenticated,
       // The fact behind a note's null link fields, in one place a client can
       // poll before a bulk query. Withheld from unauthenticated callers along
       // with everything else that describes the vault.
-      linkIndexReady: this.requestIsAuthenticated(req)
-        ? this.operations.isLinkIndexReady()
-        : undefined,
+      linkIndexReady: authenticated ? this.operations.isLinkIndexReady() : undefined,
       certificateInfo:
-        this.requestIsAuthenticated(req) && certificate
+        authenticated && certificate
           ? {
             validityDays: getCertificateValidityDays(certificate),
             regenerateRecommended: standardsIssue !== null,
             regenerateReason: standardsIssue,
           }
           : undefined,
-      apiExtensions: this.requestIsAuthenticated(req)
+      apiExtensions: authenticated
         ? [...this.apiExtensions.values()].map(({ manifest, api }) => ({
           ...manifest,
           routes: api.getRoutes(),
