@@ -78,6 +78,7 @@ describe("requestHandler", () => {
 
   afterEach(() => {
     server.close();
+    handler.dispose();
   });
 
   function getMockSettings(): LocalRestApiSettings {
@@ -5589,14 +5590,11 @@ describe("requestHandler", () => {
     let clock: number;
 
     beforeEach(() => {
-      // Starts at the real time rather than a fixed instant because Retry-After is
-      // computed against the wall clock, and a window that closed years ago rounds to 0.
       clock = Date.now();
       settings.enableSignedUrls = true;
-      // The same clock drives signature expiry and the failure window, so a test can
-      // move time forward for both at once.
+      handler.dispose();
       // @ts-ignore: the mock App is close enough.
-      handler = new RequestHandler(app, manifest, settings, new UrlSigner(Buffer.from("secret"), () => clock), () => clock);
+      handler = new RequestHandler(app, manifest, settings, new UrlSigner(Buffer.from("secret"), () => clock));
       handler.setupRouter();
       server.close();
       server = http.createServer(handler.api);
@@ -5686,10 +5684,21 @@ describe("requestHandler", () => {
     });
 
     test("wrong keys are answered 401 again once the window has passed", async () => {
-      await exhaust();
-      await request(server).get("/vault/").set("Authorization", WRONG).expect(429);
-      clock += AuthenticationFailureWindowMs;
-      await request(server).get("/vault/").set("Authorization", WRONG).expect(401);
+      // The store keeps time by Date.now, so the clock is faked for this one test.
+      // Only timers and Date are faked: the request still has to travel over a real
+      // socket, which needs nextTick, setImmediate and microtasks left alone.
+      jest.useFakeTimers({
+        now: Date.now(),
+        doNotFake: ["nextTick", "setImmediate", "queueMicrotask", "hrtime", "performance"],
+      });
+      try {
+        await exhaust();
+        await request(server).get("/vault/").set("Authorization", WRONG).expect(429);
+        jest.advanceTimersByTime(AuthenticationFailureWindowMs);
+        await request(server).get("/vault/").set("Authorization", WRONG).expect(401);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     test("the configured header name is the one that counts", async () => {

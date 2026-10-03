@@ -9,7 +9,7 @@ import forge from "node-forge";
 import express from "express";
 import http from "http";
 import cors, { CorsOptions } from "cors";
-import rateLimit from "express-rate-limit";
+import rateLimit, { MemoryStore } from "express-rate-limit";
 import mime from "mime-types";
 import responseTime from "response-time";
 import queryString from "query-string";
@@ -90,7 +90,6 @@ import {
   vaultPathIsInConfigDir,
 } from "./vaultPath";
 import { McpHandler } from "./mcpHandler";
-import { FailureWindowStore } from "./authThrottle";
 import { VaultSubresourceRegistry } from "./vaultSubresources";
 import {
   UrlSigner,
@@ -217,8 +216,12 @@ export default class RequestHandler {
 
   apiExtensionRouter: express.Router;
   publicApiExtensionRouter: express.Router;
-  /** The clock the failed-authentication throttle keeps time by; injectable for tests. */
-  private readonly now: () => number;
+  /**
+   * The failed-authentication throttle's counter. The library's store sweeps expired
+   * windows on an interval, which `dispose` stops so a plugin reload leaves nothing
+   * behind.
+   */
+  private authenticationFailureStore: MemoryStore | null = null;
   vaultSubresources = new VaultSubresourceRegistry();
   // Holds the implementation type rather than LocalRestApiPublicApi: the `GET /`
   // handler reads getRoutes()/getMcpTools(), which are host-only and therefore
@@ -242,10 +245,8 @@ export default class RequestHandler {
     manifest: PluginManifest,
     settings: LocalRestApiSettings,
     urlSigner: UrlSigner = new UrlSigner(),
-    now: () => number = Date.now,
   ) {
     this.app = app;
-    this.now = now;
     this.manifest = manifest;
     this.api = express();
     this.settings = settings;
@@ -407,6 +408,15 @@ export default class RequestHandler {
     if (verdict === "ok") return false;
     if (verdict !== null) return true;
     return req.get(this.settings.authorizationHeaderName ?? "Authorization") !== undefined;
+  }
+
+  /**
+   * Release what `setupRouter` set running in the background: the throttle store's
+   * sweep interval. The plugin calls this on unload; the handler is not reusable after.
+   */
+  dispose(): void {
+    this.authenticationFailureStore?.shutdown();
+    this.authenticationFailureStore = null;
   }
 
   async authenticationMiddleware(
@@ -2759,10 +2769,12 @@ export default class RequestHandler {
     // the same CORS headers as any other answer and a preflight never reaches it. `skip`
     // keeps everything but a wrong credential out of the counter entirely: a request
     // with the right key costs one string comparison here and is never delayed.
+    this.authenticationFailureStore?.shutdown();
+    this.authenticationFailureStore = new MemoryStore();
     const authenticationFailureLimiter = rateLimit({
       windowMs: AuthenticationFailureWindowMs,
       limit: AuthenticationFailureLimit,
-      store: new FailureWindowStore(AuthenticationFailureWindowMs, this.now),
+      store: this.authenticationFailureStore,
       skip: (req) => !this.credentialIsRejected(req),
       standardHeaders: "draft-7",
       legacyHeaders: false,
