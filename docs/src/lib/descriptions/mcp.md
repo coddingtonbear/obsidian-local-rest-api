@@ -53,7 +53,7 @@ Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `40
 
 ### Link fields
 
-`vault_read`, `search_query`, and the events streamed by `events_get_listener_url` describe each note with the same NoteJson the REST API uses, and its `links`, `backlinks`, and `unresolvedLinks` are `null` -- all three together -- whenever Obsidian's vault-wide link resolution may be incomplete: for a few seconds after Obsidian or the plugin starts, and briefly after any change to the vault. `null` means "not known yet", `[]` means "known to be none"; the tool descriptions say so, and an agent should treat `null` as a reason to retry rather than as an empty result. There is no MCP tool for the readiness flag itself; a client that wants to wait for it rather than retry reads `linkIndexReady` from `GET /` over REST.
+`vault_read`, `search_query`, and the events streamed by `events_get_listener_url` describe each note with the same NoteJson the REST API uses, and its `links`, `backlinks`, and `unresolvedLinks` are `null` -- all three together -- until Obsidian's startup indexing has finished: the first few seconds after Obsidian or the plugin starts. After that they are arrays, eventually consistent with the vault. `null` means "not known yet", `[]` means "known to be none"; the tool descriptions say so, and an agent should treat `null` as a reason to retry rather than as an empty result. There is no MCP tool for the readiness flag itself; a client that wants to wait for it rather than retry reads `linkIndexReady` from `GET /` over REST.
 
 ### Binary files
 

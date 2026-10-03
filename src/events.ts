@@ -755,8 +755,8 @@ export class EventStreams {
     if (file.extension !== "md") {
       // An attachment holds no links of its own, but its backlinks come from
       // the vault-wide graph, and the three fields are documented as null or
-      // arrays together -- so all three follow readiness, sampled after the
-      // read as getFileMetadataObject does.
+      // arrays together -- so all three follow readiness, sampled once as
+      // getFileMetadataObject does.
       const backlinks = [...(this.operations.getBacklinksIndex()[file.path] ?? [])];
       const linkIndexReady = this.operations.isLinkIndexReady();
       return {

@@ -113,6 +113,10 @@ describe("GET /vault/{file} with Accept: application/vnd.olrapi.note+json", () =
 describe("GET /vault/{file} with Accept: application/vnd.olrapi.note+json — unresolvedLinks", () => {
   const LINKS_PATH = `${TEST_DIR}/unresolved-links-fixture.md`;
 
+  beforeAll(async () => {
+    await waitForLinkIndexReady();
+  });
+
   beforeEach(async () => {
     await resetFixture("Links to [[xylophone-does-not-exist]].\n", LINKS_PATH);
   });
@@ -122,7 +126,6 @@ describe("GET /vault/{file} with Accept: application/vnd.olrapi.note+json — un
   });
 
   test("includes links to non-existent files in unresolvedLinks", async () => {
-    await waitForLinkIndexReady();
     const res = await authedFetch(`/vault/${LINKS_PATH}`, {
       headers: { Accept: "application/vnd.olrapi.note+json" },
     });
@@ -134,31 +137,17 @@ describe("GET /vault/{file} with Accept: application/vnd.olrapi.note+json — un
     ).toBe(true);
   });
 
-  test("the link fields are null together or arrays together, and arrays once resolution has settled", async () => {
-    // Straight after the fixture write the vault may still be re-resolving, so
-    // the first read is allowed either answer -- but never a mixed one.
-    const first = await (
+  test("the link fields are arrays once startup indexing has finished, even straight after a write", async () => {
+    // Readiness is a one-way latch: the fixture write just made does not take
+    // the fields back to null.
+    const body = await (
       await authedFetch(`/vault/${LINKS_PATH}`, {
         headers: { Accept: "application/vnd.olrapi.note+json" },
       })
     ).json();
-    const shapes = new Set(
-      [first.links, first.backlinks, first.unresolvedLinks].map((field) =>
-        field === null ? "null" : Array.isArray(field) ? "array" : typeof field,
-      ),
-    );
-    expect(shapes.size).toBe(1);
-    expect(["null", "array"]).toContain([...shapes][0]);
-
-    await waitForLinkIndexReady();
-    const settled = await (
-      await authedFetch(`/vault/${LINKS_PATH}`, {
-        headers: { Accept: "application/vnd.olrapi.note+json" },
-      })
-    ).json();
-    expect(Array.isArray(settled.links)).toBe(true);
-    expect(Array.isArray(settled.backlinks)).toBe(true);
-    expect(Array.isArray(settled.unresolvedLinks)).toBe(true);
+    expect(Array.isArray(body.links)).toBe(true);
+    expect(Array.isArray(body.backlinks)).toBe(true);
+    expect(Array.isArray(body.unresolvedLinks)).toBe(true);
   });
 });
 

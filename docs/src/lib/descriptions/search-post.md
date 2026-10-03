@@ -28,10 +28,11 @@ route setting the header:
 for working examples of queries performing common search operations.
 
 Note that `links`, `backlinks`, and `unresolvedLinks` are `null` for
-every file while Obsidian's vault-wide link resolution may be
-incomplete -- for a few seconds after Obsidian or the plugin starts,
-and briefly after any change to the vault. A query that reads one of
-them yields `null` for such a file (`{"in": [...]}` over it is `false`),
-and a query that returns one yields `null` rows. When the search needs
-to be exhaustive, poll `GET /` until `linkIndexReady` is `true` first.
+every file until Obsidian's startup indexing has finished -- the first
+few seconds after Obsidian or the plugin starts. A query that reads one
+of them yields `null` for such a file (`{"in": [...]}` over it is
+`false`), and a query that returns one yields `null` rows. When the
+search needs to be exhaustive, poll `GET /` until `linkIndexReady` is
+`true` first. After startup the fields are arrays, eventually consistent
+with the vault.
 See the NoteJson schema for details.

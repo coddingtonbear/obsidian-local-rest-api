@@ -195,7 +195,7 @@ If you deliberately manage your Obsidian configuration through the API, turn on 
 
 ### Link fields can be `null`
 
-A note's `links`, `backlinks`, and `unresolvedLinks` describe the vault-wide link graph, not the note alone, and Obsidian resolves that graph in a vault-wide pass after it loads and again after every change. Until that pass has settled, all three fields are `null` -- together, never an array beside a `null`. `null` means "not known yet"; `[]` means "known to be none". Expect `null` for a few seconds after Obsidian or the plugin starts, and briefly after any write, including your own. This applies wherever a NoteJson appears: `GET /vault/{path}` with `Accept: application/vnd.olrapi.note+json`, `POST /search/` (where a query reading one of them sees `null`), event streams (where the `file` on a `vault` event about a note, or on any `metadataCache` event, always has them `null`, since the event is the change itself; only `workspace` events carry arrays), and the MCP tools `vault_read` and `search_query`.
+A note's `links`, `backlinks`, and `unresolvedLinks` describe the vault-wide link graph, not the note alone. Until Obsidian's startup indexing has finished, some files have never been parsed, so a link can read as unresolved only because its target is not indexed yet and a backlink can be missing because the note holding it is not. While that is so, all three fields are `null` -- together, never an array beside a `null`. `null` means "not known yet"; `[]` means "known to be none". Expect `null` for a few seconds after Obsidian or the plugin starts, and never again after that: readiness is a one-way latch, and from then on the fields are eventually consistent with the vault in the same way `frontmatter` and `tags` are, lagging a change by the milliseconds until Obsidian's next resolution pass. `metadataCache` `resolved` in the event stream marks the end of each pass if you need to know. This applies wherever a NoteJson appears: `GET /vault/{path}` with `Accept: application/vnd.olrapi.note+json`, `POST /search/` (where a query reading one of them sees `null`), event streams, and the MCP tools `vault_read` and `search_query`.
 
 `GET /` reports the same fact as `linkIndexReady` on authenticated requests, so a client can wait for `true` before a bulk query -- say, a search for broken links that has to be exhaustive -- instead of finding `null` in the results. See the [6.x migration guide](https://coddingtonbear.github.io/obsidian-local-rest-api/) for what to change in a client written against 5.x.
 
@@ -310,7 +310,7 @@ curl -k -H "Authorization: Bearer <your-api-key>" \
 
 `POST /search/simple/?query=your+terms` runs Obsidian's built-in fuzzy search and returns matching filenames with scored context snippets.
 
-`POST /search/` accepts a [JsonLogic](https://jsonlogic.com/) expression (content type `application/vnd.olrapi.jsonlogic+json`) and evaluates it against each note's metadata (frontmatter, tags, path, content, and the link fields -- which are `null` while [link resolution may be incomplete](#link-fields-can-be-null)).
+`POST /search/` accepts a [JsonLogic](https://jsonlogic.com/) expression (content type `application/vnd.olrapi.jsonlogic+json`) and evaluates it against each note's metadata (frontmatter, tags, path, content, and the link fields -- which are `null` until [startup indexing has finished](#link-fields-can-be-null)).
 
 ## Event streams
 

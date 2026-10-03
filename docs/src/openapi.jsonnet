@@ -157,7 +157,7 @@ std.manifestYamlDoc(
           description: |||
             A note's metadata, as `GET /vault/{filename}` returns it with `Accept: application/vnd.olrapi.note+json`, as `POST /search/` evaluates each query against, and as event streams carry under `file`.
 
-            `links`, `backlinks`, and `unresolvedLinks` describe the vault-wide link graph, not this note alone: which of `links` and `unresolvedLinks` a wikilink lands in depends on whether its *target* has been indexed, and a backlink exists only once the file holding it has been. Obsidian resolves that graph in a vault-wide pass after it loads and again after every change. Until that pass has settled, all three fields are `null`, together -- never an array beside a `null`. `null` means "not known yet"; `[]` means "known to be none". Expect `null` for a few seconds after Obsidian or the plugin starts, and briefly after any write (including your own). `GET /` reports the same fact as `linkIndexReady`, so a client can wait for `true` before a bulk query, or retry a note that answered `null`.
+            `links`, `backlinks`, and `unresolvedLinks` describe the vault-wide link graph, not this note alone: which of `links` and `unresolvedLinks` a wikilink lands in depends on whether its *target* has been indexed, and a backlink exists only once the file holding it has been. Until Obsidian's startup indexing has finished, all three fields are `null`, together -- never an array beside a `null`. `null` means "not known yet"; `[]` means "known to be none". Expect `null` for a few seconds after Obsidian or the plugin starts, and never again after that: from then on the fields are arrays, eventually consistent with the vault (lagging a change by the milliseconds until Obsidian's next resolution pass, as `frontmatter` and `tags` do). `GET /` reports the same fact as `linkIndexReady`, so a client can wait for `true` before a bulk query, or retry a note that answered `null`. A client that needs a settled graph after a change can subscribe to the `metadataCache` `resolved` event, which marks the end of each pass.
           |||,
           required: [
             'tags',
@@ -206,21 +206,21 @@ std.manifestYamlDoc(
             },
             links: {
               type: ['array', 'null'],
-              description: 'Vault-relative paths of files this file links to, or `null` while vault-wide link resolution may be incomplete (see above).',
+              description: 'Vault-relative paths of files this file links to, or `null` until Obsidian's startup indexing has finished (see above).',
               items: {
                 type: 'string',
               },
             },
             backlinks: {
               type: ['array', 'null'],
-              description: 'Vault-relative paths of files that link to this file, or `null` while vault-wide link resolution may be incomplete (see above).',
+              description: 'Vault-relative paths of files that link to this file, or `null` until Obsidian's startup indexing has finished (see above).',
               items: {
                 type: 'string',
               },
             },
             unresolvedLinks: {
               type: ['array', 'null'],
-              description: 'Link text found in this file that does not resolve to an existing vault file, or `null` while vault-wide link resolution may be incomplete (see above).',
+              description: 'Link text found in this file that does not resolve to an existing vault file, or `null` until Obsidian's startup indexing has finished (see above).',
               items: {
                 type: 'string',
               },
@@ -1012,7 +1012,7 @@ std.manifestYamlDoc(
                       linkIndexReady: {
                         type: 'boolean',
                         description: |||
-                          Whether Obsidian's vault-wide link resolution has settled, so that a note's `links`, `backlinks`, and `unresolvedLinks` are arrays rather than `null`. `false` for a few seconds after Obsidian or the plugin starts and briefly after any change to the vault. Poll for `true` before a bulk query over those fields. Only present on an authenticated request.
+                          Whether Obsidian's startup indexing has finished, so that a note's `links`, `backlinks`, and `unresolvedLinks` are arrays rather than `null`. `false` for a few seconds after Obsidian or the plugin starts; `true` from then on until Obsidian restarts. Poll for `true` before a bulk query over those fields. Only present on an authenticated request.
                         |||,
                       },
                     },

@@ -27,12 +27,11 @@ export async function ensureServerReachable(): Promise<void> {
   }
 }
 
-// Poll GET / until Obsidian's vault-wide link resolution has settled, so that a note's
+// Poll GET / until Obsidian's startup indexing has finished, so that a note's
 // links/backlinks/unresolvedLinks are arrays rather than null.
 //
-// Every fixture write reopens that window (the write is itself a change Obsidian has to
-// re-resolve), so a test that asserts on the link fields calls this after its reset
-// rather than reading straight away and racing the resolution pass.
+// Readiness is a one-way latch, so this only needs to run once per suite (a beforeAll),
+// not after every fixture write.
 export async function waitForLinkIndexReady(timeoutMs = 15000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
