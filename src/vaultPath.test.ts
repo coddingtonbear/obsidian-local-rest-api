@@ -52,7 +52,7 @@ describe("vaultPathIsContained", () => {
     ["a '..' with a trailing space", ".. /outside.md"],
     ["a '..' with trailing spaces", "..  /outside.md"],
     ["a '..' with a trailing space and dot", ".. ./outside.md"],
-    ["a '..' with a trailing dot", "../outside.md".replace("..", "...")],
+    ["a '..' with a trailing dot", ".../outside.md"],
     ["nested '..'s with trailing spaces", "notes/.. /.. /outside.md"],
     ["'..'s with trailing spaces and backslashes", "notes\\.. \\.. \\outside.md"],
     // A colon anywhere names an NTFS alternate data stream ("note.md:evil"),
@@ -674,5 +674,33 @@ describe("configDirMatcher follows a symlink that is itself the file", () => {
     // A changed fingerprint is read again.
     expect(second("notes/a.md", "a-v2")).toBe(false);
     expect(readlink).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("folding trailing dots and spaces is linear in the segment length", () => {
+  // `/[. ]+$/` on a long run of spaces followed by one other character
+  // backtracks from every position in the run: quadratic, and a path segment
+  // is attacker-sized. CodeQL flagged it. The linear version has to answer in
+  // milliseconds where the regex took tens of seconds.
+  const run = " ".repeat(100_000);
+
+  test("containment", () => {
+    const started = Date.now();
+    expect(vaultPathIsContained(`notes/${run}x.md`)).toBe(true);
+    expect(vaultPathIsContained(`${run}../outside.md`)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  test("config-dir spelling", () => {
+    const started = Date.now();
+    expect(vaultPathIsInConfigDir(`.obsidian/${run}x`, ".obsidian")).toBe(true);
+    expect(vaultPathIsInConfigDir(`notes/${run}x`, ".obsidian")).toBe(false);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  test("still folds correctly", () => {
+    expect(vaultPathIsContained("notes. . /a.md")).toBe(true);
+    expect(vaultPathIsContained(".. . /outside.md")).toBe(false);
+    expect(vaultPathIsInConfigDir(".obsidian. . /x", ".obsidian")).toBe(true);
   });
 });
