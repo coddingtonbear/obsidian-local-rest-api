@@ -2851,7 +2851,7 @@ describe("requestHandler", () => {
 
     test("PUT rejects a '.. ' (dot dot space) component with 400 and errorCode 40021", async () => {
       const res = await request(server)
-        .put("/vault/notes/..%20/outside.md")
+        .put("/vault/notes/..%20/..%20/outside.md")
         .set("Authorization", `Bearer ${API_KEY}`)
         .set("Content-Type", "text/markdown")
         .send("pwned");

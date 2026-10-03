@@ -42,6 +42,17 @@ export const CONFIG_DIR_ACCESS_MESSAGE =
  *  a POSIX system is checked as "a/b.md", which is still inside -- so this cannot
  *  reject anything that was safe.
  *
+ *  Trailing dots and spaces are stripped from every component for the same
+ *  reason: Win32 removes them before it looks anything up, so ".. " (dot dot
+ *  space), ".. ." and "..." are all ".." there, where `posix.resolve` would
+ *  see an ordinary child named ".. ". A component that is nothing but dots and
+ *  spaces is read as ".." when it holds two or more dots -- stricter than
+ *  Win32 for "...", which it drops, but a vault has no file by that name and
+ *  the error is in the safe direction. Stripping only ever moves a component
+ *  *toward* ".", "..", or empty, so it cannot make an escaping path look
+ *  contained; a file legitimately named "notes." on a POSIX system is checked
+ *  as "notes", which is still inside.
+ *
  *  An absolute path is refused outright rather than resolved, because resolving
  *  one would accept "/vault/notes/a.md" -- a path that is inside the *synthetic*
  *  root by coincidence of spelling and has nothing to do with where the vault
@@ -64,7 +75,7 @@ export const CONFIG_DIR_ACCESS_MESSAGE =
  *  does not: a symlink inside the vault that leads out of it is something the
  *  vault's owner put there. */
 export function vaultPathIsContained(candidate: string): boolean {
-  const normalized = candidate.replace(/\\/g, "/");
+  const normalized = foldForResolution(candidate);
   if (normalized.startsWith("/")) return false;
   if (/^[A-Za-z]:/.test(normalized)) return false;
   const resolved = posix.resolve(SYNTHETIC_ROOT, normalized);
@@ -93,6 +104,24 @@ export function assertVaultPathIsContained(
   if (!vaultPathIsContained(candidate)) {
     throw new PathTraversalError(`${label} ${PATH_ESCAPES_VAULT_MESSAGE}.`);
   }
+}
+
+/** Fold a client-supplied path the way the filesystems Obsidian runs on will
+ *  before it is resolved: backslashes become "/", and trailing dots and spaces
+ *  come off every component, with a component that was nothing but dots and
+ *  spaces read as "." (one dot), ".." (two or more), or dropped (none). See
+ *  {@link vaultPathIsContained} for why each step is safe. */
+function foldForResolution(candidate: string): string {
+  return candidate
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((segment) => {
+      const stripped = segment.replace(/[. ]+$/, "");
+      if (stripped !== "") return stripped;
+      const dots = segment.replace(/ /g, "").length;
+      return dots === 0 ? "" : dots === 1 ? "." : "..";
+    })
+    .join("/");
 }
 
 /** Canonicalize a resolved path for *name identity*, the way the filesystems
@@ -211,10 +240,10 @@ export function configDirMatcher(
 
 function isInConfigDirBySpelling(candidate: string, configDir: string): boolean {
   const root = canonicalNameForm(
-    posix.resolve(SYNTHETIC_ROOT, configDir.replace(/\\/g, "/")),
+    posix.resolve(SYNTHETIC_ROOT, foldForResolution(configDir)),
   );
   const resolved = canonicalNameForm(
-    posix.resolve(SYNTHETIC_ROOT, candidate.replace(/\\/g, "/")),
+    posix.resolve(SYNTHETIC_ROOT, foldForResolution(candidate)),
   );
   return resolved === root || resolved.startsWith(root + "/");
 }
@@ -316,7 +345,7 @@ function isNothingToFollow(error: unknown): boolean {
  *  "" for the root. Assumes the candidate is contained -- an escaping path is
  *  {@link vaultPathIsContained}'s business and is refused before this runs. */
 function vaultRelativeSegments(candidate: string): string[] {
-  const resolved = posix.resolve(SYNTHETIC_ROOT, candidate.replace(/\\/g, "/"));
+  const resolved = posix.resolve(SYNTHETIC_ROOT, foldForResolution(candidate));
   const relative = resolved.slice(SYNTHETIC_ROOT.length + 1);
   return relative === "" ? [] : relative.split("/");
 }

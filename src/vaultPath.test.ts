@@ -35,6 +35,7 @@ describe("vaultPathIsContained", () => {
     ["a name with a trailing space", "notes /a.md"],
     ["a name with a trailing dot and space", "notes. /a.md"],
     ["a single dot with a trailing space", ". /a.md"],
+    ["a '..' with a trailing space that comes back but stays inside", "notes/.. /a.md"],
   ] as const;
 
   const escaping = [
@@ -54,8 +55,8 @@ describe("vaultPathIsContained", () => {
     ["a '..' with trailing spaces", "..  /outside.md"],
     ["a '..' with a trailing space and dot", ".. ./outside.md"],
     ["a '..' with a trailing dot", "../outside.md".replace("..", "...")],
-    ["a nested '..' with a trailing space", "notes/.. /outside.md"],
-    ["a '..' with a trailing space and a backslash", "notes\\.. \\outside.md"],
+    ["nested '..'s with trailing spaces", "notes/.. /.. /outside.md"],
+    ["'..'s with trailing spaces and backslashes", "notes\\.. \\.. \\outside.md"],
     ["a drive-qualified path", "C:/outside.md"],
     ["a drive-qualified path with backslashes", "C:\\outside.md"],
     ["a lowercase drive letter", "c:/outside.md"],

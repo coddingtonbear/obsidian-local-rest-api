@@ -63,7 +63,7 @@ describe("GET /vault/{path} — path traversal prevention", () => {
 describe("GET /vault/{path} — Win32 dot-space traversal prevention", () => {
   // Win32 strips trailing dots and spaces from each path component, so ".. " is
   // ".." there. Read-only: the point is the 400, on every platform.
-  test.each(["/vault/..%20/outside.md", "/vault/...%2Foutside.md", "/vault/notes/..%20./outside.md"])(
+  test.each(["/vault/..%20/outside.md", "/vault/...%2Foutside.md", "/vault/notes/..%20./..%20/outside.md"])(
     "rejects %s with 400 and errorCode 40021",
     async (path) => {
       const res = await authedFetch(path);
