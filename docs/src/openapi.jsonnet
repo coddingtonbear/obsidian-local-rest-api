@@ -150,6 +150,7 @@ std.manifestYamlDoc(
       schemas: {
         NoteJson: {
           type: 'object',
+          description: "A note's content and metadata. `links`, `backlinks`, and `unresolvedLinks` reflect Obsidian's metadata cache as it stands when the note is read, and may be incomplete while Obsidian is still indexing the vault after startup. To tell indexing from idle, watch the `metadataCache` event stream (`resolve` fires per file, `resolved` on each drain of the resolver queue) or read `state.metadataCache` from `GET /`, which reports when the plugin last heard either.",
           required: [
             'tags',
             'frontmatter',
@@ -197,21 +198,21 @@ std.manifestYamlDoc(
             },
             links: {
               type: 'array',
-              description: 'Vault-relative paths of files this file links to.',
+              description: "Vault-relative paths of files this file links to, as Obsidian's cache currently has them; see the schema description.",
               items: {
                 type: 'string',
               },
             },
             backlinks: {
               type: 'array',
-              description: 'Vault-relative paths of files that link to this file.',
+              description: "Vault-relative paths of files that link to this file, as Obsidian's cache currently has them; see the schema description.",
               items: {
                 type: 'string',
               },
             },
             unresolvedLinks: {
               type: 'array',
-              description: 'Link text found in this file that does not resolve to an existing vault file.',
+              description: "Link text found in this file that does not resolve to an existing vault file, as Obsidian's cache currently has it; see the schema description.",
               items: {
                 type: 'string',
               },
@@ -966,7 +967,7 @@ std.manifestYamlDoc(
             'System',
           ],
           summary: 'Returns basic details about the server.\n',
-          description: 'Returns basic details about the server as well as your authentication status.\n\nThis is the only API request that does *not* require authentication.\n',
+          description: importstr 'lib/descriptions/root-get.md',
           responses: {
             '200': {
               description: 'Success',
@@ -974,8 +975,9 @@ std.manifestYamlDoc(
                 'application/json': {
                   schema: {
                     type: 'object',
+                    required: ['status', 'versions', 'service', 'authenticated'],
                     properties: {
-                      ok: {
+                      status: {
                         type: 'string',
                         description: "'OK'",
                       },
@@ -999,6 +1001,89 @@ std.manifestYamlDoc(
                       authenticated: {
                         type: 'boolean',
                         description: 'Is your current request authenticated?',
+                      },
+                      certificateInfo: {
+                        type: 'object',
+                        description: 'Authenticated requests only. Facts about the certificate the HTTPS server presents.',
+                        required: ['validityDays', 'regenerateRecommended', 'regenerateReason'],
+                        properties: {
+                          validityDays: {
+                            type: 'number',
+                            description: 'Days until the certificate expires.',
+                          },
+                          regenerateRecommended: {
+                            type: 'boolean',
+                            description: 'Whether the certificate material predates a standard the plugin now follows and should be regenerated from the settings tab.',
+                          },
+                          regenerateReason: {
+                            type: ['string', 'null'],
+                            description: 'Why regeneration is recommended, or null when it is not. `ca-used-as-leaf` means the installation still serves a single self-signed certificate generated before the plugin began issuing a separate certificate authority.',
+                          },
+                        },
+                      },
+                      apiExtensions: {
+                        type: 'array',
+                        description: 'Authenticated requests only. Every plugin registered with the extension API: its manifest, plus the routes and MCP tools it has added.',
+                        items: {
+                          type: 'object',
+                          required: ['id', 'name', 'version', 'routes', 'mcpTools'],
+                          properties: {
+                            id: { type: 'string' },
+                            name: { type: 'string' },
+                            version: { type: 'string' },
+                            routes: {
+                              type: 'array',
+                              items: {
+                                type: 'object',
+                                required: ['path', 'authenticated'],
+                                properties: {
+                                  path: { type: 'string' },
+                                  authenticated: {
+                                    type: 'boolean',
+                                    description: 'Whether the route requires the API key.',
+                                  },
+                                },
+                              },
+                            },
+                            mcpTools: {
+                              type: 'array',
+                              items: { type: 'string' },
+                            },
+                          },
+                        },
+                      },
+                      state: {
+                        type: 'object',
+                        description: "Authenticated requests only. Observations, by namespace, that a client reads to decide whether to proceed; the server attaches no verdict. `metadataCache` is the plugin's own. Every other key is an extension plugin's id and holds whatever that extension chose to publish, or null when its state could not be read in time (the budget is a plugin setting, 100 ms by default). An extension that documents its state appears here as a named property of this object.",
+                        required: ['metadataCache'],
+                        properties: {
+                          metadataCache: {
+                            type: 'object',
+                            description: "What the plugin has heard from Obsidian's metadata cache since it loaded. Obsidian gives no documented signal for the end of startup link resolution, so these are timestamps rather than a `ready` flag: indexing in progress looks like recent activity, and done looks like silence. A plugin enabled into an already-indexed vault hears nothing at all, which is why `listeningSince` is reported alongside. A client's rule might be: wait while `lastResolvedAt` is null and `listeningSince` is recent, or while `lastActivityAt` is recent.",
+                            required: ['listeningSince', 'lastResolvedAt', 'lastActivityAt'],
+                            properties: {
+                              listeningSince: {
+                                type: 'string',
+                                format: 'date-time',
+                                description: 'When the plugin attached its listeners, which is when it loaded. The other two fields describe the window starting here.',
+                              },
+                              lastResolvedAt: {
+                                type: ['string', 'null'],
+                                format: 'date-time',
+                                description: "When the plugin last heard the metadata cache's `resolved` event, which Obsidian fires each time its link resolver queue drains, or null if it has not since `listeningSince`.",
+                              },
+                              lastActivityAt: {
+                                type: ['string', 'null'],
+                                format: 'date-time',
+                                description: "When the plugin last heard any indexing activity from the metadata cache (`changed`, `resolve`, or `resolved`), or null if none since `listeningSince`.",
+                              },
+                            },
+                          },
+                        },
+                        additionalProperties: {
+                          type: ['object', 'null'],
+                          description: "An extension plugin's state, under its plugin id, or null when it could not be read.",
+                        },
                       },
                     },
                   },

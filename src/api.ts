@@ -11,6 +11,7 @@ import type {
   McpResourceTemplateDefinition,
   McpToolDefinition,
   OpenApiDescription,
+  StateDefinition,
   StreamableEventDefinition,
 } from "./publicApi";
 import type { VaultSubresourceRegistry } from "./vaultSubresources";
@@ -63,7 +64,7 @@ function hasUngroupedAlternation(path: string): boolean {
 }
 
 export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi {
-  public readonly apiVersion = 3;
+  public readonly apiVersion = 4;
   private router: express.Router;
   private publicRouter: express.Router;
   private mcpHandler: McpHandler;
@@ -72,6 +73,7 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
   private pluginId: string;
   private onUnregister: () => void;
   private addEvent: (event: string, definition: StreamableEventDefinition) => void;
+  private addStateProvider: (definition: StateDefinition) => () => void;
   private unregistered = false;
   private registeredRoutes: RegisteredRoute[] = [];
   // One per MCP tool, resource, resource template, and prompt, all undone by unregister().
@@ -79,6 +81,7 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
   private registeredMcpTools: string[] = [];
   private registeredSubresources: { name: string; router: express.Router }[] = [];
   private openApiCleanups: (() => void)[] = [];
+  private stateCleanups: (() => void)[] = [];
 
   constructor(
     router: express.Router,
@@ -91,6 +94,9 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     addEvent: (event: string, definition: StreamableEventDefinition) => void = () => {
       throw new Error("Streamable events are not available.");
     },
+    addStateProvider: (definition: StateDefinition) => () => void = () => {
+      throw new Error("State is not available.");
+    },
   ) {
     this.router = router;
     this.publicRouter = publicRouter;
@@ -100,6 +106,7 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     this.pluginId = pluginId;
     this.onUnregister = onUnregister;
     this.addEvent = addEvent;
+    this.addStateProvider = addStateProvider;
     this.unregistered = false;
   }
 
@@ -246,6 +253,23 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     this.openApiCleanups.push(this.openApiSpec.add(this.pluginId, description));
   }
 
+  /** Publishes this extension's state on `GET /`; see ./publicApi for the contract. */
+  public addState(definition: StateDefinition): void {
+    this.assertRegistered();
+    // The provider is registered before its documentation so that a schema the spec
+    // refuses (a second registration) leaves nothing half-published: the registry's own
+    // duplicate check throws first and the spec is never touched.
+    const removeProvider = this.addStateProvider(definition);
+    let removeSchema: () => void;
+    try {
+      removeSchema = this.openApiSpec.addStateSchema(this.pluginId, definition);
+    } catch (error) {
+      removeProvider();
+      throw error;
+    }
+    this.stateCleanups.push(removeProvider, removeSchema);
+  }
+
   public unregister(): void {
     for (const cleanup of this.mcpCleanups) {
       cleanup();
@@ -257,6 +281,10 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
       cleanup();
     }
     this.openApiCleanups = [];
+    for (const cleanup of this.stateCleanups) {
+      cleanup();
+    }
+    this.stateCleanups = [];
     this.onUnregister();
     this.unregistered = true;
   }

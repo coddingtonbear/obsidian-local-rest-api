@@ -23,6 +23,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
 - [Targeting specific sections](#targeting-specific-sections)
 - [Searching](#searching)
 - [Event streams](#event-streams)
+- [Server state](#server-state)
 - [MCP (Model Context Protocol)](#mcp-model-context-protocol)
   * [Protocol revisions](#protocol-revisions)
   * [Connecting a client](#connecting-a-client)
@@ -36,6 +37,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
   * [Documenting your routes](#documenting-your-routes)
   * [Sub-resources under a note](#sub-resources-under-a-note)
   * [Extension events](#extension-events)
+  * [Extension state](#extension-state)
   * [Known extensions](#known-extensions)
 - [Contributing](#contributing)
 - [Credits](#credits)
@@ -335,6 +337,30 @@ Each event is serialized by code written for it. That code decides exactly what 
 
 Each message's `id` is `<epoch>-<counter>`. A new epoch, or a gap in the counter, means events were missed. Nothing is replayed. A stream URL expires after the signed-URL lifetime (or `?ttl=<seconds>`), but a stream opened before then stays open. At most 16 streams can be open at once. Anyone holding a signed stream URL sees the paths and metadata of every event its filter matches, so treat it like the notes themselves. See the [API docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for the full message format.
 
+## Server state
+
+`GET /` answers without an API key, but an authenticated request gets more: `certificateInfo`, the list of installed [API extensions](#api-extensions), and a `state` section.
+
+`state` holds observations, by namespace, that a client reads to decide whether to proceed. The server attaches no verdict. The plugin's own namespace is `metadataCache`:
+
+```json
+{
+  "status": "OK",
+  "authenticated": true,
+  "state": {
+    "metadataCache": {
+      "listeningSince": "2026-10-03T14:02:11.408Z",
+      "lastResolvedAt": null,
+      "lastActivityAt": "2026-10-03T14:02:13.951Z"
+    }
+  }
+}
+```
+
+It exists because a note's `links`, `backlinks`, and `unresolvedLinks` come from Obsidian's vault-wide link graph, and while Obsidian is still indexing after startup they can be incomplete with no sign in the note itself. Obsidian gives no documented signal for the end of that indexing, so the plugin reports what it can observe: when it started listening (`listeningSince`, which is when it loaded), when it last heard the cache's `resolved` event (`lastResolvedAt`, fired each time Obsidian's resolver queue drains, or `null` if never since loading), and when it last heard any indexing activity at all (`lastActivityAt`: `changed`, `resolve`, or `resolved`). Indexing in progress looks like recent activity; done looks like silence. A plugin enabled into an already-indexed vault hears nothing, which is why `listeningSince` is there: "never resolved, but listening for a while now" is as good as done. A workable rule is to wait while `lastResolvedAt` is `null` and `listeningSince` is recent, or while `lastActivityAt` is recent, with "recent" set to whatever your vault's indexing takes. A client that would rather not poll can watch the `metadataCache` [event stream](#event-streams) instead, where `resolve` fires per file and `resolved` on each drain.
+
+Every other key of `state` is an extension plugin's id, holding whatever that extension publishes (see [Extension state](#extension-state)), or `null` when it could not be read in time. The budget is **Settings → Local REST API → Advanced settings → Extension state read budget**, 100 ms by default; extensions are read concurrently, so it bounds the whole wait. MCP clients get the same document from the `obsidian://local-rest-api/status` resource.
+
 ## MCP (Model Context Protocol)
 
 > [!NOTE]
@@ -433,10 +459,11 @@ Two practical notes: whether a chat client renders a linked image inline is up t
 | URI | Description |
 |---|---|
 | `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API, including routes that extensions describe |
+| `obsidian://local-rest-api/status` | The authenticated `GET /` document: versions, installed extensions, and the [`state` section](#server-state); never cached, so it can be polled |
 
 ## API Extensions
 
-Other plugins can register their own authenticated routes, public routes, MCP tools, and [streamable events](#extension-events) against this plugin's server. See [Adding your own API Routes via an Extension](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension) for a walkthrough.
+Other plugins can register their own authenticated routes, public routes, MCP tools, [streamable events](#extension-events), and [state](#extension-state) against this plugin's server. See [Adding your own API Routes via an Extension](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension) for a walkthrough.
 
 Public routes (`addPublicRoute`) are answered before the API key is checked, so they can't sit under a prefix the plugin serves its own routes from: `/vault/`, `/active/`, `/search/`, `/commands/`, `/events/`, `/mcp/`, `/open/`, and `/tags/`, in any letter case, along with `/`, the OpenAPI documents, and the certificate. A path whose first segment is a pattern (`/:name/`, `/*`) is refused for the same reason. `addPublicRoute` throws when you register one of these, so start public routes with a literal segment of your own, such as your plugin's id. Authenticated routes (`addRoute`) and vault sub-resources are unaffected.
 
@@ -558,6 +585,31 @@ api.addStreamableEvent("task-completed", {
 ```
 
 Your serializer decides _everything_ a stream sends. The host adds `emitter` and `event` and sends nothing else, so return only what someone holding a stream URL should see. Return `null` to skip an occurrence. `unregister()` closes any open streams for your events.
+
+### Extension state
+
+From extension API version 4, an extension can publish its own namespace in the [`state` section](#server-state) of `GET /`, under its plugin id, for anything a client would read to decide whether to proceed: whether an index is built, when a sync last ran, how much work is queued.
+
+```ts
+const api = getAPI(this.app, this.manifest, 4);
+
+api.addState({
+  description: "Whether the semantic index is ready to query, and how far along a rebuild is.",
+  schema: {
+    type: "object",
+    required: ["ready", "pending"],
+    properties: {
+      ready: { type: "boolean" },
+      pending: { type: "integer", description: "Notes not yet indexed." },
+      lastRunAt: { type: ["string", "null"], format: "date-time" },
+    },
+  },
+  read: async () => ({ ready: this.index.ready, pending: this.queue.length, lastRunAt: this.lastRunAt }),
+});
+// Now served as state["<your plugin id>"] on every authenticated GET /
+```
+
+`read` is called on every authenticated `GET /`, concurrently with every other extension's, and raced against the read budget from the plugin's advanced settings. A read that overruns, rejects, or resolves to anything but a JSON object is served as `null` for your extension and logged to the console; nothing else in the response is affected. Keep it cheap: compute in the background and hand back the latest result. The `schema`, if you give one, is merged into the `GET /` response schema at `/openapi.yaml`, so clients can rely on the shape; without it the namespace is documented as a free-form object. `unregister()` removes both.
 
 ### Known extensions
 

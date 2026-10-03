@@ -45,9 +45,10 @@ components:
           Details: {}
       type: "object"
     NoteJson:
+      description: "A note's content and metadata. `links`, `backlinks`, and `unresolvedLinks` reflect Obsidian's metadata cache as it stands when the note is read, and may be incomplete while Obsidian is still indexing the vault after startup. To tell indexing from idle, watch the `metadataCache` event stream (`resolve` fires per file, `resolved` on each drain of the resolver queue) or read `state.metadataCache` from `GET /`, which reports when the plugin last heard either."
       properties:
         backlinks:
-          description: "Vault-relative paths of files that link to this file."
+          description: "Vault-relative paths of files that link to this file, as Obsidian's cache currently has them; see the schema description."
           items:
             type: "string"
           type: "array"
@@ -56,7 +57,7 @@ components:
         frontmatter:
           type: "object"
         links:
-          description: "Vault-relative paths of files this file links to."
+          description: "Vault-relative paths of files this file links to, as Obsidian's cache currently has them; see the schema description."
           items:
             type: "string"
           type: "array"
@@ -80,7 +81,7 @@ components:
             type: "string"
           type: "array"
         unresolvedLinks:
-          description: "Link text found in this file that does not resolve to an existing vault file."
+          description: "Link text found in this file that does not resolve to an existing vault file, as Obsidian's cache currently has it; see the schema description."
           items:
             type: "string"
           type: "array"
@@ -230,21 +231,120 @@ paths:
       description: |
         Returns basic details about the server as well as your authentication status.
         
-        This is the only API request that does *not* require authentication.
+        This is the only API request that does *not* require authentication. An authenticated request additionally receives `certificateInfo`, `apiExtensions`, and `state`.
+        
+        ## State
+        
+        `state` carries observations, by namespace, that a client reads to decide whether to proceed. The server attaches no verdict: it reports what it has heard and when, and the client applies its own tolerance.
+        
+        `state.metadataCache` is the plugin's own namespace. It answers the question issue #327 raised: a note's `links`, `backlinks`, and `unresolvedLinks` come from Obsidian's vault-wide link graph, and while Obsidian is still indexing after startup they can be incomplete with no sign in the note itself. Obsidian gives no documented signal for the end of that indexing, so instead of a `ready` flag the plugin reports when it started listening, when it last heard the cache's `resolved` event, and when it last heard any indexing activity. Indexing in progress looks like recent activity; done looks like silence. A client that would rather not poll can watch the `metadataCache` event stream, where `resolve` fires per file and `resolved` on each drain.
+        
+        Every other key of `state` is an extension plugin's id, holding whatever that extension publishes through the extension API's `addState`, or `null` when its state could not be read within the budget set in the plugin's advanced settings. An extension that documents its state has it listed under `state` in this specification, served from `/openapi.yaml`.
+        
+        The same document is available to MCP clients as the `obsidian://local-rest-api/status` resource.
       responses:
         "200":
           content:
             application/json:
               schema:
                 properties:
+                  apiExtensions:
+                    description: "Authenticated requests only. Every plugin registered with the extension API: its manifest, plus the routes and MCP tools it has added."
+                    items:
+                      properties:
+                        id:
+                          type: "string"
+                        mcpTools:
+                          items:
+                            type: "string"
+                          type: "array"
+                        name:
+                          type: "string"
+                        routes:
+                          items:
+                            properties:
+                              authenticated:
+                                description: "Whether the route requires the API key."
+                                type: "boolean"
+                              path:
+                                type: "string"
+                            required:
+                              - "path"
+                              - "authenticated"
+                            type: "object"
+                          type: "array"
+                        version:
+                          type: "string"
+                      required:
+                        - "id"
+                        - "name"
+                        - "version"
+                        - "routes"
+                        - "mcpTools"
+                      type: "object"
+                    type: "array"
                   authenticated:
                     description: "Is your current request authenticated?"
                     type: "boolean"
-                  ok:
-                    description: "'OK'"
-                    type: "string"
+                  certificateInfo:
+                    description: "Authenticated requests only. Facts about the certificate the HTTPS server presents."
+                    properties:
+                      regenerateReason:
+                        description: "Why regeneration is recommended, or null when it is not. `ca-used-as-leaf` means the installation still serves a single self-signed certificate generated before the plugin began issuing a separate certificate authority."
+                        type:
+                          - "string"
+                          - "null"
+                      regenerateRecommended:
+                        description: "Whether the certificate material predates a standard the plugin now follows and should be regenerated from the settings tab."
+                        type: "boolean"
+                      validityDays:
+                        description: "Days until the certificate expires."
+                        type: "number"
+                    required:
+                      - "validityDays"
+                      - "regenerateRecommended"
+                      - "regenerateReason"
+                    type: "object"
                   service:
                     description: "'Obsidian Local REST API'"
+                    type: "string"
+                  state:
+                    additionalProperties:
+                      description: "An extension plugin's state, under its plugin id, or null when it could not be read."
+                      type:
+                        - "object"
+                        - "null"
+                    description: "Authenticated requests only. Observations, by namespace, that a client reads to decide whether to proceed; the server attaches no verdict. `metadataCache` is the plugin's own. Every other key is an extension plugin's id and holds whatever that extension chose to publish, or null when its state could not be read in time (the budget is a plugin setting, 100 ms by default). An extension that documents its state appears here as a named property of this object."
+                    properties:
+                      metadataCache:
+                        description: "What the plugin has heard from Obsidian's metadata cache since it loaded. Obsidian gives no documented signal for the end of startup link resolution, so these are timestamps rather than a `ready` flag: indexing in progress looks like recent activity, and done looks like silence. A plugin enabled into an already-indexed vault hears nothing at all, which is why `listeningSince` is reported alongside. A client's rule might be: wait while `lastResolvedAt` is null and `listeningSince` is recent, or while `lastActivityAt` is recent."
+                        properties:
+                          lastActivityAt:
+                            description: "When the plugin last heard any indexing activity from the metadata cache (`changed`, `resolve`, or `resolved`), or null if none since `listeningSince`."
+                            format: "date-time"
+                            type:
+                              - "string"
+                              - "null"
+                          lastResolvedAt:
+                            description: "When the plugin last heard the metadata cache's `resolved` event, which Obsidian fires each time its link resolver queue drains, or null if it has not since `listeningSince`."
+                            format: "date-time"
+                            type:
+                              - "string"
+                              - "null"
+                          listeningSince:
+                            description: "When the plugin attached its listeners, which is when it loaded. The other two fields describe the window starting here."
+                            format: "date-time"
+                            type: "string"
+                        required:
+                          - "listeningSince"
+                          - "lastResolvedAt"
+                          - "lastActivityAt"
+                        type: "object"
+                    required:
+                      - "metadataCache"
+                    type: "object"
+                  status:
+                    description: "'OK'"
                     type: "string"
                   versions:
                     properties:
@@ -255,6 +355,11 @@ paths:
                         description: "Plugin version."
                         type: "string"
                     type: "object"
+                required:
+                  - "status"
+                  - "versions"
+                  - "service"
+                  - "authenticated"
                 type: "object"
           description: "Success"
       summary: |

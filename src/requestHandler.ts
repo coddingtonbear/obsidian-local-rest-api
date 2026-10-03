@@ -87,6 +87,7 @@ import {
   vaultPathIsInConfigDir,
 } from "./vaultPath";
 import { McpHandler } from "./mcpHandler";
+import { MetadataCacheObserver, StateRegistry, clampStateReadTimeout } from "./serverState";
 import { VaultSubresourceRegistry } from "./vaultSubresources";
 import {
   UrlSigner,
@@ -220,6 +221,9 @@ export default class RequestHandler {
   operations: VaultOperations;
   events: EventStreams;
   mcpHandler: McpHandler;
+  // The host's own contribution to the `state` section of `GET /`, and the extensions'.
+  readonly metadataCacheObserver: MetadataCacheObserver;
+  readonly stateRegistry = new StateRegistry();
   // One signer per handler, so the MCP tools that mint links and the REST middleware
   // that redeems them share a secret — and that secret lives exactly as long as this
   // handler does.
@@ -245,10 +249,14 @@ export default class RequestHandler {
     this.publicApiExtensionRouter = express.Router();
     this.operations = new VaultOperations(this.app, this.settings);
     this.events = new EventStreams(this.app, this.operations);
+    this.metadataCacheObserver = new MetadataCacheObserver(this.app.metadataCache);
     this.mcpHandler = new McpHandler(this.operations, this.settings, {
       signer: this.urlSigner,
       events: this.events,
       openApiSpec: this.openApiSpec,
+      // Not called until a client reads the resource, by which time this handler is
+      // fully constructed.
+      serverStatus: () => this.serverStatus(true),
     });
 
     this.api.set("json spaces", 2);
@@ -287,6 +295,7 @@ export default class RequestHandler {
         this.events.removeExtensionEvents(manifest.id);
       },
       (event, definition) => this.events.addExtensionEvent(manifest.id, event, definition),
+      (definition) => this.stateRegistry.add(manifest.id, definition),
     );
     this.apiExtensions.set(manifest.id, { manifest, api });
 
@@ -495,7 +504,19 @@ export default class RequestHandler {
     res.status(this.getStatusCode({ statusCode, errorCode })).json(response);
   }
 
-  root(req: express.Request, res: express.Response): void {
+  async root(req: express.Request, res: express.Response): Promise<void> {
+    res.status(200).json(await this.serverStatus(this.requestIsAuthenticated(req)));
+  }
+
+  /**
+   * The `GET /` document, which the MCP `server-status` resource also serves.
+   *
+   * `certificateInfo`, `apiExtensions`, and `state` are withheld from an
+   * unauthenticated caller: `GET /` is the one route that answers without the API key,
+   * and these three describe the installation, the plugins in it, and when its owner
+   * was last active. An extension that wants a public signal has `addPublicRoute`.
+   */
+  async serverStatus(authenticated: boolean): Promise<Record<string, unknown>> {
     let certificate: forge.pki.Certificate | undefined;
     try {
       if (this.settings.crypto?.cert) {
@@ -509,7 +530,7 @@ export default class RequestHandler {
       ? getCertificateStandardsIssue(certificate)
       : null;
 
-    res.status(200).json({
+    return {
       status: "OK",
       manifest: this.manifest,
       versions: {
@@ -517,23 +538,31 @@ export default class RequestHandler {
         self: this.manifest.version,
       },
       service: "Obsidian Local REST API",
-      authenticated: this.requestIsAuthenticated(req),
+      authenticated,
       certificateInfo:
-        this.requestIsAuthenticated(req) && certificate
+        authenticated && certificate
           ? {
             validityDays: getCertificateValidityDays(certificate),
             regenerateRecommended: standardsIssue !== null,
             regenerateReason: standardsIssue,
           }
           : undefined,
-      apiExtensions: this.requestIsAuthenticated(req)
+      apiExtensions: authenticated
         ? [...this.apiExtensions.values()].map(({ manifest, api }) => ({
           ...manifest,
           routes: api.getRoutes(),
           mcpTools: api.getMcpTools(),
         }))
         : undefined,
-    });
+      state: authenticated
+        ? {
+          metadataCache: this.metadataCacheObserver.snapshot(),
+          ...(await this.stateRegistry.collect(
+            clampStateReadTimeout(this.settings.stateReadTimeoutMs),
+          )),
+        }
+        : undefined,
+    };
   }
 
   /** The vault path from the request, split into decoded segments.
@@ -2885,7 +2914,7 @@ export default class RequestHandler {
     this.api.get(`/${CERT_NAME}`, this.handle((rq, rs) => this.certificateGet(rq, rs)));
     this.api.get("/openapi.yaml", this.handle((rq, rs) => this.openapiYamlGet(rq, rs)));
     this.api.get("/openapi.json", this.handle((rq, rs) => this.openapiJsonGet(rq, rs)));
-    this.api.get("/", (rq, rs) => { this.root(rq, rs); });
+    this.api.get("/", this.handle((rq, rs) => this.root(rq, rs)));
 
     this.api.use(this.apiExtensionRouter);
 

@@ -182,9 +182,9 @@ describe("StateRegistry", () => {
     registry.add(
       "throws",
       definition({
-        read: (() => {
+        read: () => {
           throw new Error("sync boom");
-        }) as unknown as StateDefinition["read"],
+        },
       }),
     );
     expect(await registry.collect(100)).toEqual({ throws: null });

@@ -80,6 +80,12 @@ export interface LocalRestApiSettings {
   signedUrlTtlSeconds?: number;
 
   /**
+   * How long `GET /` waits for an extension's state before serving null for it, in
+   * milliseconds. See `clampStateReadTimeout`; absent means the default.
+   */
+  stateReadTimeoutMs?: number;
+
+  /**
    * Whether the API may read or write files inside Obsidian's configuration
    * directory (`app.vault.configDir`, normally `.obsidian`). Off by default and
    * absent unless explicitly turned on.

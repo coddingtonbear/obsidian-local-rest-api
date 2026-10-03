@@ -37,6 +37,12 @@ import {
   MinimumSignedUrlTtlSeconds,
   clampSignedUrlTtl,
 } from "./signedUrls";
+import {
+  DefaultStateReadTimeoutMs,
+  MaximumStateReadTimeoutMs,
+  MinimumStateReadTimeoutMs,
+  clampStateReadTimeout,
+} from "./serverState";
 // The extension API is defined in ./publicApi, which is what the generated
 // publicApi.d.ts ships to extension authors. Re-exported here so that anything
 // importing the plugin entry point keeps seeing the same names it always has.
@@ -190,6 +196,7 @@ export default class LocalRestApi extends Plugin {
     this.requestHandler?.mcpHandler.close();
     this.requestHandler?.operations.dispose();
     this.requestHandler?.events.dispose();
+    this.requestHandler?.metadataCacheObserver.dispose();
     if (this.secureServer) {
       this.secureServer.closeAllConnections();
       this.secureServer.close();
@@ -832,6 +839,16 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         },
       },
       {
+        name: "Extension state read budget (milliseconds)",
+        desc: `How long GET / waits for an extension plugin to report its state before serving null for that plugin. Extensions are read concurrently, so this bounds the whole wait. Between ${MinimumStateReadTimeoutMs} and ${MaximumStateReadTimeoutMs} milliseconds; the default is ${DefaultStateReadTimeoutMs}.`,
+        control: {
+          type: "number",
+          key: "stateReadTimeoutMs",
+          min: MinimumStateReadTimeoutMs,
+          max: MaximumStateReadTimeoutMs,
+        },
+      },
+      {
         name: "Allow access to the configuration directory",
         desc: `When off (the default), the API refuses to read or write any file inside Obsidian's configuration directory (currently '${this.app.vault.configDir}'). That directory holds plugin code and each plugin's data.json — including this plugin's own, where your API key lives — so writing there is effectively arbitrary code execution and reading there leaks secrets. Leave this off unless you specifically need to manage your Obsidian configuration through the API, and understand that turning it on grants every holder of your API key that power.`,
         control: { type: "toggle", key: "enableConfigDirAccess" },
@@ -933,6 +950,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         return this.plugin.settings.enableConfigDirAccess ?? false;
       case "signedUrlTtlSeconds":
         return clampSignedUrlTtl(this.plugin.settings.signedUrlTtlSeconds);
+      case "stateReadTimeoutMs":
+        return clampStateReadTimeout(this.plugin.settings.stateReadTimeoutMs);
       default:
         return undefined;
     }
@@ -1049,6 +1068,14 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         const clamped = clampSignedUrlTtl(value as number);
         this.plugin.settings.signedUrlTtlSeconds =
           clamped === DefaultSignedUrlTtlSeconds ? undefined : clamped;
+        await this.plugin.saveSettings();
+        break;
+      }
+      case "stateReadTimeoutMs": {
+        // Read per request by GET /, so no server restart is needed.
+        const clamped = clampStateReadTimeout(value as number);
+        this.plugin.settings.stateReadTimeoutMs =
+          clamped === DefaultStateReadTimeoutMs ? undefined : clamped;
         await this.plugin.saveSettings();
         break;
       }
