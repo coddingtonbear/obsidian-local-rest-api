@@ -1,4 +1,16 @@
 components:
+  responses:
+    TooManyAuthenticationFailures:
+      content:
+        application/json:
+          schema:
+            "$ref": "#/components/schemas/Error"
+      description: "This source has presented too many wrong credentials -- incorrect API keys, or invalid, expired or spent signed URLs -- within the current window, and this request presented another. `Retry-After` says how many seconds remain. Any route can answer this way; a request carrying the correct API key or a valid signed URL never does."
+      headers:
+        Retry-After:
+          description: "Seconds until the window ends and wrong credentials are answered `401` again."
+          schema:
+            type: "integer"
   schemas:
     Error:
       properties:
@@ -261,6 +273,8 @@ paths:
                     type: "object"
                 type: "object"
           description: "Success"
+        "429":
+          "$ref": "#/components/responses/TooManyAuthenticationFailures"
       summary: |
         Returns basic details about the server.
       tags:
@@ -1599,6 +1613,8 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "No such subscription for this emitter and event, or it has expired."
+        "429":
+          "$ref": "#/components/responses/TooManyAuthenticationFailures"
         "503":
           content:
             application/json:
@@ -1651,6 +1667,8 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "Session not found."
+        "429":
+          "$ref": "#/components/responses/TooManyAuthenticationFailures"
       summary: |
         Open a server-sent events stream for an existing sessionful MCP session.
       tags:
@@ -1892,6 +1910,8 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "Session not found. The `Mcp-Session-Id` header names a session that has ended; hand-shake again with `initialize`."
+        "429":
+          "$ref": "#/components/responses/TooManyAuthenticationFailures"
       summary: |
         Send a JSON-RPC 2.0 message to the MCP server.
       tags:
