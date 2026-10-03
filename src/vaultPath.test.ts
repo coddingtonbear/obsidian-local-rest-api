@@ -92,6 +92,14 @@ describe("vaultPathIsInConfigDir", () => {
     ["a ./ prefix", "./.obsidian/app.json"],
     ["a descent that resolves back in", ".obsidian/../.obsidian/app.json"],
     ["a backslash separator", ".obsidian\\plugins\\foo\\main.js"],
+    // Case-insensitive filesystems (macOS APFS by default, Windows NTFS) resolve
+    // these to the real config dir, so the guard must too.
+    ["an upper-cased spelling", ".OBSIDIAN/plugins/foo/main.js"],
+    ["a mixed-case spelling", ".Obsidian/plugins/foo/main.js"],
+    // Windows strips trailing dots and spaces from each path component.
+    ["a trailing dot on the config segment", ".obsidian./plugins/foo/main.js"],
+    ["a trailing space on the config segment", ".obsidian /plugins/foo/main.js"],
+    ["several trailing dots and spaces", ".obsidian. . /plugins/foo/main.js"],
   ] as const;
 
   const outside = [
@@ -117,6 +125,18 @@ describe("vaultPathIsInConfigDir", () => {
   test("honors a non-default config directory", () => {
     expect(vaultPathIsInConfigDir(".config-obsidian/app.json", ".config-obsidian")).toBe(true);
     expect(vaultPathIsInConfigDir(".obsidian/app.json", ".config-obsidian")).toBe(false);
+  });
+
+  test("a non-ASCII config dir matches across Unicode normalization forms", () => {
+    // macOS may hand back a decomposed (NFD) spelling of a name stored composed (NFC).
+    const nfc = "éconfig"; // "éconfig", precomposed
+    const nfd = "éconfig"; // "éconfig", decomposed
+    expect(vaultPathIsInConfigDir(`${nfd}/app.json`, nfc)).toBe(true);
+  });
+
+  test("still does not match a sibling once case and trailing-dot folding apply", () => {
+    expect(vaultPathIsInConfigDir(".OBSIDIAN-backup/note.md", ".obsidian")).toBe(false);
+    expect(vaultPathIsInConfigDir(".obsidian.bak/note.md", ".obsidian")).toBe(false);
   });
 });
 

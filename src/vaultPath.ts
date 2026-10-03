@@ -78,6 +78,27 @@ export function assertVaultPathIsContained(
   }
 }
 
+/** Canonicalize a resolved path for *name identity*, the way the filesystems
+ *  Obsidian runs on actually treat names, so that two spellings the OS would
+ *  send to the same directory compare equal here.
+ *
+ *  Per segment: Unicode NFC (macOS may hand back a decomposed form of a name
+ *  stored composed), lower-case (APFS and NTFS are case-insensitive by default,
+ *  so ".OBSIDIAN" *is* ".obsidian" there), and trailing dots and spaces stripped
+ *  (Win32 removes them from every component, so ".obsidian." opens ".obsidian").
+ *
+ *  Every step only merges spellings together, never splits them apart, so this
+ *  can only make a path *more* likely to be seen as the config dir. On a
+ *  case-sensitive Linux vault that means a folder literally named ".Obsidian" is
+ *  also refused -- an acceptable false positive for a guard whose failure mode
+ *  the other way is code execution, and one the opt-in setting lifts anyway. */
+function canonicalNameForm(resolvedPath: string): string {
+  return resolvedPath
+    .split("/")
+    .map((segment) => segment.normalize("NFC").toLowerCase().replace(/[. ]+$/, ""))
+    .join("/");
+}
+
 /** Whether a vault-relative path is the configuration directory or lives inside it.
  *
  *  `configDir` is Obsidian's own `app.vault.configDir` -- normally ".obsidian",
@@ -85,20 +106,32 @@ export function assertVaultPathIsContained(
  *  matters. Both the candidate and the config dir are folded and resolved against
  *  the same synthetic root as {@link vaultPathIsContained}, so the comparison is
  *  between canonical paths rather than raw spellings: ".obsidian/../.obsidian" and
- *  ".obsidian" are seen as the same place.
+ *  ".obsidian" are seen as the same place. They are then put through
+ *  {@link canonicalNameForm}, because a string comparison that is stricter than
+ *  the filesystem's is a bypass: ".OBSIDIAN/plugins/x/main.js" is a different
+ *  string but, on macOS or Windows, the same directory.
  *
  *  The match is the directory itself or a path beneath it, never a sibling that
  *  merely shares the name as a prefix: ".obsidian-backup" resolves to
  *  "/vault/.obsidian-backup", which is neither equal to nor prefixed by
  *  "/vault/.obsidian/", so it is not treated as config. A candidate that escapes
  *  the vault is not this function's concern -- {@link vaultPathIsContained} rejects
- *  it first -- and such a path simply returns false here. */
+ *  it first -- and such a path simply returns false here.
+ *
+ *  What this does not do is resolve symlinks or Windows 8.3 short names
+ *  ("OBSIDI~1"); neither can be checked without a real-path primitive Obsidian's
+ *  API does not expose, and both require something already on the vault owner's
+ *  disk rather than a spelling an attacker chooses. */
 export function vaultPathIsInConfigDir(
   candidate: string,
   configDir: string,
 ): boolean {
-  const root = posix.resolve(SYNTHETIC_ROOT, configDir.replace(/\\/g, "/"));
-  const resolved = posix.resolve(SYNTHETIC_ROOT, candidate.replace(/\\/g, "/"));
+  const root = canonicalNameForm(
+    posix.resolve(SYNTHETIC_ROOT, configDir.replace(/\\/g, "/")),
+  );
+  const resolved = canonicalNameForm(
+    posix.resolve(SYNTHETIC_ROOT, candidate.replace(/\\/g, "/")),
+  );
   return resolved === root || resolved.startsWith(root + "/");
 }
 

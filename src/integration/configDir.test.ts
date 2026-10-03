@@ -68,6 +68,18 @@ run("configuration-directory access is refused", () => {
     await expectConfigRefusal(res);
   });
 
+  // Spellings a case-insensitive filesystem (macOS APFS, Windows NTFS) or Win32's
+  // trailing-dot stripping would resolve to the real config dir. Read-only, so
+  // the live vault is never written to even if the guard were missing.
+  test.each([
+    "/vault/.OBSIDIAN/community-plugins.json",
+    "/vault/.Obsidian/community-plugins.json",
+    "/vault/.obsidian./community-plugins.json",
+  ])("alternate spelling %s is refused", async (path) => {
+    const res = await authedFetch(path);
+    await expectConfigRefusal(res);
+  });
+
   test("a sibling directory that merely shares the prefix is not refused", async () => {
     // Not a config path, so the guard does not fire. The file does not exist, so
     // the API answers 404 rather than 403 -- the point is only that it is not the

@@ -456,6 +456,20 @@ export class VaultOperations {
         : rawSegments;
     if (segments.length === 0) return null;
 
+    // The stats below go straight to the adapter, so this is the one place in
+    // the class where a path is touched by something other than a gated method.
+    // Every candidate the walk stats is a prefix of this joined path, and the
+    // config-dir rule is decided by the first segment, so one check up front
+    // covers them all. A refused path is a no-match, not an error: both callers
+    // (the REST GET and the sub-resource dispatcher) read null as "not a file
+    // here", and the REST boundary has already sent its own 403 for anything
+    // this would refuse.
+    try {
+      this.assertContained(segments.join("/"));
+    } catch {
+      return null;
+    }
+
     // A file or folder name cannot contain `/`, so a candidate file path is only
     // valid when none of its segments do. This is what keeps a decoded `%2F`
     // from re-forming a path separator: `folder%2Fnote.md` is a single segment
