@@ -1,6 +1,8 @@
 import fs from "fs";
 import path from "path";
-import { App, TFile, _prepareSimpleSearchMock } from "../mocks/obsidian";
+import { App, FileSystemAdapter, TFile, _prepareSimpleSearchMock } from "../mocks/obsidian";
+import { fakeRealpath } from "../mocks/disk";
+import { ConfigDirAccessError } from "./vaultPath";
 import {
   BACKLINKS_INDEX_MAX_AGE_MS,
   METADATA_CACHE_EVENTS,
@@ -683,5 +685,45 @@ describe("vault path containment", () => {
       const { ops } = opsFor();
       await expect(ops.listVaultDirectory("")).resolves.toBeDefined();
     });
+  });
+});
+
+describe("the configuration-directory backstop consults the disk", () => {
+  // VaultOperations is the last gate before the adapter, so a spelling the
+  // filesystem resolves to the config dir -- an NTFS 8.3 short name, a symlink
+  // -- must be refused here too, not only at the REST and MCP boundaries.
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  function setupOnDisk(): VaultOperations {
+    const app = new App();
+    app.vault.adapter = new FileSystemAdapter("/vault");
+    jest.spyOn(fs.realpathSync, "native").mockImplementation(
+      fakeRealpath({ "/vault/OBSIDI~1": "/vault/.obsidian" }, [
+        "/vault",
+        "/vault/.obsidian",
+      ]),
+    );
+    return new VaultOperations(app, {} as LocalRestApiSettings);
+  }
+
+  test("readBinaryPath refuses an 8.3 short name for the config dir", async () => {
+    const ops = setupOnDisk();
+    await expect(ops.readBinaryPath("OBSIDI~1/plugins/pwn/data.json")).rejects.toThrow(
+      ConfigDirAccessError,
+    );
+  });
+
+  test("writeFileContent refuses an 8.3 short name for the config dir", async () => {
+    const ops = setupOnDisk();
+    await expect(
+      ops.writeFileContent("OBSIDI~1/plugins/pwn/main.js", Buffer.from("pwned")),
+    ).rejects.toThrow(ConfigDirAccessError);
+  });
+
+  test("statPath refuses an 8.3 short name for the config dir", async () => {
+    const ops = setupOnDisk();
+    await expect(ops.statPath("OBSIDI~1")).rejects.toThrow(ConfigDirAccessError);
   });
 });

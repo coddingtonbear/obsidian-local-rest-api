@@ -24,7 +24,9 @@ import { UrlSigner } from "./signedUrls";
 import type { EventStreams } from "./events";
 import { ImageScaler, MaximumImageEdge } from "./imageScaling";
 import { LocalRestApiSettings } from "./types";
-import { TFile } from "../mocks/obsidian";
+import { DataAdapter, FileSystemAdapter, TFile } from "../mocks/obsidian";
+import { fakeRealpath } from "../mocks/disk";
+import * as fs from "fs";
 
 const MODERN_VERSION = "2026-07-28";
 const LEGACY_VERSION = "2025-06-18";
@@ -72,6 +74,7 @@ function makeMockOps() {
     app: {
       vault: {
         configDir: ".obsidian",
+        adapter: new DataAdapter() as DataAdapter,
         getAbstractFileByPath: jest.fn().mockReturnValue(mockFile),
       },
       workspace: {
@@ -1953,6 +1956,44 @@ describe("McpHandler", () => {
           path: ".obsidian-backup/note.md",
           content: "x",
         });
+        expect(ops.writeFileContent).toHaveBeenCalled();
+      });
+    });
+
+    describe("is refused through a spelling only the filesystem resolves", () => {
+      // An NTFS 8.3 short name ("OBSIDI~1") or a symlink reaches the config dir
+      // without containing ".obsidian"; the tools ask the disk where it lands.
+      beforeEach(() => {
+        registerTool.mockClear();
+        ops.app.vault.adapter = new FileSystemAdapter("/vault");
+        jest.spyOn(fs.realpathSync, "native").mockImplementation(
+          fakeRealpath({ "/vault/OBSIDI~1": "/vault/.obsidian" }, [
+            "/vault",
+            "/vault/.obsidian",
+          ]),
+        );
+        buildServer(new McpHandler(ops, DEFAULT_SETTINGS));
+      });
+
+      afterEach(() => {
+        jest.restoreAllMocks();
+      });
+
+      test("vault_write refuses an 8.3 short name", async () => {
+        await expect(
+          getToolCallback("vault_write")({ path: "OBSIDI~1/plugins/pwn/main.js", content: "x" }),
+        ).rejects.toThrow(/configuration directory/i);
+        expect(ops.writeFileContent).not.toHaveBeenCalled();
+      });
+
+      test("vault_read refuses an 8.3 short name", async () => {
+        await expect(
+          getToolCallback("vault_read")({ path: "OBSIDI~1/plugins/pwn/data.json" }),
+        ).rejects.toThrow(/configuration directory/i);
+      });
+
+      test("an ordinary path is still written", async () => {
+        await getToolCallback("vault_write")({ path: "notes/a.md", content: "x" });
         expect(ops.writeFileContent).toHaveBeenCalled();
       });
     });

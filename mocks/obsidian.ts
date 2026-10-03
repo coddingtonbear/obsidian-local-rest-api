@@ -16,7 +16,7 @@ class Stat {
   type: "file" | "folder" = "file";
 }
 
-class DataAdapter {
+export class DataAdapter {
   _exists = true;
   _read = "";
   _readBinary = new ArrayBuffer(0);
@@ -63,6 +63,19 @@ class DataAdapter {
 
   async remove(path: string): Promise<void> {
     this._remove = [path];
+  }
+}
+
+/** The desktop adapter: the one that knows where the vault lives on disk. A test
+ *  that wants the on-disk config-dir check to run swaps this in for the vault's
+ *  default `DataAdapter`, which stands in for a platform with no real-path access. */
+export class FileSystemAdapter extends DataAdapter {
+  constructor(private basePath = "/vault") {
+    super();
+  }
+
+  getBasePath(): string {
+    return this.basePath;
   }
 }
 

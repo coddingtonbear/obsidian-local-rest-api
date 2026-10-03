@@ -1,10 +1,15 @@
+import * as fs from "fs";
+import { DataAdapter, FileSystemAdapter } from "../mocks/obsidian";
+import { fakeRealpath } from "../mocks/disk";
 import {
   PathTraversalError,
   ConfigDirAccessError,
   assertVaultPathIsContained,
   assertConfigDirAccessAllowed,
+  onDiskAccessFor,
   vaultPathIsContained,
   vaultPathIsInConfigDir,
+  type OnDiskAccess,
 } from "./vaultPath";
 
 describe("vaultPathIsContained", () => {
@@ -165,5 +170,138 @@ describe("assertConfigDirAccessAllowed", () => {
     expect(() =>
       assertConfigDirAccessAllowed(".obsidian/x", configDir, false, "Destination path"),
     ).toThrow(/^Destination path is inside the Obsidian configuration directory/);
+  });
+});
+
+describe("vaultPathIsInConfigDir with on-disk resolution", () => {
+  // The textual check above cannot see spellings only the filesystem resolves:
+  // NTFS hands out an 8.3 short name for every long name on a volume that has
+  // them enabled (".obsidian" becomes "OBSIDI~1", predictably), and a symlink
+  // goes wherever its target does. With a way to ask the disk where a path
+  // really lands, the guard compares real locations instead.
+  const configDir = ".obsidian";
+
+  function disk(
+    aliases: Record<string, string>,
+    existing: string[],
+  ): OnDiskAccess {
+    return { basePath: "/vault", realpath: fakeRealpath(aliases, existing) };
+  }
+
+  const vaultWithConfig = ["/vault", "/vault/.obsidian", "/vault/.obsidian/plugins"];
+
+  test("matches a Windows 8.3 short name for the config dir", () => {
+    const access = disk({ "/vault/OBSIDI~1": "/vault/.obsidian" }, vaultWithConfig);
+    expect(vaultPathIsInConfigDir("OBSIDI~1/plugins/foo/main.js", configDir, access)).toBe(true);
+    expect(vaultPathIsInConfigDir("OBSIDI~1", configDir, access)).toBe(true);
+  });
+
+  test("matches a short name whose tail does not exist yet", () => {
+    // The plugin folder the attacker wants to create is not on disk; the alias
+    // above it is, and that is enough to know where the write would land.
+    const access = disk({ "/vault/OBSIDI~1": "/vault/.obsidian" }, vaultWithConfig);
+    expect(vaultPathIsInConfigDir("OBSIDI~1/plugins/new/main.js", configDir, access)).toBe(true);
+  });
+
+  test("matches a symlink inside the vault that points at the config dir", () => {
+    const access = disk(
+      { "/vault/notes/cfg": "/vault/.obsidian" },
+      [...vaultWithConfig, "/vault/notes"],
+    );
+    expect(vaultPathIsInConfigDir("notes/cfg/app.json", configDir, access)).toBe(true);
+  });
+
+  test("follows the config dir itself when it is a symlink", () => {
+    // A config dir shared between vaults via symlink: a second link to the same
+    // target is still the config dir.
+    const access = disk(
+      {
+        "/vault/.obsidian": "/home/u/shared-config",
+        "/vault/shortcut": "/home/u/shared-config",
+      },
+      ["/vault", "/home/u/shared-config"],
+    );
+    expect(vaultPathIsInConfigDir("shortcut/app.json", configDir, access)).toBe(true);
+  });
+
+  test("does not match an ordinary existing note", () => {
+    const access = disk({}, [...vaultWithConfig, "/vault/notes", "/vault/notes/a.md"]);
+    expect(vaultPathIsInConfigDir("notes/a.md", configDir, access)).toBe(false);
+  });
+
+  test("does not match a path that does not exist yet", () => {
+    const access = disk({}, vaultWithConfig);
+    expect(vaultPathIsInConfigDir("new/deep/note.md", configDir, access)).toBe(false);
+  });
+
+  test("does not match a short name for a sibling that shares the prefix", () => {
+    const access = disk(
+      { "/vault/OBSIDI~2": "/vault/.obsidian-backup" },
+      [...vaultWithConfig, "/vault/.obsidian-backup"],
+    );
+    expect(vaultPathIsInConfigDir("OBSIDI~2/note.md", configDir, access)).toBe(false);
+  });
+
+  test("does not match the vault root", () => {
+    const access = disk({}, vaultWithConfig);
+    expect(vaultPathIsInConfigDir("", configDir, access)).toBe(false);
+  });
+
+  test("still matches textually when the disk cannot be consulted", () => {
+    const unusable = disk({}, []);
+    expect(vaultPathIsInConfigDir(".obsidian/app.json", configDir, unusable)).toBe(true);
+    expect(vaultPathIsInConfigDir("notes/a.md", configDir, unusable)).toBe(false);
+  });
+
+  test("compares on-disk locations by canonical name form", () => {
+    // realpath on a case-insensitive volume may report the on-disk casing; two
+    // spellings of the same directory must still compare equal.
+    const access = disk(
+      { "/vault/OBSIDI~1": "/vault/.Obsidian" },
+      ["/vault", "/vault/.Obsidian", "/vault/.obsidian"],
+    );
+    expect(vaultPathIsInConfigDir("OBSIDI~1/app.json", configDir, access)).toBe(true);
+  });
+});
+
+describe("assertConfigDirAccessAllowed with on-disk resolution", () => {
+  const access: OnDiskAccess = {
+    basePath: "/vault",
+    realpath: fakeRealpath({ "/vault/OBSIDI~1": "/vault/.obsidian" }, [
+      "/vault",
+      "/vault/.obsidian",
+    ]),
+  };
+
+  test("throws ConfigDirAccessError for an aliased config path when not allowed", () => {
+    expect(() =>
+      assertConfigDirAccessAllowed("OBSIDI~1/app.json", ".obsidian", false, "Path", access),
+    ).toThrow(ConfigDirAccessError);
+  });
+
+  test("is a no-op for an aliased config path when allowed", () => {
+    expect(() =>
+      assertConfigDirAccessAllowed("OBSIDI~1/app.json", ".obsidian", true, "Path", access),
+    ).not.toThrow();
+  });
+});
+
+describe("onDiskAccessFor", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("reads the vault's base path from a FileSystemAdapter and resolves through fs", () => {
+    const realpath = jest
+      .spyOn(fs.realpathSync, "native")
+      .mockImplementation(fakeRealpath({}, ["/disk/vault"]));
+    const access = onDiskAccessFor(new FileSystemAdapter("/disk/vault"));
+    expect(access?.basePath).toBe("/disk/vault");
+    expect(access?.realpath("/disk/vault")).toBe("/disk/vault");
+    expect(realpath).toHaveBeenCalledWith("/disk/vault");
+  });
+
+  test("is undefined for an adapter with no base path", () => {
+    expect(onDiskAccessFor(new DataAdapter())).toBeUndefined();
   });
 });
