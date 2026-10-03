@@ -190,6 +190,7 @@ export default class LocalRestApi extends Plugin {
     this.requestHandler?.mcpHandler.close();
     this.requestHandler?.operations.dispose();
     this.requestHandler?.events.dispose();
+    this.requestHandler?.dispose();
     if (this.secureServer) {
       this.secureServer.closeAllConnections();
       this.secureServer.close();

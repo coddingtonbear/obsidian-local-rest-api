@@ -30,7 +30,11 @@ import type express from "express";
 import RequestHandler, { redactSignedUrl } from "./requestHandler";
 import type { LocalRestApiPublicApi, VaultSubresourceRequest } from "./publicApi";
 import { ErrorCode, LocalRestApiSettings } from "./types";
-import { CERT_NAME } from "./constants";
+import {
+  AuthenticationFailureLimit,
+  AuthenticationFailureWindowMs,
+  CERT_NAME,
+} from "./constants";
 import { UrlSigner } from "./signedUrls";
 import {
   DestinationAlreadyExistsError,
@@ -74,6 +78,7 @@ describe("requestHandler", () => {
 
   afterEach(() => {
     server.close();
+    handler.dispose();
   });
 
   function getMockSettings(): LocalRestApiSettings {
@@ -5575,6 +5580,138 @@ describe("requestHandler", () => {
         .send("- added\n");
       expect(res.status).toBe(200);
       expect(res.text).toContain("Entry\n\n- added");
+    });
+  });
+
+  describe("authentication failure throttle", () => {
+    const WRONG = "Bearer not-the-key";
+    const PATH = "attachments/pixel.png";
+    const BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]);
+    let clock: number;
+
+    beforeEach(() => {
+      clock = Date.now();
+      settings.enableSignedUrls = true;
+      handler.dispose();
+      // @ts-ignore: the mock App is close enough.
+      handler = new RequestHandler(app, manifest, settings, new UrlSigner(Buffer.from("secret"), () => clock));
+      handler.setupRouter();
+      server.close();
+      server = http.createServer(handler.api);
+      app.vault.adapter._readBinary = BYTES.buffer.slice(BYTES.byteOffset, BYTES.byteOffset + BYTES.byteLength);
+    });
+
+    function signedPath(method: "GET" | "PUT", path: string, tamper = false): string {
+      const { sig, exp, nonce } = handler.urlSigner.sign(method, path, 300);
+      const params = new URLSearchParams({ sig: tamper ? sig.replace(/^./, (c) => (c === "0" ? "1" : "0")) : sig, exp: String(exp), n: nonce });
+      return `/vault/${path}?${params}`;
+    }
+
+    // Spend the whole allowance on wrong keys; every one of them is still a plain 401.
+    async function exhaust(path = "/vault/"): Promise<void> {
+      for (let i = 0; i < AuthenticationFailureLimit; i++) {
+        await request(server).get(path).set("Authorization", WRONG).expect(401);
+      }
+    }
+
+    test("a wrong API key is refused with 429 once the failure limit is reached", async () => {
+      await exhaust();
+      const result = await request(server).get("/vault/").set("Authorization", WRONG).expect(429);
+      expect(result.body.errorCode).toBe(ErrorCode.TooManyAuthenticationFailures);
+      expect(result.body.message).toMatch(/Too many failed authentication attempts/);
+      expect(Number(result.header["retry-after"])).toBeGreaterThan(0);
+      expect(Number(result.header["retry-after"])).toBeLessThanOrEqual(AuthenticationFailureWindowMs / 1000);
+    });
+
+    test("the correct API key is served while wrong ones are being refused", async () => {
+      await exhaust();
+      await request(server).get("/vault/").set("Authorization", WRONG).expect(429);
+      await request(server).get("/vault/").set("Authorization", `Bearer ${API_KEY}`).expect(200);
+      const root = await request(server).get("/").set("Authorization", `Bearer ${API_KEY}`).expect(200);
+      expect(root.body.authenticated).toBe(true);
+      // Nor does a correct key make the next wrong one any more welcome.
+      await request(server).get("/vault/").set("Authorization", WRONG).expect(429);
+    });
+
+    test("requests that present no credential are neither counted nor refused", async () => {
+      for (let i = 0; i < AuthenticationFailureLimit + 1; i++) {
+        await request(server).get("/vault/").expect(401);
+      }
+      // None of those counted: the allowance for wrong keys is still whole.
+      await exhaust();
+      await request(server).get("/vault/").set("Authorization", WRONG).expect(429);
+      // And a locked-out source can still make credential-less requests.
+      await request(server).get("/vault/").expect(401);
+      const root = await request(server).get("/").expect(200);
+      expect(root.body.authenticated).toBe(false);
+      await request(server).get("/openapi.yaml").expect(200);
+    });
+
+    test("GET / counts a wrong key but not a missing one", async () => {
+      // The root route answers 200 either way, so it is the most convenient oracle an
+      // attacker could ask; a wrong key there is as much a failed attempt as anywhere.
+      for (let i = 0; i < AuthenticationFailureLimit; i++) {
+        const result = await request(server).get("/").set("Authorization", WRONG).expect(200);
+        expect(result.body.authenticated).toBe(false);
+      }
+      await request(server).get("/").set("Authorization", WRONG).expect(429);
+      const root = await request(server).get("/").expect(200);
+      expect(root.body.authenticated).toBe(false);
+    });
+
+    test("the MCP endpoint is covered by the same throttle", async () => {
+      for (let i = 0; i < AuthenticationFailureLimit; i++) {
+        await request(server).post("/mcp/").set("Authorization", WRONG).expect(401);
+      }
+      const result = await request(server).post("/mcp/").set("Authorization", WRONG).expect(429);
+      expect(result.body.errorCode).toBe(ErrorCode.TooManyAuthenticationFailures);
+      await request(server).post("/mcp/").set("Authorization", `Bearer ${API_KEY}`).expect(200);
+    });
+
+    test("a valid signed URL is served while wrong keys are being refused", async () => {
+      await exhaust();
+      await request(server).get(signedPath("GET", PATH)).expect(200);
+    });
+
+    test("a bad signature is a failed attempt", async () => {
+      for (let i = 0; i < AuthenticationFailureLimit; i++) {
+        await request(server).get(signedPath("GET", PATH, true)).expect(401);
+      }
+      const result = await request(server).get(signedPath("GET", PATH, true)).expect(429);
+      expect(result.body.errorCode).toBe(ErrorCode.TooManyAuthenticationFailures);
+      // A good signature from the same source still works.
+      await request(server).get(signedPath("GET", PATH)).expect(200);
+    });
+
+    test("wrong keys are answered 401 again once the window has passed", async () => {
+      // The store keeps time by Date.now, so the clock is faked for this one test.
+      // Only timers and Date are faked: the request still has to travel over a real
+      // socket, which needs nextTick, setImmediate and microtasks left alone.
+      jest.useFakeTimers({
+        now: Date.now(),
+        doNotFake: ["nextTick", "setImmediate", "queueMicrotask", "hrtime", "performance"],
+      });
+      try {
+        await exhaust();
+        await request(server).get("/vault/").set("Authorization", WRONG).expect(429);
+        jest.advanceTimersByTime(AuthenticationFailureWindowMs);
+        await request(server).get("/vault/").set("Authorization", WRONG).expect(401);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    test("the configured header name is the one that counts", async () => {
+      settings.authorizationHeaderName = "X-Obsidian-Key";
+      // A stray standard Authorization header is not a credential for this server.
+      for (let i = 0; i < AuthenticationFailureLimit + 1; i++) {
+        await request(server).get("/vault/").set("Authorization", WRONG).expect(401);
+      }
+      for (let i = 0; i < AuthenticationFailureLimit; i++) {
+        await request(server).get("/vault/").set("X-Obsidian-Key", WRONG).expect(401);
+      }
+      await request(server).get("/vault/").set("X-Obsidian-Key", WRONG).expect(429);
+      await request(server).get("/vault/").set("X-Obsidian-Key", `Bearer ${API_KEY}`).expect(200);
     });
   });
 });

@@ -41,6 +41,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "Document frontmatter could not be parsed.",
   [ErrorCode.ApiKeyAuthorizationRequired]:
     "Authorization required.  Find your API Key in the 'Local REST API with MCP' section of your Obsidian settings.",
+  [ErrorCode.TooManyAuthenticationFailures]:
+    "Too many failed authentication attempts.  Requests presenting an incorrect API key or signed URL are refused until the window ends; see the Retry-After header.  Requests with the correct API key are unaffected.",
   [ErrorCode.ContentTypeSpecificationRequired]:
     "Content-Type header required; this API accepts data in multiple content-types and you must indicate the content-type of your request body via the Content-Type header.",
   [ErrorCode.InvalidContentType]:
@@ -121,6 +123,16 @@ export enum ContentTypes {
 
 export const DefaultBearerTokenHeaderName = "Authorization";
 export const DefaultBindingHost = "127.0.0.1";
+
+// Failed-authentication throttle: a source that presents this many wrong credentials
+// inside one window has its further wrong credentials refused with 429 until the window
+// ends. Requests carrying the correct key, a valid signed URL, or no credential at all
+// are never counted or refused. The numbers turn an unbounded guessing oracle into one
+// that allows a few hundred guesses an hour; against a key of any reasonable strength
+// that is as good as none, without getting in the way of a client whose key is merely
+// stale.
+export const AuthenticationFailureLimit = 10;
+export const AuthenticationFailureWindowMs = 60_000;
 
 export const LicenseUrl =
   "https://raw.githubusercontent.com/coddingtonbear/obsidian-local-rest-api/main/LICENSE";

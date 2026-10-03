@@ -33,6 +33,7 @@ export enum ErrorCode {
   RequestMethodValidOnlyForFiles = 40510,
   DestinationAlreadyExists = 40920,
   ConflictingTargetSpecification = 42200,
+  TooManyAuthenticationFailures = 42901,
   ErrorPreparingSimpleSearch = 50010,
   FileOperationFailed = 50020,
   EventCapacityReached = 50301,

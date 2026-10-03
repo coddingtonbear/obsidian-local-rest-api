@@ -142,9 +142,21 @@ std.manifestYamlDoc(
     components: {
       securitySchemes: {
         apiKeyAuth: {
-          description: 'Find your API Key in your Obsidian settings\nin the "Local REST API" section under "Plugins".\n',
+          description: 'Find your API Key in your Obsidian settings\nin the "Local REST API" section under "Plugins".\n\nFailed authentication is throttled. A source that presents a wrong credential -- an incorrect API key, or an invalid, expired or spent signed URL -- ten times within a minute has its further wrong credentials refused with `429` (error code `42901`) and a `Retry-After` header until the minute is up. Requests that carry the correct key or a valid signed URL are never counted or delayed, and neither are requests that present no credential at all; they are answered `401` (or, on the routes that need no authentication, served) exactly as before. The count is kept in memory per source address and does not survive a plugin reload.\n',
           type: 'http',
           scheme: 'bearer',
+        },
+      },
+      responses: {
+        TooManyAuthenticationFailures: {
+          description: 'This source has presented too many wrong credentials -- incorrect API keys, or invalid, expired or spent signed URLs -- within the current window, and this request presented another. `Retry-After` says how many seconds remain. Any route can answer this way; a request carrying the correct API key or a valid signed URL never does.',
+          headers: {
+            'Retry-After': {
+              description: 'Seconds until the window ends and wrong credentials are answered `401` again.',
+              schema: { type: 'integer' },
+            },
+          },
+          content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
         },
       },
       schemas: {
@@ -914,6 +926,7 @@ std.manifestYamlDoc(
               description: 'No API key, and no valid signature for this subscription.',
               content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
             },
+            '429': { '$ref': '#/components/responses/TooManyAuthenticationFailures' },
             '404': {
               description: 'No such subscription for this emitter and event, or it has expired.',
               content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
@@ -966,7 +979,7 @@ std.manifestYamlDoc(
             'System',
           ],
           summary: 'Returns basic details about the server.\n',
-          description: 'Returns basic details about the server as well as your authentication status.\n\nThis is the only API request that does *not* require authentication.\n',
+          description: 'Returns basic details about the server as well as your authentication status.\n\nThis is the only API request that does *not* require authentication.\n\nA request that sends an API key still has that key checked: `authenticated` reports whether it was correct, and a wrong one counts towards the failed-authentication throttle like a wrong key anywhere else, so once a source is throttled this route answers `429` to wrong keys too. A request with no key at all is not counted and always answers `200` with `authenticated: false`.\n',
           responses: {
             '200': {
               description: 'Success',
@@ -1005,6 +1018,7 @@ std.manifestYamlDoc(
                 },
               },
             },
+            '429': { '$ref': '#/components/responses/TooManyAuthenticationFailures' },
           },
         },
       },
@@ -1109,6 +1123,7 @@ std.manifestYamlDoc(
                 },
               },
             },
+            '429': { '$ref': '#/components/responses/TooManyAuthenticationFailures' },
           },
         },
         post: {
@@ -1302,6 +1317,7 @@ std.manifestYamlDoc(
                 },
               },
             },
+            '429': { '$ref': '#/components/responses/TooManyAuthenticationFailures' },
             '404': {
               description: 'Session not found. The `Mcp-Session-Id` header names a session that has ended; hand-shake again with `initialize`.',
               content: {
