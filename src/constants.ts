@@ -92,7 +92,7 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.InvalidWithinHeader]:
     "The 'Within' header must be a single integer, e.g. 0 or -1.",
   [ErrorCode.PathTraversalNotAllowed]:
-    "Path traversal is not allowed. Paths must be relative and within the vault.",
+    "Path traversal is not allowed. Paths must be relative, within the vault, and free of ':' and control characters.",
   [ErrorCode.ConfigDirAccessNotAllowed]:
     "Access to the Obsidian configuration directory is not allowed. Enable 'Allow access to the configuration directory' under Settings → Local REST API → Advanced settings to permit it.",
   [ErrorCode.DestinationAlreadyExists]:
