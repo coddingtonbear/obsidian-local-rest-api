@@ -305,15 +305,13 @@ export default class RequestHandler {
     return api;
   }
 
-  requestIsAuthenticated(req: express.Request): boolean {
-    const authorizationHeader = req.get(
-      this.settings.authorizationHeaderName ?? "Authorization",
-    );
-    if (authorizationHeader === `Bearer ${this.settings.apiKey}`) {
-      return true;
-    }
+  /** The header this server reads its bearer token from, as the request sent it. */
+  private authorizationHeader(req: express.Request): string | undefined {
+    return req.get(this.settings.authorizationHeaderName ?? "Authorization");
+  }
 
-    return false;
+  requestIsAuthenticated(req: express.Request): boolean {
+    return this.authorizationHeader(req) === `Bearer ${this.settings.apiKey}`;
   }
 
   /**
@@ -401,13 +399,18 @@ export default class RequestHandler {
    * them arrive. Only a request that offers a key or a signature, and offers a wrong one,
    * counts. That includes a wrong key sent to `GET /`, which answers 200 either way and
    * would otherwise be the cheapest oracle on the server.
+   *
+   * The answer only means anything on a route that would check the credential, which is
+   * why the limiter sits exactly where those checks sit (see `setupRouter`) and not in
+   * front of an extension's public routes, where a header or `sig`/`exp` pair belongs to
+   * the extension and is no guess against this key.
    */
   private credentialIsRejected(req: express.Request): boolean {
     if (this.requestIsAuthenticated(req)) return false;
     const verdict = this.signedUrlVerdict(req);
     if (verdict === "ok") return false;
     if (verdict !== null) return true;
-    return req.get(this.settings.authorizationHeaderName ?? "Authorization") !== undefined;
+    return this.authorizationHeader(req) !== undefined;
   }
 
   /**
@@ -2763,12 +2766,17 @@ export default class RequestHandler {
     this.api.use(responseTime());
     this.api.use(cors(corsOptions));
 
-    // Failed-authentication throttle. Installed ahead of every router so that the MCP
-    // endpoint, the public extension routes, the authentication-exempt routes and the
-    // authenticated API are all behind it, and placed after `cors` so that a 429 carries
-    // the same CORS headers as any other answer and a preflight never reaches it. `skip`
-    // keeps everything but a wrong credential out of the counter entirely: a request
-    // with the right key costs one string comparison here and is never delayed.
+    // Failed-authentication throttle. One limiter, installed in the two places a
+    // credential is actually checked: at the top of the MCP router, and immediately ahead
+    // of the authentication middleware that guards everything else (including `GET /`
+    // and the other exempt routes, which still look at a key they are sent). It is *not*
+    // in front of the public extension router: an extension's public route never
+    // consults this server's credentials, so a header or `sig`/`exp` pair sent there is
+    // the extension's business and must not be counted or refused on its behalf. Both
+    // mounts are after `cors`, so a 429 carries the same CORS headers as any other answer
+    // and a preflight never reaches it. `skip` keeps everything but a wrong credential
+    // out of the counter entirely: a request with the right key costs one string
+    // comparison here and is never delayed.
     this.authenticationFailureStore?.shutdown();
     this.authenticationFailureStore = new MemoryStore();
     const authenticationFailureLimiter = rateLimit({
@@ -2788,10 +2796,10 @@ export default class RequestHandler {
       // the developer console.
       validate: { xForwardedForHeader: false },
     });
-    this.api.use(authenticationFailureLimiter);
 
     const mcpRouter = express.Router();
     mcpRouter.use(cors(corsOptions));
+    mcpRouter.use(authenticationFailureLimiter);
     mcpRouter.use((req, res, next) => {
       if (!this.requestIsAuthenticated(req)) {
         this.returnCannedResponse(res, {
@@ -2838,6 +2846,7 @@ export default class RequestHandler {
     this.api.use("/mcp", mcpRouter);
 
     this.api.use(this.publicApiExtensionRouter);
+    this.api.use(authenticationFailureLimiter);
     this.api.use(this.authenticationMiddleware.bind(this));
 
     // A body with no Content-Type matched none of the parsers below, so `req.body` kept

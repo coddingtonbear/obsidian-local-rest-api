@@ -149,7 +149,7 @@ std.manifestYamlDoc(
       },
       responses: {
         TooManyAuthenticationFailures: {
-          description: 'This source has presented too many wrong credentials -- incorrect API keys, or invalid, expired or spent signed URLs -- within the current window, and this request presented another. `Retry-After` says how many seconds remain. Any route can answer this way; a request carrying the correct API key or a valid signed URL never does.',
+          description: 'This source has presented too many wrong credentials -- incorrect API keys, or invalid, expired or spent signed URLs -- within the current window, and this request presented another. `Retry-After` says how many seconds remain. Any route the plugin authenticates can answer this way; a request carrying the correct API key or a valid signed URL never does.',
           headers: {
             'Retry-After': {
               description: 'Seconds until the window ends and wrong credentials are answered `401` again.',
