@@ -32,6 +32,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
   * [Available resources](#available-resources)
 - [API Extensions](#api-extensions)
   * [Typed extension API](#typed-extension-api)
+  * [Registering again after the host reloads](#registering-again-after-the-host-reloads)
   * [MCP tools, resources, and prompts](#mcp-tools-resources-and-prompts)
   * [Documenting your routes](#documenting-your-routes)
   * [Sub-resources under a note](#sub-resources-under-a-note)
@@ -459,6 +460,33 @@ const api: LocalRestApiPublicApi | undefined = getAPI(this.app, this.manifest, 2
 The package entry point is a small standalone module — it resolves the *running* host plugin out of Obsidian's plugin registry rather than pulling the plugin bundle into your build. Passing an extension API version (`2` above) makes `getAPI` throw `ApiVersionUnsupportedError` when the installed host is older than the surface you need; omit it to accept whatever is installed and feature-detect yourself. `getAPI` returns `undefined` when the plugin isn't installed or hasn't loaded yet.
 
 `publicApi.d.ts` is generated from [`src/publicApi.ts`](src/publicApi.ts), which the implementation is compile-time-checked against, so the published types cannot drift from what the plugin actually offers.
+
+### Registering again after the host reloads
+
+Everything an extension registers belongs to the running instance of this plugin. When this plugin is disabled and re-enabled, updated, or reloaded during development, it starts with a new server that knows nothing about your routes, tools, or events, and the handle `getAPI` gave you earlier now points at the instance that was unloaded. Your routes answer `404` from then on, with no error to explain why.
+
+Each time this plugin finishes loading, it triggers `obsidian-local-rest-api:loaded` on the workspace. Register in a method of your own, call it from `onload`, and call it again whenever that event fires:
+
+```ts
+async onload() {
+  this.registerWithLocalRestApi();
+  this.registerEvent(
+    // Not in obsidian's typings; declare it on Workspace, or cast as here.
+    (this.app.workspace as Events).on("obsidian-local-rest-api:loaded", () =>
+      this.registerWithLocalRestApi()
+    )
+  );
+}
+
+registerWithLocalRestApi() {
+  // A fresh handle every time: one kept from before a reload is stale.
+  this.api = getAPI(this.app, this.manifest, 3);
+  if (!this.api) return; // Not installed or not loaded yet; the event will call again.
+  this.api.addRoute("/my-plugin/status").get((req, res) => { /* ... */ });
+}
+```
+
+Calling it from `onload` covers the case where this plugin loaded before yours, and the event covers every load after that, including this plugin loading after yours at startup. Avoid guarding the method with `if (this.api) return`: that keeps the stale handle and skips registering on exactly the occasions it's needed.
 
 ### MCP tools, resources, and prompts
 
