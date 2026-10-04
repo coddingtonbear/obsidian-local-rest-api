@@ -194,6 +194,28 @@ describe("generateCryptoSettings", () => {
     }
   });
 
+  test("serial numbers stay 16 bytes when the random bytes start with zero", () => {
+    // DER INTEGERs must be minimally encoded, so a serial whose first byte is
+    // 0x00 is malformed (strict parsers such as Go's reject it) and reads back
+    // a byte short. Random generation hits this about once per 128 serials.
+    const getBytesSync = forge.random.getBytesSync.bind(forge.random);
+    const spy = jest
+      .spyOn(forge.random, "getBytesSync")
+      .mockImplementation((count: number) =>
+        count === 16 ? "\x00" + "\x01".repeat(15) : getBytesSync(count),
+      );
+    try {
+      const generated = generateCryptoSettings({ keySize: TEST_KEY_SIZE });
+      for (const pem of [generated.caCert, generated.cert]) {
+        const serial = parse(pem ?? "").serialNumber;
+        expect(serial).toMatch(/^[0-9a-f]{32}$/);
+        expect(parseInt(serial[0], 16)).toBeLessThan(8);
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   test("validity periods start now and span the configured lifetimes", () => {
     expect(ca.validity.notBefore).toEqual(now);
     expect(leaf.validity.notBefore).toEqual(now);
