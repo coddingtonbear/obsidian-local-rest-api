@@ -256,18 +256,13 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
   /** Publishes this extension's state on `GET /`; see ./publicApi for the contract. */
   public addState(definition: StateDefinition): void {
     this.assertRegistered();
-    // The provider is registered before its documentation so that a schema the spec
-    // refuses (a second registration) leaves nothing half-published: the registry's own
-    // duplicate check throws first and the spec is never touched.
-    const removeProvider = this.addStateProvider(definition);
-    let removeSchema: () => void;
-    try {
-      removeSchema = this.openApiSpec.addStateSchema(this.pluginId, definition);
-    } catch (error) {
-      removeProvider();
-      throw error;
-    }
-    this.stateCleanups.push(removeProvider, removeSchema);
+    // The registry checks the whole definition, schema included, and refuses a reserved
+    // or duplicate namespace, so documenting it afterwards has nothing left to refuse
+    // and nothing is ever half-published.
+    this.stateCleanups.push(
+      this.addStateProvider(definition),
+      this.openApiSpec.addStateSchema(this.pluginId, definition),
+    );
   }
 
   public unregister(): void {

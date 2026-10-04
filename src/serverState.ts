@@ -122,6 +122,7 @@ export class StateRegistry {
    * that removes it. Throws for a namespace the host reserves or one already registered.
    */
   add(owner: string, definition: StateDefinition): () => void {
+    validateStateDefinition(definition);
     if (BUILT_IN_STATE_NAMESPACES.includes(owner)) {
       throw new Error(`The state namespace "${owner}" is reserved by Obsidian Local REST API.`);
     }
@@ -172,14 +173,35 @@ export class StateRegistry {
 }
 
 /**
+ * Checks a definition handed over at runtime. The published types already say all of
+ * this, but an extension written in plain JavaScript gets no such check, and a mistake
+ * here should fail its `addState` call rather than every `GET /` after it.
+ */
+function validateStateDefinition(definition: StateDefinition): void {
+  if (typeof definition.description !== "string") {
+    throw new TypeError("A state definition's `description` must be a string.");
+  }
+  if (definition.schema !== undefined && !isPlainObject(definition.schema)) {
+    throw new TypeError("A state definition's `schema` must be an object.");
+  }
+  if (typeof definition.read !== "function") {
+    throw new TypeError("A state definition's `read` must be a function.");
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
  * The provider's value as the client will receive it: a JSON round trip, which both
  * rejects what cannot be serialized (a BigInt, a cycle) and hands back a copy the
  * provider cannot change after the fact. Throws for anything but a plain object.
  */
 function parseState(value: unknown): Record<string, unknown> {
   const parsed: unknown = JSON.parse(JSON.stringify(value));
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+  if (!isPlainObject(parsed)) {
     throw new TypeError("read() must resolve to a JSON object.");
   }
-  return parsed as Record<string, unknown>;
+  return parsed;
 }
