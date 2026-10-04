@@ -632,6 +632,10 @@ std.manifestYamlDoc(
                     summary: 'Find notes having a certain tag',
                     value: '{\n  "in": [\n    "myTag",\n    {"var": "tags"}\n  ]\n}\n',
                   },
+                  find_missing_frontmatter_field: {
+                    summary: 'Find notes that do not have a certain frontmatter field (a field that is blank or an empty string counts as not present)',
+                    value: '{\n  "missing": ["frontmatter.myField"]\n}\n',
+                  },
                 },
               },
             },

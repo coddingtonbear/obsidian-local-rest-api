@@ -1607,7 +1607,7 @@ export class McpHandler {
       dedent`
         Search vault files using a JsonLogic query evaluated against each note's metadata.
 
-        The query is a JSON object evaluated against a NoteJson object for each file; files where the result is truthy are returned.
+        The query is a JSON object evaluated against a NoteJson object for each file; files where the result is truthy are returned. Falsy results are false, null, undefined, 0, NaN, "", [], and {}. So a query that selects a value rather than testing a condition, like {"var": "frontmatter.aliases"}, leaves out notes where that field is empty ([], "", false, 0) exactly as it leaves out notes without the field: absence from the results does not mean the field is absent. To test for presence use {"!": {"missing": ["frontmatter.aliases"]}}; note that missing also counts a field whose value is "" or null as missing.
 
         Example NoteJson shape:
         {
@@ -1643,6 +1643,7 @@ export class McpHandler {
         - Find by frontmatter field: {"==": [{"var": "frontmatter.status"}, "done"]}
         - Find by path glob: {"glob": ["journal/*", {"var": "path"}]}
         - Modified after a date: {">": [{"var": "stat.mtime"}, 1704067200000]}
+        - Notes without a frontmatter field: {"missing": ["frontmatter.aliases"]}
         - Multiple conditions: {"and": [{"in": ["work", {"var": "tags"}]}, {"==": [{"var": "frontmatter.status"}, "done"]}]}
       `,
       {
