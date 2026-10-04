@@ -5713,5 +5713,100 @@ describe("requestHandler", () => {
       await request(server).get("/vault/").set("X-Obsidian-Key", WRONG).expect(429);
       await request(server).get("/vault/").set("X-Obsidian-Key", `Bearer ${API_KEY}`).expect(200);
     });
+
+    test("an expired signed URL is a failed attempt", async () => {
+      const path = signedPath("GET", PATH);
+      clock += 301_000;
+      for (let i = 0; i < AuthenticationFailureLimit; i++) {
+        await request(server).get(path).expect(401);
+      }
+      const result = await request(server).get(path).expect(429);
+      expect(result.body.errorCode).toBe(ErrorCode.TooManyAuthenticationFailures);
+    });
+
+    test("a spent signed PUT link is a failed attempt", async () => {
+      const path = signedPath("PUT", PATH);
+      // The request that spends the link is not a failure and is not counted.
+      await request(server).put(path).set("Content-Type", "image/png").send(BYTES).expect(204);
+      for (let i = 0; i < AuthenticationFailureLimit; i++) {
+        const replay = await request(server).put(path).set("Content-Type", "image/png").send(BYTES).expect(401);
+        expect(replay.body.message).toMatch(/already been used/);
+      }
+      const result = await request(server).put(path).set("Content-Type", "image/png").send(BYTES).expect(429);
+      expect(result.body.errorCode).toBe(ErrorCode.TooManyAuthenticationFailures);
+    });
+
+    test("a signed request while signed URLs are disabled is a failed attempt", async () => {
+      const path = signedPath("GET", PATH);
+      settings.enableSignedUrls = false;
+      for (let i = 0; i < AuthenticationFailureLimit; i++) {
+        await request(server).get(path).expect(401);
+      }
+      await request(server).get(path).expect(429);
+    });
+
+    test("a valid link that loses the claim race is not counted", async () => {
+      // Several concurrent PUTs with one link all verify; only one claims it. The rest
+      // are answered 401 for a link that was good when they asked, which is not a guess.
+      const claim = jest.spyOn(handler.urlSigner, "claim").mockReturnValue(false);
+      try {
+        for (let i = 0; i < AuthenticationFailureLimit + 1; i++) {
+          const lost = await request(server)
+            .put(signedPath("PUT", PATH))
+            .set("Content-Type", "image/png")
+            .send(BYTES)
+            .expect(401);
+          expect(lost.body.message).toMatch(/already been used/);
+        }
+      } finally {
+        claim.mockRestore();
+      }
+      // None of those counted: the allowance for wrong credentials is still whole.
+      await exhaust();
+      await request(server).get("/vault/").set("Authorization", WRONG).expect(429);
+    });
+
+    test("a public extension route is not behind the throttle", async () => {
+      const extManifest = Object.assign(new PluginManifest(), { id: "public-ext" });
+      // @ts-ignore: mock PluginManifest is close enough for runtime
+      const api = handler.registerApiExtension(extManifest);
+      api.addPublicRoute("/public-ext/ping").get((_req, res) => {
+        res.json({ ok: true });
+      });
+      // An extension's public route never consults this server's credentials, so a header
+      // or `sig`/`exp` pair meant for the extension is not a guess against the API key.
+      for (let i = 0; i < AuthenticationFailureLimit + 1; i++) {
+        await request(server).get("/public-ext/ping").set("Authorization", WRONG).expect(200, { ok: true });
+        await request(server).get("/public-ext/ping?sig=abc&exp=1").expect(200, { ok: true });
+      }
+      // None of those counted, and a locked-out source is still served there.
+      await exhaust();
+      await request(server).get("/vault/").set("Authorization", WRONG).expect(429);
+      await request(server).get("/public-ext/ping").set("Authorization", WRONG).expect(200, { ok: true });
+      await request(server).get("/public-ext/ping?sig=abc&exp=1").expect(200, { ok: true });
+    });
+
+    test("only Retry-After is added to the response headers", async () => {
+      // The quota headers the library can add would tell a guesser how many free
+      // attempts remain, and are not part of the documented contract.
+      const refusedEarly = await request(server).get("/vault/").set("Authorization", WRONG).expect(401);
+      expect(refusedEarly.header["ratelimit"]).toBeUndefined();
+      expect(refusedEarly.header["ratelimit-policy"]).toBeUndefined();
+      expect(refusedEarly.header["retry-after"]).toBeUndefined();
+      await exhaust();
+      const result = await request(server).get("/vault/").set("Authorization", WRONG).expect(429);
+      expect(result.header["ratelimit"]).toBeUndefined();
+      expect(result.header["ratelimit-policy"]).toBeUndefined();
+      expect(Number(result.header["retry-after"])).toBeGreaterThan(0);
+    });
+
+    test("dispose releases every background resource the handler owns", () => {
+      const operations = jest.spyOn(handler.operations, "dispose");
+      const events = jest.spyOn(handler.events, "dispose");
+      handler.dispose();
+      expect(handler.mcpHandler.close).toHaveBeenCalledTimes(1);
+      expect(operations).toHaveBeenCalledTimes(1);
+      expect(events).toHaveBeenCalledTimes(1);
+    });
   });
 });

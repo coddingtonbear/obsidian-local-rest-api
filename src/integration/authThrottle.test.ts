@@ -29,10 +29,12 @@ describe("failed-authentication throttle", () => {
       if (res.status === 429) refused = res;
     }
     expect(refused).toBeDefined();
+    // Recorded before anything else is asserted: once the lockout is open, afterAll must
+    // wait it out even if this test goes on to fail, or the suites after it inherit 429s.
+    retryAfterSeconds = Number(refused.headers.get("retry-after"));
     const body = (await refused.json()) as { errorCode: number; message: string };
     expect(body.errorCode).toBe(ErrorCode.TooManyAuthenticationFailures);
     expect(body.message).toMatch(/Too many failed authentication attempts/);
-    retryAfterSeconds = Number(refused.headers.get("retry-after"));
     expect(retryAfterSeconds).toBeGreaterThan(0);
     expect(retryAfterSeconds).toBeLessThanOrEqual(AuthenticationFailureWindowMs / 1000);
   });
