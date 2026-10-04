@@ -218,6 +218,63 @@ describe("StateRegistry", () => {
     expect(collected.live).toEqual({ count: 1 });
   });
 
+  test("warns once for a failing provider, and again only after it has succeeded", async () => {
+    let fail = true;
+    registry.add(
+      "flaky",
+      definition({
+        read: async () => {
+          if (fail) throw new Error("boom");
+          return { ok: true };
+        },
+      }),
+    );
+
+    expect(await registry.collect(100)).toEqual({ flaky: null });
+    expect(await registry.collect(100)).toEqual({ flaky: null });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/flaky/);
+
+    fail = false;
+    expect(await registry.collect(100)).toEqual({ flaky: { ok: true } });
+    fail = true;
+    expect(await registry.collect(100)).toEqual({ flaky: null });
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  test("a re-registered extension that fails is warned about afresh", async () => {
+    const broken = definition({ read: async () => { throw new Error("boom"); } });
+    const remove = registry.add("again", broken);
+    await registry.collect(100);
+    remove();
+    registry.add("again", broken);
+    await registry.collect(100);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  test("refuses a definition whose read is not a function", async () => {
+    for (const read of [undefined, null, { ready: true }, "ready"]) {
+      expect(() => registry.add("plain-js", definition({ read: read as unknown as StateDefinition["read"] }))).toThrow(
+        /read/,
+      );
+    }
+    expect(await registry.collect(100)).toEqual({});
+  });
+
+  test("refuses a definition whose description is not a string", () => {
+    const noDescription = { ...definition(), description: undefined } as unknown as StateDefinition;
+    expect(() => registry.add("plain-js", noDescription)).toThrow(/description/);
+  });
+
+  test("refuses a schema that is not an object", () => {
+    for (const schema of [null, "object", ["object"], 1]) {
+      expect(() =>
+        registry.add("plain-js", definition({ schema: schema as unknown as StateDefinition["schema"] })),
+      ).toThrow(/schema/);
+    }
+    registry.add("plain-js", definition({ schema: undefined }));
+  });
+
   test("refuses a second registration for the same extension", () => {
     registry.add("twice", definition());
     expect(() => registry.add("twice", definition())).toThrow(/already/);

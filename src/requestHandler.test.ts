@@ -28,7 +28,7 @@ jest.mock("./mcpHandler", () => ({
 import type express from "express";
 
 import RequestHandler, { redactSignedUrl } from "./requestHandler";
-import type { LocalRestApiPublicApi, VaultSubresourceRequest } from "./publicApi";
+import type { LocalRestApiPublicApi, StateDefinition, VaultSubresourceRequest } from "./publicApi";
 import { ErrorCode, LocalRestApiSettings } from "./types";
 import { CERT_NAME } from "./constants";
 import { UrlSigner } from "./signedUrls";
@@ -208,6 +208,11 @@ describe("requestHandler", () => {
       expect(result.body.state.fine).toEqual({ ok: true });
       expect(result.body.state.metadataCache).toBeDefined();
       expect(warn).toHaveBeenCalledWith(expect.stringContaining("broken"), expect.anything());
+
+      // A client polling GET / does not get a warning per poll for the same broken extension.
+      await getRoot();
+      await getRoot();
+      expect(warn).toHaveBeenCalledTimes(1);
       warn.mockRestore();
     });
 
@@ -245,6 +250,26 @@ describe("requestHandler", () => {
       );
     });
 
+    test("a definition without a callable read is refused when registered, not on each request", async () => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+      const api = registerExtension("plain-js");
+      expect(() =>
+        api.addState({ description: "Forgot to make read a function.", read: { ready: true } } as unknown as StateDefinition),
+      ).toThrow(/read/);
+      expect(() =>
+        api.addState({ description: "Schema is not an object.", schema: "object", read: async () => ({}) } as unknown as StateDefinition),
+      ).toThrow(/schema/);
+
+      // Neither attempt left anything behind: no provider to fail, no spec entry.
+      const result = await getRoot();
+      expect(result.body.state["plain-js"]).toBeUndefined();
+      expect(warn).not.toHaveBeenCalled();
+      const spec = await request(server).get("/openapi.json").expect(200);
+      const documented = spec.body.paths["/"].get.responses["200"].content["application/json"].schema.properties.state;
+      expect(documented.properties["plain-js"]).toBeUndefined();
+      warn.mockRestore();
+    });
+
     test("an extension cannot take a namespace the host reserves", () => {
       expect(() =>
         registerExtension("metadataCache").addState({ description: "Impostor.", read: async () => ({}) }),
@@ -271,11 +296,16 @@ describe("requestHandler", () => {
 
       const documented = await stateSchema();
       expect(documented.properties["vault-indexer"]).toEqual({
-        type: "object",
         description: "Indexing progress.",
-        required: ["ready"],
-        properties: { ready: { type: "boolean" }, pending: { type: "integer" } },
         "x-obsidian-extension": "vault-indexer",
+        anyOf: [
+          {
+            type: "object",
+            required: ["ready"],
+            properties: { ready: { type: "boolean" }, pending: { type: "integer" } },
+          },
+          { type: "null", description: expect.stringMatching(/could not be read/) },
+        ],
       });
       expect(documented.properties.metadataCache).toBeDefined();
 

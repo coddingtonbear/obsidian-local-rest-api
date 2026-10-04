@@ -204,15 +204,19 @@ describe("OpenApiSpec state schemas", () => {
     expect(Object.keys(fields).sort()).toEqual(["lastActivityAt", "lastResolvedAt", "listeningSince"]);
   });
 
+  // What the host serves for a namespace whose read failed, so the published shape
+  // admits it alongside the extension's own schema.
+  const unreadable = { type: "null", description: expect.stringMatching(/could not be read/) };
+
   test("documents an extension's state under GET /, marked with its plugin id", () => {
     const spec = new OpenApiSpec(openapiYaml);
     spec.addStateSchema("vault-indexer", indexerState);
 
     const merged = parse(spec.yaml());
     expect(stateSchemaOf(merged).properties["vault-indexer"]).toEqual({
-      ...indexerState.schema,
       description: indexerState.description,
       [EXTENSION_PATH_MARKER]: "vault-indexer",
+      anyOf: [indexerState.schema, unreadable],
     });
     expect(stateSchemaOf(merged).properties.metadataCache).toEqual(
       stateSchemaOf(parse(openapiYaml)).properties.metadataCache,
@@ -224,20 +228,24 @@ describe("OpenApiSpec state schemas", () => {
     const spec = new OpenApiSpec(openapiYaml);
     spec.addStateSchema("publisher", { description: "Publishing status." });
     expect(stateSchemaOf(spec.json()).properties.publisher).toEqual({
-      type: "object",
-      additionalProperties: true,
       description: "Publishing status.",
       [EXTENSION_PATH_MARKER]: "publisher",
+      anyOf: [{ type: "object", additionalProperties: true }, unreadable],
     });
   });
 
-  test("the extension's description wins over one inside its schema", () => {
+  test("the extension's description describes the namespace, whatever its schema says inside", () => {
     const spec = new OpenApiSpec(openapiYaml);
     spec.addStateSchema("publisher", {
       description: "Outer.",
       schema: { type: "object", description: "Inner." },
     });
-    expect(stateSchemaOf(spec.json()).properties.publisher.description).toBe("Outer.");
+    const published = stateSchemaOf(spec.json()).properties.publisher as {
+      description: string;
+      anyOf: OpenApiObject[];
+    };
+    expect(published.description).toBe("Outer.");
+    expect(published.anyOf[0]).toEqual({ type: "object", description: "Inner." });
   });
 
   test("removing a state schema restores the host spec byte for byte", () => {
