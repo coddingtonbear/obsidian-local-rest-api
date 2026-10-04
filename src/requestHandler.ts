@@ -414,10 +414,15 @@ export default class RequestHandler {
   }
 
   /**
-   * Release what `setupRouter` set running in the background: the throttle store's
-   * sweep interval. The plugin calls this on unload; the handler is not reusable after.
+   * Release everything the handler keeps running in the background: open MCP
+   * transports, the vault listeners behind the backlinks cache, every event stream and
+   * its listeners, and the throttle store's sweep interval. The plugin calls this once
+   * on unload, so that a reload leaves nothing behind; the handler is not reusable after.
    */
   dispose(): void {
+    this.mcpHandler.close();
+    this.operations.dispose();
+    this.events.dispose();
     this.authenticationFailureStore?.shutdown();
     this.authenticationFailureStore = null;
   }
