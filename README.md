@@ -609,7 +609,7 @@ api.addState({
 // Now served as state["<your plugin id>"] on every authenticated GET /
 ```
 
-`read` is called on every authenticated `GET /`, concurrently with every other extension's, and raced against the read budget from the plugin's advanced settings. A read that overruns, rejects, or resolves to anything but a JSON object is served as `null` for your extension and logged to the console; nothing else in the response is affected. Keep it cheap: compute in the background and hand back the latest result. The `schema`, if you give one, is merged into the `GET /` response schema at `/openapi.yaml`, so clients can rely on the shape; without it the namespace is documented as a free-form object. `unregister()` removes both.
+`read` is called on every authenticated `GET /`, concurrently with every other extension's, and raced against the read budget from the plugin's advanced settings. A read that overruns, rejects, or resolves to anything but a JSON object is served as `null` for your extension and logged to the console; nothing else in the response is affected. Keep it cheap: compute in the background and hand back the latest result. The `schema`, if you give one, is merged into the `GET /` response schema at `/openapi.yaml`, so clients can rely on the shape; without it the namespace is documented as a free-form object. Either way the published entry also admits `null`, since that is what a failed read is served as. `unregister()` removes both.
 
 ### Known extensions
 

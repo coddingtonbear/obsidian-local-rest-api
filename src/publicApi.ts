@@ -297,7 +297,9 @@ export interface StateDefinition {
   /**
    * A JSON Schema for the object `read` resolves to, merged into the `GET /` response
    * schema the host publishes at `/openapi.yaml` so clients can rely on the shape.
-   * Without it the namespace is documented as a free-form object.
+   * Without it the namespace is documented as a free-form object. Either way the
+   * published entry also admits `null`, which is what the host serves when `read`
+   * fails or overruns its budget.
    */
   schema?: OpenApiObject;
   /**

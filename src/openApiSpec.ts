@@ -157,10 +157,12 @@ export class OpenApiSpec {
    * Documents `owner`'s namespace in the `state` section of the `GET /` response schema,
    * returning a function that removes it again.
    *
-   * The entry is the extension's `schema` (a free-form object when it gave none) with
-   * its `description` on top and an `x-obsidian-extension` marker, the same stamp a
-   * contributed path carries. Throws, publishing nothing, for a namespace the host or
-   * this extension already documents.
+   * The entry carries the extension's `description` and an `x-obsidian-extension`
+   * marker, the same stamp a contributed path carries, and admits two shapes: the
+   * extension's `schema` (a free-form object when it gave none), and `null`, which is
+   * what the host serves for the namespace when its read fails or overruns the budget.
+   * Throws, publishing nothing, for a namespace the host or this extension already
+   * documents.
    */
   addStateSchema(owner: string, definition: Pick<StateDefinition, "description" | "schema">): () => void {
     if (definition.schema !== undefined && !isPlainObject(definition.schema)) {
@@ -170,9 +172,15 @@ export class OpenApiSpec {
       throw new Error(`The state namespace "${owner}" is already documented.`);
     }
     const schema: OpenApiObject = {
-      ...(structuredClone(definition.schema) ?? { type: "object", additionalProperties: true }),
       description: definition.description,
       [EXTENSION_PATH_MARKER]: owner,
+      anyOf: [
+        structuredClone(definition.schema) ?? { type: "object", additionalProperties: true },
+        {
+          type: "null",
+          description: "The extension's state could not be read: its read failed or overran the budget.",
+        },
+      ],
     };
     const contribution: StateContribution = { owner, schema };
     this.stateContributions.push(contribution);
