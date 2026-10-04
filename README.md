@@ -486,7 +486,7 @@ registerWithLocalRestApi() {
 }
 ```
 
-Calling it from `onload` covers the case where this plugin loaded before yours, and the event covers every load after that, including this plugin loading after yours at startup. Avoid guarding the method with `if (this.api) return`: that keeps the stale handle and skips registering on exactly the occasions it's needed.
+Calling it from `onload` covers the case where this plugin loaded before yours, and the event covers every load after that, including this plugin loading after yours at startup. Avoid guarding the method with `if (this.api) return`: that keeps the stale handle and skips registering on exactly the occasions it's needed. The [sample extension](https://github.com/coddingtonbear/obsidian-local-rest-api-sample-api-extension/blob/master/src/main.ts) shows the complete pattern, including handling a host that is too old and cleaning up in `onunload`.
 
 ### MCP tools, resources, and prompts
 
