@@ -4474,6 +4474,53 @@ describe("requestHandler", () => {
       expect(result.body[0].filename).toBe("note.md");
     });
 
+    describe("falsy results", () => {
+      // A query that selects a value rather than testing a condition drops every
+      // file whose value is falsy, so an empty field is indistinguishable from an
+      // absent one in the results. `missing` is the documented way to test for
+      // presence, but it, too, counts "" as missing. These tests pin both.
+      beforeEach(() => {
+        const frontmatterByPath: Record<string, Record<string, unknown>> = {
+          "absent.md": {},
+          "empty-list.md": { aliases: [] },
+          "empty-string.md": { aliases: "" },
+          "has-aliases.md": { aliases: ["other name"] },
+        };
+        app.vault._markdownFiles = Object.keys(frontmatterByPath).map((path) => {
+          const file = new TFile();
+          file.path = path;
+          return file;
+        });
+        app.metadataCache.getFileCache = (file: TFile) => {
+          const cache = new CachedMetadata();
+          cache.frontmatter = frontmatterByPath[file.path];
+          return cache;
+        };
+      });
+
+      const search = async (query: object): Promise<string[]> => {
+        const result = await request(server)
+          .post("/search/")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/vnd.olrapi.jsonlogic+json")
+          .send(query)
+          .expect(200);
+        return (result.body as { filename: string }[]).map((item) => item.filename);
+      };
+
+      test("a value-selecting query drops empty values like absent ones", async () => {
+        expect(await search({ var: "frontmatter.aliases" })).toEqual([
+          "has-aliases.md",
+        ]);
+      });
+
+      test("missing distinguishes an empty list from an absent field, but not an empty string", async () => {
+        expect(
+          await search({ "!": { missing: ["frontmatter.aliases"] } }),
+        ).toEqual(["empty-list.md", "has-aliases.md"]);
+      });
+    });
+
     test("returns 400 when content-type is missing", async () => {
       await request(server)
         .post("/search/")
