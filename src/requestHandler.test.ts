@@ -5793,7 +5793,9 @@ describe("requestHandler", () => {
       expect(refusedEarly.header["ratelimit"]).toBeUndefined();
       expect(refusedEarly.header["ratelimit-policy"]).toBeUndefined();
       expect(refusedEarly.header["retry-after"]).toBeUndefined();
-      await exhaust();
+      for (let i = 1; i < AuthenticationFailureLimit; i++) {
+        await request(server).get("/vault/").set("Authorization", WRONG).expect(401);
+      }
       const result = await request(server).get("/vault/").set("Authorization", WRONG).expect(429);
       expect(result.header["ratelimit"]).toBeUndefined();
       expect(result.header["ratelimit-policy"]).toBeUndefined();

@@ -9,7 +9,7 @@ import forge from "node-forge";
 import express from "express";
 import http from "http";
 import cors, { CorsOptions } from "cors";
-import rateLimit, { MemoryStore } from "express-rate-limit";
+import rateLimit, { MemoryStore, type RateLimitInfo } from "express-rate-limit";
 import mime from "mime-types";
 import responseTime from "response-time";
 import queryString from "query-string";
@@ -2784,9 +2784,16 @@ export default class RequestHandler {
       limit: AuthenticationFailureLimit,
       store: this.authenticationFailureStore,
       skip: (req) => !this.credentialIsRejected(req),
-      standardHeaders: "draft-7",
+      // Neither family of quota headers: they would ride along on every counted 401 and
+      // tell a guesser how many free attempts remain. `Retry-After` is the one header the
+      // contract promises, and the library only sets it alongside the quota headers, so
+      // the refusal sets it itself from the window the store reports.
+      standardHeaders: false,
       legacyHeaders: false,
-      handler: (_req, res) => {
+      handler: (req, res) => {
+        const info = (req as express.Request & { rateLimit?: RateLimitInfo }).rateLimit;
+        const resetTime = info?.resetTime?.getTime() ?? Date.now() + AuthenticationFailureWindowMs;
+        res.setHeader("Retry-After", String(Math.max(1, Math.ceil((resetTime - Date.now()) / 1000))));
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.TooManyAuthenticationFailures,
         });
