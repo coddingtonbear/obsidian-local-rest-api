@@ -110,12 +110,16 @@ export type ExtensionStates = Record<string, Record<string, unknown> | null>;
  * added latency and an extension over budget costs exactly the budget. A provider that
  * throws, rejects, overruns, or returns anything other than a JSON-serializable object
  * is served as null, with one console warning naming it, and never affects another
- * namespace or the rest of `GET /`. A late result is discarded rather than kept for
- * the next request: serving something older than the request is the ambiguity this
- * section exists to remove.
+ * namespace or the rest of `GET /`. The warning is not repeated until that provider has
+ * succeeded again: this section invites clients to poll `GET /`, and one broken
+ * extension should not turn every poll into a console line. A late result is discarded
+ * rather than kept for the next request: serving something older than the request is
+ * the ambiguity this section exists to remove.
  */
 export class StateRegistry {
   private readonly providers = new Map<string, StateDefinition>();
+  /** Owners whose most recent read failed and has been warned about. */
+  private readonly warned = new Set<string>();
 
   /**
    * Registers `definition` under `owner`, an extension's plugin id, returning a function
@@ -131,7 +135,10 @@ export class StateRegistry {
     }
     this.providers.set(owner, definition);
     return () => {
-      if (this.providers.get(owner) === definition) this.providers.delete(owner);
+      if (this.providers.get(owner) === definition) {
+        this.providers.delete(owner);
+        this.warned.delete(owner);
+      }
     };
   }
 
@@ -162,9 +169,17 @@ export class StateRegistry {
       // Promise.resolve().then() turns a synchronous throw from read() into a rejection,
       // so a provider written without async still lands in the catch below.
       const value = await Promise.race([Promise.resolve().then(() => definition.read()), budget]);
-      return parseState(value);
+      const state = parseState(value);
+      this.warned.delete(owner);
+      return state;
     } catch (error) {
-      console.warn(`[REST API] State from extension "${owner}" could not be read:`, error);
+      if (!this.warned.has(owner)) {
+        this.warned.add(owner);
+        console.warn(
+          `[REST API] State from extension "${owner}" could not be read (not logged again until a read succeeds):`,
+          error,
+        );
+      }
       return null;
     } finally {
       window.clearTimeout(timer);

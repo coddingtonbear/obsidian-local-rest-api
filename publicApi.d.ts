@@ -284,8 +284,9 @@ export interface StateDefinition {
      * Called on every authenticated `GET /`, concurrently with every other extension's,
      * and given a budget (100 ms by default; the user can change it in the plugin's
      * advanced settings). A read that overruns it, rejects, or resolves to anything but a
-     * JSON object is served as `null` for this extension and logged, and the rest of the
-     * response is unaffected. Keep it cheap: compute in the background and have `read`
+     * JSON object is served as `null` for this extension and logged once (not again until
+     * a read has succeeded, so a polling client does not fill the console), and the rest
+     * of the response is unaffected. Keep it cheap: compute in the background and have `read`
      * hand back the latest result rather than doing the work here.
      */
     read: () => Promise<Record<string, unknown>>;

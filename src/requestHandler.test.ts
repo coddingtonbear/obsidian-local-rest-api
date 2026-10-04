@@ -252,6 +252,7 @@ describe("requestHandler", () => {
 
     test("a definition without a callable read is refused when registered, not on each request", async () => {
       const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+      warn.mockClear();
       const api = registerExtension("plain-js");
       expect(() =>
         api.addState({ description: "Forgot to make read a function.", read: { ready: true } } as unknown as StateDefinition),
