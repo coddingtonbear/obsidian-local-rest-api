@@ -275,9 +275,9 @@ describe("OpenApiSpec state schemas", () => {
     spec.addStateSchema("vault-indexer", { description: "Indexing progress.", schema });
     (schema.properties as Record<string, unknown>).leaked = { type: "string" };
     const published = stateSchemaOf(spec.json()).properties["vault-indexer"] as {
-      properties: Record<string, unknown>;
+      anyOf: [{ properties: Record<string, unknown> }, OpenApiObject];
     };
-    expect(published.properties.leaked).toBeUndefined();
+    expect(published.anyOf[0].properties.leaked).toBeUndefined();
   });
 
   test("coexists with route contributions and is removed independently", () => {
