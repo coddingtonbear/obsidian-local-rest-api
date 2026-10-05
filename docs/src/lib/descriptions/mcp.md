@@ -46,6 +46,7 @@ Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `40
 | `active_file_get_path` | Return the vault path of the file currently open in Obsidian |
 | `search_query` | Search using a JsonLogic query evaluated against each note's metadata |
 | `search_simple` | Full-text search using Obsidian's built-in search |
+| `vault_search` | Multi-term search with OR/AND operator, folder path filter, and limit |
 | `tag_list` | List all tags across the vault with usage counts |
 | `command_list` | List all registered Obsidian commands |
 | `command_execute` | Execute an Obsidian command by ID |

@@ -43,6 +43,8 @@ import {
   SearchContext,
   SearchJsonResponseItem,
   SearchResponseItem,
+  VaultSearchOperator,
+  VaultSearchResultItem,
 } from "./types";
 import { toArrayBuffer } from "./utils";
 import {
@@ -917,6 +919,175 @@ export class VaultOperations {
 
     results.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     return results;
+  }
+
+  // Multi-term search built on top of {@link simpleSearch}. Whitespace splits the
+  // query into terms; diacritics are preserved verbatim. With "or" (default) each
+  // term is searched independently and results are merged per file. With "and" the
+  // whole query is tried first — Obsidian's built-in search silently treats
+  // multiple words as an AND — and only when that returns nothing do we intersect
+  // the per-term result sets. An optional folder-prefix filter narrows the output;
+  // the result set is ranked by relevance score with filename hits breaking ties,
+  // then truncated to `limit`.
+  async vaultSearch(
+    query: string,
+    path?: string,
+    operator: VaultSearchOperator = "or",
+    limit = 10,
+    contextLength = 120,
+  ): Promise<VaultSearchResultItem[]> {
+    const boundedLimit = Math.max(1, Math.min(25, limit ?? 10));
+    const boundedContextLength = Math.max(1, contextLength ?? 120);
+    const terms = String(query ?? "")
+      .split(/\s+/)
+      .filter(Boolean);
+    if (terms.length === 0) {
+      return [];
+    }
+
+    const normalize = (item: SearchResponseItem): VaultSearchResultItem => {
+      const matches: SearchContext[] = [];
+      const seen = new Set<string>();
+      for (const contextMatch of item.matches ?? []) {
+        const key = `${contextMatch.match.start}:${contextMatch.match.end}:${contextMatch.context}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          matches.push({ match: contextMatch.match, context: contextMatch.context });
+        }
+      }
+      return { filename: item.filename, score: item.score ?? 0, matchedTerms: [], matches };
+    };
+
+    // Obsidian's built-in search silently ANDs multiple words, so the whole query
+    // is the best first attempt for operator "and". Only when it matches nothing do
+    // we fall back to intersecting the per-term result sets, which is looser than
+    // the built-in behaviour but still requires every term somewhere in the file.
+    if (operator === "and") {
+      const whole = (await this.simpleSearch(query, boundedContextLength)).map(normalize);
+      if (whole.length > 0) {
+        for (const item of whole) {
+          item.matchedTerms = [...terms];
+        }
+        return this.rankVaultSearchResults(whole, terms, path, boundedLimit);
+      }
+    }
+
+    const perTerm = new Map<string, SearchResponseItem[]>();
+    for (const term of terms) {
+      try {
+        perTerm.set(term, await this.simpleSearch(term, boundedContextLength));
+      } catch {
+        perTerm.set(term, []);
+      }
+    }
+
+    let merged: VaultSearchResultItem[];
+    if (operator === "and") {
+      // Intersection: a file survives only if every term matched it.
+      const present = terms.map((term) => new Set((perTerm.get(term) ?? []).map((r) => r.filename)));
+      const candidates = [...(present[0] ?? new Set<string>())].filter((filename) =>
+        present.every((set) => set.has(filename)),
+      );
+      const byFile = new Map<string, VaultSearchResultItem>();
+      for (const filename of candidates) {
+        const item: VaultSearchResultItem = {
+          filename,
+          score: 0,
+          matchedTerms: [],
+          matches: [],
+        };
+        for (const term of terms) {
+          const hit = (perTerm.get(term) ?? []).find((r) => r.filename === filename);
+          if (!hit) continue;
+          const normalized = normalize(hit);
+          item.score = Math.max(item.score ?? 0, normalized.score ?? 0);
+          item.matchedTerms.push(term);
+          for (const match of normalized.matches) {
+            const key = `${match.match.start}:${match.match.end}:${match.context}`;
+            if (
+              !item.matches.some(
+                (m) => `${m.match.start}:${m.match.end}:${m.context}` === key,
+              )
+            ) {
+              item.matches.push(match);
+            }
+          }
+        }
+        if (item.matchedTerms.length === terms.length) {
+          byFile.set(filename, item);
+        }
+      }
+      merged = [...byFile.values()];
+    } else {
+      // Union: merge per-term results per file, keeping the best score and the
+      // union of matched terms and contexts.
+      const byFile = new Map<string, VaultSearchResultItem>();
+      for (const term of terms) {
+        for (const raw of perTerm.get(term) ?? []) {
+          const item = normalize(raw);
+          const existing = byFile.get(item.filename);
+          if (existing) {
+            existing.score = Math.max(existing.score ?? 0, item.score ?? 0);
+            if (!existing.matchedTerms.includes(term)) {
+              existing.matchedTerms.push(term);
+            }
+            for (const match of item.matches) {
+              const key = `${match.match.start}:${match.match.end}:${match.context}`;
+              if (
+                !existing.matches.some(
+                  (m) => `${m.match.start}:${m.match.end}:${m.context}` === key,
+                )
+              ) {
+                existing.matches.push(match);
+              }
+            }
+          } else {
+            item.matchedTerms = [term];
+            byFile.set(item.filename, item);
+          }
+        }
+      }
+      merged = [...byFile.values()];
+    }
+
+    return this.rankVaultSearchResults(merged, terms, path, boundedLimit);
+  }
+
+  // Shared ranking for {@link vaultSearch}: apply the folder-prefix filter, put
+  // filename hits ahead of body-only hits, then order by relevance score.
+  private rankVaultSearchResults(
+    items: VaultSearchResultItem[],
+    terms: string[],
+    path: string | undefined,
+    limit: number,
+  ): VaultSearchResultItem[] {
+    let filtered = items;
+    if (path) {
+      const prefix = path.endsWith("/") ? path : `${path}/`;
+      filtered = filtered.filter(
+        (item) => item.filename.startsWith(path) || item.filename.startsWith(prefix),
+      );
+    }
+
+    const isFilenameHit = (item: VaultSearchResultItem): boolean => {
+      const base = item.filename.split("/").pop() ?? item.filename;
+      const stem = base.replace(/\.md$/i, "").toLowerCase();
+      return terms.some((term) => stem.includes(term.toLowerCase()));
+    };
+
+    filtered.sort((a, b) => {
+      const scoreDelta = (b.score ?? 0) - (a.score ?? 0);
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+      const filenameDelta = Number(isFilenameHit(a)) - Number(isFilenameHit(b));
+      if (filenameDelta !== 0) {
+        return filenameDelta;
+      }
+      return a.filename.localeCompare(b.filename);
+    });
+
+    return filtered.slice(0, limit);
   }
 
   async searchJsonLogic(

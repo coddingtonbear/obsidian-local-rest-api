@@ -259,6 +259,128 @@ describe("simpleSearch surrogate handling", () => {
 });
 
 // ---------------------------------------------------------------------------
+// vaultSearch: multi-term search with OR/AND operators and a path filter.
+//
+// Obsidian's built-in search treats a multi-word query as a silent AND, which
+// makes broad lookups return nothing. vaultSearch splits the query and merges
+// per-term results under "or", intersects them under "and", and filters by an
+// optional folder prefix, ranking filename hits above body-only hits.
+// ---------------------------------------------------------------------------
+
+describe("vaultSearch", () => {
+  function searchSetup(
+    files: Array<{ path: string; content: string }>,
+  ): { ops: VaultOperations } {
+    const app = new App();
+    app.vault._markdownFiles = files.map((f) => {
+      const file = new TFile();
+      file.path = f.path;
+      file.basename = (f.path.split("/").pop() ?? f.path).replace(/\.md$/, "");
+      return file;
+    });
+    const contents = new Map(files.map((f) => [f.path, f.content]));
+    // cachedRead is keyed by file, so override it per instance.
+    app.vault.cachedRead = async (file: TFile) => contents.get(file.path) ?? "";
+
+    _prepareSimpleSearchMock.behavior = (query: string) => {
+      const needle = query.toLowerCase();
+      return (text: string) => {
+        const haystack = text.toLowerCase();
+        const index = haystack.indexOf(needle);
+        if (index === -1) return null;
+        return {
+          score: -index - 1,
+          matches: [[index, index + needle.length]],
+        };
+      };
+    };
+
+    return { ops: new VaultOperations(app, {} as LocalRestApiSettings) };
+  }
+
+  afterEach(() => {
+    _prepareSimpleSearchMock.behavior = null;
+  });
+
+  const FILES = [
+    { path: "Rodina/Joni/Joni.md", content: "Jonáš a Káča" },
+    { path: "Rodina/Káča.md", content: "Esi a Elza" },
+    { path: "Finance/cashflow.md", content: "Esi" },
+    { path: "Jiné.md", content: "nic společného" },
+  ];
+
+  test("OR merges per-term results and lists each matched term", async () => {
+    const { ops } = searchSetup(FILES);
+    const results = await ops.vaultSearch("Esi Elza", undefined, "or", 10, 20);
+    const names = results.map((r) => r.filename);
+    expect(names).toContain("Rodina/Káča.md");
+    expect(names).toContain("Finance/cashflow.md");
+    const kaca = results.find((r) => r.filename === "Rodina/Káča.md");
+    expect(kaca?.matchedTerms).toEqual(["Esi", "Elza"]);
+  });
+
+  test("OR returns nothing when no term matches", async () => {
+    const { ops } = searchSetup(FILES);
+    expect(await ops.vaultSearch("xyzzy plugh", undefined, "or", 10, 20)).toEqual([]);
+  });
+
+  test("AND intersects per-term results when the whole query matches nothing", async () => {
+    const { ops } = searchSetup(FILES);
+    // No file contains the literal phrase "Esi Elza", so the whole-query attempt
+    // fails and the intersection path runs: only files with both terms survive.
+    const results = await ops.vaultSearch("Esi Elza", undefined, "and", 10, 20);
+    expect(results.map((r) => r.filename)).toEqual(["Rodina/Káča.md"]);
+    expect(results[0].matchedTerms).toEqual(["Esi", "Elza"]);
+  });
+
+  test("AND prefers the whole-query result when it matches", async () => {
+    const { ops } = searchSetup([
+      { path: "Rodina/Joni/Joni.md", content: "Jonáš a Káča" },
+      { path: "Rodina/Káča.md", content: "Káča sama" },
+    ]);
+    const results = await ops.vaultSearch("Jonáš Káča", undefined, "and", 10, 20);
+    expect(results.map((r) => r.filename)).toEqual(["Rodina/Joni/Joni.md"]);
+    expect(results[0].matchedTerms).toEqual(["Jonáš", "Káča"]);
+  });
+
+  test("path filters results to the folder prefix", async () => {
+    const { ops } = searchSetup(FILES);
+    const results = await ops.vaultSearch("Esi", "Rodina/", "or", 10, 20);
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.every((r) => r.filename.startsWith("Rodina/"))).toBe(true);
+  });
+
+  test("a path that matches nothing returns an empty array", async () => {
+    const { ops } = searchSetup(FILES);
+    expect(await ops.vaultSearch("Jonáš", "Neexistuje/", "or", 10, 20)).toEqual([]);
+  });
+
+  test("limit caps the number of returned files", async () => {
+    const { ops } = searchSetup(FILES);
+    const results = await ops.vaultSearch("Esi Elza Jonáš", undefined, "or", 1, 20);
+    expect(results).toHaveLength(1);
+  });
+
+  test("an empty query returns an empty array without searching", async () => {
+    const { ops } = searchSetup(FILES);
+    const spy = jest.spyOn(ops, "simpleSearch");
+    expect(await ops.vaultSearch("   ", undefined, "or", 10, 20)).toEqual([]);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test("every result carries a filename, score and context", async () => {
+    const { ops } = searchSetup(FILES);
+    const results = await ops.vaultSearch("Esi", undefined, "or", 10, 20);
+    expect(results.length).toBeGreaterThan(0);
+    for (const r of results) {
+      expect(typeof r.filename).toBe("string");
+      expect(typeof r.score).toBe("number");
+      expect(r.matches.every((m) => typeof m.context === "string")).toBe(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // A single-note read must not rescan the whole vault link graph.
 //
 // buildBacklinksIndex walks every entry of metadataCache.resolvedLinks and every

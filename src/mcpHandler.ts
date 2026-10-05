@@ -1676,6 +1676,52 @@ export class McpHandler {
     );
 
     this.tool(
+      "vault_search",
+      dedent`Multi-term search built on top of Obsidian's built-in simple search. Whitespace splits the query into terms; diacritics are preserved.
+
+        - "or" (default) searches each term separately and merges the results per file, so files matching any term are returned.
+        - "and" tries the whole query first (Obsidian's built-in search treats multiple words as an AND) and, only if that returns nothing, intersects the per-term results.
+
+        The optional "path" argument keeps only files whose path starts with that folder prefix (e.g. "Rodina/"). Results are ranked by relevance score with filename hits ahead of body-only hits when scores tie, then truncated to "limit". Returns {filename, score, matchedTerms, matches:[{context}]} objects. An empty array is a valid result, not an error.`,
+      {
+        query: z.string().describe("Search terms separated by whitespace"),
+        path: z
+          .string()
+          .optional()
+          .describe("Folder prefix filter, e.g. 'Rodina/' (files under that folder only)"),
+        operator: z
+          .enum(["and", "or"])
+          .optional()
+          .describe("'or' (default) matches any term; 'and' requires all terms"),
+        limit: z
+          .number()
+          .optional()
+          .describe("Maximum number of files returned (default: 10, max 25)"),
+        contextLength: z
+          .number()
+          .optional()
+          .describe("Number of characters of surrounding context per match (default: 120)"),
+      },
+      READ_ONLY_ANNOTATIONS,
+      async ({
+        query,
+        path,
+        operator,
+        limit,
+        contextLength,
+      }: {
+        query: string;
+        path?: string;
+        operator?: "and" | "or";
+        limit?: number;
+        contextLength?: number;
+      }) => {
+        const results = await this.ops.vaultSearch(query, path, operator, limit, contextLength);
+        return this.text(results);
+      },
+    );
+
+    this.tool(
       "tag_list",
       dedent`Return all tags used across the vault, each with a usage count. Tag names do not include the leading '#'. This tool is read-only. To add a tag to a specific file, use vault_patch with targetType 'frontmatter', target 'tags', operation 'append', and value ["tag-name"] (set createTargetIfMissing to true if the file may have no tags yet). To remove a tag, read the current tags list with vault_read, filter client-side, then replace the whole field with vault_patch using operation 'replace' and value set to the filtered list. For full examples, read the OpenAPI spec resource at obsidian://local-rest-api/openapi.yaml.`,
       {},

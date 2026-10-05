@@ -121,6 +121,9 @@ function makeMockOps() {
     simpleSearch: jest
       .fn()
       .mockResolvedValue([{ filename: "a.md", score: 1, matches: [] }]),
+    vaultSearch: jest.fn().mockResolvedValue([
+      { filename: "a.md", score: 1, matchedTerms: ["hello"], matches: [] },
+    ]),
     getAllTags: jest.fn().mockReturnValue([{ name: "todo", count: 3 }]),
     listCommands: jest
       .fn()
@@ -273,8 +276,8 @@ describe("McpHandler", () => {
 
   // ---- tool registration --------------------------------------------------
 
-  test("registers all 19 tools (the two signed-URL tools are there because that setting is on by default)", () => {
-    expect(registerTool).toHaveBeenCalledTimes(19);
+  test("registers all 20 tools (the two signed-URL tools are there because that setting is on by default)", () => {
+    expect(registerTool).toHaveBeenCalledTimes(20);
     const names = registerTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -293,6 +296,7 @@ describe("McpHandler", () => {
         "active_file_get_path",
         "search_query",
         "search_simple",
+        "vault_search",
         "tag_list",
         "command_list",
         "command_execute",
@@ -313,6 +317,7 @@ describe("McpHandler", () => {
         "active_file_get_path",
         "search_query",
         "search_simple",
+        "vault_search",
         "tag_list",
         "command_list",
       ]) {
@@ -766,12 +771,12 @@ describe("McpHandler", () => {
       build(UNSIGNED);
       expect(registeredNames()).not.toContain("vault_get_download_url");
       expect(registeredNames()).not.toContain("vault_get_upload_url");
-      expect(registerTool).toHaveBeenCalledTimes(17);
+      expect(registerTool).toHaveBeenCalledTimes(18);
       build();
       expect(registeredNames()).toEqual(
         expect.arrayContaining(["vault_get_download_url", "vault_get_upload_url"]),
       );
-      expect(registerTool).toHaveBeenCalledTimes(19);
+      expect(registerTool).toHaveBeenCalledTimes(20);
     });
 
     test("setSignedUrlsEnabled adds and removes the tools without rebuilding the handler", () => {
@@ -2097,6 +2102,33 @@ describe("McpHandler", () => {
 
   // ---- tag_list ----------------------------------------------------------
 
+  test("vault_search passes arguments through and returns results", async () => {
+    const cb = getToolCallback("vault_search");
+    const result = await cb({
+      query: "hello world",
+      path: "notes/",
+      operator: "and",
+      limit: 5,
+      contextLength: 30,
+    });
+    expect(ops.vaultSearch).toHaveBeenCalledWith("hello world", "notes/", "and", 5, 30);
+    expect(parseText(result)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ filename: "a.md" })]),
+    );
+  });
+
+  test("vault_search works with only a query", async () => {
+    const cb = getToolCallback("vault_search");
+    await cb({ query: "hello" });
+    expect(ops.vaultSearch).toHaveBeenCalledWith(
+      "hello",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
   test("tag_list returns all tags with counts", async () => {
     const cb = getToolCallback("tag_list");
     const result = await cb({});
@@ -2187,8 +2219,8 @@ describe("McpHandler", () => {
 
       const first = await send(1);
       const second = await send(2);
-      expect(first.body.result.tools).toHaveLength(19);
-      expect(second.body.result.tools).toHaveLength(19);
+      expect(first.body.result.tools).toHaveLength(20);
+      expect(second.body.result.tools).toHaveLength(20);
       expect(first.headers["mcp-session-id"]).toBeUndefined();
       expect(second.headers["mcp-session-id"]).toBeUndefined();
     });
@@ -2328,7 +2360,7 @@ describe("McpHandler", () => {
         .send(sessionlessRequest(1, "tools/list"))
         .expect(200);
 
-      expect(res.body.result.tools).toHaveLength(19);
+      expect(res.body.result.tools).toHaveLength(20);
       expect(res.headers["mcp-session-id"]).toBeUndefined();
     });
 
@@ -2456,7 +2488,7 @@ describe("McpHandler", () => {
         .expect(200);
 
       const message = sseResult(res.text);
-      expect(message.result.tools).toHaveLength(19);
+      expect(message.result.tools).toHaveLength(20);
       const vaultList = (message.result.tools as { name: string; inputSchema: unknown }[]).find(
         (t) => t.name === "vault_list",
       );

@@ -187,6 +187,15 @@ export interface SearchResponseItem {
   matches: SearchContext[];
 }
 
+export type VaultSearchOperator = "and" | "or";
+
+export interface VaultSearchResultItem {
+  filename: string;
+  score?: number;
+  matchedTerms: string[];
+  matches: SearchContext[];
+}
+
 export interface SearchJsonResponseItem {
   filename: string;
   result: unknown;
