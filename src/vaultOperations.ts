@@ -21,6 +21,7 @@ import {
   projectMap,
   buildModel,
   readTarget,
+  versionOf,
 } from "markdown-patch-2";
 import type {
   InstructionInput,
@@ -45,6 +46,13 @@ import {
   SearchResponseItem,
 } from "./types";
 import { toArrayBuffer } from "./utils";
+import {
+  CurrentFileState,
+  hasPreconditions,
+  PreconditionFailedError,
+  preconditionFailure,
+  WritePreconditions,
+} from "./conditionalRequests";
 import {
   assertVaultPathIsContained,
   assertConfigDirAccessAllowed,
@@ -104,6 +112,13 @@ export const BACKLINKS_INDEX_MAX_AGE_MS = 60_000;
 export class VaultOperations {
   private cachedBacklinksIndex: Record<string, string[]> | null = null;
   private cachedBacklinksIndexBuiltAt = 0;
+
+  /**
+   * The tail of each path's queue of in-flight writes: a promise that settles
+   * when the most recently queued write on that path finishes. See
+   * {@link withPathLocks}.
+   */
+  private readonly pathLocks = new Map<string, Promise<void>>();
 
   /**
    * Called whenever Obsidian says anything at all has happened.
@@ -646,54 +661,157 @@ export class VaultOperations {
     return this.app.vault.adapter.readBinary(filePath);
   }
 
+  /**
+   * Run `write` once every write already queued on any of `paths` has finished,
+   * holding those paths until it does.
+   *
+   * Without this, a conditional write is a check and a write separated by an
+   * `await`, and another request's write can land in between: two clients that
+   * both read version A and both send `If-Match: A` could each pass the check
+   * before either writes, and the second would silently discard the first --
+   * the exact lost update the precondition exists to prevent. Every mutating
+   * operation in this class queues here, conditional or not, because an
+   * unconditional write slipping between a check and its write breaks the
+   * guarantee just as surely.
+   *
+   * This orders writes made through this API only. Obsidian's own editor, sync
+   * plugins and other programs touching the files are outside it, as they are
+   * outside any lock a plugin could take.
+   *
+   * Every path's tail is replaced synchronously, before any waiting starts, so
+   * the queue order is the call order and two writes over overlapping path sets
+   * cannot wait on each other in a cycle.
+   */
+  private async withPathLocks<T>(
+    paths: string[],
+    write: () => Promise<T>,
+  ): Promise<T> {
+    const keys = [...new Set(paths)];
+    const predecessors = keys.map((key) => this.pathLocks.get(key));
+    let release!: () => void;
+    const tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    for (const key of keys) this.pathLocks.set(key, tail);
+    try {
+      await Promise.all(predecessors);
+      return await write();
+    } finally {
+      release();
+      for (const key of keys) {
+        if (this.pathLocks.get(key) === tail) this.pathLocks.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Whether anything exists at `filePath`, and if it is a file, its version
+   * token: markdown-patch's `versionOf` over the file's bytes. That is the value
+   * served as the file's `ETag`, the document map's `version`, and what a PATCH
+   * instruction's `ifMatch` is checked against.
+   */
+  async getFileState(filePath: string): Promise<CurrentFileState> {
+    this.assertEntryContained(filePath);
+    const stat = await this.app.vault.adapter.stat(filePath);
+    if (!stat) return { exists: false, version: null };
+    if (stat.type !== "file") return { exists: true, version: null };
+    const bytes = await this.app.vault.adapter.readBinary(filePath);
+    return { exists: true, version: versionOf(new Uint8Array(bytes)) };
+  }
+
+  /** Throw {@link PreconditionFailedError} unless `preconditions` hold for the
+   *  file at `filePath` as it stands now. Callers hold the path's lock. */
+  private async enforcePreconditions(
+    filePath: string,
+    preconditions: WritePreconditions | undefined,
+  ): Promise<void> {
+    if (!preconditions || !hasPreconditions(preconditions)) return;
+    const failure = preconditionFailure(await this.getFileState(filePath), preconditions);
+    if (failure !== null) {
+      throw new PreconditionFailedError(failure);
+    }
+  }
+
+  /**
+   * Create or overwrite a file. Returns the version token of what was written,
+   * for the caller to hand back as the new `ETag`.
+   */
   async writeFileContent(
     filePath: string,
     content: string | Buffer,
-  ): Promise<void> {
+    preconditions?: WritePreconditions,
+  ): Promise<string> {
     this.assertContained(filePath);
-    try {
-      await this.app.vault.createFolder(path.dirname(filePath));
-    } catch {
-      // folder already exists
-    }
-    if (typeof content === "string") {
-      const existing = this.app.vault.getAbstractFileByPath(filePath);
-      if (existing instanceof TFile) {
-        await this.app.vault.modify(existing, content);
-      } else {
-        await this.app.vault.create(filePath, content);
+    return this.withPathLocks([filePath], async () => {
+      await this.enforcePreconditions(filePath, preconditions);
+      try {
+        await this.app.vault.createFolder(path.dirname(filePath));
+      } catch {
+        // folder already exists
       }
-    } else {
+      if (typeof content === "string") {
+        const existing = this.app.vault.getAbstractFileByPath(filePath);
+        if (existing instanceof TFile) {
+          await this.app.vault.modify(existing, content);
+        } else {
+          await this.app.vault.create(filePath, content);
+        }
+        return versionOf(content);
+      }
       await this.app.vault.adapter.writeBinary(
         filePath,
         toArrayBuffer(content),
       );
-    }
+      return versionOf(content);
+    });
   }
 
-  async appendFileContent(filePath: string, content: string): Promise<void> {
+  /**
+   * Append to a file, creating it if it does not exist. Returns the version
+   * token of the file's resulting content.
+   */
+  async appendFileContent(
+    filePath: string,
+    content: string,
+    preconditions?: WritePreconditions,
+  ): Promise<string> {
     this.assertContained(filePath);
-    try {
-      await this.app.vault.createFolder(path.dirname(filePath));
-    } catch {
-      // folder already exists
-    }
-    let fileContents = "";
-    const file = this.app.vault.getAbstractFileByPath(filePath);
-    if (file instanceof TFile) {
-      fileContents = await this.app.vault.read(file);
-      if (!fileContents.endsWith("\n")) {
-        fileContents += "\n";
+    return this.withPathLocks([filePath], async () => {
+      await this.enforcePreconditions(filePath, preconditions);
+      try {
+        await this.app.vault.createFolder(path.dirname(filePath));
+      } catch {
+        // folder already exists
       }
-      fileContents += content;
-      await this.app.vault.modify(file, fileContents);
-      return;
-    }
-    await this.app.vault.create(filePath, content);
+      let fileContents = "";
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (file instanceof TFile) {
+        fileContents = await this.app.vault.read(file);
+        if (!fileContents.endsWith("\n")) {
+          fileContents += "\n";
+        }
+        fileContents += content;
+        await this.app.vault.modify(file, fileContents);
+        return versionOf(fileContents);
+      }
+      await this.app.vault.create(filePath, content);
+      return versionOf(content);
+    });
   }
 
-  async deleteVaultFile(filePath: string, permanent = false): Promise<void> {
+  async deleteVaultFile(
+    filePath: string,
+    permanent = false,
+    preconditions?: WritePreconditions,
+  ): Promise<void> {
     this.assertEntryContained(filePath);
+    return this.withPathLocks([filePath], async () => {
+      await this.enforcePreconditions(filePath, preconditions);
+      return this.deleteUnlocked(filePath, permanent);
+    });
+  }
+
+  private async deleteUnlocked(filePath: string, permanent: boolean): Promise<void> {
     if (permanent) {
       const pathExists = await this.app.vault.adapter.exists(filePath);
       if (!pathExists) {
@@ -710,17 +828,33 @@ export class VaultOperations {
     await this.app.fileManager.trashFile(file);
   }
 
+  /**
+   * Move a file. `preconditions` apply to the source: the file being moved is
+   * the one the client read. Whether the destination may be replaced is
+   * `allowOverwrite`'s call.
+   */
   async moveVaultFile(
     sourcePath: string,
     destinationPath: string,
     allowOverwrite = false,
+    preconditions?: WritePreconditions,
   ): Promise<string> {
     this.assertEntryContained(sourcePath, "Source path");
     this.assertEntryContained(destinationPath, "Destination path");
     if (!destinationPath) {
       throw new Error("Destination path must not be empty.");
     }
+    return this.withPathLocks([sourcePath, destinationPath], async () => {
+      await this.enforcePreconditions(sourcePath, preconditions);
+      return this.moveUnlocked(sourcePath, destinationPath, allowOverwrite);
+    });
+  }
 
+  private async moveUnlocked(
+    sourcePath: string,
+    destinationPath: string,
+    allowOverwrite: boolean,
+  ): Promise<string> {
     if (sourcePath === destinationPath) {
       return sourcePath;
     }
@@ -753,17 +887,32 @@ export class VaultOperations {
     return sourceFile.path;
   }
 
+  /**
+   * Copy a file. As with {@link moveVaultFile}, `preconditions` apply to the
+   * source, so a client can copy exactly the version it read.
+   */
   async copyVaultFile(
     sourcePath: string,
     destinationPath: string,
     allowOverwrite = false,
+    preconditions?: WritePreconditions,
   ): Promise<string> {
     this.assertEntryContained(sourcePath, "Source path");
     this.assertEntryContained(destinationPath, "Destination path");
     if (!destinationPath) {
       throw new Error("Destination path must not be empty.");
     }
+    return this.withPathLocks([sourcePath, destinationPath], async () => {
+      await this.enforcePreconditions(sourcePath, preconditions);
+      return this.copyUnlocked(sourcePath, destinationPath, allowOverwrite);
+    });
+  }
 
+  private async copyUnlocked(
+    sourcePath: string,
+    destinationPath: string,
+    allowOverwrite: boolean,
+  ): Promise<string> {
     const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
     if (!(sourceFile instanceof TFile)) {
       throw new FileNotFoundError(`File not found: ${sourcePath}`);
@@ -813,8 +962,32 @@ export class VaultOperations {
       targetDelimiter?: string;
       targetScope?: string;
     },
+    preconditions?: WritePreconditions,
   ): Promise<string> {
     this.assertContained(filePath);
+    return this.withPathLocks([filePath], async () => {
+      await this.enforcePreconditions(filePath, preconditions);
+      return this.patchFileSectionUnlocked(
+        filePath, targetType, target, operation, content, contentType, options,
+      );
+    });
+  }
+
+  private async patchFileSectionUnlocked(
+    filePath: string,
+    targetType: PatchTargetType,
+    target: string,
+    operation: PatchOperation,
+    content: unknown,
+    contentType: string,
+    options?: {
+      createTargetIfMissing?: boolean;
+      rejectIfContentPreexists?: boolean;
+      trimTargetWhitespace?: boolean;
+      targetDelimiter?: string;
+      targetScope?: string;
+    },
+  ): Promise<string> {
     const file = this.app.vault.getAbstractFileByPath(filePath);
     if (!(file instanceof TFile)) {
       throw new FileNotFoundError(`File not found: ${filePath}`);
@@ -848,19 +1021,27 @@ export class VaultOperations {
   // typed errors (TargetNotFoundError, PreconditionFailedError, …) propagate for
   // the caller to map to HTTP responses. Returns the patched document alongside
   // any advisory warnings the engine surfaced (e.g. heading-depth overflow).
+  //
+  // `preconditions` are the request's If-Match/If-None-Match headers, checked
+  // against the file's bytes; an instruction's own `ifMatch` is the engine's to
+  // check, against the text it patches. Both must hold.
   async patchFileSectionMdp2(
     filePath: string,
     instruction: InstructionInput,
+    preconditions?: WritePreconditions,
   ): Promise<PatchResult> {
     this.assertContained(filePath);
-    const file = this.app.vault.getAbstractFileByPath(filePath);
-    if (!(file instanceof TFile)) {
-      throw new FileNotFoundError(`File not found: ${filePath}`);
-    }
-    const fileContents = await this.app.vault.read(file);
-    const result = patchV2(fileContents, instruction);
-    await this.app.vault.modify(file, result.document);
-    return result;
+    return this.withPathLocks([filePath], async () => {
+      await this.enforcePreconditions(filePath, preconditions);
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (!(file instanceof TFile)) {
+        throw new FileNotFoundError(`File not found: ${filePath}`);
+      }
+      const fileContents = await this.app.vault.read(file);
+      const result = patchV2(fileContents, instruction);
+      await this.app.vault.modify(file, result.document);
+      return result;
+    });
   }
 
   async simpleSearch(

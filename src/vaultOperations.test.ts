@@ -16,6 +16,8 @@ import {
   VaultOperations,
 } from "./vaultOperations";
 import { LocalRestApiSettings } from "./types";
+import { versionOf } from "markdown-patch-2";
+import { parseEntityTagCondition, PreconditionFailedError } from "./conditionalRequests";
 
 // ---------------------------------------------------------------------------
 // Writes must go through the Vault API, not the adapter.
@@ -92,6 +94,248 @@ describe("writes go through the Vault API", () => {
     const { app, ops } = setup("");
     await ops.writeFileContent("image.png", Buffer.from([1, 2, 3]));
     expect(app.vault.adapter._writeBinary?.[0]).toBe("image.png");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Conditional writes.
+//
+// Every mutating operation takes optional If-Match/If-None-Match preconditions,
+// checked against a hash of the file's bytes immediately before the write, with
+// the check and the write held under a per-path queue so another API write
+// cannot land between them.
+// ---------------------------------------------------------------------------
+
+/** A vault whose single file's text, bytes and existence all follow every write,
+ *  so a second operation sees what the first one wrote. */
+function setupLiveFile(initial: string | null): { app: App; ops: VaultOperations } {
+  const { app, ops } = setup(initial ?? "", initial !== null);
+  const store = (text: string | null): void => {
+    app.vault._read = text ?? "";
+    app.vault.adapter._read = text ?? "";
+    app.vault.adapter._exists = text !== null;
+    const bytes = Buffer.from(text ?? "", "utf8");
+    app.vault.adapter._readBinary = bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    );
+    if (text === null) {
+      app.vault._getAbstractFileByPath = null;
+    } else {
+      const file = new TFile();
+      file.path = MD_PATH;
+      app.vault._getAbstractFileByPath = file;
+    }
+  };
+  store(initial);
+  const originalModify = app.vault.modify.bind(app.vault);
+  app.vault.modify = async (file: TFile, content: string): Promise<void> => {
+    // Yield first, as a real disk write would, so an unserialized second
+    // operation gets the chance to read the old bytes in between.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await originalModify(file, content);
+    store(content);
+  };
+  const originalCreate = app.vault.create.bind(app.vault);
+  app.vault.create = async (filePath: string, content: string): Promise<TFile> => {
+    const created = await originalCreate(filePath, content);
+    store(content);
+    return created;
+  };
+  return { app, ops };
+}
+
+function ifMatch(raw: string) {
+  const condition = parseEntityTagCondition(raw);
+  if (condition === null) throw new Error(`unparseable test condition ${raw}`);
+  return { ifMatch: condition };
+}
+
+describe("conditional writes", () => {
+  const ORIGINAL = "original\n";
+  const ORIGINAL_VERSION = versionOf(ORIGINAL);
+
+  test("getFileState hashes the file's bytes with markdown-patch's versionOf", async () => {
+    const { ops } = setupLiveFile(ORIGINAL);
+    await expect(ops.getFileState(MD_PATH)).resolves.toEqual({
+      exists: true,
+      version: ORIGINAL_VERSION,
+    });
+  });
+
+  test("getFileState reports a missing file and a folder without a version", async () => {
+    const missing = setupLiveFile(null);
+    await expect(missing.ops.getFileState(MD_PATH)).resolves.toEqual({
+      exists: false,
+      version: null,
+    });
+    const folder = setupLiveFile(ORIGINAL);
+    folder.app.vault.adapter._stat.type = "folder";
+    await expect(folder.ops.getFileState("dir")).resolves.toEqual({
+      exists: true,
+      version: null,
+    });
+  });
+
+  test("the version matches the document map's", async () => {
+    const { app, ops } = setupLiveFile("# Title\n\nBody\n");
+    const file = app.vault._getAbstractFileByPath;
+    if (!(file instanceof TFile)) throw new Error("expected the test file to exist");
+    const map = await ops.getDocumentMapV2Object(file);
+    expect((await ops.getFileState(MD_PATH)).version).toBe(map.version);
+  });
+
+  test("writeFileContent with a matching If-Match writes and returns the new version", async () => {
+    const { app, ops } = setupLiveFile(ORIGINAL);
+    const version = await ops.writeFileContent(
+      MD_PATH,
+      "replacement\n",
+      ifMatch(`"${ORIGINAL_VERSION}"`),
+    );
+    expect(app.vault._modify).toEqual([MD_PATH, "replacement\n"]);
+    expect(version).toBe(versionOf("replacement\n"));
+  });
+
+  test("writeFileContent with a stale If-Match throws and writes nothing", async () => {
+    const { app, ops } = setupLiveFile(ORIGINAL);
+    await expect(
+      ops.writeFileContent(MD_PATH, "replacement\n", ifMatch('"000000"')),
+    ).rejects.toBeInstanceOf(PreconditionFailedError);
+    expect(app.vault._modify).toBeUndefined();
+    expect(app.vault._create).toBeUndefined();
+  });
+
+  test("writeFileContent with If-Match on a missing file throws instead of creating it", async () => {
+    const { app, ops } = setupLiveFile(null);
+    await expect(
+      ops.writeFileContent(MD_PATH, "new\n", ifMatch(ORIGINAL_VERSION)),
+    ).rejects.toBeInstanceOf(PreconditionFailedError);
+    expect(app.vault._create).toBeUndefined();
+  });
+
+  test("writeFileContent with If-None-Match: * creates a missing file and refuses an existing one", async () => {
+    const created = setupLiveFile(null);
+    await created.ops.writeFileContent(MD_PATH, "new\n", { ifNoneMatch: "*" });
+    expect(created.app.vault._create).toEqual([MD_PATH, "new\n"]);
+
+    const existing = setupLiveFile(ORIGINAL);
+    await expect(
+      existing.ops.writeFileContent(MD_PATH, "new\n", { ifNoneMatch: "*" }),
+    ).rejects.toBeInstanceOf(PreconditionFailedError);
+    expect(existing.app.vault._modify).toBeUndefined();
+  });
+
+  test("a binary write returns the version of its bytes", async () => {
+    const { ops } = setupLiveFile(null);
+    const bytes = Buffer.from([0, 159, 146, 150]);
+    await expect(ops.writeFileContent("image.png", bytes)).resolves.toBe(versionOf(bytes));
+  });
+
+  test("appendFileContent checks the precondition and returns the resulting version", async () => {
+    const { app, ops } = setupLiveFile(ORIGINAL);
+    const version = await ops.appendFileContent(MD_PATH, "more\n", ifMatch(ORIGINAL_VERSION));
+    expect(app.vault._modify).toEqual([MD_PATH, "original\nmore\n"]);
+    expect(version).toBe(versionOf("original\nmore\n"));
+
+    await expect(
+      ops.appendFileContent(MD_PATH, "again\n", ifMatch(ORIGINAL_VERSION)),
+    ).rejects.toBeInstanceOf(PreconditionFailedError);
+  });
+
+  test("deleteVaultFile checks the precondition before trashing", async () => {
+    const { app, ops } = setupLiveFile(ORIGINAL);
+    await expect(
+      ops.deleteVaultFile(MD_PATH, false, ifMatch('"000000"')),
+    ).rejects.toBeInstanceOf(PreconditionFailedError);
+    expect(app.fileManager._trashFile).toBeUndefined();
+
+    await ops.deleteVaultFile(MD_PATH, false, ifMatch(ORIGINAL_VERSION));
+    expect(app.fileManager._trashFile?.path).toBe(MD_PATH);
+  });
+
+  test("moveVaultFile and copyVaultFile check the precondition against the source", async () => {
+    const { app, ops } = setupLiveFile(ORIGINAL);
+    // The destination does not exist; the source (the only file) does.
+    app.vault.adapter.exists = async (p: string) => p === MD_PATH;
+    await expect(
+      ops.moveVaultFile(MD_PATH, "moved.md", false, ifMatch('"000000"')),
+    ).rejects.toBeInstanceOf(PreconditionFailedError);
+    await expect(
+      ops.copyVaultFile(MD_PATH, "copied.md", false, ifMatch('"000000"')),
+    ).rejects.toBeInstanceOf(PreconditionFailedError);
+  });
+
+  test("patchFileSectionMdp2 checks header preconditions as well as the instruction's ifMatch", async () => {
+    const { app, ops } = setupLiveFile("# A\n\nbody\n");
+    await expect(
+      ops.patchFileSectionMdp2(
+        MD_PATH,
+        { targetType: "heading", target: ["A"], operation: "append", content: "x\n" },
+        ifMatch('"000000"'),
+      ),
+    ).rejects.toBeInstanceOf(PreconditionFailedError);
+    expect(app.vault._modify).toBeUndefined();
+  });
+
+  test("patchFileSection (1.x) checks header preconditions", async () => {
+    const { app, ops } = setupLiveFile("# A\n\nbody\n");
+    await expect(
+      ops.patchFileSection(
+        MD_PATH, "heading", "A", "append", "x\n", "text/markdown", undefined,
+        ifMatch('"000000"'),
+      ),
+    ).rejects.toBeInstanceOf(PreconditionFailedError);
+    expect(app.vault._modify).toBeUndefined();
+  });
+
+  test("two writes racing on the same If-Match: exactly one wins", async () => {
+    const { app, ops } = setupLiveFile(ORIGINAL);
+    const results = await Promise.allSettled([
+      ops.writeFileContent(MD_PATH, "first\n", ifMatch(ORIGINAL_VERSION)),
+      ops.writeFileContent(MD_PATH, "second\n", ifMatch(ORIGINAL_VERSION)),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(["fulfilled", "rejected"]);
+    const rejected = results[1] as PromiseRejectedResult;
+    expect(rejected.reason).toBeInstanceOf(PreconditionFailedError);
+    expect(app.vault._read).toBe("first\n");
+  });
+
+  test("an unconditional write cannot slip between a conditional write's check and its write", async () => {
+    const { app, ops } = setupLiveFile(ORIGINAL);
+    const conditional = ops.writeFileContent(MD_PATH, "conditional\n", ifMatch(ORIGINAL_VERSION));
+    const unconditional = ops.writeFileContent(MD_PATH, "unconditional\n");
+    await Promise.all([conditional, unconditional]);
+    // Queued in call order: the conditional write saw the original, then the
+    // unconditional one replaced it. Neither write was lost to the other.
+    expect(app.vault._read).toBe("unconditional\n");
+  });
+
+  test("a failed write releases the path for the next one", async () => {
+    const { app, ops } = setupLiveFile(ORIGINAL);
+    await expect(
+      ops.writeFileContent(MD_PATH, "nope\n", ifMatch('"000000"')),
+    ).rejects.toBeInstanceOf(PreconditionFailedError);
+    await ops.writeFileContent(MD_PATH, "next\n");
+    expect(app.vault._read).toBe("next\n");
+  });
+
+  test("writes to different paths are not serialized behind each other", async () => {
+    const { app, ops } = setupLiveFile(ORIGINAL);
+    let releaseSlow!: () => void;
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+    const order: string[] = [];
+    app.vault.adapter.writeBinary = async (p: string): Promise<void> => {
+      if (p === "slow.bin") await slowGate;
+      order.push(p);
+    };
+    const slow = ops.writeFileContent("slow.bin", Buffer.from([1]));
+    await ops.writeFileContent("fast.bin", Buffer.from([2]));
+    expect(order).toEqual(["fast.bin"]);
+    releaseSlow();
+    await slow;
+    expect(order).toEqual(["fast.bin", "slow.bin"]);
   });
 });
 
