@@ -13,9 +13,12 @@ Returns only non-falsy results.  "Non-falsy" here treats the following values as
 
 - `false`
 - `null` or `undefined`
-- `0`
+- `0` (and `NaN`)
+- `""`
 - `[]`
 - `{}`
+
+This matters most for a query that selects a value rather than testing a condition. `{"var": "frontmatter.aliases"}` returns the notes whose `aliases` field has something in it; a note with `aliases: []` is left out exactly as a note with no `aliases` field at all is, so a file's absence from the results does not mean it lacks the field. To test whether a field is present, use JsonLogic's `missing` operator: `{"!": {"missing": ["frontmatter.aliases"]}}` matches every note that has the field, including those where it is `[]`, `false`, or `0`. Note that `missing` treats a field whose value is `""` or `null` (as from a frontmatter key left blank, like `aliases:`) as missing too.
 
 Files are represented as an object having the schema described
 in the Schema named 'NoteJson' at the bottom of this page.
