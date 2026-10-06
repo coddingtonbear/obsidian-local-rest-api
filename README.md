@@ -17,6 +17,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
     + [Other clients](#other-clients)
 - [API overview](#api-overview)
   * [The configuration directory is off-limits](#the-configuration-directory-is-off-limits)
+  * [Failed authentication is throttled](#failed-authentication-is-throttled)
   * [Browser clients and response headers](#browser-clients-and-response-headers)
 - [Patching notes](#patching-notes)
   * [Raw-content mode](#raw-content-mode)
@@ -194,6 +195,12 @@ That directory holds plugin code and each plugin's `data.json` — including thi
 The check is against where a path lands on disk, not just how it is spelled: a Windows 8.3 short name such as `OBSIDI~1`, a differently cased spelling on a case-insensitive filesystem, or a symlink that points into the configuration directory is refused the same way. Search and the tag listing skip any indexed note that lives there too, so a symlinked folder cannot hand the contents out by another route.
 
 If you deliberately manage your Obsidian configuration through the API, turn on **Settings → Local REST API → Advanced settings → Allow access to the configuration directory**. It is off by default, and turning it on grants every holder of your API key that access.
+
+### Failed authentication is throttled
+
+A source that presents a wrong credential -- an incorrect API key, or an invalid, expired or spent signed URL -- ten times within a minute has its further wrong credentials refused with `429` (error code `42901`) and a `Retry-After` header until the minute is up. This applies to every route the plugin authenticates, including `/mcp/` and `GET /` (routes an extension plugin publishes without authentication are not behind it): the root route answers `200` with `authenticated: false` to a wrong key, so it would otherwise be the cheapest place to guess from, and a wrong key sent there counts like a wrong key anywhere else.
+
+Nothing else is slowed down. A request carrying the correct key or a valid signed URL is never counted or delayed, so MCP clients and scripts that make many requests in quick bursts are unaffected, and so is a client with the right key while another process on the same machine is being refused. A request that presents no credential at all is not counted either -- it has made no guess -- and is answered `401`, or served on the routes that need no authentication, however many of them arrive. The counter is kept in memory per source address and is cleared by a plugin reload.
 
 ### Browser clients and response headers
 

@@ -2,6 +2,8 @@ Returns basic details about the server as well as your authentication status.
 
 This is the only API request that does *not* require authentication. An authenticated request additionally receives `certificateInfo`, `apiExtensions`, and `state`.
 
+A request that sends an API key still has that key checked: `authenticated` reports whether it was correct, and a wrong one counts towards the failed-authentication throttle like a wrong key anywhere else, so once a source is throttled this route answers `429` to wrong keys too. A request with no key at all is not counted and always answers `200` with `authenticated: false`.
+
 ## State
 
 `state` carries observations, by namespace, that a client reads to decide whether to proceed. The server attaches no verdict: it reports what it has heard and when, and the client applies its own tolerance.
