@@ -24,7 +24,8 @@ import { dedent } from "ts-dedent";
 
 import { VaultOperations } from "./vaultOperations";
 import type { InstructionInput, ReadTarget } from "markdown-patch-2";
-import { InstructionInputObjectSchema } from "markdown-patch-2";
+import { InstructionInputObjectSchema, versionOf } from "markdown-patch-2";
+import { parseEntityTagCondition, WritePreconditions } from "./conditionalRequests";
 import openapiYaml from "../docs/openapi.yaml";
 import { OpenApiSpec } from "./openApiSpec";
 import { toStandardSchema } from "./mcpSchema";
@@ -341,6 +342,22 @@ interface Session {
 // here rather than retyped per tool.
 const VAULT_PATH_DESCRIPTION = "File path relative to vault root";
 const SOURCE_VAULT_PATH_DESCRIPTION = "Source file path relative to vault root";
+
+/** The `ifMatch` argument shared by the whole-file write tools: REST's If-Match. */
+const IF_MATCH_FIELD = z
+  .string()
+  .optional()
+  .describe(
+    dedent`Make this call conditional on the file being unchanged: pass the version token from vault_read's or vault_get_document_map's 'version', or from the 'version' a previous write returned. If the file has changed since, or no longer exists, the call fails and nothing is written -- read the file again and redo your edit against what is there now. '*' instead means "only if the file exists".`,
+  );
+
+/** The `ifNoneMatch` argument for the tools that can create a file: REST's If-None-Match. */
+const IF_NONE_MATCH_FIELD = z
+  .literal("*")
+  .optional()
+  .describe(
+    "Pass '*' to make this call create-only: it fails, writing nothing, if the file already exists.",
+  );
 
 export class McpHandler {
   // The registry is this handler's application state: the 2026-07-28 revision has no
@@ -738,6 +755,26 @@ export class McpHandler {
    *  that forgets it is visibly different from every tool around it. VaultOperations
    *  checks again before touching the filesystem; this one exists so the client gets
    *  a refusal that names what was wrong instead of a bare failure. */
+  /**
+   * The write preconditions an MCP call asked for, parsed exactly as REST parses
+   * its If-Match/If-None-Match headers. Undefined when it asked for none.
+   */
+  private preconditions(ifMatch?: string, ifNoneMatch?: "*"): WritePreconditions | undefined {
+    if (ifMatch === undefined && ifNoneMatch === undefined) return undefined;
+    const preconditions: WritePreconditions = {};
+    if (ifMatch !== undefined) {
+      const condition = parseEntityTagCondition(ifMatch);
+      if (condition === null) {
+        throw new Error(
+          `ifMatch must be a version token (as returned in 'version' by vault_read or vault_get_document_map), a comma-separated list of them, or '*'; got ${JSON.stringify(ifMatch)}.`,
+        );
+      }
+      preconditions.ifMatch = condition;
+    }
+    if (ifNoneMatch !== undefined) preconditions.ifNoneMatch = ifNoneMatch;
+    return preconditions;
+  }
+
   private vaultPath(candidate: string, label = "Path"): string {
     assertVaultPathIsContained(candidate, label);
     assertConfigDirAccessAllowed(
@@ -1226,7 +1263,7 @@ export class McpHandler {
     this.tool(
       "vault_read",
       dedent`
-        Read a vault file's content and metadata. Returns a JSON object with: content (full markdown text), path, tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), stat ({ctime, mtime, size}), links (array of vault-relative paths this file links to), backlinks (array of vault-relative paths of files that link here), and unresolvedLinks (array of link text in this file that does not resolve to an existing vault file). Throws if the file does not exist. The three link fields reflect Obsidian's metadata cache as it stands and may be incomplete while Obsidian is still indexing the vault after startup; the server-status resource (obsidian://local-rest-api/status) reports, under state.metadataCache, when the plugin last heard the cache resolve and when it last heard any indexing activity.
+        Read a vault file's content and metadata. Returns a JSON object with: content (full markdown text), path, tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), stat ({ctime, mtime, size}), links (array of vault-relative paths this file links to), backlinks (array of vault-relative paths of files that link here), unresolvedLinks (array of link text in this file that does not resolve to an existing vault file), and version (the file's version token -- pass it back as ifMatch to vault_write, vault_append, vault_patch, vault_delete, vault_move or vault_copy so that write fails, rather than overwriting someone else's change, if the file has changed in between). Throws if the file does not exist. The three link fields reflect Obsidian's metadata cache as it stands and may be incomplete while Obsidian is still indexing the vault after startup; the server-status resource (obsidian://local-rest-api/status) reports, under state.metadataCache, when the plugin last heard the cache resolve and when it last heard any indexing activity.
 
         When targetType and target are both provided, returns only the matched section as a plain string (markdown) or JSON value (frontmatter) instead of the full object. To save context, call vault_get_document_map first to identify headings, block IDs, or frontmatter keys, and prefer targeted reads over full reads for anything but short files.
 
@@ -1306,16 +1343,32 @@ export class McpHandler {
 
     this.tool(
       "vault_write",
-      dedent`Create or overwrite a vault file with the given content. Text only: a path whose extension names an image, audio, video, font, PDF or archive type is refused, as is content containing a NUL byte, because writing text there would corrupt the file -- upload those bytes with vault_get_upload_url, or PUT /vault/<path> over the REST API. Creates any missing parent directories automatically. Overwrites without warning if the file already exists.`,
+      dedent`Create or overwrite a vault file with the given content. Text only: a path whose extension names an image, audio, video, font, PDF or archive type is refused, as is content containing a NUL byte, because writing text there would corrupt the file -- upload those bytes with vault_get_upload_url, or PUT /vault/<path> over the REST API. Creates any missing parent directories automatically. Overwrites without warning if the file already exists, unless you pass ifMatch (overwrite only the version you read) or ifNoneMatch '*' (create only). Returns the written file's new version token.`,
       {
         path: z.string().describe(VAULT_PATH_DESCRIPTION),
         content: z.string().describe("Full file content (markdown text)"),
+        ifMatch: IF_MATCH_FIELD,
+        ifNoneMatch: IF_NONE_MATCH_FIELD,
       },
       { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
-      async ({ path, content }: { path: string; content: string }) => {
+      async ({
+        path,
+        content,
+        ifMatch,
+        ifNoneMatch,
+      }: {
+        path: string;
+        content: string;
+        ifMatch?: string;
+        ifNoneMatch?: "*";
+      }) => {
         assertTextWrite(path, content);
-        await this.ops.writeFileContent(this.vaultPath(path), content);
-        return this.text({ message: "OK" });
+        const version = await this.ops.writeFileContent(
+          this.vaultPath(path),
+          content,
+          this.preconditions(ifMatch, ifNoneMatch),
+        );
+        return this.text({ message: "OK", version });
       },
     );
 
@@ -1389,16 +1442,32 @@ export class McpHandler {
 
     this.tool(
       "vault_append",
-      dedent`Append content to the end of a vault file. Creates the file if it does not already exist. Text only, on the same terms as vault_write: a path whose extension names a binary type is refused, as is content containing a NUL byte.`,
+      dedent`Append content to the end of a vault file. Creates the file if it does not already exist. Text only, on the same terms as vault_write: a path whose extension names a binary type is refused, as is content containing a NUL byte. ifMatch and ifNoneMatch make the append conditional, as for vault_write. Returns the file's new version token.`,
       {
         path: z.string().describe(VAULT_PATH_DESCRIPTION),
         content: z.string().describe("Content to append"),
+        ifMatch: IF_MATCH_FIELD,
+        ifNoneMatch: IF_NONE_MATCH_FIELD,
       },
       { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-      async ({ path, content }: { path: string; content: string }) => {
+      async ({
+        path,
+        content,
+        ifMatch,
+        ifNoneMatch,
+      }: {
+        path: string;
+        content: string;
+        ifMatch?: string;
+        ifNoneMatch?: "*";
+      }) => {
         assertTextWrite(path, content);
-        await this.ops.appendFileContent(this.vaultPath(path), content);
-        return this.text({ message: "OK" });
+        const version = await this.ops.appendFileContent(
+          this.vaultPath(path),
+          content,
+          this.preconditions(ifMatch, ifNoneMatch),
+        );
+        return this.text({ message: "OK", version });
       },
     );
 
@@ -1485,9 +1554,10 @@ export class McpHandler {
             this.vaultPath(path),
             instruction as InstructionInput,
           );
+          const version = versionOf(result.document);
           return result.warnings.length > 0
-            ? this.text({ message: "OK", warnings: result.warnings })
-            : this.text({ message: "OK" });
+            ? this.text({ message: "OK", version, warnings: result.warnings })
+            : this.text({ message: "OK", version });
         } catch (e) {
           // Surface the engine's message to the caller.
           throw e instanceof Error ? e : new Error(String(e));
@@ -1497,7 +1567,7 @@ export class McpHandler {
 
     this.tool(
       "vault_delete",
-      dedent`Delete a file from the vault. Throws if the file does not exist. By default, moves the file to trash (following the user's Obsidian "Deleted files" preference — either the ".trash" folder or the system trash) rather than deleting it permanently.`,
+      dedent`Delete a file from the vault. Throws if the file does not exist. By default, moves the file to trash (following the user's Obsidian "Deleted files" preference — either the ".trash" folder or the system trash) rather than deleting it permanently. Pass ifMatch to delete only the version you read.`,
       {
         path: z.string().describe(VAULT_PATH_DESCRIPTION),
         permanent: z
@@ -1506,10 +1576,23 @@ export class McpHandler {
           .describe(
             "If true, permanently deletes the file instead of moving it to trash (default: false).",
           ),
+        ifMatch: IF_MATCH_FIELD,
       },
       { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-      async ({ path, permanent }: { path: string; permanent?: boolean }) => {
-        await this.ops.deleteVaultFile(this.vaultPath(path), permanent ?? false);
+      async ({
+        path,
+        permanent,
+        ifMatch,
+      }: {
+        path: string;
+        permanent?: boolean;
+        ifMatch?: string;
+      }) => {
+        await this.ops.deleteVaultFile(
+          this.vaultPath(path),
+          permanent ?? false,
+          this.preconditions(ifMatch),
+        );
         return this.text({ message: "OK" });
       },
     );
@@ -1530,16 +1613,21 @@ export class McpHandler {
           .describe(
             dedent`If true, move proceeds even when a file already exists at the destination; otherwise the move throws (default: false).`,
           ),
+        ifMatch: IF_MATCH_FIELD.describe(
+          dedent`Make this move conditional on the source file being unchanged: pass the version token from vault_read's or vault_get_document_map's 'version'. If the source has changed since, the call fails and nothing is moved.`,
+        ),
       },
       { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       async ({
         path,
         destination,
         allowOverwrite,
+        ifMatch,
       }: {
         path: string;
         destination: string;
         allowOverwrite?: boolean;
+        ifMatch?: string;
       }) => {
         const source = this.vaultPath(path, "Source path");
         const normalized = this.vaultPath(
@@ -1555,7 +1643,12 @@ export class McpHandler {
           ? normalized + sourceFilename
           : normalized;
 
-        const actualPath = await this.ops.moveVaultFile(source, resolvedDestination, allowOverwrite ?? false);
+        const actualPath = await this.ops.moveVaultFile(
+          source,
+          resolvedDestination,
+          allowOverwrite ?? false,
+          this.preconditions(ifMatch),
+        );
         return this.text({ message: "OK", oldPath: source, newPath: actualPath });
       },
     );
@@ -1576,16 +1669,21 @@ export class McpHandler {
           .describe(
             dedent`If true, copy proceeds even when a file already exists at the destination; otherwise the copy throws (default: false).`,
           ),
+        ifMatch: IF_MATCH_FIELD.describe(
+          dedent`Make this copy conditional on the source file being unchanged: pass the version token from vault_read's or vault_get_document_map's 'version'. If the source has changed since, the call fails and nothing is copied.`,
+        ),
       },
       { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       async ({
         path,
         destination,
         allowOverwrite,
+        ifMatch,
       }: {
         path: string;
         destination: string;
         allowOverwrite?: boolean;
+        ifMatch?: string;
       }) => {
         const source = this.vaultPath(path, "Source path");
         const normalized = this.vaultPath(
@@ -1601,7 +1699,12 @@ export class McpHandler {
           ? normalized + sourceFilename
           : normalized;
 
-        const actualPath = await this.ops.copyVaultFile(source, resolvedDestination, allowOverwrite ?? false);
+        const actualPath = await this.ops.copyVaultFile(
+          source,
+          resolvedDestination,
+          allowOverwrite ?? false,
+          this.preconditions(ifMatch),
+        );
         return this.text({ message: "OK", sourcePath: source, newPath: actualPath });
       },
     );

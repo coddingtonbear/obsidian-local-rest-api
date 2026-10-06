@@ -38,7 +38,7 @@ local T = import 'targeting.params.jsonnet';
             properties: {
               version: {
                 type: 'string',
-                description: 'Content-hash token for the file; pass it back as a PATCH `ifMatch` to make an edit conditional on the file being unchanged.',
+                description: 'Content-hash token for the file, the same value as its `ETag`; pass it back as a PATCH `ifMatch`, or as `If-Match` on any write, to make the write conditional on the file being unchanged.',
                 example: 'a1b2c3',
               },
               headings: {

@@ -337,6 +337,16 @@ describe("conditional writes", () => {
     await slow;
     expect(order).toEqual(["fast.bin", "slow.bin"]);
   });
+
+  test("getFileMetadataObject carries the version of the content it returns", async () => {
+    const { app, ops } = setupLiveFile(ORIGINAL);
+    const file = app.vault._getAbstractFileByPath;
+    if (!(file instanceof TFile)) throw new Error("expected the test file to exist");
+    const withContent = await ops.getFileMetadataObject(file, undefined, true, ORIGINAL);
+    expect(withContent.version).toBe(ORIGINAL_VERSION);
+    const withoutContent = await ops.getFileMetadataObject(file, undefined, false);
+    expect(withoutContent).not.toHaveProperty("version");
+  });
 });
 
 // ---------------------------------------------------------------------------

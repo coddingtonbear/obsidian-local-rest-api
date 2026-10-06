@@ -93,6 +93,10 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "The 'Destination' header you provided could not be parsed.",
   [ErrorCode.InvalidWithinHeader]:
     "The 'Within' header must be a single integer, e.g. 0 or -1.",
+  [ErrorCode.InvalidPreconditionHeader]:
+    "An 'If-Match' or 'If-None-Match' header must be '*' or a comma-separated list of entity tags, e.g. \"a1b2c3\" or \"a1b2c3\", \"d4e5f6\".",
+  [ErrorCode.PreconditionFailed]:
+    "A precondition on this write did not hold, so nothing was written: the file has changed since the version If-Match named, or If-None-Match ruled out what is there now. Read the file again for its current ETag, and retry against that.",
   [ErrorCode.PathTraversalNotAllowed]:
     "Path traversal is not allowed. Paths must be relative, within the vault, and free of ':' and control characters.",
   [ErrorCode.ConfigDirAccessNotAllowed]:

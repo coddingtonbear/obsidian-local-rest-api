@@ -457,7 +457,11 @@ export class VaultOperations {
     // that this API may read it. Gated here so a caller handing over a TFile it
     // found by other means is held to the same rule as one naming a path.
     this.assertContained(file.path);
-    return this.metadataObjectFor(file, backlinksIndex, includeContent, content);
+    const metadata = await this.metadataObjectFor(file, backlinksIndex, includeContent, content);
+    // Hashed from the text being returned, so the token always describes the
+    // content beside it. For a valid UTF-8 file -- every note -- that is the same
+    // value as the hash of its bytes that conditional writes check against.
+    return includeContent ? { ...metadata, version: versionOf(metadata.content) } : metadata;
   }
 
   /** {@link getFileMetadataObject} without the gate, for {@link searchJsonLogic},
