@@ -18,6 +18,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
 - [API overview](#api-overview)
   * [The configuration directory is off-limits](#the-configuration-directory-is-off-limits)
   * [Failed authentication is throttled](#failed-authentication-is-throttled)
+  * [Conditional writes](#conditional-writes)
   * [Browser clients and response headers](#browser-clients-and-response-headers)
 - [Patching notes](#patching-notes)
   * [Raw-content mode](#raw-content-mode)
@@ -202,9 +203,34 @@ A source that presents a wrong credential -- an incorrect API key, or an invalid
 
 Nothing else is slowed down. A request carrying the correct key or a valid signed URL is never counted or delayed, so MCP clients and scripts that make many requests in quick bursts are unaffected, and so is a client with the right key while another process on the same machine is being refused. A request that presents no credential at all is not counted either -- it has made no guess -- and is answered `401`, or served on the routes that need no authentication, however many of them arrive. The counter is kept in memory per source address and is cleared by a plugin reload.
 
+### Conditional writes
+
+Two clients that read the same note and then each write their edited copy back would otherwise lose the first write without a word. Every write to a file can carry a precondition instead, so it fails rather than overwriting a change it never saw:
+
+```bash
+# Read the note; the ETag response header is its current version
+curl -i -H "Authorization: Bearer $KEY" https://127.0.0.1:27124/vault/notes/todo.md
+# => ETag: "a1b2c3"
+
+# Write it back only if nobody has changed it since
+curl -X PUT -H "Authorization: Bearer $KEY" -H 'If-Match: "a1b2c3"' \
+     -H "Content-Type: text/markdown" --data-binary @todo.md \
+     https://127.0.0.1:27124/vault/notes/todo.md
+# => 204, with the new version in ETag -- or 412 if the note changed, and nothing written
+
+# Create a note only if it does not exist yet
+curl -X PUT -H "Authorization: Bearer $KEY" -H "If-None-Match: *" \
+     -H "Content-Type: text/markdown" --data-binary @new.md \
+     https://127.0.0.1:27124/vault/notes/new.md
+```
+
+`If-Match` works on every write: `PUT`, `POST`, `PATCH` and `DELETE` on `/vault/{path}` and `/active/`, `MOVE` and `COPY` on `/vault/{path}`, and writes aimed at a heading, block or frontmatter field. It takes the `ETag` from a `GET`, the `version` from a document map or note JSON — all three are the same token — or the `ETag` a previous write answered with. A list matches if any entry does, and `*` matches any file that exists. A failed precondition is `412` (error code `41200`), and the message names the file's current version. Writes made through the API are queued per file, so two clients holding the same version cannot both pass the check.
+
+The `ETag` sent with a note's HTML rendering or its note JSON is not this token, because those also depend on other files; read note JSON's `version` field instead. MCP's write tools take the same precondition as an `ifMatch` argument (and `vault_write`/`vault_append` an `ifNoneMatch: "*"`), `vault_read` returns the `version`, and the write tools return the new one.
+
 ### Browser clients and response headers
 
-Several endpoints answer in a response header rather than in the body: `Content-Location` tells you which file a targeted or `/active/` request actually resolved to, `Markdown-Patch-Warnings` reports what a `PATCH` had to work around, `Deprecation` warns that a format is sunsetting, and `Mcp-Session-Id` carries the session for a sessionful MCP connection.
+Several endpoints answer in a response header rather than in the body: `ETag` carries a file's version for [conditional writes](#conditional-writes), `Content-Location` tells you which file a targeted or `/active/` request actually resolved to, `Markdown-Patch-Warnings` reports what a `PATCH` had to work around, `Deprecation` warns that a format is sunsetting, and `Mcp-Session-Id` carries the session for a sessionful MCP connection.
 
 Browsers hide response headers from JavaScript unless the server opts them in, so the API sends `Access-Control-Expose-Headers: *` and all of them are readable with `response.headers.get(...)`. Safari honours the wildcard from 15.4 onward; older browsers see only the [CORS-safelisted headers](https://developer.mozilla.org/en-US/docs/Glossary/CORS-safelisted_response_header). Requests made with `credentials: "include"` are not supported — the API authenticates with a bearer token and sends `Access-Control-Allow-Origin: *`, which browsers reject for credentialed requests.
 
@@ -223,7 +249,7 @@ curl -k -X PATCH \
   https://127.0.0.1:27124/vault/path/to/note.md
 ```
 
-Heading levels inside a `content` string are relative to the target (a leading `#` becomes a direct child). Advisory warnings (e.g. a heading rebased past level 6) come back as percent-encoded JSON in the `Markdown-Patch-Warnings` response header — decode with `decodeURIComponent` before parsing. Pass `ifMatch` (the `version` from a document map) for optimistic concurrency.
+Heading levels inside a `content` string are relative to the target (a leading `#` becomes a direct child). Advisory warnings (e.g. a heading rebased past level 6) come back as percent-encoded JSON in the `Markdown-Patch-Warnings` response header — decode with `decodeURIComponent` before parsing. Pass `ifMatch` (the `version` from a document map) for optimistic concurrency, or send an `If-Match` header as with any other [conditional write](#conditional-writes).
 
 > **Note:** Whitespace is library-owned — your content is reduced to trimmed, canonical form (leading and trailing blank lines are meaningless), and the API itself supplies the blank line wherever inserted content faces body text, so an `append` or `prepend` always lands as its own block and never merges into an existing paragraph. Heading lines, existing blank lines, and each document's spacing style are preserved as-is. See the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for worked examples.
 

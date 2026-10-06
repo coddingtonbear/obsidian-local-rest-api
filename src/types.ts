@@ -10,6 +10,7 @@ export enum ErrorCode {
   PathTraversalNotAllowed = 40021,
   InvalidDestinationHeader = 40022,
   InvalidWithinHeader = 40023,
+  InvalidPreconditionHeader = 40024,
   MissingTargetTypeHeader = 40053,
   InvalidTargetTypeHeader = 40054,
   MissingTargetHeader = 40055,
@@ -32,6 +33,7 @@ export enum ErrorCode {
   EventSubscriptionNotFound = 40461,
   RequestMethodValidOnlyForFiles = 40510,
   DestinationAlreadyExists = 40920,
+  PreconditionFailed = 41200,
   ConflictingTargetSpecification = 42200,
   TooManyAuthenticationFailures = 42901,
   ErrorPreparingSimpleSearch = 50010,
@@ -208,6 +210,11 @@ export interface FileMetadataObject {
   links: string[];
   backlinks: string[];
   unresolvedLinks: string[];
+  /**
+   * The file's version token: the same value as its `ETag` and the document
+   * map's `version`, for use in `If-Match`. Present whenever `content` is.
+   */
+  version?: string;
 }
 
 export interface DocumentMapObject {

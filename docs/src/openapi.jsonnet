@@ -7,6 +7,7 @@ local Post = import 'lib/post.jsonnet';
 local Put = import 'lib/put.jsonnet';
 
 local ParamPath = import 'lib/path.param.jsonnet';
+local Conditional = import 'lib/conditional.jsonnet';
 
 local TargetingShared = importstr 'lib/descriptions/targeting.md';
 local GetShared = TargetingShared + '\n' + importstr 'lib/descriptions/get-shared.md';
@@ -229,6 +230,11 @@ std.manifestYamlDoc(
                 type: 'string',
               },
             },
+            version: {
+              type: 'string',
+              description: 'The file\'s version token, computed from the `content` returned beside it: the same value as its `ETag` and its document map\'s `version`. Send it as `If-Match` (quoted or bare) on a write to make the write fail, rather than overwrite a change made in between, if the file has changed.',
+              example: 'a1b2c3',
+            },
           },
         },
         Error: {
@@ -307,34 +313,34 @@ std.manifestYamlDoc(
           tags: ['Active File'],
           summary: 'Return the content of the active file open in Obsidian.\n',
           description: (importstr 'lib/descriptions/active-get.md') + '\n' + GetShared,
-        },
+        } + Conditional.Read(['200']),
         put: Put + WithContentLocation(['200', '204']) {
           tags: [
             'Active File',
           ],
           summary: 'Update the content of the active file open in Obsidian.\n',
           description: PutShared,
-        },
+        } + Conditional.Write(['200', '204']),
         post: Post + WithContentLocation(['200', '204']) {
           tags: [
             'Active File',
           ],
           summary: 'Append content to the active file open in Obsidian.\n',
           description: (importstr 'lib/descriptions/active-post.md') + '\n' + PostShared,
-        },
+        } + Conditional.Write(['200', '204']),
         patch: Patch + WithContentLocation(['200']) {
           tags: [
             'Active File',
           ],
           summary: 'Partially update content in the currently open note.\n',
           description: PatchDescription('the currently-open note'),
-        },
+        } + Conditional.Write(['200']),
         delete: Delete + WithContentLocation(['204']) {
           tags: [
             'Active File',
           ],
           summary: 'Deletes the currently-active file in Obsidian.\n',
-        },
+        } + Conditional.Write([], [Conditional.ifMatch]),
       },
       '/vault/{filename}': {
         get: Get + WithResolvedContentLocation(['200']) + WithConfigDirForbidden {
@@ -344,7 +350,7 @@ std.manifestYamlDoc(
           summary: 'Return the content of a single file in your vault.\n',
           description: (importstr 'lib/descriptions/vault-file-get.md') + '\n' + GetShared,
           parameters: [ParamPath] + super.parameters + SignedUrlParams + [DownloadParam],
-        },
+        } + Conditional.Read(['200']),
         put: Put + WithResolvedContentLocation(['200']) + WithConfigDirForbidden {
           tags: [
             'Vault Files',
@@ -352,7 +358,7 @@ std.manifestYamlDoc(
           summary: 'Create a new file in your vault or update the content of an existing one.\n',
           description: 'Creates a new file in your vault or updates the content of an existing one if the specified file already exists.\n\nAny content type is accepted: a request body that is not text or JSON is stored as raw bytes, so attachments -- images, PDFs, audio -- can be uploaded here as well as notes. A body sent with no `Content-Type` at all is treated as `application/octet-stream` and stored as raw bytes, which is what RFC 9110 allows. There is no size limit beyond the request-size cap.\n\nA signed upload URL (`?sig=…&exp=…&n=…`, from the MCP `vault_get_upload_url` tool) authenticates a single whole-file `PUT` in place of the `Authorization` header; the link is consumed by the request that succeeds. A signed `PUT` stores exactly the bytes sent, whatever `Content-Type` it declares -- it is not routed through the JSON or text parsers, which would otherwise reparse and re-serialize the body. It authorizes a whole-file write only: a request that also targets part of the document, through `Target-Type`/`Target` headers or through `/heading`, `/block` or `/frontmatter` path elements, is refused.\n\n' + PutShared,
           parameters: [ParamPath] + super.parameters + SignedUrlParams,
-        },
+        } + Conditional.Write(['200', '204']),
         post: Post + WithResolvedContentLocation(['200']) + WithConfigDirForbidden {
           tags: [
             'Vault Files',
@@ -360,7 +366,7 @@ std.manifestYamlDoc(
           summary: 'Append content to a new or existing file.\n',
           description: (importstr 'lib/descriptions/vault-file-post.md') + '\n' + PostShared,
           parameters: [ParamPath] + super.parameters,
-        },
+        } + Conditional.Write(['200', '204']),
         patch: Patch + WithResolvedContentLocation(['200']) + WithConfigDirForbidden {
           tags: [
             'Vault Files',
@@ -368,14 +374,14 @@ std.manifestYamlDoc(
           summary: 'Partially update content in an existing note.\n',
           description: PatchDescription('an existing note'),
           parameters: [ParamPath] + super.parameters,
-        },
+        } + Conditional.Write(['200']),
         additionalOperations: {
           move: Move + WithConfigDirForbidden {
             parameters: Move.parameters + [ParamPath],
-          },
+          } + Conditional.Write([], [Conditional.ifMatch]),
           copy: Copy + WithConfigDirForbidden {
             parameters: Copy.parameters + [ParamPath],
-          },
+          } + Conditional.Write([], [Conditional.ifMatch]),
         },
         delete: Delete + WithConfigDirForbidden {
           tags: [
@@ -383,7 +389,7 @@ std.manifestYamlDoc(
           ],
           summary: 'Delete a particular file in your vault.\n',
           parameters: Delete.parameters + [ParamPath],
-        },
+        } + Conditional.Write([], [Conditional.ifMatch]),
       },
       '/vault/': {
         get: {

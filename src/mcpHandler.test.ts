@@ -24,6 +24,8 @@ import { UrlSigner } from "./signedUrls";
 import type { EventStreams } from "./events";
 import { ImageScaler, MaximumImageEdge } from "./imageScaling";
 import { LocalRestApiSettings } from "./types";
+import { versionOf } from "markdown-patch-2";
+import { PreconditionFailedError } from "./conditionalRequests";
 import { DataAdapter, FileSystemAdapter, TFile } from "../mocks/obsidian";
 import { fakeRealpath } from "../mocks/disk";
 import * as fs from "fs";
@@ -704,8 +706,95 @@ describe("McpHandler", () => {
   test("vault_write calls writeFileContent and returns OK", async () => {
     const cb = getToolCallback("vault_write");
     const result = await cb({ path: "out.md", content: "hello" });
-    expect(ops.writeFileContent).toHaveBeenCalledWith("out.md", "hello");
+    expect(ops.writeFileContent).toHaveBeenCalledWith("out.md", "hello", undefined);
     expect(parseText(result).message).toBe("OK");
+  });
+
+  // ---- conditional writes --------------------------------------------------
+
+  describe("conditional writes", () => {
+    const TOKEN = [{ opaque: "a1b2c3", weak: false }];
+
+    test("vault_write passes ifMatch and ifNoneMatch through, parsed, and returns the new version", async () => {
+      ops.writeFileContent.mockResolvedValue("d4e5f6");
+      const result = await getToolCallback("vault_write")({
+        path: "out.md",
+        content: "hello",
+        ifMatch: "a1b2c3",
+        ifNoneMatch: "*",
+      });
+      expect(ops.writeFileContent).toHaveBeenCalledWith("out.md", "hello", {
+        ifMatch: TOKEN,
+        ifNoneMatch: "*",
+      });
+      expect(parseText(result)).toEqual({ message: "OK", version: "d4e5f6" });
+    });
+
+    test.each([['"a1b2c3"'], ["a1b2c3"]])(
+      "vault_write accepts ifMatch %s quoted or bare",
+      async (ifMatch) => {
+        await getToolCallback("vault_write")({ path: "out.md", content: "x", ifMatch });
+        expect(ops.writeFileContent).toHaveBeenCalledWith("out.md", "x", { ifMatch: TOKEN });
+      },
+    );
+
+    test("vault_write accepts ifMatch '*'", async () => {
+      await getToolCallback("vault_write")({ path: "out.md", content: "x", ifMatch: "*" });
+      expect(ops.writeFileContent).toHaveBeenCalledWith("out.md", "x", { ifMatch: "*" });
+    });
+
+    test("a malformed ifMatch is refused before anything is written", async () => {
+      await expect(
+        getToolCallback("vault_write")({ path: "out.md", content: "x", ifMatch: 'W/unquoted' }),
+      ).rejects.toThrow(/ifMatch must be a version token/);
+      expect(ops.writeFileContent).not.toHaveBeenCalled();
+    });
+
+    test("vault_append passes preconditions through and returns the new version", async () => {
+      ops.appendFileContent.mockResolvedValue("d4e5f6");
+      const result = await getToolCallback("vault_append")({
+        path: "out.md",
+        content: "more",
+        ifMatch: "a1b2c3",
+      });
+      expect(ops.appendFileContent).toHaveBeenCalledWith("out.md", "more", { ifMatch: TOKEN });
+      expect(parseText(result).version).toBe("d4e5f6");
+    });
+
+    test("vault_delete passes ifMatch through", async () => {
+      await getToolCallback("vault_delete")({ path: "old.md", ifMatch: "a1b2c3" });
+      expect(ops.deleteVaultFile).toHaveBeenCalledWith("old.md", false, { ifMatch: TOKEN });
+    });
+
+    test.each([
+      ["vault_move", "moveVaultFile"],
+      ["vault_copy", "copyVaultFile"],
+    ] as const)("%s passes ifMatch through for the source", async (tool, method) => {
+      ops[method].mockResolvedValue("b.md");
+      await getToolCallback(tool)({ path: "a.md", destination: "b.md", ifMatch: "a1b2c3" });
+      expect(ops[method]).toHaveBeenCalledWith("a.md", "b.md", false, { ifMatch: TOKEN });
+    });
+
+    test("a failed precondition surfaces as a tool error", async () => {
+      ops.writeFileContent.mockRejectedValue(
+        new PreconditionFailedError('If-Match named "a1b2c3", but the file is now at version "d4e5f6".'),
+      );
+      await expect(
+        getToolCallback("vault_write")({ path: "out.md", content: "x", ifMatch: "a1b2c3" }),
+      ).rejects.toThrow(/now at version "d4e5f6"/);
+    });
+
+    test("vault_patch returns the patched document's version", async () => {
+      ops.patchFileSectionMdp2.mockResolvedValueOnce({ document: "# A\n\nx\n", warnings: [] });
+      const result = await getToolCallback("vault_patch")({
+        path: "out.md",
+        targetType: "heading",
+        target: ["A"],
+        operation: "append",
+        content: "x\n",
+      });
+      expect(parseText(result)).toEqual({ message: "OK", version: versionOf("# A\n\nx\n") });
+    });
   });
 
   // ---- vault_read_binary and the signed-URL tools --------------------------
@@ -1516,7 +1605,7 @@ describe("McpHandler", () => {
   test("vault_append calls appendFileContent and returns OK", async () => {
     const cb = getToolCallback("vault_append");
     const result = await cb({ path: "out.md", content: "\nmore" });
-    expect(ops.appendFileContent).toHaveBeenCalledWith("out.md", "\nmore");
+    expect(ops.appendFileContent).toHaveBeenCalledWith("out.md", "\nmore", undefined);
     expect(parseText(result).message).toBe("OK");
   });
 
@@ -1804,14 +1893,14 @@ describe("McpHandler", () => {
   test("vault_delete calls deleteVaultFile and returns OK, defaulting to trash", async () => {
     const cb = getToolCallback("vault_delete");
     const result = await cb({ path: "old.md" });
-    expect(ops.deleteVaultFile).toHaveBeenCalledWith("old.md", false);
+    expect(ops.deleteVaultFile).toHaveBeenCalledWith("old.md", false, undefined);
     expect(parseText(result).message).toBe("OK");
   });
 
   test("vault_delete passes permanent flag through", async () => {
     const cb = getToolCallback("vault_delete");
     await cb({ path: "old.md", permanent: true });
-    expect(ops.deleteVaultFile).toHaveBeenCalledWith("old.md", true);
+    expect(ops.deleteVaultFile).toHaveBeenCalledWith("old.md", true, undefined);
   });
 
   // ---- vault_move ---------------------------------------------------------
@@ -1821,7 +1910,7 @@ describe("McpHandler", () => {
       ops.moveVaultFile.mockResolvedValue("archive/file.md");
       const cb = getToolCallback("vault_move");
       const result = await cb({ path: "folder/file.md", destination: "archive/file.md" });
-      expect(ops.moveVaultFile).toHaveBeenCalledWith("folder/file.md", "archive/file.md", false);
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("folder/file.md", "archive/file.md", false, undefined);
       const parsed = parseText(result);
       expect(parsed.message).toBe("OK");
       expect(parsed.oldPath).toBe("folder/file.md");
@@ -1832,21 +1921,21 @@ describe("McpHandler", () => {
       ops.moveVaultFile.mockResolvedValue("archive/todo.md");
       const cb = getToolCallback("vault_move");
       const result = await cb({ path: "notes/todo.md", destination: "archive/" });
-      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "archive/todo.md", false);
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "archive/todo.md", false, undefined);
       expect(parseText(result).newPath).toBe("archive/todo.md");
     });
 
     test("passes allowOverwrite flag", async () => {
       const cb = getToolCallback("vault_move");
       await cb({ path: "a.md", destination: "b.md", allowOverwrite: true });
-      expect(ops.moveVaultFile).toHaveBeenCalledWith("a.md", "b.md", true);
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("a.md", "b.md", true, undefined);
     });
 
     test("empty destination moves to vault root preserving source filename", async () => {
       ops.moveVaultFile.mockResolvedValue("todo.md");
       const cb = getToolCallback("vault_move");
       const result = await cb({ path: "notes/todo.md", destination: "" });
-      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false);
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false, undefined);
       expect(parseText(result).newPath).toBe("todo.md");
     });
 
@@ -1854,7 +1943,7 @@ describe("McpHandler", () => {
       ops.moveVaultFile.mockResolvedValue("todo.md");
       const cb = getToolCallback("vault_move");
       await cb({ path: "notes/todo.md", destination: "   " });
-      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false);
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false, undefined);
     });
 
     test("rejects path traversal in destination", async () => {
@@ -1885,7 +1974,7 @@ describe("McpHandler", () => {
       ops.moveVaultFile.mockResolvedValue("archive/notes..md");
       const cb = getToolCallback("vault_move");
       const result = await cb({ path: "a.md", destination: "archive/notes..md" });
-      expect(ops.moveVaultFile).toHaveBeenCalledWith("a.md", "archive/notes..md", false);
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("a.md", "archive/notes..md", false, undefined);
       expect(parseText(result).newPath).toBe("archive/notes..md");
     });
 
@@ -1905,7 +1994,7 @@ describe("McpHandler", () => {
       ops.copyVaultFile.mockResolvedValue("archive/file.md");
       const cb = getToolCallback("vault_copy");
       const result = await cb({ path: "folder/file.md", destination: "archive/file.md" });
-      expect(ops.copyVaultFile).toHaveBeenCalledWith("folder/file.md", "archive/file.md", false);
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("folder/file.md", "archive/file.md", false, undefined);
       const parsed = parseText(result);
       expect(parsed.message).toBe("OK");
       expect(parsed.sourcePath).toBe("folder/file.md");
@@ -1916,21 +2005,21 @@ describe("McpHandler", () => {
       ops.copyVaultFile.mockResolvedValue("archive/todo.md");
       const cb = getToolCallback("vault_copy");
       const result = await cb({ path: "notes/todo.md", destination: "archive/" });
-      expect(ops.copyVaultFile).toHaveBeenCalledWith("notes/todo.md", "archive/todo.md", false);
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("notes/todo.md", "archive/todo.md", false, undefined);
       expect(parseText(result).newPath).toBe("archive/todo.md");
     });
 
     test("passes allowOverwrite flag", async () => {
       const cb = getToolCallback("vault_copy");
       await cb({ path: "a.md", destination: "b.md", allowOverwrite: true });
-      expect(ops.copyVaultFile).toHaveBeenCalledWith("a.md", "b.md", true);
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("a.md", "b.md", true, undefined);
     });
 
     test("empty destination copies to vault root preserving source filename", async () => {
       ops.copyVaultFile.mockResolvedValue("todo.md");
       const cb = getToolCallback("vault_copy");
       const result = await cb({ path: "notes/todo.md", destination: "" });
-      expect(ops.copyVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false);
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false, undefined);
       expect(parseText(result).newPath).toBe("todo.md");
     });
 
@@ -1954,7 +2043,7 @@ describe("McpHandler", () => {
       ops.copyVaultFile.mockResolvedValue("archive/notes..md");
       const cb = getToolCallback("vault_copy");
       const result = await cb({ path: "a.md", destination: "archive/notes..md" });
-      expect(ops.copyVaultFile).toHaveBeenCalledWith("a.md", "archive/notes..md", false);
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("a.md", "archive/notes..md", false, undefined);
       expect(parseText(result).newPath).toBe("archive/notes..md");
     });
 

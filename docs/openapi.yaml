@@ -97,6 +97,10 @@ components:
           items:
             type: "string"
           type: "array"
+        version:
+          description: "The file's version token, computed from the `content` returned beside it: the same value as its `ETag` and its document map's `version`. Send it as `If-Match` (quoted or bare) on a write to make the write fail, rather than overwrite a change made in between, if the file has changed."
+          example: "a1b2c3"
+          type: "string"
       required:
         - "tags"
         - "frontmatter"
@@ -228,6 +232,10 @@ info:
     
     - **REST API** — standard HTTP endpoints for reading and writing notes, searching vault contents, and more. Useful from scripts, applications, or any HTTP client.
     - **MCP server** — exposes the same capabilities as structured tools for AI assistants (Claude, Cursor, and other MCP-compatible clients). See the `POST /mcp/` endpoint for connection details.
+    
+    ## Conditional writes
+    
+    Every write to a file accepts an `If-Match` header, so two clients editing the same note cannot silently overwrite each other. Read the file, keep the `ETag` it answers with, and send it back as `If-Match` on the write: if the file has changed in between, the write fails with `412` and nothing is written. `If-None-Match: *` makes a `PUT` create-only. The document map's `version` and note JSON's `version` are the same token as the `ETag`, and every write that changes a file answers with its new one.
     
     ## Testing with this interface
     
@@ -398,6 +406,28 @@ paths:
               - "true"
               - "false"
             type: "string"
+        - description: |
+            Write only if the file is still the version you read. Send the `ETag` from
+            a `GET` of the file (or from a previous write), or the `version` from its
+            document map or note JSON -- they are the same token. A comma-separated
+            list matches if any entry does, and `*` matches any file that exists.
+            
+            If the file has changed since, or does not exist, the request fails with
+            `412` (error code `41200`) and nothing is written; read the file again and
+            redo the edit against what is there now. Tags are compared strongly: a
+            weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+            writes it, or bare. A value that is neither `*` nor an entity-tag list is
+            refused with `400` (error code `40024`).
+            
+            Writes made through this API are queued per file, so two requests that
+            hold the same tag cannot both pass the check: the first to arrive writes,
+            and the second fails with `412`.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            example: "\"a1b2c3\""
+            type: "string"
       responses:
         "204":
           description: "Success"
@@ -420,6 +450,12 @@ paths:
                 "$ref": "#/components/schemas/Error"
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
+        "412":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Precondition Failed: an `If-Match` or `If-None-Match` header did not hold against the file as it is now -- it has changed since the version `If-Match` named, no longer exists, or (under `If-None-Match: *`) already exists. Nothing was written. The message names the file's current version."
       summary: |
         Deletes the currently-active file in Obsidian.
       tags:
@@ -563,7 +599,7 @@ paths:
                   headings:
                     "$ref": "#/components/schemas/HeadingTree"
                   version:
-                    description: "Content-hash token for the file; pass it back as a PATCH `ifMatch` to make an edit conditional on the file being unchanged."
+                    description: "Content-hash token for the file, the same value as its `ETag`; pass it back as a PATCH `ifMatch`, or as `If-Match` on any write, to make the write conditional on the file being unchanged."
                     example: "a1b2c3"
                     type: "string"
                 type: "object"
@@ -591,6 +627,11 @@ paths:
               description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
+                type: "string"
+            ETag:
+              description: "The file's version, as a strong entity tag -- the same token as the document map's `version` and note JSON's `version`. Send it as `If-Match` on a write to make that write fail, rather than overwrite a change made in between, if the file has changed. Sent with the file itself, a section of it, and the document map, all of which depend only on the file's bytes; a matching `If-None-Match` on those reads is answered `304 Not Modified`. Not sent as this token with `Accept: text/html` or note JSON, which also depend on other files (embeds, backlinks) -- read note JSON's `version` field instead."
+              schema:
+                example: "\"a1b2c3\""
                 type: "string"
         "400":
           content:
@@ -823,6 +864,8 @@ paths:
         
         Pass `ifMatch` with the `version` token from a document map (see below). If the file changed since, the patch fails with `412` and the file is untouched — refetch and retry.
         
+        The `If-Match` and `If-None-Match` headers work here too, in every mode, exactly as on the other writes: `If-Match` takes the same token (the `ETag` from a `GET` of the file, quoted or bare), a list of them, or `*`. When a JSON instruction carries `ifMatch` and the request also sends `If-Match`, both must hold. A successful patch answers with the patched file's version in `ETag`, ready for the next conditional edit.
+        
         ## Identifying patch targets in a file
         
         Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent) or a block reference ID repeats, only the first occurrence keeps its plain-text/id key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
@@ -836,7 +879,7 @@ paths:
         - **URL path elements**, exactly as GET/PUT/POST use them: `PATCH /vault/note.md/heading/A/B`. No version header needed.
         - **`Target-Type` / `Target` headers**, together with an explicit `Markdown-Patch-Version: 2`. The `Target` encoding is type-dependent, mirroring the instruction's `target` field: a heading Target is **JSON, percent-encoded** — `["A","B"]` sent as `%5B%22A%22%2C%22B%22%5D`, or `null` for the document root — while block and frontmatter Targets are the plain id/key (percent-encoded if non-ASCII). Because `Target` headers on a PATCH are ambiguous with the deprecated 1.x format, omitting the version header fails loudly with `400 PatchHeaderTargetingRequiresExplicitVersion` rather than guessing.
         
-        The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Within` (the instruction's `within` index as a plain integer, e.g. `-1` — splice into one of the section's body blocks instead of adding a new one), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
+        The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Within` (the instruction's `within` index as a plain integer, e.g. `-1` — splice into one of the section's body blocks instead of adding a new one), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (a precondition on the file, as on every write: the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
         
         The body is the payload carrier, chosen by its content type:
         
@@ -1016,16 +1059,6 @@ paths:
           required: false
           schema:
             type: "string"
-        - description: |
-            Raw-content mode: the instruction's `ifMatch` optimistic-concurrency
-            token — the `version` from a document map, bare or wrapped in one pair
-            of double quotes (RFC 9110 ETag style). A mismatch fails with `412` and
-            leaves the file untouched.
-          in: "header"
-          name: "If-Match"
-          required: false
-          schema:
-            type: "string"
         - description: "If the specified Target does not exist, create it?"
           in: "header"
           name: "Create-Target-If-Missing"
@@ -1045,6 +1078,40 @@ paths:
             enum:
               - "true"
               - "false"
+            type: "string"
+        - description: |
+            Write only if the file is still the version you read. Send the `ETag` from
+            a `GET` of the file (or from a previous write), or the `version` from its
+            document map or note JSON -- they are the same token. A comma-separated
+            list matches if any entry does, and `*` matches any file that exists.
+            
+            If the file has changed since, or does not exist, the request fails with
+            `412` (error code `41200`) and nothing is written; read the file again and
+            redo the edit against what is there now. Tags are compared strongly: a
+            weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+            writes it, or bare. A value that is neither `*` nor an entity-tag list is
+            refused with `400` (error code `40024`).
+            
+            Writes made through this API are queued per file, so two requests that
+            hold the same tag cannot both pass the check: the first to arrive writes,
+            and the second fails with `412`.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            example: "\"a1b2c3\""
+            type: "string"
+        - description: |
+            `*` writes only if nothing exists at the path yet -- a create that will
+            not overwrite. A list of entity tags instead fails the write if the file is
+            currently at any of those versions. A failed precondition is `412` (error
+            code `41200`) and nothing is written; a malformed value is `400` (error
+            code `40024`).
+          in: "header"
+          name: "If-None-Match"
+          required: false
+          schema:
+            example: "*"
             type: "string"
       requestBody:
         content:
@@ -1133,6 +1200,11 @@ paths:
               schema:
                 example: "notes/file.md"
                 type: "string"
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
             Markdown-Patch-Warnings:
               description: "Present only when the patch produced warnings: a percent-encoded JSON array of `{ code, message }` objects (percent-encoded because a warning message embeds document text verbatim, which may contain non-ASCII characters that are not valid in a raw header value). Decode with `decodeURIComponent` before parsing as JSON."
               schema:
@@ -1167,7 +1239,7 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Precondition Failed: the `ifMatch` token did not match the current document version; the file was not modified."
+          description: "Precondition Failed: an `If-Match` or `If-None-Match` header, or the JSON instruction's own `ifMatch` field, did not hold against the file as it is now. The file was not modified; the message names its current version."
         "422":
           content:
             application/json:
@@ -1265,6 +1337,40 @@ paths:
               - "true"
               - "false"
             type: "string"
+        - description: |
+            Write only if the file is still the version you read. Send the `ETag` from
+            a `GET` of the file (or from a previous write), or the `version` from its
+            document map or note JSON -- they are the same token. A comma-separated
+            list matches if any entry does, and `*` matches any file that exists.
+            
+            If the file has changed since, or does not exist, the request fails with
+            `412` (error code `41200`) and nothing is written; read the file again and
+            redo the edit against what is there now. Tags are compared strongly: a
+            weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+            writes it, or bare. A value that is neither `*` nor an entity-tag list is
+            refused with `400` (error code `40024`).
+            
+            Writes made through this API are queued per file, so two requests that
+            hold the same tag cannot both pass the check: the first to arrive writes,
+            and the second fails with `412`.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            example: "\"a1b2c3\""
+            type: "string"
+        - description: |
+            `*` writes only if nothing exists at the path yet -- a create that will
+            not overwrite. A list of entity tags instead fails the write if the file is
+            currently at any of those versions. A failed precondition is `412` (error
+            code `41200`) and nothing is written; a malformed value is `400` (error
+            code `40024`).
+          in: "header"
+          name: "If-None-Match"
+          required: false
+          schema:
+            example: "*"
+            type: "string"
       requestBody:
         content:
           text/markdown:
@@ -1289,6 +1395,11 @@ paths:
               schema:
                 example: "notes/file.md"
                 type: "string"
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
             Markdown-Patch-Warnings:
               description: "Present only when the write produced warnings: a percent-encoded JSON array of `{ code, message }` objects. Decode with `decodeURIComponent` before parsing as JSON."
               schema:
@@ -1300,6 +1411,11 @@ paths:
               description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
+                type: "string"
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
                 type: "string"
         "400":
           content:
@@ -1320,6 +1436,12 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "`Reject-If-Content-Preexists` was set and the content already appears in the targeted section."
+        "412":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Precondition Failed: an `If-Match` or `If-None-Match` header did not hold against the file as it is now -- it has changed since the version `If-Match` named, no longer exists, or (under `If-None-Match: *`) already exists. Nothing was written. The message names the file's current version."
       summary: |
         Append content to the active file open in Obsidian.
       tags:
@@ -1397,6 +1519,40 @@ paths:
               - "true"
               - "false"
             type: "string"
+        - description: |
+            Write only if the file is still the version you read. Send the `ETag` from
+            a `GET` of the file (or from a previous write), or the `version` from its
+            document map or note JSON -- they are the same token. A comma-separated
+            list matches if any entry does, and `*` matches any file that exists.
+            
+            If the file has changed since, or does not exist, the request fails with
+            `412` (error code `41200`) and nothing is written; read the file again and
+            redo the edit against what is there now. Tags are compared strongly: a
+            weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+            writes it, or bare. A value that is neither `*` nor an entity-tag list is
+            refused with `400` (error code `40024`).
+            
+            Writes made through this API are queued per file, so two requests that
+            hold the same tag cannot both pass the check: the first to arrive writes,
+            and the second fails with `412`.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            example: "\"a1b2c3\""
+            type: "string"
+        - description: |
+            `*` writes only if nothing exists at the path yet -- a create that will
+            not overwrite. A list of entity tags instead fails the write if the file is
+            currently at any of those versions. A failed precondition is `412` (error
+            code `41200`) and nothing is written; a malformed value is `400` (error
+            code `40024`).
+          in: "header"
+          name: "If-None-Match"
+          required: false
+          schema:
+            example: "*"
+            type: "string"
       requestBody:
         content:
           "*/*":
@@ -1424,6 +1580,11 @@ paths:
               schema:
                 example: "notes/file.md"
                 type: "string"
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
             Markdown-Patch-Warnings:
               description: "Present only when the write produced warnings: a percent-encoded JSON array of `{ code, message }` objects. Decode with `decodeURIComponent` before parsing as JSON."
               schema:
@@ -1435,6 +1596,11 @@ paths:
               description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
+                type: "string"
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
                 type: "string"
         "400":
           content:
@@ -1456,6 +1622,12 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "`Reject-If-Content-Preexists` was set and the content already appears in the targeted section."
+        "412":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Precondition Failed: an `If-Match` or `If-None-Match` header did not hold against the file as it is now -- it has changed since the version `If-Match` named, no longer exists, or (under `If-None-Match: *`) already exists. Nothing was written. The message names the file's current version."
       summary: |
         Update the content of the active file open in Obsidian.
       tags:
@@ -2357,6 +2529,28 @@ paths:
             schema:
               format: "path"
               type: "string"
+          - description: |
+              Write only if the file is still the version you read. Send the `ETag` from
+              a `GET` of the file (or from a previous write), or the `version` from its
+              document map or note JSON -- they are the same token. A comma-separated
+              list matches if any entry does, and `*` matches any file that exists.
+              
+              If the file has changed since, or does not exist, the request fails with
+              `412` (error code `41200`) and nothing is written; read the file again and
+              redo the edit against what is there now. Tags are compared strongly: a
+              weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+              writes it, or bare. A value that is neither `*` nor an entity-tag list is
+              refused with `400` (error code `40024`).
+              
+              Writes made through this API are queued per file, so two requests that
+              hold the same tag cannot both pass the check: the first to arrive writes,
+              and the second fails with `412`.
+            in: "header"
+            name: "If-Match"
+            required: false
+            schema:
+              example: "\"a1b2c3\""
+              type: "string"
         responses:
           "204":
             description: "File successfully copied."
@@ -2397,6 +2591,12 @@ paths:
                 schema:
                   "$ref": "#/components/schemas/Error"
             description: "Destination file already exists."
+          "412":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: "Precondition Failed: an `If-Match` or `If-None-Match` header did not hold against the file as it is now -- it has changed since the version `If-Match` named, no longer exists, or (under `If-None-Match: *`) already exists. Nothing was written. The message names the file's current version."
         summary: |
           Copy a file to a new location in your vault.
         tags:
@@ -2430,6 +2630,28 @@ paths:
             required: true
             schema:
               format: "path"
+              type: "string"
+          - description: |
+              Write only if the file is still the version you read. Send the `ETag` from
+              a `GET` of the file (or from a previous write), or the `version` from its
+              document map or note JSON -- they are the same token. A comma-separated
+              list matches if any entry does, and `*` matches any file that exists.
+              
+              If the file has changed since, or does not exist, the request fails with
+              `412` (error code `41200`) and nothing is written; read the file again and
+              redo the edit against what is there now. Tags are compared strongly: a
+              weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+              writes it, or bare. A value that is neither `*` nor an entity-tag list is
+              refused with `400` (error code `40024`).
+              
+              Writes made through this API are queued per file, so two requests that
+              hold the same tag cannot both pass the check: the first to arrive writes,
+              and the second fails with `412`.
+            in: "header"
+            name: "If-Match"
+            required: false
+            schema:
+              example: "\"a1b2c3\""
               type: "string"
         responses:
           "204":
@@ -2471,6 +2693,12 @@ paths:
                 schema:
                   "$ref": "#/components/schemas/Error"
             description: "Destination file already exists."
+          "412":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: "Precondition Failed: an `If-Match` or `If-None-Match` header did not hold against the file as it is now -- it has changed since the version `If-Match` named, no longer exists, or (under `If-None-Match: *`) already exists. Nothing was written. The message names the file's current version."
         summary: |
           Move a file to a new location in your vault.
         tags:
@@ -2495,6 +2723,28 @@ paths:
           schema:
             format: "path"
             type: "string"
+        - description: |
+            Write only if the file is still the version you read. Send the `ETag` from
+            a `GET` of the file (or from a previous write), or the `version` from its
+            document map or note JSON -- they are the same token. A comma-separated
+            list matches if any entry does, and `*` matches any file that exists.
+            
+            If the file has changed since, or does not exist, the request fails with
+            `412` (error code `41200`) and nothing is written; read the file again and
+            redo the edit against what is there now. Tags are compared strongly: a
+            weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+            writes it, or bare. A value that is neither `*` nor an entity-tag list is
+            refused with `400` (error code `40024`).
+            
+            Writes made through this API are queued per file, so two requests that
+            hold the same tag cannot both pass the check: the first to arrive writes,
+            and the second fails with `412`.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            example: "\"a1b2c3\""
+            type: "string"
       responses:
         "204":
           description: "Success"
@@ -2517,6 +2767,12 @@ paths:
                 "$ref": "#/components/schemas/Error"
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
+        "412":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Precondition Failed: an `If-Match` or `If-None-Match` header did not hold against the file as it is now -- it has changed since the version `If-Match` named, no longer exists, or (under `If-None-Match: *`) already exists. Nothing was written. The message names the file's current version."
       summary: |
         Delete a particular file in your vault.
       tags:
@@ -2697,7 +2953,7 @@ paths:
                   headings:
                     "$ref": "#/components/schemas/HeadingTree"
                   version:
-                    description: "Content-hash token for the file; pass it back as a PATCH `ifMatch` to make an edit conditional on the file being unchanged."
+                    description: "Content-hash token for the file, the same value as its `ETag`; pass it back as a PATCH `ifMatch`, or as `If-Match` on any write, to make the write conditional on the file being unchanged."
                     example: "a1b2c3"
                     type: "string"
                 type: "object"
@@ -2726,6 +2982,11 @@ paths:
               required: false
               schema:
                 example: "notes/file.md"
+                type: "string"
+            ETag:
+              description: "The file's version, as a strong entity tag -- the same token as the document map's `version` and note JSON's `version`. Send it as `If-Match` on a write to make that write fail, rather than overwrite a change made in between, if the file has changed. Sent with the file itself, a section of it, and the document map, all of which depend only on the file's bytes; a matching `If-None-Match` on those reads is answered `304 Not Modified`. Not sent as this token with `Accept: text/html` or note JSON, which also depend on other files (embeds, backlinks) -- read note JSON's `version` field instead."
+              schema:
+                example: "\"a1b2c3\""
                 type: "string"
         "400":
           content:
@@ -2964,6 +3225,8 @@ paths:
         
         Pass `ifMatch` with the `version` token from a document map (see below). If the file changed since, the patch fails with `412` and the file is untouched — refetch and retry.
         
+        The `If-Match` and `If-None-Match` headers work here too, in every mode, exactly as on the other writes: `If-Match` takes the same token (the `ETag` from a `GET` of the file, quoted or bare), a list of them, or `*`. When a JSON instruction carries `ifMatch` and the request also sends `If-Match`, both must hold. A successful patch answers with the patched file's version in `ETag`, ready for the next conditional edit.
+        
         ## Identifying patch targets in a file
         
         Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent) or a block reference ID repeats, only the first occurrence keeps its plain-text/id key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
@@ -2977,7 +3240,7 @@ paths:
         - **URL path elements**, exactly as GET/PUT/POST use them: `PATCH /vault/note.md/heading/A/B`. No version header needed.
         - **`Target-Type` / `Target` headers**, together with an explicit `Markdown-Patch-Version: 2`. The `Target` encoding is type-dependent, mirroring the instruction's `target` field: a heading Target is **JSON, percent-encoded** — `["A","B"]` sent as `%5B%22A%22%2C%22B%22%5D`, or `null` for the document root — while block and frontmatter Targets are the plain id/key (percent-encoded if non-ASCII). Because `Target` headers on a PATCH are ambiguous with the deprecated 1.x format, omitting the version header fails loudly with `400 PatchHeaderTargetingRequiresExplicitVersion` rather than guessing.
         
-        The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Within` (the instruction's `within` index as a plain integer, e.g. `-1` — splice into one of the section's body blocks instead of adding a new one), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
+        The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Within` (the instruction's `within` index as a plain integer, e.g. `-1` — splice into one of the section's body blocks instead of adding a new one), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (a precondition on the file, as on every write: the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
         
         The body is the payload carrier, chosen by its content type:
         
@@ -3164,16 +3427,6 @@ paths:
           required: false
           schema:
             type: "string"
-        - description: |
-            Raw-content mode: the instruction's `ifMatch` optimistic-concurrency
-            token — the `version` from a document map, bare or wrapped in one pair
-            of double quotes (RFC 9110 ETag style). A mismatch fails with `412` and
-            leaves the file untouched.
-          in: "header"
-          name: "If-Match"
-          required: false
-          schema:
-            type: "string"
         - description: "If the specified Target does not exist, create it?"
           in: "header"
           name: "Create-Target-If-Missing"
@@ -3193,6 +3446,40 @@ paths:
             enum:
               - "true"
               - "false"
+            type: "string"
+        - description: |
+            Write only if the file is still the version you read. Send the `ETag` from
+            a `GET` of the file (or from a previous write), or the `version` from its
+            document map or note JSON -- they are the same token. A comma-separated
+            list matches if any entry does, and `*` matches any file that exists.
+            
+            If the file has changed since, or does not exist, the request fails with
+            `412` (error code `41200`) and nothing is written; read the file again and
+            redo the edit against what is there now. Tags are compared strongly: a
+            weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+            writes it, or bare. A value that is neither `*` nor an entity-tag list is
+            refused with `400` (error code `40024`).
+            
+            Writes made through this API are queued per file, so two requests that
+            hold the same tag cannot both pass the check: the first to arrive writes,
+            and the second fails with `412`.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            example: "\"a1b2c3\""
+            type: "string"
+        - description: |
+            `*` writes only if nothing exists at the path yet -- a create that will
+            not overwrite. A list of entity tags instead fails the write if the file is
+            currently at any of those versions. A failed precondition is `412` (error
+            code `41200`) and nothing is written; a malformed value is `400` (error
+            code `40024`).
+          in: "header"
+          name: "If-None-Match"
+          required: false
+          schema:
+            example: "*"
             type: "string"
       requestBody:
         content:
@@ -3282,6 +3569,11 @@ paths:
               schema:
                 example: "notes/file.md"
                 type: "string"
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
             Markdown-Patch-Warnings:
               description: "Present only when the patch produced warnings: a percent-encoded JSON array of `{ code, message }` objects (percent-encoded because a warning message embeds document text verbatim, which may contain non-ASCII characters that are not valid in a raw header value). Decode with `decodeURIComponent` before parsing as JSON."
               schema:
@@ -3322,7 +3614,7 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Precondition Failed: the `ifMatch` token did not match the current document version; the file was not modified."
+          description: "Precondition Failed: an `If-Match` or `If-None-Match` header, or the JSON instruction's own `ifMatch` field, did not hold against the file as it is now. The file was not modified; the message names its current version."
         "422":
           content:
             application/json:
@@ -3427,6 +3719,40 @@ paths:
               - "true"
               - "false"
             type: "string"
+        - description: |
+            Write only if the file is still the version you read. Send the `ETag` from
+            a `GET` of the file (or from a previous write), or the `version` from its
+            document map or note JSON -- they are the same token. A comma-separated
+            list matches if any entry does, and `*` matches any file that exists.
+            
+            If the file has changed since, or does not exist, the request fails with
+            `412` (error code `41200`) and nothing is written; read the file again and
+            redo the edit against what is there now. Tags are compared strongly: a
+            weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+            writes it, or bare. A value that is neither `*` nor an entity-tag list is
+            refused with `400` (error code `40024`).
+            
+            Writes made through this API are queued per file, so two requests that
+            hold the same tag cannot both pass the check: the first to arrive writes,
+            and the second fails with `412`.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            example: "\"a1b2c3\""
+            type: "string"
+        - description: |
+            `*` writes only if nothing exists at the path yet -- a create that will
+            not overwrite. A list of entity tags instead fails the write if the file is
+            currently at any of those versions. A failed precondition is `412` (error
+            code `41200`) and nothing is written; a malformed value is `400` (error
+            code `40024`).
+          in: "header"
+          name: "If-None-Match"
+          required: false
+          schema:
+            example: "*"
+            type: "string"
       requestBody:
         content:
           text/markdown:
@@ -3452,12 +3778,23 @@ paths:
               schema:
                 example: "notes/file.md"
                 type: "string"
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
             Markdown-Patch-Warnings:
               description: "Present only when the write produced warnings: a percent-encoded JSON array of `{ code, message }` objects. Decode with `decodeURIComponent` before parsing as JSON."
               schema:
                 type: "string"
         "204":
           description: "Success; content appended to end of file."
+          headers:
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
         "400":
           content:
             application/json:
@@ -3483,6 +3820,12 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "`Reject-If-Content-Preexists` was set and the content already appears in the targeted section."
+        "412":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Precondition Failed: an `If-Match` or `If-None-Match` header did not hold against the file as it is now -- it has changed since the version `If-Match` named, no longer exists, or (under `If-None-Match: *`) already exists. Nothing was written. The message names the file's current version."
       summary: |
         Append content to a new or existing file.
       tags:
@@ -3591,6 +3934,40 @@ paths:
           required: false
           schema:
             type: "string"
+        - description: |
+            Write only if the file is still the version you read. Send the `ETag` from
+            a `GET` of the file (or from a previous write), or the `version` from its
+            document map or note JSON -- they are the same token. A comma-separated
+            list matches if any entry does, and `*` matches any file that exists.
+            
+            If the file has changed since, or does not exist, the request fails with
+            `412` (error code `41200`) and nothing is written; read the file again and
+            redo the edit against what is there now. Tags are compared strongly: a
+            weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+            writes it, or bare. A value that is neither `*` nor an entity-tag list is
+            refused with `400` (error code `40024`).
+            
+            Writes made through this API are queued per file, so two requests that
+            hold the same tag cannot both pass the check: the first to arrive writes,
+            and the second fails with `412`.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            example: "\"a1b2c3\""
+            type: "string"
+        - description: |
+            `*` writes only if nothing exists at the path yet -- a create that will
+            not overwrite. A list of entity tags instead fails the write if the file is
+            currently at any of those versions. A failed precondition is `412` (error
+            code `41200`) and nothing is written; a malformed value is `400` (error
+            code `40024`).
+          in: "header"
+          name: "If-None-Match"
+          required: false
+          schema:
+            example: "*"
+            type: "string"
       requestBody:
         content:
           "*/*":
@@ -3619,12 +3996,23 @@ paths:
               schema:
                 example: "notes/file.md"
                 type: "string"
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
             Markdown-Patch-Warnings:
               description: "Present only when the write produced warnings: a percent-encoded JSON array of `{ code, message }` objects. Decode with `decodeURIComponent` before parsing as JSON."
               schema:
                 type: "string"
         "204":
           description: "Success; entire file replaced."
+          headers:
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
         "400":
           content:
             application/json:
@@ -3651,6 +4039,12 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "`Reject-If-Content-Preexists` was set and the content already appears in the targeted section."
+        "412":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Precondition Failed: an `If-Match` or `If-None-Match` header did not hold against the file as it is now -- it has changed since the version `If-Match` named, no longer exists, or (under `If-None-Match: *`) already exists. Nothing was written. The message names the file's current version."
       summary: |
         Create a new file in your vault or update the content of an existing one.
       tags:

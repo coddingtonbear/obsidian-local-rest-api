@@ -31,6 +31,7 @@ import {
   ReservedDuplicateMarkerError,
   InstructionInputSchema,
   readTarget,
+  versionOf,
 } from "markdown-patch-2";
 import type {
   InstructionInput,
@@ -50,6 +51,11 @@ import {
 } from "./types";
 import {
 } from "./utils";
+import {
+  formatEntityTag,
+  parseEntityTagCondition,
+  WritePreconditions,
+} from "./conditionalRequests";
 import {
   getCertificateStandardsIssue,
   getCertificateValidityDays,
@@ -684,6 +690,47 @@ export default class RequestHandler {
     }
   }
 
+  /**
+   * The request's `If-Match`/`If-None-Match` headers, for a write to check
+   * against the file's current version. Returns null -- having already sent a
+   * 400 -- when either header is malformed, since guessing at a precondition a
+   * client meant to protect itself with would defeat the point of sending one.
+   */
+  private requestPreconditions(
+    req: express.Request,
+    res: express.Response,
+  ): WritePreconditions | null {
+    const preconditions: WritePreconditions = {};
+    for (const [header, key] of [
+      ["If-Match", "ifMatch"],
+      ["If-None-Match", "ifNoneMatch"],
+    ] as const) {
+      const raw = req.get(header);
+      if (raw === undefined) continue;
+      const condition = parseEntityTagCondition(raw);
+      if (condition === null) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidPreconditionHeader,
+          message: `It was supplied in the '${header}' header.`,
+        });
+        return null;
+      }
+      preconditions[key] = condition;
+    }
+    return preconditions;
+  }
+
+  /** Answer 412 for a write whose precondition did not hold. */
+  private returnPreconditionFailed(
+    res: express.Response,
+    error: PreconditionFailedError,
+  ): void {
+    this.returnCannedResponse(res, {
+      errorCode: ErrorCode.PreconditionFailed,
+      message: error.message,
+    });
+  }
+
   /** Whether a contained, vault-relative path is Obsidian's configuration
    *  directory or inside it -- by spelling, and by where it lands on disk, so an
    *  NTFS 8.3 short name or a symlink cannot reach it under another name. */
@@ -814,6 +861,15 @@ export default class RequestHandler {
     const content = await this.operations.readBinaryPath(filePath);
     const mimeType = mime.lookup(filePath);
 
+    // The file's version, as a strong entity tag. It is set only on the
+    // representations computed from the file's bytes alone -- the bytes
+    // themselves, a section of them, the document map -- because Express answers
+    // a matching If-None-Match with 304 on its own, and a note-JSON or HTML
+    // response also carries things that change while the bytes do not (backlinks,
+    // embeds). Those keep Express's default body-hash ETag; note JSON carries the
+    // version in its body instead.
+    const etag = formatEntityTag(versionOf(new Uint8Array(content)));
+
     // A signed link is made to be opened — in a browser tab, in an <img> — so it is
     // served inline unless the link asked for a download. API-key requests keep the
     // attachment disposition they have always had.
@@ -883,6 +939,7 @@ export default class RequestHandler {
       if (version === 1) {
         res.setHeader("Deprecation", `true; sunset-version="${MARKDOWN_PATCH_V1_SUNSET}"`);
       }
+      res.setHeader("ETag", etag);
       res.send(mapJson);
       return;
     }
@@ -1022,6 +1079,7 @@ export default class RequestHandler {
           return;
         }
 
+        res.setHeader("ETag", etag);
         if (result.kind === "frontmatter") {
           res.setHeader("Content-Type", ContentTypes.json);
           res.json(result.value);
@@ -1089,6 +1147,7 @@ export default class RequestHandler {
       return;
     }
 
+    res.setHeader("ETag", etag);
     if (resolvedTarget) {
       if (resolvedTarget.targetType === "frontmatter") {
         res.setHeader("Content-Type", ContentTypes.json);
@@ -1255,7 +1314,22 @@ export default class RequestHandler {
       });
       return;
     }
-    await this.operations.writeFileContent(filepath, req.body as string | Buffer);
+    const preconditions = this.requestPreconditions(req, res);
+    if (preconditions === null) return;
+    try {
+      const version = await this.operations.writeFileContent(
+        filepath,
+        req.body as string | Buffer,
+        preconditions,
+      );
+      res.setHeader("ETag", formatEntityTag(version));
+    } catch (e) {
+      if (e instanceof PreconditionFailedError) {
+        this.returnPreconditionFailed(res, e);
+        return;
+      }
+      throw e;
+    }
     this.returnCannedResponse(res, { statusCode: 204 });
     return;
   }
@@ -1349,6 +1423,12 @@ export default class RequestHandler {
       return;
     }
 
+    // If-Match/If-None-Match apply in every PATCH mode, checked against the
+    // file's bytes. A JSON instruction's own `ifMatch` field is separate, checked
+    // by the engine; when both are sent, both must hold.
+    const preconditions = this.requestPreconditions(req, res);
+    if (preconditions === null) return;
+
     // Three targeting signals exist: URL path elements, Target-Type/Target
     // headers, and the explicit instruction-body content type. They are
     // mutually exclusive — a request supplying more than one is ambiguous
@@ -1384,6 +1464,7 @@ export default class RequestHandler {
           },
           req,
           res,
+          preconditions,
         );
       }
       if (headerTargeting) {
@@ -1400,7 +1481,7 @@ export default class RequestHandler {
         }
         const parsed = this._getPatchHeaderTarget(req, res);
         if (!parsed) return;
-        return this._vaultPatchRawContent(path, parsed, req, res);
+        return this._vaultPatchRawContent(path, parsed, req, res, preconditions);
       }
       const body: unknown = req.body;
       if (typeof body !== "object" || body === null || Array.isArray(body)) {
@@ -1411,7 +1492,12 @@ export default class RequestHandler {
         });
         return;
       }
-      return this._vaultPatchMdp2(path, body as Record<string, unknown>, res);
+      return this._vaultPatchMdp2(
+        path,
+        body as Record<string, unknown>,
+        res,
+        preconditions,
+      );
     }
 
     // version === 1 with a URL-element target: URL targeting is purely a 2.0
@@ -1480,11 +1566,15 @@ export default class RequestHandler {
       const patched = await this.operations.patchFileSection(
         path, targetType, rawTarget, operation, req.body, contentType,
         { createTargetIfMissing, rejectIfContentPreexists, trimTargetWhitespace, targetDelimiter, targetScope },
+        preconditions,
       );
+      res.setHeader("ETag", formatEntityTag(versionOf(patched)));
       res.status(200).send(patched);
     } catch (e) {
       this.rethrowIfRefused(e);
-      if (e instanceof FileNotFoundError) {
+      if (e instanceof PreconditionFailedError) {
+        this.returnPreconditionFailed(res, e);
+      } else if (e instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else if (e instanceof PatchFailed) {
         this.returnCannedResponse(res, { errorCode: ErrorCode.PatchFailed, message: e.reason });
@@ -1534,6 +1624,7 @@ export default class RequestHandler {
     path: string,
     candidate: Record<string, unknown>,
     res: express.Response,
+    preconditions: WritePreconditions,
   ): Promise<void> {
     // Validate the whole instruction up front, against the same schema the
     // engine validates with, so malformed input gets a clean 400 before the
@@ -1558,7 +1649,12 @@ export default class RequestHandler {
       return;
     }
 
-    return this._respondMdp2(path, candidate as unknown as InstructionInput, res);
+    return this._respondMdp2(
+      path,
+      candidate as unknown as InstructionInput,
+      res,
+      preconditions,
+    );
   }
 
   /** Assemble a 2.0 instruction for a raw-content-mode PATCH: the target comes
@@ -1576,6 +1672,7 @@ export default class RequestHandler {
     target: { targetType: string; target: string[] | string | null },
     req: express.Request,
     res: express.Response,
+    preconditions: WritePreconditions,
   ): Promise<void> {
     // These headers only mean something to the deprecated 1.x engine
     // (delimiter-joined targets, 1.x whitespace trimming). Silently ignoring
@@ -1637,17 +1734,10 @@ export default class RequestHandler {
       within = Number(rawWithin.trim());
     }
 
-    // Standard If-Match carries a quoted ETag (RFC 9110); the engine's token
-    // is bare — accept either by stripping one pair of surrounding quotes.
-    const rawIfMatch = req.get("If-Match");
-    const ifMatch =
-      rawIfMatch !== undefined &&
-      rawIfMatch.length >= 2 &&
-      rawIfMatch.startsWith('"') &&
-      rawIfMatch.endsWith('"')
-        ? rawIfMatch.slice(1, -1)
-        : rawIfMatch;
-
+    // If-Match is not copied into the instruction's `ifMatch`: the caller has
+    // already parsed it, with If-None-Match, into `preconditions`, which the
+    // write checks against the file's bytes. That gives raw-content mode the same
+    // `*`, list, and quoted-or-bare handling as every other write.
     const candidate: Record<string, unknown> = {
       targetType: target.targetType,
       target: target.target,
@@ -1656,7 +1746,6 @@ export default class RequestHandler {
     if (within !== undefined) candidate.within = within;
     if (scope !== undefined) candidate.scope = scope;
     if (destination !== undefined) candidate.destination = destination;
-    if (ifMatch !== undefined) candidate.ifMatch = ifMatch;
     if (req.get("Create-Target-If-Missing") === "true") {
       candidate.createTargetIfMissing = true;
     }
@@ -1699,7 +1788,7 @@ export default class RequestHandler {
       }
     }
 
-    return this._vaultPatchMdp2(path, candidate, res);
+    return this._vaultPatchMdp2(path, candidate, res, preconditions);
   }
 
   /** Apply a single markdown-patch 2.0 instruction and write the standard 2.0
@@ -1711,11 +1800,13 @@ export default class RequestHandler {
     filePath: string,
     instruction: InstructionInput,
     res: express.Response,
+    preconditions: WritePreconditions,
   ): Promise<void> {
     try {
       const result = await this.operations.patchFileSectionMdp2(
         filePath,
         instruction,
+        preconditions,
       );
       if (result.warnings.length > 0) {
         // Percent-encoded, like Target/Destination on the request side: a
@@ -1730,13 +1821,14 @@ export default class RequestHandler {
         );
       }
       res.setHeader("Content-Type", ContentTypes.markdown + "; charset=utf-8");
+      res.setHeader("ETag", formatEntityTag(versionOf(result.document)));
       res.status(200).send(result.document);
     } catch (e) {
       this.rethrowIfRefused(e);
       if (e instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else if (e instanceof PreconditionFailedError) {
-        this.returnCannedResponse(res, { statusCode: 412, message: e.message });
+        this.returnPreconditionFailed(res, e);
       } else if (e instanceof TargetNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404, message: e.message });
       } else if (
@@ -1816,6 +1908,8 @@ export default class RequestHandler {
       req.get("Create-Target-If-Missing") == "true";
     const rejectIfContentPreexists =
       req.get("Reject-If-Content-Preexists") == "true";
+    const preconditions = this.requestPreconditions(req, res);
+    if (preconditions === null) return;
 
     if (version === 1) {
       res.setHeader("Deprecation", `true; sunset-version="${MARKDOWN_PATCH_V1_SUNSET}"`);
@@ -1846,11 +1940,15 @@ export default class RequestHandler {
         const patched = await this.operations.patchFileSection(
           filePath, targetType, target, operation, req.body, contentType,
           { createTargetIfMissing, rejectIfContentPreexists, trimTargetWhitespace, targetDelimiter, targetScope },
+          preconditions,
         );
+        res.setHeader("ETag", formatEntityTag(versionOf(patched)));
         res.status(200).send(patched);
       } catch (e) {
         this.rethrowIfRefused(e);
-        if (e instanceof FileNotFoundError) {
+        if (e instanceof PreconditionFailedError) {
+          this.returnPreconditionFailed(res, e);
+        } else if (e instanceof FileNotFoundError) {
           this.returnCannedResponse(res, { statusCode: 404 });
         } else if (e instanceof PatchFailed) {
           this.returnCannedResponse(res, { errorCode: ErrorCode.PatchFailed, message: (e).reason });
@@ -1944,7 +2042,7 @@ export default class RequestHandler {
             }
     ) as InstructionInput;
 
-    return this._respondMdp2(filePath, instruction, res);
+    return this._respondMdp2(filePath, instruction, res, preconditions);
   }
 
   async _vaultPost(
@@ -1964,7 +2062,22 @@ export default class RequestHandler {
       });
       return;
     }
-    await this.operations.appendFileContent(filepath, req.body);
+    const preconditions = this.requestPreconditions(req, res);
+    if (preconditions === null) return;
+    try {
+      const version = await this.operations.appendFileContent(
+        filepath,
+        req.body,
+        preconditions,
+      );
+      res.setHeader("ETag", formatEntityTag(version));
+    } catch (e) {
+      if (e instanceof PreconditionFailedError) {
+        this.returnPreconditionFailed(res, e);
+        return;
+      }
+      throw e;
+    }
     this.returnCannedResponse(res, { statusCode: 204 });
     return;
   }
@@ -2031,11 +2144,15 @@ export default class RequestHandler {
       return;
     }
     const permanent = req.query.permanent === "true";
+    const preconditions = this.requestPreconditions(req, res);
+    if (preconditions === null) return;
     try {
-      await this.operations.deleteVaultFile(path, permanent);
+      await this.operations.deleteVaultFile(path, permanent, preconditions);
     } catch (e) {
       this.rethrowIfRefused(e);
-      if (e instanceof FileNotFoundError) {
+      if (e instanceof PreconditionFailedError) {
+        this.returnPreconditionFailed(res, e);
+      } else if (e instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else {
         this.returnCannedResponse(res, { statusCode: 500 });
@@ -2128,12 +2245,22 @@ export default class RequestHandler {
       ? normalized + sourceFilename
       : normalized;
 
+    const preconditions = this.requestPreconditions(req, res);
+    if (preconditions === null) return;
+
     try {
-      const actualPath = await this.operations.moveVaultFile(path, newPath, allowOverwrite);
+      const actualPath = await this.operations.moveVaultFile(
+        path,
+        newPath,
+        allowOverwrite,
+        preconditions,
+      );
       res.set("Content-Location", encodeVaultPath(actualPath));
       this.returnCannedResponse(res, { statusCode: 204 });
     } catch (error) {
-      if (error instanceof FileNotFoundError) {
+      if (error instanceof PreconditionFailedError) {
+        this.returnPreconditionFailed(res, error);
+      } else if (error instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else if (error instanceof DestinationAlreadyExistsError) {
         this.returnCannedResponse(res, {
@@ -2224,12 +2351,22 @@ export default class RequestHandler {
       ? normalized + sourceFilename
       : normalized;
 
+    const preconditions = this.requestPreconditions(req, res);
+    if (preconditions === null) return;
+
     try {
-      const actualPath = await this.operations.copyVaultFile(path, newPath, allowOverwrite);
+      const actualPath = await this.operations.copyVaultFile(
+        path,
+        newPath,
+        allowOverwrite,
+        preconditions,
+      );
       res.set("Content-Location", encodeVaultPath(actualPath));
       this.returnCannedResponse(res, { statusCode: 204 });
     } catch (error) {
-      if (error instanceof FileNotFoundError) {
+      if (error instanceof PreconditionFailedError) {
+        this.returnPreconditionFailed(res, error);
+      } else if (error instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else if (error instanceof DestinationAlreadyExistsError) {
         this.returnCannedResponse(res, {
@@ -2664,6 +2801,12 @@ export default class RequestHandler {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.ConfigDirAccessNotAllowed,
       });
+      return;
+    }
+    // Every conditional write maps this itself; this is the backstop for one
+    // that does not, so a failed precondition never reads as a server fault.
+    if (err instanceof PreconditionFailedError) {
+      this.returnPreconditionFailed(res, err);
       return;
     }
     this.returnCannedResponse(res, {

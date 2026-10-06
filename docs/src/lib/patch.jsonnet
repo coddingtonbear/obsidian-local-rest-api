@@ -15,7 +15,6 @@ local T = import 'targeting.params.jsonnet';
     T.patchOperation,
     T.patchTargetScope,
     T.patchDestination,
-    T.ifMatch,
     T.createTargetIfMissing,
     T.rejectIfContentPreexists,
   ],
@@ -162,7 +161,7 @@ local T = import 'targeting.params.jsonnet';
       },
     },
     '412': {
-      description: 'Precondition Failed: the `ifMatch` token did not match the current document version; the file was not modified.',
+      description: 'Precondition Failed: an `If-Match` or `If-None-Match` header, or the JSON instruction\'s own `ifMatch` field, did not hold against the file as it is now. The file was not modified; the message names its current version.',
       content: {
         'application/json': {
           schema: {
