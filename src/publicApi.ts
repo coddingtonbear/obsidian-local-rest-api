@@ -282,6 +282,41 @@ export interface OpenApiDescription {
 }
 
 /**
+ * What an extension publishes in the `state` section of the authenticated `GET /`
+ * response, under its plugin id, through {@link LocalRestApiPublicApi.addState}.
+ *
+ * State is for runtime facts a client reads to decide whether to proceed: whether an
+ * index is built, when a sync last ran, how much work is queued. The host publishes
+ * its own under `metadataCache` (when it last heard Obsidian's link resolver). It is
+ * read on every authenticated `GET /` and by the MCP `server-status` resource, and
+ * never on an unauthenticated request.
+ */
+export interface StateDefinition {
+  /** What the fields mean. Published in the OpenAPI spec alongside `schema`. */
+  description: string;
+  /**
+   * A JSON Schema for the object `read` resolves to, merged into the `GET /` response
+   * schema the host publishes at `/openapi.yaml` so clients can rely on the shape.
+   * Without it the namespace is documented as a free-form object. Either way the
+   * published entry also admits `null`, which is what the host serves when `read`
+   * fails or overruns its budget.
+   */
+  schema?: OpenApiObject;
+  /**
+   * Resolves to the extension's current state: a JSON-serializable object.
+   *
+   * Called on every authenticated `GET /`, concurrently with every other extension's,
+   * and given a budget (100 ms by default; the user can change it in the plugin's
+   * advanced settings). A read that overruns it, rejects, or resolves to anything but a
+   * JSON object is served as `null` for this extension and logged once (not again until
+   * a read has succeeded, so a polling client does not fill the console), and the rest
+   * of the response is unaffected. Keep it cheap: compute in the background and have `read`
+   * hand back the latest result rather than doing the work here.
+   */
+  read: () => Promise<Record<string, unknown>>;
+}
+
+/**
  * Thrown by {@link getAPI} when the caller asks for an extension API version newer
  * than the installed plugin implements.
  */
@@ -412,6 +447,17 @@ export interface LocalRestApiPublicApi {
   addOpenApiDescription(description: OpenApiDescription): void;
 
   /**
+   * Publishes this extension's state in the `state` section of the authenticated
+   * `GET /` response, under the extension's plugin id. See {@link StateDefinition} for
+   * what is read, when, and how a slow or failing read is contained.
+   *
+   * Throws if this extension already registered its state, or if its plugin id is a
+   * namespace the host reserves (`vault`, `metadataCache`, `workspace`). Requires
+   * extension API version 4.
+   */
+  addState(definition: StateDefinition): void;
+
+  /**
    * Makes one of the extension's events streamable through the host's event streams,
    * under the extension's plugin id: `POST /events/<plugin id>/<event>/` subscribes, and
    * the MCP `events_get_listener_url` tool accepts it too.
@@ -428,7 +474,8 @@ export interface LocalRestApiPublicApi {
 
   /**
    * Removes every route, vault sub-resource, MCP tool, resource, resource template,
-   * prompt, OpenAPI description, and streamable event registered through this handle.
+   * prompt, OpenAPI description, streamable event, and state registered through this
+   * handle.
    */
   unregister(): void;
 }

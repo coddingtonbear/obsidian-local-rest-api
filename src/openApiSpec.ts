@@ -1,5 +1,5 @@
 import { parse, stringify } from "yaml";
-import type { OpenApiDescription, OpenApiObject, OpenApiTag } from "./publicApi";
+import type { OpenApiDescription, OpenApiObject, OpenApiTag, StateDefinition } from "./publicApi";
 
 /**
  * The extension that contributed a path item, stamped onto that item in the merged
@@ -10,6 +10,30 @@ export const EXTENSION_PATH_MARKER = "x-obsidian-extension";
 interface Contribution {
   owner: string;
   description: OpenApiDescription;
+}
+
+/** An extension's documentation of its `state` namespace on `GET /`. */
+interface StateContribution {
+  owner: string;
+  schema: OpenApiObject;
+}
+
+/** The nested `state` schema inside the host's `GET /` response, as a path of keys. */
+const STATE_SCHEMA_PATH = [
+  "paths", "/", "get", "responses", "200", "content", "application/json", "schema", "properties", "state",
+];
+
+/** Walks `document` down `STATE_SCHEMA_PATH`, throwing if the host spec lacks it. */
+function stateSchemaIn(document: OpenApiObject): { properties: Record<string, OpenApiObject> } {
+  let current: unknown = document;
+  for (const key of STATE_SCHEMA_PATH) {
+    if (!isPlainObject(current)) break;
+    current = current[key];
+  }
+  if (!isPlainObject(current) || !isPlainObject(current.properties)) {
+    throw new Error("The host OpenAPI spec does not describe the `state` section of GET /.");
+  }
+  return current as { properties: Record<string, OpenApiObject> };
 }
 
 /** The parts of the host document this module reads and writes. */
@@ -81,6 +105,7 @@ export class OpenApiSpec {
   private readonly hostYaml: string;
   private hostDocument: OpenApiDocument | null = null;
   private contributions: Contribution[] = [];
+  private stateContributions: StateContribution[] = [];
   private mergedDocument: OpenApiDocument | null = null;
   private mergedYaml: string | null = null;
 
@@ -128,6 +153,48 @@ export class OpenApiSpec {
     };
   }
 
+  /**
+   * Documents `owner`'s namespace in the `state` section of the `GET /` response schema,
+   * returning a function that removes it again.
+   *
+   * The entry carries the extension's `description` and an `x-obsidian-extension`
+   * marker, the same stamp a contributed path carries, and admits two shapes: the
+   * extension's `schema` (a free-form object when it gave none), and `null`, which is
+   * what the host serves for the namespace when its read fails or overruns the budget.
+   * Throws, publishing nothing, for a namespace the host or this extension already
+   * documents.
+   */
+  addStateSchema(owner: string, definition: Pick<StateDefinition, "description" | "schema">): () => void {
+    if (definition.schema !== undefined && !isPlainObject(definition.schema)) {
+      throw new Error("A state schema must be an object.");
+    }
+    if (stateSchemaIn(this.merged()).properties[owner] !== undefined) {
+      throw new Error(`The state namespace "${owner}" is already documented.`);
+    }
+    const schema: OpenApiObject = {
+      description: definition.description,
+      [EXTENSION_PATH_MARKER]: owner,
+      anyOf: [
+        structuredClone(definition.schema) ?? { type: "object", additionalProperties: true },
+        {
+          type: "null",
+          description: "The extension's state could not be read: its read failed or overran the budget.",
+        },
+      ],
+    };
+    const contribution: StateContribution = { owner, schema };
+    this.stateContributions.push(contribution);
+    this.invalidate();
+
+    return () => {
+      const index = this.stateContributions.indexOf(contribution);
+      if (index !== -1) {
+        this.stateContributions.splice(index, 1);
+        this.invalidate();
+      }
+    };
+  }
+
   private assertNoCollisions(description: OpenApiDescription): void {
     const current = this.merged();
     for (const path of Object.keys(description.paths ?? {})) {
@@ -162,9 +229,13 @@ export class OpenApiSpec {
     this.mergedYaml = null;
   }
 
+  private hasContributions(): boolean {
+    return this.contributions.length > 0 || this.stateContributions.length > 0;
+  }
+
   private merged(): OpenApiDocument {
     if (this.mergedDocument !== null) return this.mergedDocument;
-    if (this.contributions.length === 0) {
+    if (!this.hasContributions()) {
       this.mergedDocument = this.host();
       return this.mergedDocument;
     }
@@ -183,13 +254,19 @@ export class OpenApiSpec {
         document.tags = [...(document.tags ?? []), ...description.tags];
       }
     }
+    if (this.stateContributions.length > 0) {
+      const state = stateSchemaIn(document);
+      for (const { owner, schema } of this.stateContributions) {
+        state.properties[owner] = schema;
+      }
+    }
     this.mergedDocument = document;
     return document;
   }
 
   /** The published spec as YAML. */
   yaml(): string {
-    if (this.contributions.length === 0) return this.hostYaml;
+    if (!this.hasContributions()) return this.hostYaml;
     if (this.mergedYaml === null) {
       // lineWidth 0 turns off folding, so long descriptions stay on one line the way
       // the jsonnet-compiled host spec writes them.

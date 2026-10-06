@@ -379,6 +379,7 @@ export class McpHandler {
   private readonly signer: UrlSigner;
   private readonly events: EventStreams | null;
   private readonly imageScaler: ImageScaler | null;
+  private readonly serverStatus: (() => Promise<Record<string, unknown>>) | null;
   private readonly openApiSpec: OpenApiSpec;
   // Handles for the tools that only exist while signed URLs are enabled, so the setting
   // can be toggled without rebuilding the handler.
@@ -393,10 +394,16 @@ export class McpHandler {
       /** Where `events_get_listener_url` registers subscriptions; without it the tool is absent. */
       events?: EventStreams;
       openApiSpec?: OpenApiSpec;
+      /**
+       * Reads the document an authenticated `GET /` would return, for the
+       * `server-status` resource; without it the resource is absent.
+       */
+      serverStatus?: () => Promise<Record<string, unknown>>;
     } = {},
   ) {
     this.signer = options.signer ?? new UrlSigner();
     this.events = options.events ?? null;
+    this.serverStatus = options.serverStatus ?? null;
     this.openApiSpec = options.openApiSpec ?? new OpenApiSpec(openapiYaml);
     this.imageScaler =
       options.imageScaler !== undefined
@@ -1059,6 +1066,31 @@ export class McpHandler {
         ],
       }),
     );
+    if (this.serverStatus !== null) {
+      const serverStatus = this.serverStatus;
+      this.addResource(
+        "server-status",
+        "obsidian://local-rest-api/status",
+        {
+          mimeType: "application/json",
+          description: dedent`The same document an authenticated GET / returns: the plugin's version, the installed extensions, and the state section, which carries per-namespace observations with no verdict attached. state.metadataCache reports when the plugin started listening to Obsidian's metadata cache, when it last heard the cache's resolved event, and when it last heard any indexing activity; a vault still indexing after startup shows recent activity and, until the first drain, a null lastResolvedAt. Read it before trusting links, backlinks, or unresolvedLinks from vault_read on a freshly started Obsidian. Extensions add their own namespaces under their plugin id.`,
+        },
+        async (uri: URL) => ({
+          contents: [
+            {
+              uri: uri.href,
+              mimeType: "application/json",
+              text: JSON.stringify(await serverStatus(), null, 2),
+            },
+          ],
+          // Read to be acted on now: a client that cached it for the method's default
+          // minute would poll a stale answer. The SDK takes a result's own fields over
+          // the per-operation hint.
+          ttlMs: 0,
+          cacheScope: "private",
+        }),
+      );
+    }
   }
 
   // The tools that hand out signed URLs. Registered only while the setting is on, so a
@@ -1194,7 +1226,7 @@ export class McpHandler {
     this.tool(
       "vault_read",
       dedent`
-        Read a vault file's content and metadata. Returns a JSON object with: content (full markdown text), path, tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), stat ({ctime, mtime, size}), links (array of vault-relative paths this file links to), backlinks (array of vault-relative paths of files that link here), and unresolvedLinks (array of link text in this file that does not resolve to an existing vault file). Throws if the file does not exist.
+        Read a vault file's content and metadata. Returns a JSON object with: content (full markdown text), path, tags (array of tag strings), frontmatter (parsed YAML front-matter as an object), stat ({ctime, mtime, size}), links (array of vault-relative paths this file links to), backlinks (array of vault-relative paths of files that link here), and unresolvedLinks (array of link text in this file that does not resolve to an existing vault file). Throws if the file does not exist. The three link fields reflect Obsidian's metadata cache as it stands and may be incomplete while Obsidian is still indexing the vault after startup; the server-status resource (obsidian://local-rest-api/status) reports, under state.metadataCache, when the plugin last heard the cache resolve and when it last heard any indexing activity.
 
         When targetType and target are both provided, returns only the matched section as a plain string (markdown) or JSON value (frontmatter) instead of the full object. To save context, call vault_get_document_map first to identify headings, block IDs, or frontmatter keys, and prefer targeted reads over full reads for anything but short files.
 

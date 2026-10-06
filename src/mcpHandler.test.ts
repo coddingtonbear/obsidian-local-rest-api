@@ -271,6 +271,29 @@ describe("McpHandler", () => {
     expect(extended).toContain("x-obsidian-extension: widget-plugin");
   });
 
+  test("registers the server-status resource when given a way to read the server's status", async () => {
+    registerResource.mockClear();
+    const status = { status: "OK", authenticated: true, state: { metadataCache: { lastResolvedAt: null } } };
+    const serverStatus = jest.fn(async () => status);
+    buildServer(new McpHandler(ops, DEFAULT_SETTINGS, { serverStatus }));
+
+    const call = registerResource.mock.calls.find(([name]) => name === "server-status") as
+      | [string, string, { mimeType?: string; description?: string }, (uri: URL) => Promise<{ contents: { mimeType?: string; text: string }[]; ttlMs?: number }>]
+      | undefined;
+    expect(call).toBeDefined();
+    const [, uri, meta, read] = call;
+    expect(uri).toBe("obsidian://local-rest-api/status");
+    expect(meta.mimeType).toBe("application/json");
+    expect(meta.description).toMatch(/GET \//);
+
+    const result = await read(new URL(uri));
+    expect(serverStatus).toHaveBeenCalledTimes(1);
+    expect(result.contents[0].mimeType).toBe("application/json");
+    expect(JSON.parse(result.contents[0].text)).toEqual(status);
+    // Status is read to be acted on now; a cached copy would defeat polling it.
+    expect(result.ttlMs).toBe(0);
+  });
+
   // ---- tool registration --------------------------------------------------
 
   test("registers all 19 tools (the two signed-URL tools are there because that setting is on by default)", () => {
@@ -2242,6 +2265,28 @@ describe("McpHandler", () => {
         .expect(200);
       expect(resources.body.result.ttlMs).toBe(60_000);
       expect(resources.body.result.cacheScope).toBe("private");
+    });
+
+    test("reads the server-status resource with no cache lifetime", async () => {
+      mcp.close();
+      mcp = new McpHandler(ops, DEFAULT_SETTINGS, {
+        serverStatus: async () => ({ status: "OK", state: {} }),
+      });
+      app = makeApp(mcp);
+      const uri = "obsidian://local-rest-api/status";
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", "resources/read")
+        .set("Mcp-Name", uri)
+        .send(sessionlessRequest(1, "resources/read", { uri }))
+        .expect(200);
+
+      expect(res.body.result.contents[0].mimeType).toBe("application/json");
+      expect(JSON.parse(res.body.result.contents[0].text)).toEqual({ status: "OK", state: {} });
+      expect(res.body.result.ttlMs).toBe(0);
+      expect(res.body.result.cacheScope).toBe("private");
     });
 
     test("reads the openapi-spec resource", async () => {
