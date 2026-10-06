@@ -54,10 +54,10 @@ export function formatEntityTag(version: string): string {
   return `"${version}"`;
 }
 
-// One list element: an optional weak prefix, then either a quoted tag or a bare
-// token, then a comma or the end. Bare tokens are accepted for compatibility with
-// raw-content PATCH, which has always taken the version token unquoted.
-const LIST_ELEMENT = /\s*(W\/)?(?:"([^"]*)"|([^\s",]+))\s*(?:,|$)/y;
+/** Optional whitespace and list separators, per RFC 9110 §5.6.1. */
+function isSeparator(char: string): boolean {
+  return char === "," || char === " " || char === "\t";
+}
 
 /**
  * Parse an `If-Match`/`If-None-Match` value. Returns null when the value is not a
@@ -66,31 +66,47 @@ const LIST_ELEMENT = /\s*(W\/)?(?:"([^"]*)"|([^\s",]+))\s*(?:,|$)/y;
  *
  * Empty list elements (`"a", , "b"`) are skipped, as RFC 9110 §5.6.1 requires of a
  * recipient. A `W/` prefix must be followed by a quoted tag, and `*` is only valid
- * as the whole value.
+ * as the whole value. Bare unquoted tokens are accepted for compatibility with
+ * raw-content PATCH, which has always taken the version token unquoted.
+ *
+ * A single left-to-right scan rather than a regular expression: the value comes
+ * straight from a client, and a scan is linear by construction.
  */
 export function parseEntityTagCondition(raw: string): EntityTagCondition | null {
   const value = raw.trim();
   if (value === "*") return "*";
 
   const tags: EntityTag[] = [];
-  let position = 0;
-  while (position < value.length) {
-    // Skip empty elements: runs of commas and whitespace between tags.
-    const skip = /[\s,]*/y;
-    skip.lastIndex = position;
-    skip.exec(value);
-    position = skip.lastIndex;
-    if (position >= value.length) break;
+  let i = 0;
+  while (i < value.length) {
+    if (isSeparator(value[i])) {
+      i++;
+      continue;
+    }
 
-    LIST_ELEMENT.lastIndex = position;
-    const match = LIST_ELEMENT.exec(value);
-    if (!match) return null;
-    const [, weakPrefix, quoted, bare] = match;
-    if (weakPrefix !== undefined && quoted === undefined) return null;
-    // `*` stands alone (RFC 9110 §13.1.1); inside a list it is not a tag.
-    if (bare === "*") return null;
-    tags.push({ opaque: quoted ?? bare, weak: weakPrefix !== undefined });
-    position = LIST_ELEMENT.lastIndex;
+    const weak = value.startsWith("W/", i);
+    if (weak) i += 2;
+
+    let opaque: string;
+    if (value[i] === '"') {
+      const close = value.indexOf('"', i + 1);
+      if (close === -1) return null;
+      opaque = value.slice(i + 1, close);
+      i = close + 1;
+    } else {
+      if (weak) return null;
+      const begin = i;
+      while (i < value.length && !isSeparator(value[i]) && value[i] !== '"') i++;
+      opaque = value.slice(begin, i);
+      // `*` stands alone (RFC 9110 §13.1.1); inside a list it is not a tag.
+      if (opaque === "*" || value[i] === '"') return null;
+    }
+
+    // A tag must be followed by optional whitespace, then a comma or the end.
+    while (value[i] === " " || value[i] === "\t") i++;
+    if (i < value.length && value[i] !== ",") return null;
+
+    tags.push({ opaque, weak });
   }
   return tags.length > 0 ? tags : null;
 }

@@ -53,6 +53,13 @@ describe("parseEntityTagCondition", () => {
   });
 });
 
+test("parses a long hostile value in linear time", () => {
+  const started = Date.now();
+  expect(parseEntityTagCondition("!".repeat(200_000) + '"')).toBeNull();
+  expect(parseEntityTagCondition('"a", '.repeat(50_000))).toHaveLength(50_000);
+  expect(Date.now() - started).toBeLessThan(1000);
+});
+
 describe("hasPreconditions", () => {
   test("is false for undefined or an empty object", () => {
     expect(hasPreconditions(undefined)).toBe(false);
