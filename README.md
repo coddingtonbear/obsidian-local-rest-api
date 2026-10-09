@@ -29,6 +29,7 @@ Give your scripts, browser extensions, and AI agents a direct line into your Obs
   * [Protocol revisions](#protocol-revisions)
   * [Connecting a client](#connecting-a-client)
   * [Available tools](#available-tools)
+  * [Limiting the size of tool results](#limiting-the-size-of-tool-results)
   * [Binary files and attachments](#binary-files-and-attachments)
   * [Signed URLs](#signed-urls)
   * [Available resources](#available-resources)
@@ -426,6 +427,14 @@ The exact config syntax varies by client; see the [Quick start](#mcp-clients) ex
 | `command_list` | List all registered Obsidian commands |
 | `command_execute` | Execute an Obsidian command by ID |
 | `open_file` | Open a file in the Obsidian UI |
+
+### Limiting the size of tool results
+
+Nothing bounds how much text a tool returns by default. `search_simple` returns every match in every matching file, so a query made of common words over a large vault can come back as megabytes of JSON. Some MCP clients put a tool result into the model's context verbatim and do not limit it themselves; one such result can then be larger than the model's entire context window, and because it is now part of the conversation, every retry fails the same way.
+
+To guard against that, set **Settings → Local REST API → Advanced settings → Maximum MCP tool result size** to the most characters a single tool call may return (roughly four characters make a token). It is 0, meaning no limit, by default, and it applies to every MCP tool that returns text, including tools registered by extensions. The REST API is not affected.
+
+A result over the limit is cut to fit and followed by a second text block saying that it was truncated, how large the full result was, and how to narrow the request. A list result, such as a search, is cut between items: the leading items are kept (searches are sorted by relevance) and the text is still valid JSON. Anything else, such as a long note from `vault_read`, is cut at the limit.
 
 ### Binary files and attachments
 

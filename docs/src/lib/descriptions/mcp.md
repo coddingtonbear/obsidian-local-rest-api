@@ -51,6 +51,10 @@ Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `40
 | `command_execute` | Execute an Obsidian command by ID |
 | `open_file` | Open a file in the Obsidian UI |
 
+### Result size
+
+A setting under Advanced settings, **Maximum MCP tool result size**, caps how many characters a single tool call may return as text. It is off (0) by default. A result over the limit is cut to fit and followed by a second text block beginning `[Result truncated:` that gives the full size and how to narrow the request. A list result such as `search_simple` or `search_query` is cut between items, keeping the leading ones as valid JSON; anything else is cut at the limit. The REST API is not affected.
+
 ### Binary files
 
 `vault_read` and `vault_write` are text tools: they decode and encode UTF-8, which is lossy for anything that is not text. `vault_read` refuses a file whose bytes are not valid UTF-8, and `vault_write` and `vault_append` refuse a path whose extension names a binary type (image other than SVG, audio, video, font, PDF, archive), so the read-as-text-then-write-back mistake that destroys attachments is refused at both ends.
