@@ -43,6 +43,11 @@ import {
   MinimumStateReadTimeoutMs,
   clampStateReadTimeout,
 } from "./serverState";
+import {
+  DefaultMcpMaxResultCharacters,
+  MaximumMcpMaxResultCharacters,
+  clampMcpMaxResultCharacters,
+} from "./mcpResultLimit";
 // The extension API is defined in ./publicApi, which is what the generated
 // publicApi.d.ts ships to extension authors. Re-exported here so that anything
 // importing the plugin entry point keeps seeing the same names it always has.
@@ -846,6 +851,16 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         },
       },
       {
+        name: "Maximum MCP tool result size (characters)",
+        desc: `The most text a single MCP tool call may return. A larger result (for example, a search whose terms match thousands of times) is cut to this size and followed by a note telling the model that it was truncated and how to narrow the request; list results such as searches are cut between items, keeping the most relevant ones. Use this when your MCP client passes tool results to the model without limiting them itself, so that one oversized result cannot overflow the model's context window. Roughly four characters make a token. 0, the default, means no limit; at most ${MaximumMcpMaxResultCharacters}. The REST API is not affected.`,
+        control: {
+          type: "number",
+          key: "mcpMaxResultCharacters",
+          min: 0,
+          max: MaximumMcpMaxResultCharacters,
+        },
+      },
+      {
         name: "Allow access to the configuration directory",
         desc: `When off (the default), the API refuses to read or write any file inside Obsidian's configuration directory (currently '${this.app.vault.configDir}'). That directory holds plugin code and each plugin's data.json — including this plugin's own, where your API key lives — so writing there is effectively arbitrary code execution and reading there leaks secrets. Leave this off unless you specifically need to manage your Obsidian configuration through the API, and understand that turning it on grants every holder of your API key that power.`,
         control: { type: "toggle", key: "enableConfigDirAccess" },
@@ -949,6 +964,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         return clampSignedUrlTtl(this.plugin.settings.signedUrlTtlSeconds);
       case "stateReadTimeoutMs":
         return clampStateReadTimeout(this.plugin.settings.stateReadTimeoutMs);
+      case "mcpMaxResultCharacters":
+        return clampMcpMaxResultCharacters(this.plugin.settings.mcpMaxResultCharacters);
       default:
         return undefined;
     }
@@ -1073,6 +1090,14 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         const clamped = clampStateReadTimeout(value as number);
         this.plugin.settings.stateReadTimeoutMs =
           clamped === DefaultStateReadTimeoutMs ? undefined : clamped;
+        await this.plugin.saveSettings();
+        break;
+      }
+      case "mcpMaxResultCharacters": {
+        // Read on every tool call, so no server restart is needed.
+        const clamped = clampMcpMaxResultCharacters(value as number);
+        this.plugin.settings.mcpMaxResultCharacters =
+          clamped === DefaultMcpMaxResultCharacters ? undefined : clamped;
         await this.plugin.saveSettings();
         break;
       }

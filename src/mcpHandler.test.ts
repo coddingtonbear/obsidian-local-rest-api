@@ -2118,6 +2118,50 @@ describe("McpHandler", () => {
     );
   });
 
+  describe("Maximum MCP tool result size", () => {
+    const many = Array.from({ length: 200 }, (_, i) => ({
+      filename: `note-${i}.md`,
+      score: 200 - i,
+      matches: [{ match: { start: 0, end: 3, source: "content" }, context: "y".repeat(300) }],
+    }));
+
+    function build(mcpMaxResultCharacters?: number): void {
+      registerTool.mockClear();
+      buildServer(new McpHandler(ops, { ...DEFAULT_SETTINGS, mcpMaxResultCharacters }));
+    }
+
+    test("is off by default: a large result comes back whole, in one block", async () => {
+      ops.simpleSearch.mockResolvedValue(many);
+      build();
+      const result = await getToolCallback("search_simple")({ query: "the" });
+      expect(parseText(result)).toEqual(many);
+    });
+
+    test("cuts a search result between matching files and says so in a second block", async () => {
+      ops.simpleSearch.mockResolvedValue(many);
+      build(10_000);
+      const result = await getToolCallback("search_simple")({ query: "the" });
+
+      expect(result.content).toHaveLength(2);
+      expect(result.content[0].text.length).toBeLessThanOrEqual(10_000);
+      const kept = JSON.parse(result.content[0].text);
+      expect(kept).toEqual(many.slice(0, kept.length));
+      expect(result.content[1].text).toMatch(
+        new RegExp(`^\\[Result truncated: returned the first ${kept.length} of 200 items`),
+      );
+    });
+
+    test("cuts a note read through vault_read too", async () => {
+      ops.getFileMetadataObject.mockResolvedValue({ path: "big.md", content: "z".repeat(5000) });
+      build(1000);
+      const result = await getToolCallback("vault_read")({ path: "big.md" });
+
+      expect(result.content).toHaveLength(2);
+      expect(result.content[0].text.length).toBe(1000);
+      expect(result.content[1].text).toContain("Result truncated");
+    });
+  });
+
   // ---- tag_list ----------------------------------------------------------
 
   test("tag_list returns all tags with counts", async () => {

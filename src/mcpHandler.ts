@@ -27,6 +27,7 @@ import type { InstructionInput, ReadTarget } from "markdown-patch-2";
 import { InstructionInputObjectSchema } from "markdown-patch-2";
 import openapiYaml from "../docs/openapi.yaml";
 import { OpenApiSpec } from "./openApiSpec";
+import { clampMcpMaxResultCharacters, limitMcpResult } from "./mcpResultLimit";
 import { toStandardSchema } from "./mcpSchema";
 import { MaximumMcpBinaryBytes } from "./constants";
 import {
@@ -1025,13 +1026,16 @@ export class McpHandler {
   }
 
   private text(data: unknown) {
+    // Cut to the user's "Maximum MCP tool result size", if they set one; see
+    // `limitMcpResult` for why and how.
+    const { text, notice } = limitMcpResult(
+      data,
+      clampMcpMaxResultCharacters(this.settings.mcpMaxResultCharacters),
+    );
     return {
       content: [
-        {
-          type: "text" as const,
-          text:
-            typeof data === "string" ? data : JSON.stringify(data, null, 2),
-        },
+        { type: "text" as const, text },
+        ...(notice ? [{ type: "text" as const, text: notice }] : []),
       ],
     };
   }

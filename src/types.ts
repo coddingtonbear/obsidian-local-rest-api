@@ -87,6 +87,12 @@ export interface LocalRestApiSettings {
   stateReadTimeoutMs?: number;
 
   /**
+   * The most characters an MCP tool may return as text; a longer result is cut to fit
+   * and followed by a notice saying so. See `limitMcpResult`. Absent or 0 means no limit.
+   */
+  mcpMaxResultCharacters?: number;
+
+  /**
    * Whether the API may read or write files inside Obsidian's configuration
    * directory (`app.vault.configDir`, normally `.obsidian`). Off by default and
    * absent unless explicitly turned on.
