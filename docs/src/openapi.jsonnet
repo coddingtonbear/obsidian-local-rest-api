@@ -736,10 +736,36 @@ std.manifestYamlDoc(
                 default: 100,
               },
             },
+            {
+              name: 'maxResults',
+              'in': 'query',
+              description: 'The most files to return. The highest-scoring files are kept, and the `Total-Results` header gives how many matched in all. Unlimited when absent.',
+              required: false,
+              schema: {
+                type: 'integer',
+                minimum: 1,
+              },
+            },
+            {
+              name: 'maxMatchesPerFile',
+              'in': 'query',
+              description: "The most matches to return for each file, in document order. Each file's `totalMatches` gives how many it had in all. Unlimited when absent. Obsidian's simple search matches each word of the query separately, so a query containing a common word can match thousands of times in a single file; this is what keeps such a result a manageable size.",
+              required: false,
+              schema: {
+                type: 'integer',
+                minimum: 1,
+              },
+            },
           ],
           responses: {
             '200': {
               description: 'Success',
+              headers: {
+                'Total-Results': {
+                  description: 'How many files matched in all. Larger than the number of items returned when `maxResults` left some out.',
+                  schema: { type: 'integer' },
+                },
+              },
               content: {
                 'application/json': {
                   schema: {
@@ -753,6 +779,10 @@ std.manifestYamlDoc(
                         },
                         score: {
                           type: 'number',
+                        },
+                        totalMatches: {
+                          type: 'number',
+                          description: 'How many matches the file had in all. Larger than the length of `matches` when `maxMatchesPerFile` left some out.',
                         },
                         matches: {
                           type: 'array',
@@ -789,6 +819,10 @@ std.manifestYamlDoc(
                   },
                 },
               },
+            },
+            '400': {
+              description: 'No `query` parameter, or a `maxResults` or `maxMatchesPerFile` that is not a single positive integer.',
+              content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
             },
           },
         },

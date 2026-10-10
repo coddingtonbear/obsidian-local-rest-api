@@ -192,6 +192,86 @@ describe("readBinaryFileContent", () => {
 });
 
 // ---------------------------------------------------------------------------
+// simpleSearch limits.
+//
+// Obsidian's simple search matches each query word separately, so a query that
+// contains a common word matches thousands of times across a vault. maxResults
+// and maxMatchesPerFile bound what comes back; totalResults and totalMatches say
+// how much was left out.
+// ---------------------------------------------------------------------------
+
+describe("simpleSearch limits", () => {
+  // Every occurrence of the query in "<basename>\n\n<content>" is a match, and a
+  // file scores one point per match, so a basename that repeats the query ranks
+  // higher. The mock vault serves the same content for every file.
+  function limitSetup(basenames: string[], content: string): VaultOperations {
+    const app = new App();
+    app.vault._markdownFiles = basenames.map((basename) => {
+      const file = new TFile();
+      file.basename = basename;
+      file.path = `${basename}.md`;
+      return file;
+    });
+    app.vault._cachedRead = content;
+    _prepareSimpleSearchMock.behavior = (query: string) => (text: string) => {
+      const matches: [number, number][] = [];
+      for (let i = text.indexOf(query); i !== -1; i = text.indexOf(query, i + 1)) {
+        matches.push([i, i + query.length]);
+      }
+      return matches.length ? { score: matches.length, matches } : null;
+    };
+    return new VaultOperations(app, {} as LocalRestApiSettings);
+  }
+
+  afterEach(() => {
+    _prepareSimpleSearchMock.behavior = null;
+  });
+
+  test("returns everything, with totals, when no limits are given", async () => {
+    const ops = limitSetup(["a", "b"], "the the the");
+    const { results, totalResults } = await ops.simpleSearch("the");
+
+    expect(totalResults).toBe(2);
+    expect(results).toHaveLength(2);
+    for (const result of results) {
+      expect(result.matches).toHaveLength(3);
+      expect(result.totalMatches).toBe(3);
+    }
+  });
+
+  test("maxMatchesPerFile keeps the first matches in document order", async () => {
+    const ops = limitSetup(["the note"], "the the the");
+    const { results } = await ops.simpleSearch("the", { maxMatchesPerFile: 2 });
+
+    expect(results[0].totalMatches).toBe(4);
+    expect(results[0].matches.map((m) => [m.match.source, m.match.start])).toEqual([
+      ["filename", 0],
+      ["content", 0],
+    ]);
+  });
+
+  test("maxResults keeps the highest-scoring files", async () => {
+    const ops = limitSetup(["the", "the the the", "the the"], "x");
+    const { results, totalResults } = await ops.simpleSearch("the", { maxResults: 2 });
+
+    expect(totalResults).toBe(3);
+    expect(results.map((r) => r.filename)).toEqual(["the the the.md", "the the.md"]);
+  });
+
+  test("limits larger than the result leave it whole", async () => {
+    const ops = limitSetup(["a"], "the the");
+    const { results, totalResults } = await ops.simpleSearch("the", {
+      maxResults: 10,
+      maxMatchesPerFile: 10,
+    });
+
+    expect(totalResults).toBe(1);
+    expect(results[0].matches).toHaveLength(2);
+    expect(results[0].totalMatches).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // simpleSearch context slicing must not split UTF-16 surrogate pairs.
 //
 // Obsidian's prepareSimpleSearch reports matches as UTF-16 code-unit offsets,
@@ -233,7 +313,7 @@ describe("simpleSearch surrogate handling", () => {
     return {
       ops,
       results: async () =>
-        (await ops.simpleSearch(query, contextLength)).flatMap((r) =>
+        (await ops.simpleSearch(query, { contextLength })).results.flatMap((r) =>
           r.matches.map((m) => ({ context: m.context })),
         ),
     };
@@ -769,7 +849,7 @@ describe("bulk reads skip indexed files that live in the configuration directory
   test("simpleSearch does not read or return the aliased file", async () => {
     const { ops } = setupIndexedAlias();
     _prepareSimpleSearchMock.behavior = () => () => ({ score: 1, matches: [[0, 6]] });
-    const results = await ops.simpleSearch("needle");
+    const { results } = await ops.simpleSearch("needle");
     expect(results.map((r) => r.filename)).toEqual(["notes/a.md"]);
   });
 
@@ -1024,7 +1104,7 @@ describe("bulk reads skip a .md-named symlink into the configuration directory",
   test("simpleSearch does not return the link", async () => {
     const { ops } = setup();
     _prepareSimpleSearchMock.behavior = () => () => ({ score: 1, matches: [[0, 6]] });
-    const results = await ops.simpleSearch("apiKey");
+    const { results } = await ops.simpleSearch("apiKey");
     expect(results.map((r) => r.filename)).toEqual(["notes/a.md"]);
   });
 

@@ -120,7 +120,10 @@ function makeMockOps() {
       .mockResolvedValue([{ filename: "a.md", result: true }]),
     simpleSearch: jest
       .fn()
-      .mockResolvedValue([{ filename: "a.md", score: 1, matches: [] }]),
+      .mockResolvedValue({
+        results: [{ filename: "a.md", score: 1, matches: [], totalMatches: 0 }],
+        totalResults: 1,
+      }),
     getAllTags: jest.fn().mockReturnValue([{ name: "todo", count: 3 }]),
     listCommands: jest
       .fn()
@@ -2112,7 +2115,7 @@ describe("McpHandler", () => {
   test("search_simple calls simpleSearch and returns results", async () => {
     const cb = getToolCallback("search_simple");
     const result = await cb({ query: "hello", contextLength: 50 });
-    expect(ops.simpleSearch).toHaveBeenCalledWith("hello", 50);
+    expect(ops.simpleSearch).toHaveBeenCalledWith("hello", { contextLength: 50 });
     expect(parseText(result)).toEqual(
       expect.arrayContaining([expect.objectContaining({ filename: "a.md" })]),
     );

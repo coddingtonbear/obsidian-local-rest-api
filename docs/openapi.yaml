@@ -2217,6 +2217,20 @@ paths:
           schema:
             default: 100
             type: "number"
+        - description: "The most files to return. The highest-scoring files are kept, and the `Total-Results` header gives how many matched in all. Unlimited when absent."
+          in: "query"
+          name: "maxResults"
+          required: false
+          schema:
+            minimum: 1
+            type: "integer"
+        - description: "The most matches to return for each file, in document order. Each file's `totalMatches` gives how many it had in all. Unlimited when absent. Obsidian's simple search matches each word of the query separately, so a query containing a common word can match thousands of times in a single file; this is what keeps such a result a manageable size."
+          in: "query"
+          name: "maxMatchesPerFile"
+          required: false
+          schema:
+            minimum: 1
+            type: "integer"
       responses:
         "200":
           content:
@@ -2249,9 +2263,23 @@ paths:
                       type: "array"
                     score:
                       type: "number"
+                    totalMatches:
+                      description: "How many matches the file had in all. Larger than the length of `matches` when `maxMatchesPerFile` left some out."
+                      type: "number"
                   type: "object"
                 type: "array"
           description: "Success"
+          headers:
+            Total-Results:
+              description: "How many files matched in all. Larger than the number of items returned when `maxResults` left some out."
+              schema:
+                type: "integer"
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "No `query` parameter, or a `maxResults` or `maxMatchesPerFile` that is not a single positive integer."
       summary: |
         Search for documents matching a specified text query
       tags:

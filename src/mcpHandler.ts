@@ -1702,7 +1702,7 @@ export class McpHandler {
       },
       READ_ONLY_ANNOTATIONS,
       async ({ query, contextLength }: { query: string; contextLength?: number }) => {
-        const results = await this.ops.simpleSearch(query, contextLength);
+        const { results } = await this.ops.simpleSearch(query, { contextLength });
         return this.text(results);
       },
     );

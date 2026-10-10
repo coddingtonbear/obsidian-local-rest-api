@@ -192,6 +192,26 @@ export interface SearchResponseItem {
   filename: string;
   score?: number;
   matches: SearchContext[];
+  /**
+   * How many matches the file had in all. Larger than `matches.length` when
+   * `maxMatchesPerFile` left some out.
+   */
+  totalMatches: number;
+}
+
+export interface SimpleSearchOptions {
+  /** Characters of context on each side of a match. Defaults to 100. */
+  contextLength?: number;
+  /** The most files to return, keeping the highest-scoring ones. Unlimited when absent. */
+  maxResults?: number;
+  /** The most matches to return for each file, in document order. Unlimited when absent. */
+  maxMatchesPerFile?: number;
+}
+
+export interface SimpleSearchResult {
+  results: SearchResponseItem[];
+  /** How many files matched in all. Larger than `results.length` when `maxResults` left some out. */
+  totalResults: number;
 }
 
 export interface SearchJsonResponseItem {

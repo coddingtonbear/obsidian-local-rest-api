@@ -311,7 +311,7 @@ curl -k -H "Authorization: Bearer <your-api-key>" \
 
 ## Searching
 
-`POST /search/simple/?query=your+terms` runs Obsidian's built-in fuzzy search and returns matching filenames with scored context snippets.
+`POST /search/simple/?query=your+terms` runs Obsidian's built-in fuzzy search and returns matching filenames with scored context snippets. Obsidian matches each word of the query separately, so a query containing a common word can match thousands of times; `&maxResults=` caps how many files come back (keeping the highest-scoring ones) and `&maxMatchesPerFile=` caps the matches within each. Each result's `totalMatches` and the `Total-Results` response header say how much was left out.
 
 `POST /search/` accepts a [JsonLogic](https://jsonlogic.com/) expression (content type `application/vnd.olrapi.jsonlogic+json`) and evaluates it against each note's metadata (frontmatter, tags, path, content).
 

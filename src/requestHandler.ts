@@ -167,8 +167,8 @@ export function encodeVaultPath(path: string): string {
  *
  * `exposedHeaders: "*"` is what lets a browser client read any of the response
  * headers this API sets to tell it something -- `Content-Location`, `Deprecation`,
- * `Markdown-Patch-Warnings`, `Content-Disposition`, `ETag`, `X-Response-Time`, and
- * `Mcp-Session-Id`. Without it the `cors` package omits Access-Control-Expose-Headers
+ * `Markdown-Patch-Warnings`, `Content-Disposition`, `ETag`, `Total-Results`,
+ * `X-Response-Time`, and `Mcp-Session-Id`. Without it the `cors` package omits Access-Control-Expose-Headers
  * altogether and only the seven CORS-safelisted headers are readable from JavaScript.
  *
  * The wildcard is used rather than an enumerated list so a header added later cannot
@@ -2519,8 +2519,29 @@ export default class RequestHandler {
     const contextLength = Number.isNaN(contextLengthRaw)
       ? 100
       : contextLengthRaw;
+
+    // Unlike contextLength, which has always fallen back to its default on bad
+    // input, the limits are strict: a typo that silently returned every match is
+    // exactly the oversized response they exist to prevent.
+    const limits: { maxResults?: number; maxMatchesPerFile?: number } = {};
+    for (const name of ["maxResults", "maxMatchesPerFile"] as const) {
+      const raw = req.query[name];
+      if (raw === undefined) continue;
+      if (typeof raw !== "string" || !/^\d+$/.test(raw) || Number(raw) < 1) {
+        return this.returnCannedResponse(res, {
+          message: `'?${name}=' must be a single positive integer.`,
+          errorCode: ErrorCode.InvalidSearch,
+        });
+      }
+      limits[name] = Number(raw);
+    }
+
     try {
-      const results = await this.operations.simpleSearch(query, contextLength);
+      const { results, totalResults } = await this.operations.simpleSearch(query, {
+        contextLength,
+        ...limits,
+      });
+      res.set("Total-Results", String(totalResults));
       res.json(results);
     } catch (e) {
       console.error("Could not prepare simple search: ", e);
