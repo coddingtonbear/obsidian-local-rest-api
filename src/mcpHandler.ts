@@ -338,6 +338,16 @@ interface Session {
   handles: Map<string, RegistrationHandle>;
 }
 
+// search_simple's limits when the caller gives none. Unlike REST, where a script
+// decides what to do with a large response, an MCP result usually goes straight into
+// a model's context, and Obsidian's simple search matches each query word separately,
+// so a query containing a common word can return megabytes.
+export const SEARCH_SIMPLE_DEFAULT_MAX_RESULTS = 20;
+export const SEARCH_SIMPLE_DEFAULT_MAX_MATCHES_PER_FILE = 10;
+// The limits above bound how many context slices come back, not how long each one
+// is, so contextLength is bounded too.
+export const SEARCH_SIMPLE_MAX_CONTEXT_LENGTH = 500;
+
 // The path parameter reads the same on every tool that takes one, so it is spelled once
 // here rather than retyped per tool.
 const VAULT_PATH_DESCRIPTION = "File path relative to vault root";
@@ -1795,18 +1805,72 @@ export class McpHandler {
 
     this.tool(
       "search_simple",
-      dedent`Search vault files using Obsidian's built-in simple search. Returns an array of {filename, score, matches} objects sorted by relevance score. Each match includes the matched text and surrounding context characters (controlled by contextLength).`,
+      dedent`Search vault files using Obsidian's built-in simple search. Returns an array of {filename, score, matches, totalMatches} objects sorted by relevance score. Each match includes the matched text and surrounding context characters (controlled by contextLength). Obsidian matches each word of the query separately, so common words match nearly everywhere; prefer distinctive terms. Results are limited to the ${SEARCH_SIMPLE_DEFAULT_MAX_RESULTS} highest-scoring files and the first ${SEARCH_SIMPLE_DEFAULT_MAX_MATCHES_PER_FILE} matches in each unless maxResults or maxMatchesPerFile say otherwise; each file's totalMatches gives how many matches it had in all, and a second text block says how much was left out whenever anything was.`,
       {
         query: z.string().describe("Search query string"),
         contextLength: z
           .number()
+          .int()
+          .nonnegative()
+          .max(SEARCH_SIMPLE_MAX_CONTEXT_LENGTH)
           .optional()
-          .describe("Number of characters of surrounding context to return per match (default: 100)"),
+          .describe(`Number of characters of surrounding context to return per match, at most ${SEARCH_SIMPLE_MAX_CONTEXT_LENGTH} (default: 100)`),
+        maxResults: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(`The most files to return, keeping the highest-scoring ones (default: ${SEARCH_SIMPLE_DEFAULT_MAX_RESULTS})`),
+        maxMatchesPerFile: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(`The most matches to return for each file, in document order (default: ${SEARCH_SIMPLE_DEFAULT_MAX_MATCHES_PER_FILE})`),
       },
       READ_ONLY_ANNOTATIONS,
-      async ({ query, contextLength }: { query: string; contextLength?: number }) => {
-        const results = await this.ops.simpleSearch(query, contextLength);
-        return this.text(results);
+      async ({
+        query,
+        contextLength,
+        maxResults = SEARCH_SIMPLE_DEFAULT_MAX_RESULTS,
+        maxMatchesPerFile = SEARCH_SIMPLE_DEFAULT_MAX_MATCHES_PER_FILE,
+      }: {
+        query: string;
+        contextLength?: number;
+        maxResults?: number;
+        maxMatchesPerFile?: number;
+      }) => {
+        const { results, totalResults } = await this.ops.simpleSearch(query, {
+          contextLength,
+          maxResults,
+          maxMatchesPerFile,
+        });
+        const result = this.text(results);
+        const omittedFiles = totalResults - results.length;
+        const trimmedFiles = results.filter((r) => r.totalMatches > r.matches.length).length;
+        if (omittedFiles === 0 && trimmedFiles === 0) return result;
+
+        const parts: string[] = [];
+        if (omittedFiles > 0) {
+          parts.push(
+            `${omittedFiles} more matching file${omittedFiles === 1 ? "" : "s"} ` +
+              `(${totalResults} in all) not shown because of maxResults=${maxResults}`,
+          );
+        }
+        if (trimmedFiles > 0) {
+          parts.push(
+            `${trimmedFiles} of the files shown had more than maxMatchesPerFile=${maxMatchesPerFile} ` +
+              `matches; compare each file's totalMatches with its matches`,
+          );
+        }
+        result.content.push({
+          type: "text" as const,
+          text:
+            `[Search results limited: ${parts.join("; ")}. Raise maxResults or ` +
+            `maxMatchesPerFile to see more, or narrow the search with more distinctive ` +
+            `terms. search_query can filter by path, tag, or frontmatter.]`,
+        });
+        return result;
       },
     );
 

@@ -4377,6 +4377,7 @@ describe("requestHandler", () => {
       expect(result.body).toHaveLength(1);
       expect(result.body[0].filename).toBe("Test Test Test.md");
       expect(result.body[0].matches).toHaveLength(3);
+      expect(result.body[0].totalMatches).toBe(3);
 
       // All matches should be in filename
       expect(result.body[0].matches[0].match.source).toBe("filename");
@@ -4554,6 +4555,8 @@ describe("requestHandler", () => {
       expect(result.body).toHaveLength(1);
       // Only 2 valid matches should be returned (boundary-spanning filtered out)
       expect(result.body[0].matches).toHaveLength(2);
+      // ...and the one that was filtered out is not counted as left out either.
+      expect(result.body[0].totalMatches).toBe(2);
 
       // First match: filename
       expect(result.body[0].matches[0].match.source).toBe("filename");
@@ -4564,6 +4567,77 @@ describe("requestHandler", () => {
       expect(result.body[0].matches[1].match.source).toBe("content");
       expect(result.body[0].matches[1].match.start).toBe(4);  // 12 - 8
       expect(result.body[0].matches[1].match.end).toBe(10);   // 18 - 8
+    });
+
+    describe("limits", () => {
+      // Three files scoring 1, 3, and 2: each basename repeats "plan", and the
+      // shared content adds two more matches to every file.
+      beforeEach(() => {
+        app.vault._markdownFiles = ["plan", "plan plan plan", "plan plan"].map((basename) => {
+          const file = new TFile();
+          file.basename = basename;
+          file.path = `${basename}.md`;
+          return file;
+        });
+        app.vault._cachedRead = "plan b, plan c";
+      });
+
+      test("returns everything when no limit is given, with the file count in Total-Results", async () => {
+        const result = await request(server)
+          .post("/search/simple/?query=plan")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(200);
+
+        expect(result.headers["total-results"]).toBe("3");
+        expect(result.body).toHaveLength(3);
+        expect(result.body[0].matches).toHaveLength(5);
+        expect(result.body[0].totalMatches).toBe(5);
+      });
+
+      test("maxResults keeps the highest-scoring files", async () => {
+        const result = await request(server)
+          .post("/search/simple/?query=plan&maxResults=2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(200);
+
+        expect(result.headers["total-results"]).toBe("3");
+        expect(result.body.map((r: { filename: string }) => r.filename)).toEqual([
+          "plan plan plan.md",
+          "plan plan.md",
+        ]);
+      });
+
+      test("maxMatchesPerFile keeps the first matches and reports the total", async () => {
+        const result = await request(server)
+          .post("/search/simple/?query=plan&maxMatchesPerFile=2")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(200);
+
+        expect(result.body).toHaveLength(3);
+        expect(result.body[0].matches).toHaveLength(2);
+        expect(result.body[0].totalMatches).toBe(5);
+        expect(result.body[2].matches).toHaveLength(2);
+        expect(result.body[2].totalMatches).toBe(3);
+      });
+
+      test.each([
+        ["maxResults=0"],
+        ["maxResults=-1"],
+        ["maxResults=1.5"],
+        ["maxResults=2x"],
+        ["maxResults="],
+        ["maxResults=1&maxResults=2"],
+        ["maxMatchesPerFile=0"],
+        ["maxMatchesPerFile=abc"],
+      ])("rejects %s", async (params) => {
+        const result = await request(server)
+          .post(`/search/simple/?query=plan&${params}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(400);
+
+        expect(result.body.errorCode).toBe(40090);
+        expect(result.body.message).toMatch(/must be a single positive integer/);
+      });
     });
 
     test("unauthorized", async () => {

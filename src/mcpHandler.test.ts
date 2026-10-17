@@ -122,7 +122,10 @@ function makeMockOps() {
       .mockResolvedValue([{ filename: "a.md", result: true }]),
     simpleSearch: jest
       .fn()
-      .mockResolvedValue([{ filename: "a.md", score: 1, matches: [] }]),
+      .mockResolvedValue({
+        results: [{ filename: "a.md", score: 1, matches: [], totalMatches: 0 }],
+        totalResults: 1,
+      }),
     getAllTags: jest.fn().mockReturnValue([{ name: "todo", count: 3 }]),
     listCommands: jest
       .fn()
@@ -2198,13 +2201,78 @@ describe("McpHandler", () => {
 
   // ---- search_simple ------------------------------------------------------
 
-  test("search_simple calls simpleSearch and returns results", async () => {
+  test("search_simple calls simpleSearch with the default limits and returns results", async () => {
     const cb = getToolCallback("search_simple");
     const result = await cb({ query: "hello", contextLength: 50 });
-    expect(ops.simpleSearch).toHaveBeenCalledWith("hello", 50);
+    expect(ops.simpleSearch).toHaveBeenCalledWith("hello", {
+      contextLength: 50,
+      maxResults: 20,
+      maxMatchesPerFile: 10,
+    });
+    // Nothing was left out, so there is no second block.
     expect(parseText(result)).toEqual(
       expect.arrayContaining([expect.objectContaining({ filename: "a.md" })]),
     );
+  });
+
+  test("search_simple passes explicit limits through", async () => {
+    const cb = getToolCallback("search_simple");
+    await cb({ query: "hello", maxResults: 3, maxMatchesPerFile: 500 });
+    expect(ops.simpleSearch).toHaveBeenCalledWith("hello", {
+      contextLength: undefined,
+      maxResults: 3,
+      maxMatchesPerFile: 500,
+    });
+  });
+
+  test("search_simple's limits must be positive integers", async () => {
+    const call = registerTool.mock.calls.find((c: unknown[]) => c[0] === "search_simple");
+    const { inputSchema } = call?.[1] as {
+      inputSchema: { "~standard": { validate: (value: unknown) => Promise<{ issues?: unknown }> } };
+    };
+    const accepts = async (args: Record<string, unknown>) =>
+      !(await inputSchema["~standard"].validate({ query: "q", ...args })).issues;
+
+    for (const name of ["maxResults", "maxMatchesPerFile"]) {
+      expect(await accepts({ [name]: 5 })).toBe(true);
+      expect(await accepts({})).toBe(true);
+      expect(await accepts({ [name]: 0 })).toBe(false);
+      expect(await accepts({ [name]: 1.5 })).toBe(false);
+    }
+  });
+
+  test("search_simple's contextLength is a bounded, non-negative integer", async () => {
+    const call = registerTool.mock.calls.find((c: unknown[]) => c[0] === "search_simple");
+    const { inputSchema } = call?.[1] as {
+      inputSchema: { "~standard": { validate: (value: unknown) => Promise<{ issues?: unknown }> } };
+    };
+    const accepts = async (args: Record<string, unknown>) =>
+      !(await inputSchema["~standard"].validate({ query: "q", ...args })).issues;
+
+    expect(await accepts({ contextLength: 0 })).toBe(true);
+    expect(await accepts({ contextLength: 500 })).toBe(true);
+    expect(await accepts({ contextLength: 501 })).toBe(false);
+    expect(await accepts({ contextLength: -1 })).toBe(false);
+    expect(await accepts({ contextLength: 1.5 })).toBe(false);
+  });
+
+  test("search_simple says what was left out in a second block", async () => {
+    ops.simpleSearch.mockResolvedValueOnce({
+      results: [
+        { filename: "a.md", score: 2, matches: [], totalMatches: 40 },
+        { filename: "b.md", score: 1, matches: [], totalMatches: 0 },
+      ],
+      totalResults: 7,
+    });
+    const cb = getToolCallback("search_simple");
+    const result = await cb({ query: "the", maxResults: 2 });
+
+    expect(result.content).toHaveLength(2);
+    expect(JSON.parse(result.content[0].text)).toHaveLength(2);
+    expect(result.content[1].text).toMatch(/^\[Search results limited: /);
+    expect(result.content[1].text).toContain("5 more matching files (7 in all)");
+    expect(result.content[1].text).toContain("maxResults=2");
+    expect(result.content[1].text).toContain("1 of the files shown had more than maxMatchesPerFile=10");
   });
 
   // ---- tag_list ----------------------------------------------------------

@@ -1278,6 +1278,20 @@ describe("search_simple tool", () => {
     expect(body.some((item) => item.filename === TEST_PATH)).toBe(true);
   });
 
+  test("maxMatchesPerFile caps matches and a second block says so", async () => {
+    // "xylophone" occurs once in each of four sections of the fixture.
+    const result = await client.callTool({
+      name: "search_simple",
+      arguments: { query: "xylophone", maxMatchesPerFile: 2 },
+    });
+    const body = jsonOf<any[]>(result);
+    const hit = body.find((item) => item.filename === TEST_PATH);
+    expect(hit.matches).toHaveLength(2);
+    expect(hit.totalMatches).toBeGreaterThanOrEqual(4);
+    const notice = (result.content as any[])[1];
+    expect(notice.text).toMatch(/^\[Search results limited: /);
+  });
+
   test("returns empty array for no-match query", async () => {
     const result = await client.callTool({
       name: "search_simple",

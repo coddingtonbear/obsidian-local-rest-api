@@ -51,6 +51,8 @@ Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `40
 | `command_execute` | Execute an Obsidian command by ID |
 | `open_file` | Open a file in the Obsidian UI |
 
+`search_simple` returns at most the 20 highest-scoring files and the first 10 matches in each unless the call sets `maxResults` or `maxMatchesPerFile`. Obsidian's simple search matches each word of a query separately, so an unbounded search containing a common word can return megabytes, and an MCP result usually goes straight into the model's context. When anything was left out, a second text block beginning `[Search results limited:` says how much and how to see more. Its `contextLength` is at most 500 characters. `POST /search/simple/` takes the same two parameters but has no limit by default, and does not bound `contextLength`.
+
 ### Binary files
 
 `vault_read` and `vault_write` are text tools: they decode and encode UTF-8, which is lossy for anything that is not text. `vault_read` refuses a file whose bytes are not valid UTF-8, and `vault_write` and `vault_append` refuse a path whose extension names a binary type (image other than SVG, audio, video, font, PDF, archive), so the read-as-text-then-write-back mistake that destroys attachments is refused at both ends.

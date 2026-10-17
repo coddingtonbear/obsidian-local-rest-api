@@ -337,7 +337,7 @@ curl -k -H "Authorization: Bearer <your-api-key>" \
 
 ## Searching
 
-`POST /search/simple/?query=your+terms` runs Obsidian's built-in fuzzy search and returns matching filenames with scored context snippets.
+`POST /search/simple/?query=your+terms` runs Obsidian's built-in fuzzy search and returns matching filenames with scored context snippets. Obsidian matches each word of the query separately, so a query containing a common word can match thousands of times; `&maxResults=` caps how many files come back (keeping the highest-scoring ones) and `&maxMatchesPerFile=` caps the matches within each. Each result's `totalMatches` and the `Total-Results` response header say how much was left out.
 
 `POST /search/` accepts a [JsonLogic](https://jsonlogic.com/) expression (content type `application/vnd.olrapi.jsonlogic+json`) and evaluates it against each note's metadata (frontmatter, tags, path, content).
 
@@ -452,6 +452,8 @@ The exact config syntax varies by client; see the [Quick start](#mcp-clients) ex
 | `command_list` | List all registered Obsidian commands |
 | `command_execute` | Execute an Obsidian command by ID |
 | `open_file` | Open a file in the Obsidian UI |
+
+`search_simple` returns at most the 20 highest-scoring files and the first 10 matches in each unless the call sets `maxResults` or `maxMatchesPerFile`. Obsidian's simple search matches each word of a query separately, so an unbounded search containing a common word can return megabytes, and an MCP result usually goes straight into the model's context. When anything was left out, a second text block beginning `[Search results limited:` says how much and how to see more. Its `contextLength` is at most 500 characters. `POST /search/simple/` takes the same two parameters but has no limit by default, and does not bound `contextLength`.
 
 ### Binary files and attachments
 

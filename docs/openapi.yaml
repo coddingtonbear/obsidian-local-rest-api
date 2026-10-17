@@ -2005,6 +2005,8 @@ paths:
         | `command_execute` | Execute an Obsidian command by ID |
         | `open_file` | Open a file in the Obsidian UI |
         
+        `search_simple` returns at most the 20 highest-scoring files and the first 10 matches in each unless the call sets `maxResults` or `maxMatchesPerFile`. Obsidian's simple search matches each word of a query separately, so an unbounded search containing a common word can return megabytes, and an MCP result usually goes straight into the model's context. When anything was left out, a second text block beginning `[Search results limited:` says how much and how to see more. Its `contextLength` is at most 500 characters. `POST /search/simple/` takes the same two parameters but has no limit by default, and does not bound `contextLength`.
+        
         ### Binary files
         
         `vault_read` and `vault_write` are text tools: they decode and encode UTF-8, which is lossy for anything that is not text. `vault_read` refuses a file whose bytes are not valid UTF-8, and `vault_write` and `vault_append` refuse a path whose extension names a binary type (image other than SVG, audio, video, font, PDF, archive), so the read-as-text-then-write-back mistake that destroys attachments is refused at both ends.
@@ -2389,6 +2391,20 @@ paths:
           schema:
             default: 100
             type: "number"
+        - description: "The most files to return. The highest-scoring files are kept, and the `Total-Results` header gives how many matched in all. Unlimited when absent."
+          in: "query"
+          name: "maxResults"
+          required: false
+          schema:
+            minimum: 1
+            type: "integer"
+        - description: "The most matches to return for each file, in document order. Each file's `totalMatches` gives how many it had in all. Unlimited when absent. Obsidian's simple search matches each word of the query separately, so a query containing a common word can match thousands of times in a single file; this is what keeps such a result a manageable size."
+          in: "query"
+          name: "maxMatchesPerFile"
+          required: false
+          schema:
+            minimum: 1
+            type: "integer"
       responses:
         "200":
           content:
@@ -2421,9 +2437,23 @@ paths:
                       type: "array"
                     score:
                       type: "number"
+                    totalMatches:
+                      description: "How many matches the file had in all. Larger than the length of `matches` when `maxMatchesPerFile` left some out."
+                      type: "number"
                   type: "object"
                 type: "array"
           description: "Success"
+          headers:
+            Total-Results:
+              description: "How many files matched in all. Larger than the number of items returned when `maxResults` left some out."
+              schema:
+                type: "integer"
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "No `query` parameter, or a `maxResults` or `maxMatchesPerFile` that is not a single positive integer."
       summary: |
         Search for documents matching a specified text query
       tags:

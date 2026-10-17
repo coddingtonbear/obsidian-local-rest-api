@@ -44,6 +44,8 @@ import {
   SearchContext,
   SearchJsonResponseItem,
   SearchResponseItem,
+  SimpleSearchOptions,
+  SimpleSearchResult,
 } from "./types";
 import { toArrayBuffer } from "./utils";
 import {
@@ -1050,8 +1052,12 @@ export class VaultOperations {
 
   async simpleSearch(
     query: string,
-    contextLength = 100,
-  ): Promise<SearchResponseItem[]> {
+    {
+      contextLength = 100,
+      maxResults = Infinity,
+      maxMatchesPerFile = Infinity,
+    }: SimpleSearchOptions = {},
+  ): Promise<SimpleSearchResult> {
     const results: SearchResponseItem[] = [];
     const search = prepareSimpleSearch(query);
 
@@ -1064,8 +1070,16 @@ export class VaultOperations {
 
       if (result) {
         const contextMatches: SearchContext[] = [];
+        let totalMatches = 0;
         for (const match of result.matches) {
-          if (match[0] < positionOffset && match[1] <= positionOffset) {
+          const inFilename = match[0] < positionOffset && match[1] <= positionOffset;
+          const inContent = match[0] >= positionOffset;
+          if (!inFilename && !inContent) continue;
+          totalMatches += 1;
+          // Matches past the cap are still counted, so the caller can say how many
+          // were left out, but their context is never sliced.
+          if (contextMatches.length >= maxMatchesPerFile) continue;
+          if (inFilename) {
             contextMatches.push({
               match: {
                 start: match[0],
@@ -1074,7 +1088,7 @@ export class VaultOperations {
               },
               context: file.basename,
             });
-          } else if (match[0] >= positionOffset) {
+          } else {
             contextMatches.push({
               match: {
                 start: match[0] - positionOffset,
@@ -1096,12 +1110,13 @@ export class VaultOperations {
           filename: file.path,
           score: result.score,
           matches: contextMatches,
+          totalMatches,
         });
       }
     }
 
     results.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-    return results;
+    return { results: results.slice(0, maxResults), totalResults: results.length };
   }
 
   async searchJsonLogic(

@@ -69,6 +69,38 @@ describe("POST /search/simple/", () => {
     }
   });
 
+  test("maxMatchesPerFile caps matches and totalMatches counts them all", async () => {
+    // "xylophone" occurs once in each of four sections of the fixture.
+    const res = await authedFetch("/search/simple/?query=xylophone&maxMatchesPerFile=2", {
+      method: "POST",
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const hit = body.find((item: { filename: string }) => item.filename === TEST_PATH);
+    expect(hit).toBeDefined();
+    expect(hit.matches).toHaveLength(2);
+    expect(hit.totalMatches).toBeGreaterThanOrEqual(4);
+  });
+
+  test("maxResults caps files and Total-Results counts them all", async () => {
+    const res = await authedFetch(`/search/simple/?query=${TERM_ALPHA}&maxResults=1`, {
+      method: "POST",
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveLength(1);
+    expect(Number(res.headers.get("Total-Results"))).toBeGreaterThanOrEqual(1);
+  });
+
+  test("returns 400 with errorCode 40090 for a limit that is not a positive integer", async () => {
+    const res = await authedFetch(`/search/simple/?query=${TERM_ALPHA}&maxResults=0`, {
+      method: "POST",
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.errorCode).toBe(40090);
+  });
+
   test("returns empty array when no match", async () => {
     const res = await authedFetch(
       "/search/simple/?query=zzzzzz-no-match-zzzzzz",
