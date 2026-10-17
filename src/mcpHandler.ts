@@ -340,10 +340,12 @@ interface Session {
 // search_simple's limits when the caller gives none. Unlike REST, where a script
 // decides what to do with a large response, an MCP result usually goes straight into
 // a model's context, and Obsidian's simple search matches each query word separately,
-// so a query containing a common word can return megabytes. At the default
-// contextLength of 100, these keep the worst case to roughly 50 KB.
+// so a query containing a common word can return megabytes.
 export const SEARCH_SIMPLE_DEFAULT_MAX_RESULTS = 20;
 export const SEARCH_SIMPLE_DEFAULT_MAX_MATCHES_PER_FILE = 10;
+// The limits above bound how many context slices come back, not how long each one
+// is, so contextLength is bounded too.
+export const SEARCH_SIMPLE_MAX_CONTEXT_LENGTH = 500;
 
 // The path parameter reads the same on every tool that takes one, so it is spelled once
 // here rather than retyped per tool.
@@ -1705,8 +1707,11 @@ export class McpHandler {
         query: z.string().describe("Search query string"),
         contextLength: z
           .number()
+          .int()
+          .nonnegative()
+          .max(SEARCH_SIMPLE_MAX_CONTEXT_LENGTH)
           .optional()
-          .describe("Number of characters of surrounding context to return per match (default: 100)"),
+          .describe(`Number of characters of surrounding context to return per match, at most ${SEARCH_SIMPLE_MAX_CONTEXT_LENGTH} (default: 100)`),
         maxResults: z
           .number()
           .int()
