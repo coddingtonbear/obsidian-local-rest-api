@@ -2152,6 +2152,21 @@ describe("McpHandler", () => {
     }
   });
 
+  test("search_simple's contextLength is a bounded, non-negative integer", async () => {
+    const call = registerTool.mock.calls.find((c: unknown[]) => c[0] === "search_simple");
+    const { inputSchema } = call?.[1] as {
+      inputSchema: { "~standard": { validate: (value: unknown) => Promise<{ issues?: unknown }> } };
+    };
+    const accepts = async (args: Record<string, unknown>) =>
+      !(await inputSchema["~standard"].validate({ query: "q", ...args })).issues;
+
+    expect(await accepts({ contextLength: 0 })).toBe(true);
+    expect(await accepts({ contextLength: 500 })).toBe(true);
+    expect(await accepts({ contextLength: 501 })).toBe(false);
+    expect(await accepts({ contextLength: -1 })).toBe(false);
+    expect(await accepts({ contextLength: 1.5 })).toBe(false);
+  });
+
   test("search_simple says what was left out in a second block", async () => {
     ops.simpleSearch.mockResolvedValueOnce({
       results: [
