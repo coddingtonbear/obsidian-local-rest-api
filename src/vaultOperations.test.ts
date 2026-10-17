@@ -831,6 +831,22 @@ describe("Obsidian's declared event surface", () => {
 
     expect(declaredEvents("Cache", typings)).toEqual(["changed", "deleted"]);
   });
+
+  test("comment markers inside string types do not hide later declarations", () => {
+    // A guard that drops a declaration passes while missing a new event, so a
+    // glob or URL in a type must not swallow the lines after it.
+    const typings = [
+      "export class Cache extends Events {",
+      "    pattern: '**/*.md';",
+      "    homepage: 'https://obsidian.md';",
+      "    on(name: 'changed', callback: () => any): EventRef;",
+      "    /** Ends the comment the glob above did not start. */",
+      "    on(name: 'deleted', callback: () => any): EventRef;",
+      "}",
+    ].join("\n");
+
+    expect(declaredEvents("Cache", typings)).toEqual(["changed", "deleted"]);
+  });
 });
 
 describe("openVaultFile", () => {
