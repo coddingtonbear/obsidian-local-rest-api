@@ -146,13 +146,19 @@ Releases are performed on the `main` branch after all feature branches have been
 
    Before proceeding, read the current version from `package.json`. Ask the user whether this is a **major**, **minor**, or **patch** bump and calculate the new version number from their answer — do not ask them to supply the version number directly.
 
-2. Delete `package-lock.json` and regenerate it:
+2. Edit the `version` field in `package.json` to the new version number.
+
+3. Delete `package-lock.json` and regenerate it:
    ```
    rm package-lock.json
    npm i
    ```
 
-3. Edit the `version` field in `package.json` to the new version number.
+   This must happen **after** the version bump in step 2. `package-lock.json` records the package's own version, and nothing else in this process updates it — regenerating the lockfile first leaves it naming the previous version, and Obsidian's post-release source review rejects the release with "The npm lockfile is out of date" (this happened to 5.4.0 and 5.5.0). Before moving on, confirm the lockfile agrees with `package.json` and installs cleanly:
+   ```
+   node -e 'const p=require("./package.json"),l=require("./package-lock.json");if(p.version!==l.version||p.version!==l.packages[""].version)throw new Error(`lockfile is ${l.version}, package.json is ${p.version}`)'
+   npm ci
+   ```
 
 4. Run the version script to update `manifest.json` and `versions.json` (this also stages those two files automatically):
    ```
