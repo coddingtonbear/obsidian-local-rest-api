@@ -41,6 +41,7 @@ import {
   FileNotFoundError,
 } from "./vaultOperations";
 import { FrontmatterParseError } from "markdown-patch";
+import { versionOf } from "markdown-patch-2";
 import {
   App,
   TFile,
@@ -1654,6 +1655,7 @@ describe("requestHandler", () => {
         oldPath,
         newPath,
         false,
+        {},
       );
     });
 
@@ -1716,6 +1718,7 @@ describe("requestHandler", () => {
         "folder/file.md",
         "new-folder/file.md",
         false,
+        {},
       );
     });
 
@@ -1733,6 +1736,7 @@ describe("requestHandler", () => {
         "folder/file.md",
         "another-folder/existing-file.md",
         true,
+        {},
       );
     });
 
@@ -1780,6 +1784,7 @@ describe("requestHandler", () => {
         "folder/file.md",
         "archive/notes..md",
         false,
+        {},
       );
     });
 
@@ -1797,6 +1802,7 @@ describe("requestHandler", () => {
         "folder/file.md",
         "file.md",
         false,
+        {},
       );
     });
 
@@ -1843,6 +1849,7 @@ describe("requestHandler", () => {
         sourcePath,
         newPath,
         false,
+        {},
       );
     });
 
@@ -1895,6 +1902,7 @@ describe("requestHandler", () => {
         "folder/file.md",
         "new-folder/file.md",
         false,
+        {},
       );
     });
 
@@ -1912,6 +1920,7 @@ describe("requestHandler", () => {
         "folder/file.md",
         "another-folder/existing-file.md",
         true,
+        {},
       );
     });
 
@@ -5814,6 +5823,350 @@ describe("requestHandler", () => {
         .send("- added\n");
       expect(res.status).toBe(200);
       expect(res.text).toContain("Entry\n\n- added");
+    });
+  });
+
+  describe("conditional requests (ETag, If-Match, If-None-Match)", () => {
+    const NOTE = "somefile.md";
+    const ORIGINAL = "# Heading\n\nbody\n";
+    const ORIGINAL_VERSION = versionOf(ORIGINAL);
+    const STALE = '"000000"';
+
+    /** Put `text` everywhere the handlers and VaultOperations read a note from. */
+    function setNote(text: string | null): void {
+      app.vault._read = text ?? "";
+      app.vault._cachedRead = text ?? "";
+      app.vault.adapter._read = text ?? "";
+      app.vault.adapter._exists = text !== null;
+      app.vault.adapter._readBinary = Buffer.from(text ?? "", "utf8");
+      app.vault._getAbstractFileByPath = text === null ? null : new TFile();
+      // Only the note itself is a file; without this the mock stats every path
+      // as one, and `somefile.md/heading/Heading` would be a whole-file write.
+      app.vault.adapter._statForPath = NOTE;
+    }
+
+    beforeEach(() => setNote(ORIGINAL));
+
+    describe("reads carry the file's version as a strong ETag", () => {
+      test("a whole-file GET", async () => {
+        const res = await request(server)
+          .get(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(200);
+        expect(res.headers.etag).toBe(`"${ORIGINAL_VERSION}"`);
+      });
+
+      test("a matching If-None-Match on a GET answers 304", async () => {
+        await request(server)
+          .get(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("If-None-Match", `"${ORIGINAL_VERSION}"`)
+          .expect(304);
+      });
+
+      test("the document map's ETag is its version", async () => {
+        const res = await request(server)
+          .get(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Accept", "application/vnd.olrapi.document-map+json")
+          .expect(200);
+        expect(JSON.parse(res.text).version).toBe(ORIGINAL_VERSION);
+        expect(res.headers.etag).toBe(`"${ORIGINAL_VERSION}"`);
+      });
+
+      test("a section read carries the whole file's version", async () => {
+        const res = await request(server)
+          .get(`/vault/${NOTE}/heading/Heading`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .expect(200);
+        expect(res.headers.etag).toBe(`"${ORIGINAL_VERSION}"`);
+      });
+
+      test("note JSON carries the version in its body, not as a strong ETag", async () => {
+        const res = await request(server)
+          .get(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Accept", "application/vnd.olrapi.note+json")
+          .expect(200);
+        expect(JSON.parse(res.text).version).toBe(ORIGINAL_VERSION);
+        expect(res.headers.etag).not.toBe(`"${ORIGINAL_VERSION}"`);
+      });
+    });
+
+    describe("PUT", () => {
+      test("with no precondition still answers with the new version", async () => {
+        const res = await request(server)
+          .put(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("replaced\n")
+          .expect(204);
+        expect(res.headers.etag).toBe(`"${versionOf("replaced\n")}"`);
+      });
+
+      test.each([
+        [`"${ORIGINAL_VERSION}"`],
+        [ORIGINAL_VERSION],
+        [`"zzz", "${ORIGINAL_VERSION}"`],
+        ["*"],
+      ])("If-Match %s matches and writes", async (header) => {
+        await request(server)
+          .put(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("If-Match", header)
+          .send("replaced\n")
+          .expect(204);
+        expect(app.vault._modify).toEqual([NOTE, "replaced\n"]);
+      });
+
+      test("a stale If-Match answers 412 and writes nothing", async () => {
+        const res = await request(server)
+          .put(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("If-Match", STALE)
+          .send("replaced\n")
+          .expect(412);
+        expect(res.body.errorCode).toBe(ErrorCode.PreconditionFailed);
+        expect(res.body.message).toContain(ORIGINAL_VERSION);
+        expect(app.vault._modify).toBeUndefined();
+      });
+
+      test("a weak If-Match never matches", async () => {
+        await request(server)
+          .put(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("If-Match", `W/"${ORIGINAL_VERSION}"`)
+          .send("replaced\n")
+          .expect(412);
+      });
+
+      test("If-Match on a missing file answers 412 rather than creating it", async () => {
+        setNote(null);
+        await request(server)
+          .put(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("If-Match", `"${ORIGINAL_VERSION}"`)
+          .send("new\n")
+          .expect(412);
+        expect(app.vault._create).toBeUndefined();
+      });
+
+      test("If-None-Match: * creates a missing file", async () => {
+        setNote(null);
+        await request(server)
+          .put(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("If-None-Match", "*")
+          .send("new\n")
+          .expect(204);
+        expect(app.vault._create).toEqual([NOTE, "new\n"]);
+      });
+
+      test("If-None-Match: * refuses to overwrite an existing file", async () => {
+        await request(server)
+          .put(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("If-None-Match", "*")
+          .send("new\n")
+          .expect(412);
+        expect(app.vault._modify).toBeUndefined();
+      });
+
+      test.each([["If-Match"], ["If-None-Match"]])(
+        "a malformed %s answers 400 and writes nothing",
+        async (header) => {
+          const res = await request(server)
+            .put(`/vault/${NOTE}`)
+            .set("Authorization", `Bearer ${API_KEY}`)
+            .set("Content-Type", "text/markdown")
+            .set(header, 'W/unquoted')
+            .send("new\n")
+            .expect(400);
+          expect(res.body.errorCode).toBe(ErrorCode.InvalidPreconditionHeader);
+          expect(res.body.message).toContain(header);
+          expect(app.vault._modify).toBeUndefined();
+        },
+      );
+
+      test("a binary PUT checks against the hash of the bytes", async () => {
+        const bytes = Buffer.from([0, 159, 146, 150]);
+        app.vault.adapter._readBinary = bytes;
+        app.vault.adapter._statForPath = "image.png";
+        const res = await request(server)
+          .put("/vault/image.png")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "image/png")
+          .set("If-Match", `"${versionOf(bytes)}"`)
+          .send(Buffer.from([1, 2, 3]))
+          .expect(204);
+        expect(res.headers.etag).toBe(`"${versionOf(Buffer.from([1, 2, 3]))}"`);
+      });
+
+      test("a path-targeted PUT honors If-Match", async () => {
+        await request(server)
+          .put(`/vault/${NOTE}/heading/Heading`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("If-Match", STALE)
+          .send("new body\n")
+          .expect(412);
+        expect(app.vault._modify).toBeUndefined();
+
+        const res = await request(server)
+          .put(`/vault/${NOTE}/heading/Heading`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("If-Match", `"${ORIGINAL_VERSION}"`)
+          .send("new body\n")
+          .expect(200);
+        // Answered by the patch engine with the whole patched document.
+        expect(res.text).toBe("# Heading\n\nnew body\n");
+        expect(res.headers.etag).toBe(`"${versionOf(res.text)}"`);
+      });
+
+      test("the active file honors If-Match", async () => {
+        jest.spyOn(app.workspace, "getActiveFile").mockReturnValue(new TFile());
+        await request(server)
+          .put("/active/")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("If-Match", STALE)
+          .send("new\n")
+          .expect(412);
+        expect(app.vault._modify).toBeUndefined();
+      });
+    });
+
+    describe("POST", () => {
+      test("a matching If-Match appends and answers with the new version", async () => {
+        const res = await request(server)
+          .post(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("If-Match", `"${ORIGINAL_VERSION}"`)
+          .send("more\n")
+          .expect(204);
+        expect(res.headers.etag).toBe(`"${versionOf(ORIGINAL + "more\n")}"`);
+      });
+
+      test("a stale If-Match answers 412 and appends nothing", async () => {
+        await request(server)
+          .post(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .set("If-Match", STALE)
+          .send("more\n")
+          .expect(412);
+        expect(app.vault._modify).toBeUndefined();
+      });
+    });
+
+    describe("DELETE", () => {
+      test("a stale If-Match answers 412 and keeps the file", async () => {
+        await request(server)
+          .delete(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("If-Match", STALE)
+          .expect(412);
+        expect(app.fileManager._trashFile).toBeUndefined();
+      });
+
+      test("a matching If-Match deletes", async () => {
+        await request(server)
+          .delete(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("If-Match", `"${ORIGINAL_VERSION}"`)
+          .expect(204);
+        expect(app.fileManager._trashFile).toBeDefined();
+      });
+    });
+
+    describe.each([["MOVE"], ["COPY"]])("%s", (method) => {
+      test("a stale If-Match answers 412", async () => {
+        app.vault.adapter.exists = async (p: string) => p === NOTE;
+        const agent = request(server);
+        const pending = method === "MOVE" ? agent.move(`/vault/${NOTE}`) : agent.copy(`/vault/${NOTE}`);
+        await pending
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Destination", "elsewhere.md")
+          .set("If-Match", STALE)
+          .expect(412);
+      });
+    });
+
+    describe("PATCH", () => {
+      const instruction = {
+        targetType: "heading",
+        target: ["Heading"],
+        operation: "append",
+        content: "appended\n",
+      };
+
+      test("a stale If-Match header fails a JSON-instruction patch", async () => {
+        const res = await request(server)
+          .patch(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .set("If-Match", STALE)
+          .send(instruction)
+          .expect(412);
+        expect(res.body.errorCode).toBe(ErrorCode.PreconditionFailed);
+        expect(app.vault._modify).toBeUndefined();
+      });
+
+      test("a matching If-Match header succeeds and answers with the new version", async () => {
+        const res = await request(server)
+          .patch(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .set("If-Match", `"${ORIGINAL_VERSION}"`)
+          .send(instruction)
+          .expect(200);
+        expect(res.headers.etag).toBe(`"${versionOf(res.text)}"`);
+      });
+
+      test("the instruction's own ifMatch still applies alongside the header", async () => {
+        await request(server)
+          .patch(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .set("If-Match", `"${ORIGINAL_VERSION}"`)
+          .send({ ...instruction, ifMatch: "000000" })
+          .expect(412);
+      });
+
+      test("raw-content mode accepts If-Match: *", async () => {
+        const res = await request(server)
+          .patch(`/vault/${NOTE}/heading/Heading`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Operation", "append")
+          .set("If-Match", "*")
+          .set("Content-Type", "text/markdown")
+          .send("appended\n")
+          .expect(200);
+        expect(res.text).toContain("appended");
+      });
+
+      test("the deprecated 1.x format honors If-Match", async () => {
+        await request(server)
+          .patch(`/vault/${NOTE}`)
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Markdown-Patch-Version", "1")
+          .set("Operation", "append")
+          .set("Target-Type", "heading")
+          .set("Target", "Heading")
+          .set("Content-Type", "text/markdown")
+          .set("If-Match", STALE)
+          .send("appended\n")
+          .expect(412);
+        expect(app.vault._modify).toBeUndefined();
+      });
     });
   });
 

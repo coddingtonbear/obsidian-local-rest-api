@@ -239,20 +239,6 @@
       type: 'string',
     },
   },
-  ifMatch: {
-    name: 'If-Match',
-    'in': 'header',
-    description: |||
-      Raw-content mode: the instruction's `ifMatch` optimistic-concurrency
-      token — the `version` from a document map, bare or wrapped in one pair
-      of double quotes (RFC 9110 ETag style). A mismatch fails with `412` and
-      leaves the file untouched.
-    |||,
-    required: false,
-    schema: {
-      type: 'string',
-    },
-  },
   readTargetScope: {
     name: 'Target-Scope',
     'in': 'header',

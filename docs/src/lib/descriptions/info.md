@@ -3,6 +3,10 @@ The Obsidian Local REST API with MCP plugin gives you two ways to interact with 
 - **REST API** — standard HTTP endpoints for reading and writing notes, searching vault contents, and more. Useful from scripts, applications, or any HTTP client.
 - **MCP server** — exposes the same capabilities as structured tools for AI assistants (Claude, Cursor, and other MCP-compatible clients). See the `POST /mcp/` endpoint for connection details.
 
+## Conditional writes
+
+Every write to a file accepts an `If-Match` header, so two clients editing the same note cannot silently overwrite each other. Read the file, keep the `ETag` it answers with, and send it back as `If-Match` on the write: if the file has changed in between, the write fails with `412` and nothing is written. `If-None-Match: *` makes a `PUT` create-only. The document map's `version` and note JSON's `version` are the same token as the `ETag`, and every write that changes a file answers with its new one.
+
 ## Testing with this interface
 
 Select any operation in the sidebar, then open the **Try It** tab to send a live request to your running Obsidian instance.

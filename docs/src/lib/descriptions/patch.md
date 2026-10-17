@@ -212,6 +212,8 @@ There is no direct "remove item" operation. To remove a tag, read the current li
 
 Pass `ifMatch` with the `version` token from a document map (see below). If the file changed since, the patch fails with `412` and the file is untouched — refetch and retry.
 
+The `If-Match` and `If-None-Match` headers work here too, in every mode, exactly as on the other writes: `If-Match` takes the same token (the `ETag` from a `GET` of the file, quoted or bare), a list of them, or `*`. When a JSON instruction carries `ifMatch` and the request also sends `If-Match`, both must hold. A successful patch answers with the patched file's version in `ETag`, ready for the next conditional edit.
+
 ## Identifying patch targets in a file
 
 Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent) or a block reference ID repeats, only the first occurrence keeps its plain-text/id key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
@@ -225,7 +227,7 @@ The target can ride in either of two places (never both — that's a `422`):
 - **URL path elements**, exactly as GET/PUT/POST use them: `PATCH /vault/note.md/heading/A/B`. No version header needed.
 - **`Target-Type` / `Target` headers**, together with an explicit `Markdown-Patch-Version: 2`. The `Target` encoding is type-dependent, mirroring the instruction's `target` field: a heading Target is **JSON, percent-encoded** — `["A","B"]` sent as `%5B%22A%22%2C%22B%22%5D`, or `null` for the document root — while block and frontmatter Targets are the plain id/key (percent-encoded if non-ASCII). Because `Target` headers on a PATCH are ambiguous with the deprecated 1.x format, omitting the version header fails loudly with `400 PatchHeaderTargetingRequiresExplicitVersion` rather than guessing.
 
-The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Within` (the instruction's `within` index as a plain integer, e.g. `-1` — splice into one of the section's body blocks instead of adding a new one), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
+The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Within` (the instruction's `within` index as a plain integer, e.g. `-1` — splice into one of the section's body blocks instead of adding a new one), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (a precondition on the file, as on every write: the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
 
 The body is the payload carrier, chosen by its content type:
 
