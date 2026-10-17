@@ -748,13 +748,6 @@ export class McpHandler {
     };
   }
 
-  /** A client-supplied vault path, refused if it resolves outside the vault root.
-   *
-   *  Returns the path so a call site reads as `this.ops.write(this.vaultPath(path))`
-   *  -- the guard is then part of the expression that uses the path, and a new tool
-   *  that forgets it is visibly different from every tool around it. VaultOperations
-   *  checks again before touching the filesystem; this one exists so the client gets
-   *  a refusal that names what was wrong instead of a bare failure. */
   /**
    * The write preconditions an MCP call asked for, parsed exactly as REST parses
    * its If-Match/If-None-Match headers. Undefined when it asked for none.
@@ -775,6 +768,13 @@ export class McpHandler {
     return preconditions;
   }
 
+  /** A client-supplied vault path, refused if it resolves outside the vault root.
+   *
+   *  Returns the path so a call site reads as `this.ops.write(this.vaultPath(path))`
+   *  -- the guard is then part of the expression that uses the path, and a new tool
+   *  that forgets it is visibly different from every tool around it. VaultOperations
+   *  checks again before touching the filesystem; this one exists so the client gets
+   *  a refusal that names what was wrong instead of a bare failure. */
   private vaultPath(candidate: string, label = "Path"): string {
     assertVaultPathIsContained(candidate, label);
     assertConfigDirAccessAllowed(
