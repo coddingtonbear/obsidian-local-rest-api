@@ -113,6 +113,31 @@ describe("requestHandler", () => {
         .set("Authorization", `Bearer ${API_KEY}`)
         .expect(200);
     });
+    test("a key that is a prefix or an extension of the right one", async () => {
+      await request(server)
+        .get(arbitraryAuthenticatedRoute)
+        .set("Authorization", `Bearer ${API_KEY.slice(0, -1)}`)
+        .expect(401);
+      await request(server)
+        .get(arbitraryAuthenticatedRoute)
+        .set("Authorization", `Bearer ${API_KEY}0`)
+        .expect(401);
+    });
+    test("compares the presented key in constant time", async () => {
+      // A plain === stops at the first differing character, so response time
+      // can reveal how much of a guess was right.
+      const nodeCrypto = jest.requireActual<typeof import("crypto")>("crypto");
+      const spy = jest.spyOn(nodeCrypto, "timingSafeEqual");
+      try {
+        await request(server)
+          .get(arbitraryAuthenticatedRoute)
+          .set("Authorization", "Bearer of good tidings")
+          .expect(401);
+        expect(spy).toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+      }
+    });
   });
 
   describe("root", () => {
