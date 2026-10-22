@@ -54,11 +54,14 @@ export {
 } from "./publicApi";
 import { PluginManifest } from "obsidian";
 import { configureHttpServerTimeouts } from "./serverTimeouts";
+import { closeServer, describeServerError, listenServer } from "./serverBinding";
 
 export default class LocalRestApi extends Plugin {
   declare settings: LocalRestApiSettings;
   secureServer: https.Server | null = null;
   insecureServer: http.Server | null = null;
+  private serverRefresh: Promise<void> = Promise.resolve();
+  private unloaded = false;
   requestHandler: RequestHandler;
   refreshServerState: () => void;
 
@@ -141,67 +144,79 @@ export default class LocalRestApi extends Plugin {
   }
 
   _refreshServerState() {
-    if (this.secureServer) {
-      this.secureServer.closeAllConnections();
-      this.secureServer.close();
-      this.secureServer = null;
-    }
+    // Chained so that a refresh never binds while the previous one is still
+    // releasing its ports. The catch keeps one failed refresh from stalling
+    // every later one behind a rejected promise.
+    this.serverRefresh = this.serverRefresh
+      .then(() => this.restartServers())
+      .catch((error) => {
+        console.error("[REST API] Could not restart the servers", error);
+      });
+  }
+
+  private async restartServers() {
+    const previous = [this.secureServer, this.insecureServer];
+    this.secureServer = null;
+    this.insecureServer = null;
+    // Binding again before the old servers have let go of their ports would
+    // fail with EADDRINUSE on the port we are about to reuse.
+    await Promise.all(previous.map(closeServer));
+    if (this.unloaded) return;
+
+    const host = this.settings.bindingHost ?? DefaultBindingHost;
+
     if ((this.settings.enableSecureServer ?? true) && this.settings.crypto) {
-      this.secureServer = https.createServer(
+      const server = https.createServer(
         {
           key: this.settings.crypto.privateKey,
           cert: buildServerCertificateChain(this.settings.crypto),
         },
         this.requestHandler.api
       );
-      configureHttpServerTimeouts(this.secureServer);
-      this.secureServer.listen(
-        this.settings.port,
-        this.settings.bindingHost ?? DefaultBindingHost
-      );
-
-      if (this.settings.enableVerboseLogging) {
-        console.debug(
-          `[REST API] Listening on https://${
-            this.settings.bindingHost ?? DefaultBindingHost
-          }:${this.settings.port}/`
-        );
-      }
+      configureHttpServerTimeouts(server);
+      this.secureServer = server;
+      this.startServer(server, "HTTPS", host, this.settings.port);
     }
 
-    if (this.insecureServer) {
-      this.insecureServer.closeAllConnections();
-      this.insecureServer.close();
-      this.insecureServer = null;
-    }
     if (this.settings.enableInsecureServer) {
-      this.insecureServer = http.createServer(this.requestHandler.api);
-      configureHttpServerTimeouts(this.insecureServer);
-      this.insecureServer.listen(
-        this.settings.insecurePort,
-        this.settings.bindingHost ?? DefaultBindingHost
-      );
-
-      if (this.settings.enableVerboseLogging) {
-        console.debug(
-          `[REST API] Listening on http://${
-            this.settings.bindingHost ?? DefaultBindingHost
-          }:${this.settings.insecurePort}/`
-        );
-      }
+      const server = http.createServer(this.requestHandler.api);
+      configureHttpServerTimeouts(server);
+      this.insecureServer = server;
+      this.startServer(server, "HTTP", host, this.settings.insecurePort);
     }
   }
 
+  private startServer(
+    server: http.Server | https.Server,
+    protocol: "HTTPS" | "HTTP",
+    host: string,
+    port: number
+  ) {
+    listenServer(server, port, host, {
+      onListening: () => {
+        if (this.settings.enableVerboseLogging) {
+          console.debug(
+            `[REST API] Listening on ${protocol.toLowerCase()}://${host}:${port}/`
+          );
+        }
+      },
+      onError: (error) => {
+        console.error(`[REST API] ${protocol} server error on ${host}:${port}`, error);
+        // A server that is already up (failing to accept one connection, say)
+        // is still serving, and must stay tracked so the next refresh closes it.
+        if (server.listening) return;
+        new Notice(describeServerError(error, protocol, host, port));
+        if (this.secureServer === server) this.secureServer = null;
+        if (this.insecureServer === server) this.insecureServer = null;
+      },
+    });
+  }
+
   onunload() {
+    this.unloaded = true;
     this.requestHandler?.dispose();
-    if (this.secureServer) {
-      this.secureServer.closeAllConnections();
-      this.secureServer.close();
-    }
-    if (this.insecureServer) {
-      this.insecureServer.closeAllConnections();
-      this.insecureServer.close();
-    }
+    void closeServer(this.secureServer);
+    void closeServer(this.insecureServer);
   }
 
   async loadSettings() {
