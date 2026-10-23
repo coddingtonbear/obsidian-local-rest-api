@@ -61,13 +61,13 @@ export default class LocalRestApi extends Plugin {
   declare settings: LocalRestApiSettings;
   secureServer: https.Server | null = null;
   insecureServer: http.Server | null = null;
-  requestHandler!: RequestHandler;
-  refreshServerState!: () => void;
+  requestHandler: RequestHandler;
+  refreshServerState: () => void;
 
   async onload() {
     this.refreshServerState = this.debounce(
       this._refreshServerState.bind(this),
-      1000,
+      1000
     );
 
     await this.loadSettings();
@@ -75,7 +75,7 @@ export default class LocalRestApi extends Plugin {
     this.requestHandler = new RequestHandler(
       this.app,
       this.manifest,
-      this.settings,
+      this.settings
     );
     this.requestHandler.setupRouter();
 
@@ -105,9 +105,7 @@ export default class LocalRestApi extends Plugin {
         this.settings.crypto = renewed;
         await this.saveSettings();
         if (this.settings.enableVerboseLogging) {
-          console.debug(
-            "[REST API] Renewed the server certificate from the stored CA",
-          );
+          console.debug("[REST API] Renewed the server certificate from the stored CA");
         }
       }
     }
@@ -122,7 +120,7 @@ export default class LocalRestApi extends Plugin {
   getPublicApi(pluginManifest: PluginManifest): LocalRestApiPublicApi {
     if (!pluginManifest.id || !pluginManifest.name || !pluginManifest.version) {
       throw new Error(
-        "PluginManifest instance must include a defined id, name, and version to be accempted.",
+        "PluginManifest instance must include a defined id, name, and version to be accempted."
       );
     }
 
@@ -135,7 +133,7 @@ export default class LocalRestApi extends Plugin {
 
   debounce<F extends (...args: unknown[]) => unknown>(
     func: F,
-    delay: number,
+    delay: number
   ): (...args: Parameters<F>) => void {
     let debounceTimer: number;
     return (...args: Parameters<F>): void => {
@@ -156,19 +154,19 @@ export default class LocalRestApi extends Plugin {
           key: this.settings.crypto.privateKey,
           cert: buildServerCertificateChain(this.settings.crypto),
         },
-        this.requestHandler.api,
+        this.requestHandler.api
       );
       configureHttpServerTimeouts(this.secureServer);
       this.secureServer.listen(
         this.settings.port,
-        this.settings.bindingHost ?? DefaultBindingHost,
+        this.settings.bindingHost ?? DefaultBindingHost
       );
 
       if (this.settings.enableVerboseLogging) {
         console.debug(
           `[REST API] Listening on https://${
             this.settings.bindingHost ?? DefaultBindingHost
-          }:${this.settings.port}/`,
+          }:${this.settings.port}/`
         );
       }
     }
@@ -183,14 +181,14 @@ export default class LocalRestApi extends Plugin {
       configureHttpServerTimeouts(this.insecureServer);
       this.insecureServer.listen(
         this.settings.insecurePort,
-        this.settings.bindingHost ?? DefaultBindingHost,
+        this.settings.bindingHost ?? DefaultBindingHost
       );
 
       if (this.settings.enableVerboseLogging) {
         console.debug(
           `[REST API] Listening on http://${
             this.settings.bindingHost ?? DefaultBindingHost
-          }:${this.settings.insecurePort}/`,
+          }:${this.settings.insecurePort}/`
         );
       }
     }
@@ -209,11 +207,7 @@ export default class LocalRestApi extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = Object.assign(
-      {},
-      DEFAULT_SETTINGS,
-      (await this.loadData()) as Partial<LocalRestApiSettings>,
-    );
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<LocalRestApiSettings>);
   }
 
   async saveSettings() {
@@ -221,7 +215,7 @@ export default class LocalRestApi extends Plugin {
   }
 }
 
-export class LocalRestApiSettingTab extends PluginSettingTab {
+class LocalRestApiSettingTab extends PluginSettingTab {
   plugin: LocalRestApi;
 
   constructor(app: App, plugin: LocalRestApi) {
@@ -243,9 +237,7 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
     }
     let standardsIssue: CertificateStandardsIssue | null = null;
     try {
-      standardsIssue = getCertificateStandardsIssue(
-        forge.pki.certificateFromPem(crypto.cert),
-      );
+      standardsIssue = getCertificateStandardsIssue(forge.pki.certificateFromPem(crypto.cert));
     } catch {
       // Unparseable material: nothing to say about its standards either.
     }
@@ -324,7 +316,7 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
       copyLabel: string;
       includeCertificateNote: boolean;
       disabledHint: string;
-    },
+    }
   ): void {
     const settings = this.plugin.settings;
     const altNames = this.getSubjectAltNames();
@@ -402,8 +394,7 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
       urls: [
         `http://127.0.0.1:${settings.insecurePort}${options.pathSuffix}`,
         ...altNames.map(
-          (name) =>
-            `http://${name}:${settings.insecurePort}${options.pathSuffix}`,
+          (name) => `http://${name}:${settings.insecurePort}${options.pathSuffix}`
         ),
       ],
     });
@@ -1067,8 +1058,7 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
         this.plugin.refreshServerState();
         break;
       case "enableVerboseLogging":
-        this.plugin.settings.enableVerboseLogging =
-          (value as boolean) || undefined;
+        this.plugin.settings.enableVerboseLogging = (value as boolean) || undefined;
         await this.plugin.saveSettings();
         break;
       case "enableConfigDirAccess":
