@@ -1,15 +1,17 @@
-import * as fs from "fs";
-import * as path from "path";
+import { _languageMock } from "obsidian";
 import {
-  t,
-  setLanguage,
-  resetLanguage,
   getCurrentLanguage,
-  type MessageKey,
+  messageKeys,
+  resetLanguage,
+  setLanguage,
+  t,
+  tPlural,
 } from "./i18n";
+import { placeholderNames } from "./i18nTemplate";
 
 describe("i18n module", () => {
   afterEach(() => {
+    _languageMock.value = "en";
     resetLanguage();
   });
 
@@ -24,68 +26,6 @@ describe("i18n module", () => {
       expect(t("heading.title")).toBe("本地 REST API（含 MCP）");
     });
 
-  });
-
-  describe("placeholder interpolation", () => {
-    it("replaces {label} placeholder in copy.tooltip", () => {
-      setLanguage("en");
-      expect(t("copy.tooltip", { label: "API Key" })).toBe("Copy API Key");
-    });
-
-    it("replaces multiple placeholders in copy.success", () => {
-      setLanguage("en");
-      expect(t("copy.success", { label: "API Key" })).toBe(
-        "Copied API Key to clipboard."
-      );
-    });
-
-    it("replaces {header} placeholder in rest.authHeader", () => {
-      setLanguage("en");
-      const result = t("rest.authHeader", { header: "Authorization" });
-      expect(result).toContain("<code>Authorization</code>");
-    });
-
-    it("replaces {days} and {suffix} placeholders in cert.expiresIn", () => {
-      setLanguage("en");
-      expect(t("cert.expiresIn", { days: 7, suffix: "s" })).toBe(
-        "Expires in 7 days"
-      );
-      expect(t("cert.expiresIn", { days: 1, suffix: "" })).toBe(
-        "Expires in 1 day"
-      );
-    });
-
-    it("replaces {docsLink} placeholder in rest.seeMore", () => {
-      setLanguage("en");
-      const result = t("rest.seeMore", { docsLink: "https://docs.example.com" });
-      expect(result).toContain("https://docs.example.com");
-      expect(result).not.toContain("{docsLink}");
-    });
-
-    it("replaces {licenseLink} placeholder in advanced.noWarranty", () => {
-      setLanguage("en");
-      const result = t("advanced.noWarranty", { licenseLink: "https://mit.edu" });
-      expect(result).toContain("https://mit.edu");
-      expect(result).not.toContain("{licenseLink}");
-    });
-  });
-
-  describe("language switching", () => {
-    it("uses Obsidian's configured language", () => {
-      resetLanguage();
-      expect(getCurrentLanguage()).toBe("en");
-    });
-
-    it("switches to Chinese and back", () => {
-      setLanguage("zh");
-      expect(getCurrentLanguage()).toBe("zh");
-      expect(t("heading.settings")).toBe("设置");
-
-      resetLanguage();
-      expect(getCurrentLanguage()).toBe("en");
-      expect(t("heading.settings")).toBe("Settings");
-    });
-
     it("ignores invalid language codes", () => {
       setLanguage("en");
       setLanguage("invalid");
@@ -93,170 +33,96 @@ describe("i18n module", () => {
     });
   });
 
-  describe("en/zh key parity", () => {
-    it("zh dictionary has all keys from en dictionary", () => {
-      // Extract en keys from the source file
-      const i18nPath = path.join(__dirname, "i18n.ts");
-      const source = fs.readFileSync(i18nPath, "utf8");
+  describe("language detection", () => {
+    it("uses Obsidian's configured language", () => {
+      _languageMock.value = "zh-CN";
+      resetLanguage();
+      expect(getCurrentLanguage()).toBe("zh");
+    });
 
-      // Parse the en dictionary to extract all keys
-      const enKeys = extractKeysFromDictionary(source, "const en = {");
+    it("falls back to English for other languages", () => {
+      _languageMock.value = "fr";
+      resetLanguage();
+      expect(getCurrentLanguage()).toBe("en");
+    });
 
-      // All keys must be present in both dictionaries
-      expect(enKeys.length).toBeGreaterThan(0);
+    it("treats zh-TW as Simplified until a traditional locale exists", () => {
+      _languageMock.value = "zh-TW";
+      resetLanguage();
+      expect(getCurrentLanguage()).toBe("zh");
+    });
+  });
 
-      // Verify each key exists in zh by testing t() returns Chinese text
+  describe("placeholder interpolation", () => {
+    it("replaces a single placeholder", () => {
+      setLanguage("en");
+      expect(t("copy.tooltip", { label: "API Key" })).toBe("Copy API Key");
+    });
+
+    it("keeps the surrounding text", () => {
+      setLanguage("en");
+      expect(t("advanced.noWarranty", { licenseLink: "URL" })).toContain(
+        "please see URL.",
+      );
+    });
+  });
+
+  describe("plurals", () => {
+    it("uses the singular form for one day in English", () => {
+      setLanguage("en");
+      expect(tPlural("cert.expiresIn", 1)).toBe("Expires in 1 day");
+    });
+
+    it("uses the plural form for several days in English", () => {
+      setLanguage("en");
+      expect(tPlural("cert.expiresIn", 7)).toBe("Expires in 7 days");
+      expect(tPlural("status.expiringSoon", 7)).toBe(
+        "Your certificate will expire in 7 days!",
+      );
+    });
+
+    it("does not append an English plural suffix in Chinese", () => {
       setLanguage("zh");
-      for (const key of enKeys) {
-        const zhText = t(key as MessageKey);
-        // Should not return the key itself (which indicates missing translation)
-        expect(zhText).not.toBe(key);
-        // Should not be empty
-        expect(zhText.length).toBeGreaterThan(0);
-      }
-    });
-
-    it("en dictionary has all keys from zh dictionary", () => {
-      // This is guaranteed at compile-time by the StrMap type,
-      // but we verify at runtime too
-      setLanguage("en");
-      const i18nPath = path.join(__dirname, "i18n.ts");
-      const source = fs.readFileSync(i18nPath, "utf8");
-
-      const zhKeys = extractKeysFromDictionary(source, "const zh: StrMap = {");
-
-      for (const key of zhKeys) {
-        const enText = t(key as MessageKey);
-        expect(enText).not.toBe(key);
-        expect(enText.length).toBeGreaterThan(0);
-      }
+      expect(tPlural("cert.expiresIn", 1)).toBe("将在 1 天后过期");
+      expect(tPlural("cert.expiresIn", 7)).toBe("将在 7 天后过期");
+      expect(tPlural("status.expiringSoon", 7)).toBe(
+        "您的证书将在 7 天后过期！",
+      );
     });
   });
 
-  describe("usage scan - all t() call site keys exist", () => {
-    it("every t() call in src/*.ts uses a valid key", () => {
-      const srcDir = path.join(__dirname);
-      const tsFiles = fs.readdirSync(srcDir).filter((f) => f.endsWith(".ts"));
+  describe("translation tables", () => {
+    it("translate every key in both languages", () => {
+      expect(messageKeys.length).toBeGreaterThan(0);
+      setLanguage("en");
+      for (const key of messageKeys) {
+        expect(t(key)).not.toBe(key);
+      }
+      setLanguage("zh");
+      for (const key of messageKeys) {
+        expect(t(key)).not.toBe(key);
+      }
+    });
 
-      const usedKeys = new Set<string>();
+    it("keep the same placeholders in Chinese as in English", () => {
+      setLanguage("en");
+      const expected = new Map(
+        messageKeys.map((key) => [key, placeholderNames(t(key))]),
+      );
 
-      for (const file of tsFiles) {
-        // Skip test files and the i18n module itself
-        if (file === "i18n.ts" || file.endsWith(".test.ts")) continue;
+      setLanguage("zh");
+      for (const key of messageKeys) {
+        expect(placeholderNames(t(key))).toEqual(expected.get(key));
+      }
+    });
 
-        const filePath = path.join(srcDir, file);
-        const content = fs.readFileSync(filePath, "utf8");
-
-        // Match t("key") and t("key", { ... }) patterns
-        const regex = /\bt\(["']([^"']+)["']/g;
-        let match;
-        while ((match = regex.exec(content)) !== null) {
-          usedKeys.add(match[1]);
+    it("keep markup out of the dictionaries", () => {
+      for (const language of ["en", "zh"] as const) {
+        setLanguage(language);
+        for (const key of messageKeys) {
+          expect(t(key)).not.toMatch(/<[a-z][^>]*>/i);
         }
-      }
-
-      // Verify all used keys exist in en dictionary
-      setLanguage("en");
-      for (const key of usedKeys) {
-        const text = t(key as MessageKey);
-        expect(text).not.toBe(key);
-        expect(text.length).toBeGreaterThan(0);
-      }
-    });
-  });
-
-  describe("placeholder parity between en and zh", () => {
-    it("zh translations have same placeholders as en for all keys with placeholders", () => {
-      const i18nPath = path.join(__dirname, "i18n.ts");
-      const source = fs.readFileSync(i18nPath, "utf8");
-
-      // Extract placeholder patterns from en dictionary
-      const enPlaceholders = extractPlaceholdersFromDictionary(source, "const en = {");
-
-      // Extract placeholder patterns from zh dictionary
-      const zhPlaceholders = extractPlaceholdersFromDictionary(source, "const zh: StrMap = {");
-
-      // Verify placeholders match
-      for (const [key, placeholders] of Object.entries(enPlaceholders)) {
-        const zhPlace = zhPlaceholders[key];
-        expect(zhPlace).toBeDefined();
-        expect(zhPlace).toEqual(placeholders);
       }
     });
   });
 });
-
-// Helper functions for extracting keys and placeholders
-
-function extractKeysFromDictionary(source: string, marker: string): string[] {
-  const keys: string[] = [];
-  const markerIndex = source.indexOf(marker);
-  if (markerIndex === -1) return keys;
-
-  // Find the closing brace
-  let braceCount = 0;
-  let dictStart = source.indexOf("{", markerIndex);
-  if (dictStart === -1) return keys;
-
-  for (let i = dictStart; i < source.length; i++) {
-    if (source[i] === "{") braceCount++;
-    if (source[i] === "}") braceCount--;
-    if (braceCount === 0) {
-      const dictContent = source.slice(dictStart + 1, i);
-
-      // Extract keys - they look like "key": "value" or 'key': 'value'
-      const keyRegex = /["']([^"']+)["']\s*:/g;
-      let match;
-      while ((match = keyRegex.exec(dictContent)) !== null) {
-        keys.push(match[1]);
-      }
-      break;
-    }
-  }
-
-  return keys;
-}
-
-function extractPlaceholdersFromDictionary(
-  source: string,
-  marker: string
-): Record<string, string[]> {
-  const placeholders: Record<string, string[]> = {};
-  const markerIndex = source.indexOf(marker);
-  if (markerIndex === -1) return placeholders;
-
-  let braceCount = 0;
-  let dictStart = source.indexOf("{", markerIndex);
-  if (dictStart === -1) return placeholders;
-
-  for (let i = dictStart; i < source.length; i++) {
-    if (source[i] === "{") braceCount++;
-    if (source[i] === "}") braceCount--;
-    if (braceCount === 0) {
-      const dictContent = source.slice(dictStart + 1, i);
-
-      // Extract key-value pairs
-      const keyValueRegex = /["']([^"']+)["']\s*:\s*["']([^"']*)["']/g;
-      let match;
-      while ((match = keyValueRegex.exec(dictContent)) !== null) {
-        const key = match[1];
-        const value = match[2];
-
-        // Extract placeholders from value
-        const placeholderRegex = /\{([^}]+)\}/g;
-        const keyPlaceholders: string[] = [];
-        let placeholderMatch;
-        while ((placeholderMatch = placeholderRegex.exec(value)) !== null) {
-          keyPlaceholders.push(placeholderMatch[1]);
-        }
-
-        if (keyPlaceholders.length > 0) {
-          placeholders[key] = keyPlaceholders.sort();
-        }
-      }
-      break;
-    }
-  }
-
-  return placeholders;
-}

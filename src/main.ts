@@ -14,7 +14,8 @@ import forge from "node-forge";
 
 import RequestHandler from "./requestHandler";
 import { LocalRestApiSettings } from "./types";
-import { getCurrentLanguage, t } from "./i18n";
+import { t, tPlural } from "./i18n";
+import { renderTemplate } from "./i18nTemplate";
 
 import {
   DefaultBearerTokenHeaderName,
@@ -377,32 +378,20 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
             const wikiUrl =
               "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F";
 
-            const secureNoteTemplate = t("rest.secureNote", {
-              link: "{{LINK}}",
-              wikiLink: "{{WIKI}}",
+            renderTemplate(noteEl, t("rest.secureNote"), {
+              link: (parent) =>
+                parent.createEl("a", {
+                  href: certUrl,
+                  text: certificateLinkLabel,
+                  attr: { target: "_blank" },
+                }),
+              wikiLink: (parent) =>
+                parent.createEl("a", {
+                  href: wikiUrl,
+                  text: wikiLinkLabel,
+                  attr: { target: "_blank" },
+                }),
             });
-            const parts = secureNoteTemplate.split(/\{\{LINK\}\}|\{\{WIKI\}\}/);
-            const placeholders =
-              secureNoteTemplate.match(/\{\{LINK\}\}|\{\{WIKI\}\}/g) ?? [];
-
-            noteEl.createSpan({ text: parts[0] });
-
-            for (let i = 0; i < placeholders.length; i++) {
-              const placeholder = placeholders[i];
-              const url = placeholder === "{{LINK}}" ? certUrl : wikiUrl;
-              const label =
-                placeholder === "{{LINK}}"
-                  ? certificateLinkLabel
-                  : wikiLinkLabel;
-              noteEl.createEl("a", {
-                href: url,
-                text: label,
-                attr: { target: "_blank" },
-              });
-              if (parts[i + 1]) {
-                noteEl.createSpan({ text: parts[i + 1] });
-              }
-            }
           }
         : undefined,
     });
@@ -434,23 +423,16 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
       insecureName: t("rest.insecureName"),
       copyLabel: t("rest.endpointUrl"),
       includeCertificateNote: true,
-      disabledHint: t("rest.disabledHint"),
+      disabledHint: t("rest.disabledHintSubPage"),
     });
 
     const authHeaderP = apiKeyDiv.createEl("p");
-    // The i18n key contains an HTML <code> tag around {header}.  We split
-    // around a sentinel so the real header name goes into a safe text node
-    // on a <code> element — never through innerHTML.
     const headerName =
       this.plugin.settings.authorizationHeaderName ??
       DefaultBearerTokenHeaderName;
-    const authHeaderTemplate = t("rest.authHeader", { header: "\u0000" });
-    const [authBefore, authAfter] = authHeaderTemplate.split(
-      "<code>\u0000</code>",
-    );
-    authHeaderP.createSpan({ text: authBefore });
-    authHeaderP.createEl("code", { text: headerName });
-    authHeaderP.createSpan({ text: authAfter });
+    renderTemplate(authHeaderP, t("rest.authHeader"), {
+      header: (parent) => parent.createEl("code", { text: headerName }),
+    });
 
     this.renderCopyableValue(
       apiKeyDiv,
@@ -502,15 +484,9 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
       DefaultBearerTokenHeaderName;
 
     const mcpAuthHeaderP = mcpDiv.createEl("p");
-    // Split the i18n template around the <code> sentinel so the real header
-    // name is inserted as a safe text node, not via innerHTML.
-    const mcpAuthHeaderTemplate = t("mcp.authHeader", { header: "\u0000" });
-    const [mcpAuthBefore, mcpAuthAfter] = mcpAuthHeaderTemplate.split(
-      "<code>\u0000</code>",
-    );
-    mcpAuthHeaderP.createSpan({ text: mcpAuthBefore });
-    mcpAuthHeaderP.createEl("code", { text: headerName });
-    mcpAuthHeaderP.createSpan({ text: mcpAuthAfter });
+    renderTemplate(mcpAuthHeaderP, t("mcp.authHeader"), {
+      header: (parent) => parent.createEl("code", { text: headerName }),
+    });
 
     this.renderCopyableValue(
       mcpDiv,
@@ -581,10 +557,7 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
       soonExpiringCertDiv.classList.add("certificate-expiring-soon");
       const daysRemaining = Math.floor(remainingCertificateValidityDays);
       soonExpiringCertDiv.createEl("b", {
-        text: t("status.expiringSoon", {
-          days: daysRemaining,
-          suffix: daysRemaining === 1 ? "" : "s",
-        }),
+        text: tPlural("status.expiringSoon", daysRemaining),
       });
       soonExpiringCertDiv.createSpan({
         text: t("status.expiringDesc"),
@@ -666,10 +639,7 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
       if (remainingCertificateValidityDays < 0) return t("cert.expired");
       if (remainingCertificateValidityDays < 30) {
         const days = Math.floor(remainingCertificateValidityDays);
-        return t("cert.expiresIn", {
-          days,
-          suffix: getCurrentLanguage() === "en" && days !== 1 ? "s" : "",
-        });
+        return tPlural("cert.expiresIn", days);
       }
       if (standardsIssue === "legacy-ipv4-san")
         return t("cert.shouldRegenerate");
@@ -692,7 +662,7 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
                 insecureName: t("rest.insecureServerName"),
                 copyLabel: t("rest.serverUrlCopyLabel"),
                 includeCertificateNote: false,
-                disabledHint: t("rest.disabledHint"),
+                disabledHint: t("rest.disabledHintBelow"),
               });
             },
           },
@@ -828,18 +798,10 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
             text: t("advanced.warning"),
           });
           const noWarrantee = el.createEl("p");
-          // Split around a {licenseLink} sentinel so the URL goes into a
-          // safe <a> element — never via innerHTML.
-          const licenseTemplate = t("advanced.noWarranty", {
-            licenseLink: "\u0000",
+          renderTemplate(noWarrantee, t("advanced.noWarranty"), {
+            licenseLink: (parent) =>
+              parent.createEl("a", { href: LicenseUrl, text: LicenseUrl }),
           });
-          const [licBefore, licAfter] = licenseTemplate.split("\u0000");
-          noWarrantee.createSpan({ text: licBefore });
-          noWarrantee.createEl("a", {
-            href: LicenseUrl,
-            text: LicenseUrl,
-          });
-          noWarrantee.createSpan({ text: licAfter });
         },
       },
       {
@@ -874,13 +836,17 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
         control: { type: "toggle", key: "enableVerboseLogging" },
       },
       {
-        name: "Enable signed URLs",
-        desc: "Lets the MCP tools hand out expiring links to individual vault files (vault_get_download_url, vault_get_upload_url, and vault_read_binary's link mode) that work without the API key, so a browser or a shell can fetch or upload a file directly. Anyone holding such a link can read (or, for an upload link, write once to) that one file until it expires. The signing secret is regenerated every time the plugin loads, so links never outlive a restart.",
+        name: t("setting.enableSignedUrls"),
+        desc: t("setting.enableSignedUrlsDesc"),
         control: { type: "toggle", key: "enableSignedUrls" },
       },
       {
-        name: "Signed URL lifetime (seconds)",
-        desc: `How long a signed URL stays valid. Between ${MinimumSignedUrlTtlSeconds} and ${MaximumSignedUrlTtlSeconds} seconds; the default is ${DefaultSignedUrlTtlSeconds}.`,
+        name: t("setting.signedUrlTtl"),
+        desc: t("setting.signedUrlTtlDesc", {
+          min: MinimumSignedUrlTtlSeconds,
+          max: MaximumSignedUrlTtlSeconds,
+          default: DefaultSignedUrlTtlSeconds,
+        }),
         control: {
           type: "number",
           key: "signedUrlTtlSeconds",
@@ -889,8 +855,12 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
         },
       },
       {
-        name: "Extension state read budget (milliseconds)",
-        desc: `How long GET / waits for an extension plugin to report its state before serving null for that plugin. Extensions are read concurrently, so this bounds the whole wait. Between ${MinimumStateReadTimeoutMs} and ${MaximumStateReadTimeoutMs} milliseconds; the default is ${DefaultStateReadTimeoutMs}.`,
+        name: t("setting.stateReadTimeout"),
+        desc: t("setting.stateReadTimeoutDesc", {
+          min: MinimumStateReadTimeoutMs,
+          max: MaximumStateReadTimeoutMs,
+          default: DefaultStateReadTimeoutMs,
+        }),
         control: {
           type: "number",
           key: "stateReadTimeoutMs",
@@ -899,8 +869,10 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
         },
       },
       {
-        name: "Allow access to the configuration directory",
-        desc: `When off (the default), the API refuses to read or write any file inside Obsidian's configuration directory (currently '${this.app.vault.configDir}'). That directory holds plugin code and each plugin's data.json — including this plugin's own, where your API key lives — so writing there is effectively arbitrary code execution and reading there leaks secrets. Leave this off unless you specifically need to manage your Obsidian configuration through the API, and understand that turning it on grants every holder of your API key that power.`,
+        name: t("setting.configDirAccess"),
+        desc: t("setting.configDirAccessDesc", {
+          configDir: this.app.vault.configDir,
+        }),
         control: { type: "toggle", key: "enableConfigDirAccess" },
       },
     ];
