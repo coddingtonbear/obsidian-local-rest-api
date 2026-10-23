@@ -1515,7 +1515,10 @@ describe("McpHandler", () => {
       );
     });
 
-    test("a hostile Host header cannot break out of the advertised command", async () => {
+    // `/bin/sh` and `/tmp` do not exist on Windows, and the point of this test is how a
+    // POSIX shell parses the command, which cannot be checked there.
+    const testWhenPosix = process.platform === "win32" ? test.skip : test;
+    testWhenPosix("a hostile Host header cannot break out of the advertised command", async () => {
       const mcp = build(SIGNED, { signer: new UrlSigner() });
       const result = await overHttp(
         mcp,

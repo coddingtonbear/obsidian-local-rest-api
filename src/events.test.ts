@@ -174,8 +174,11 @@ describe("event streams over REST", () => {
       const port = (server.address() as AddressInfo).port;
       const response = await new Promise<string>((resolve, reject) => {
         const socket = connect(port, "127.0.0.1", () => {
-          socket.end(
-            `POST /events/vault/modify/ HTTP/1.0\r\nAuthorization: Bearer ${API_KEY}\r\n\r\n`,
+          // Write rather than end: ending the payload side immediately makes the
+          // server treat the request as aborted on some platforms and drop the
+          // response, which is what the status line is here to observe.
+          socket.write(
+            `POST /events/vault/modify/ HTTP/1.0\r\nAuthorization: Bearer ${API_KEY}\r\nConnection: close\r\n\r\n`,
           );
         });
         let received = "";
