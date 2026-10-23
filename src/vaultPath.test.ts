@@ -569,7 +569,7 @@ describe("a disk error that is not 'missing' is a refusal, not a miss", () => {
       basePath: "/vault",
       realpath: fakeRealpath({}, existing),
       readlink: (absolutePath) => {
-        if (absolutePath === "/vault/notes/odd") {
+        if (absolutePath.replace(/\\/g, "/") === "/vault/notes/odd") {
           throw Object.assign(new Error("EIO"), { code: "EIO" });
         }
         return undefined;

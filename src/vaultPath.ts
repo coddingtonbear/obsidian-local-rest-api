@@ -294,7 +294,7 @@ export function configDirMatcher(
       const candidateOnDisk =
         target === undefined
           ? path.join(parentOnDisk, name)
-          : locateAbsolute(path.resolve(path.dirname(literal), target), memoised);
+          : locateAbsolute(resolveLinkTarget(literal, target), memoised);
       return sameOrBeneath(candidateOnDisk, configOnDisk);
     } catch (error) {
       if (error instanceof UnfinishedWalkError) return true;
@@ -433,6 +433,21 @@ function onDiskLocation(
   return locate(onDisk.basePath, segments, onDisk, 0);
 }
 
+/** Resolve a symlink target the way the filesystem holding the link would.
+ *
+ *  `path.resolve` is the platform's: on Windows it lends a drive-less rooted
+ *  path the current drive (`\vault\notes` plus `..\x` becomes `C:\vault\x`).
+ *  That is right for a real path on this host, but wrong for the POSIX-style
+ *  `/vault` an {@link OnDiskAccess} may describe -- a fake disk in a test, or
+ *  an adapter whose paths are not this host's. Resolve those with POSIX
+ *  semantics so a link lands where that access says it does. */
+function resolveLinkTarget(linkPath: string, linkTarget: string): string {
+  const windowsRoot = /^[A-Za-z]:[\\/]/.test(linkPath) || linkPath.startsWith("\\\\");
+  if (windowsRoot) return path.resolve(path.dirname(linkPath), linkTarget);
+  const directory = posix.dirname(linkPath.replace(/\\/g, "/"));
+  return posix.resolve(directory, linkTarget.replace(/\\/g, "/"));
+}
+
 /** {@link locate} for an absolute path, split into its root and components. */
 function locateAbsolute(
   absolute: string,
@@ -529,7 +544,7 @@ function locate(
     if (hops >= MAX_LINK_HOPS) {
       throw new UnfinishedWalkError(`More than ${MAX_LINK_HOPS} links at ${here}`);
     }
-    const target = path.resolve(path.dirname(here), linkTarget);
+    const target = resolveLinkTarget(here, linkTarget);
     const landed = locateAbsolute(target, onDisk, hops + 1);
     return landed === undefined ? undefined : path.join(landed, ...remainder);
   }
