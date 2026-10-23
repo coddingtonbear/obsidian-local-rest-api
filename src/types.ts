@@ -10,6 +10,7 @@ export enum ErrorCode {
   PathTraversalNotAllowed = 40021,
   InvalidDestinationHeader = 40022,
   InvalidWithinHeader = 40023,
+  InvalidPreconditionHeader = 40024,
   MissingTargetTypeHeader = 40053,
   InvalidTargetTypeHeader = 40054,
   MissingTargetHeader = 40055,
@@ -24,12 +25,20 @@ export enum ErrorCode {
   PatchFailed = 40080,
   InvalidPatchInstruction = 40081,
   InvalidSearch = 40090,
+  EventNameRequired = 40095,
   ApiKeyAuthorizationRequired = 40101,
+  SignedUrlIsWholeFileOnly = 40102,
+  ConfigDirAccessNotAllowed = 40321,
+  UnknownEvent = 40460,
+  EventSubscriptionNotFound = 40461,
   RequestMethodValidOnlyForFiles = 40510,
   DestinationAlreadyExists = 40920,
+  PreconditionFailed = 41200,
   ConflictingTargetSpecification = 42200,
+  TooManyAuthenticationFailures = 42901,
   ErrorPreparingSimpleSearch = 50010,
   FileOperationFailed = 50020,
+  EventCapacityReached = 50301,
 }
 
 /**
@@ -63,6 +72,40 @@ export interface LocalRestApiSettings {
   subjectAltNames?: string;
   enableVerboseLogging?: boolean;
 
+  /**
+   * Whether `GET`/`PUT /vault/<path>` accept a signed URL in place of the bearer
+   * header, and whether the MCP tools that mint such URLs are registered. On by
+   * default (see `DEFAULT_SETTINGS`); a stored `false` turns it off. A signed link is a
+   * capability that can be pasted anywhere, which is why it can be turned off at all.
+   */
+  enableSignedUrls?: boolean;
+  /** How long a signed URL stays valid, in seconds. See `clampSignedUrlTtl`. */
+  signedUrlTtlSeconds?: number;
+
+  /**
+   * How long `GET /` waits for an extension's state before serving null for it, in
+   * milliseconds. See `clampStateReadTimeout`; absent means the default.
+   */
+  stateReadTimeoutMs?: number;
+
+  /**
+   * Whether the API may read or write files inside Obsidian's configuration
+   * directory (`app.vault.configDir`, normally `.obsidian`). Off by default and
+   * absent unless explicitly turned on.
+   *
+   * That directory holds plugin code, `community-plugins.json`, and each
+   * plugin's `data.json` -- including this plugin's own, where the API key
+   * lives. Writing into it is arbitrary code execution: Obsidian `eval`s an
+   * enabled plugin's `main.js`, so an authenticated client that can drop a
+   * plugin there and enable it runs code at full user privilege (GHSA-66m9-r757-qvq7).
+   * Reading from it leaks those same secrets. The guard therefore covers reads
+   * as well as writes.
+   *
+   * It exists as a setting at all because a few users deliberately manage their
+   * config through the API; turning it on re-grants that access and, with it,
+   * the risk above.
+   */
+  enableConfigDirAccess?: boolean;
 }
 
 declare module "obsidian" {
@@ -151,6 +194,26 @@ export interface SearchResponseItem {
   filename: string;
   score?: number;
   matches: SearchContext[];
+  /**
+   * How many matches the file had in all. Larger than `matches.length` when
+   * `maxMatchesPerFile` left some out.
+   */
+  totalMatches: number;
+}
+
+export interface SimpleSearchOptions {
+  /** Characters of context on each side of a match. Defaults to 100. */
+  contextLength?: number;
+  /** The most files to return, keeping the highest-scoring ones. Unlimited when absent. */
+  maxResults?: number;
+  /** The most matches to return for each file, in document order. Unlimited when absent. */
+  maxMatchesPerFile?: number;
+}
+
+export interface SimpleSearchResult {
+  results: SearchResponseItem[];
+  /** How many files matched in all. Larger than `results.length` when `maxResults` left some out. */
+  totalResults: number;
 }
 
 export interface SearchJsonResponseItem {
@@ -167,6 +230,11 @@ export interface FileMetadataObject {
   links: string[];
   backlinks: string[];
   unresolvedLinks: string[];
+  /**
+   * The file's version token: the same value as its `ETag` and the document
+   * map's `version`, for use in `If-Match`. Present whenever `content` is.
+   */
+  version?: string;
 }
 
 export interface DocumentMapObject {

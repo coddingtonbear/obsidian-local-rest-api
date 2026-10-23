@@ -70,6 +70,9 @@ export default defineConfig([
       "obsidianmd/no-nodejs-modules": "off",
       // Tests run in Node.js via Jest, not a browser/Obsidian window context.
       "obsidianmd/prefer-window-timers": "off",
+      // Production code must read Vault#configDir (and does); the tests for that
+      // guard spell out `.obsidian` on purpose, as the literal under test.
+      "obsidianmd/hardcoded-config-path": "off",
       // Jest legitimately passes unbound methods to expect() matchers.
       "@typescript-eslint/unbound-method": "off",
       // Tests work with JSON.parse results, mock return values, and API responses
@@ -96,6 +99,8 @@ export default defineConfig([
     rules: {
       "obsidianmd/no-nodejs-modules": "off",
       "obsidianmd/prefer-window-timers": "off",
+      // The config-dir guard's tests name `.obsidian` deliberately; see the unit-test block.
+      "obsidianmd/hardcoded-config-path": "off",
       "no-restricted-globals": "off",
       // Same rationale as unit tests: integration tests exercise live API responses
       // whose shapes are verified by the assertions, not the type system.

@@ -21,6 +21,7 @@ import {
   projectMap,
   buildModel,
   readTarget,
+  versionOf,
 } from "markdown-patch-2";
 import type {
   InstructionInput,
@@ -43,8 +44,26 @@ import {
   SearchContext,
   SearchJsonResponseItem,
   SearchResponseItem,
+  SimpleSearchOptions,
+  SimpleSearchResult,
 } from "./types";
 import { toArrayBuffer } from "./utils";
+import {
+  CurrentFileState,
+  hasPreconditions,
+  PreconditionFailedError,
+  preconditionFailure,
+  WritePreconditions,
+} from "./conditionalRequests";
+import {
+  assertVaultPathIsContained,
+  assertConfigDirAccessAllowed,
+  configDirMatcher,
+  onDiskAccessFor,
+  ConfigDirAccessError,
+  PathTraversalError,
+  type LinkMemo,
+} from "./vaultPath";
 
 /**
  * Every event Obsidian's metadata cache publicly declares, and every event its
@@ -95,6 +114,13 @@ export const BACKLINKS_INDEX_MAX_AGE_MS = 60_000;
 export class VaultOperations {
   private cachedBacklinksIndex: Record<string, string[]> | null = null;
   private cachedBacklinksIndexBuiltAt = 0;
+
+  /**
+   * The tail of each path's queue of in-flight writes: a promise that settles
+   * when the most recently queued write on that path finishes. See
+   * {@link withPathLocks}.
+   */
+  private readonly pathLocks = new Map<string, Promise<void>>();
 
   /**
    * Called whenever Obsidian says anything at all has happened.
@@ -153,6 +179,109 @@ export class VaultOperations {
     for (const event of VAULT_EVENTS) {
       this.app.vault.off(event, this.invalidateBacklinksIndex);
     }
+  }
+
+  /** Refuse a client-supplied path this API is not allowed to touch.
+   *
+   *  Every caller -- the REST handler, the MCP tools, a plugin holding the
+   *  extension API -- funnels through this class, so the authorization decision
+   *  lives here as well as at each boundary. The boundaries exist to give a
+   *  caller a well-shaped error (a 400/403 with an errorCode, a legible MCP tool
+   *  error); this exists so that a boundary someone forgets to guard cannot reach
+   *  the filesystem. Two rules apply:
+   *
+   *  - The path must stay inside the vault root (see ./vaultPath for why
+   *    Obsidian's own API does not enforce this).
+   *  - The path must not be inside Obsidian's configuration directory unless the
+   *    operator has turned that on. Writing there is code execution (Obsidian
+   *    evals an enabled plugin's main.js) and reading there leaks secrets such as
+   *    this plugin's own API key; see GHSA-66m9-r757-qvq7. */
+  private assertContained(filePath: string, label = "Path"): void {
+    assertVaultPathIsContained(filePath, label);
+    assertConfigDirAccessAllowed(
+      filePath,
+      this.app.vault.configDir,
+      this.settings.enableConfigDirAccess ?? false,
+      label,
+      onDiskAccessFor(this.app.vault.adapter),
+    );
+  }
+
+  /** The indexed markdown files a bulk read -- a search, the tag census -- may
+   *  touch: everything Obsidian indexes, minus whatever lives in the
+   *  configuration directory. Obsidian never indexes a dot-directory itself, so
+   *  a config-dir file only gets here through a symlink the owner planted in the
+   *  vault; a direct read of that path is refused, and a search handing its
+   *  contents out instead would be the same disclosure by another route. The
+   *  matcher is built once per call so the whole index costs one on-disk lookup
+   *  per directory, not per file. */
+  private readableMarkdownFiles(): TFile[] {
+    const files = this.app.vault.getMarkdownFiles();
+    if (this.settings.enableConfigDirAccess) return files;
+    const inConfigDir = configDirMatcher(
+      this.app.vault.configDir,
+      onDiskAccessFor(this.app.vault.adapter),
+      this.linkMemo,
+    );
+    const readable = files.filter(
+      (file) => !inConfigDir(file.path, `${file.stat.ctime}:${file.stat.mtime}:${file.stat.size}`),
+    );
+    // Forget files that have left the index, so the memo tracks the vault's
+    // size rather than its history.
+    if (this.linkMemo.size > files.length * 2) {
+      const current = new Set(files.map((file) => file.path));
+      for (const key of this.linkMemo.keys()) {
+        if (!current.has(key)) this.linkMemo.delete(key);
+      }
+    }
+    return readable;
+  }
+
+  /** What {@link readableMarkdownFiles} remembers between searches: whether each
+   *  indexed file is a symlink, keyed by the file's literal path and valid while
+   *  its indexed ctime/mtime/size are unchanged. See {@link configDirMatcher}. */
+  private readonly linkMemo: LinkMemo = new Map();
+
+  /** The gate for an operation that creates or removes an *entry* -- a move,
+   *  a copy, a delete -- rather than reading or writing a file's contents.
+   *
+   *  {@link assertContained} follows a symlink to its target, which is right
+   *  for a read or a content write: those act on the target. But an entry is
+   *  created or removed in its *parent*, and a symlink the owner planted inside
+   *  the config dir that points back into the vault passes the target check
+   *  while living somewhere this API may not touch: removing it removes a
+   *  config-dir entry, and an overwrite would then create a real file at that
+   *  spelling inside the config dir. So the parent is checked too, before
+   *  anything is removed. */
+  private assertEntryContained(filePath: string, label = "Path"): void {
+    this.assertContained(filePath, label);
+    const parent = path.posix.dirname(filePath);
+    this.assertContained(parent === "." ? "" : parent, label);
+  }
+
+  /** Stat a path straight from the adapter, through the authorization gate.
+   *
+   *  The REST whole-file GET handler needs a raw stat to tell a file from a
+   *  directory from a miss, and historically called `adapter.stat` directly --
+   *  the one filesystem access that bypassed this class. Routing it here keeps
+   *  this class the single place a path is authorized before it reaches disk. */
+  async statPath(
+    filePath: string,
+  ): Promise<ReturnType<typeof this.app.vault.adapter.stat>> {
+    this.assertContained(filePath);
+    return this.app.vault.adapter.stat(filePath);
+  }
+
+  /** Read a path's raw bytes straight from the adapter, through the gate.
+   *
+   *  Unlike {@link readBinaryFileContent}, this does not require the path to be an
+   *  indexed vault file: the REST GET handler has already confirmed it exists via
+   *  {@link statPath} and may be serving a target-addressed path. It exists so that
+   *  read, too, funnels through this class rather than touching the adapter
+   *  directly. */
+  async readBinaryPath(filePath: string): Promise<ArrayBuffer> {
+    this.assertContained(filePath);
+    return this.app.vault.adapter.readBinary(filePath);
   }
 
   private waitForFileCache(
@@ -326,6 +455,25 @@ export class VaultOperations {
     includeContent = true,
     content?: string,
   ): Promise<FileMetadataObject> {
+    // A TFile came from the index, which only ever says the file exists -- not
+    // that this API may read it. Gated here so a caller handing over a TFile it
+    // found by other means is held to the same rule as one naming a path.
+    this.assertContained(file.path);
+    const metadata = await this.metadataObjectFor(file, backlinksIndex, includeContent, content);
+    // Hashed from the text being returned, so the token always describes the
+    // content beside it. For a valid UTF-8 file -- every note -- that is the same
+    // value as the hash of its bytes that conditional writes check against.
+    return includeContent ? { ...metadata, version: versionOf(metadata.content) } : metadata;
+  }
+
+  /** {@link getFileMetadataObject} without the gate, for {@link searchJsonLogic},
+   *  which has already authorized every file it iterates in one pass. */
+  private async metadataObjectFor(
+    file: TFile,
+    backlinksIndex?: Record<string, string[]>,
+    includeContent = true,
+    content?: string,
+  ): Promise<FileMetadataObject> {
     const cache = await this.waitForFileCache(file);
 
     const frontmatter = { ...(cache?.frontmatter ?? {}) };
@@ -370,6 +518,7 @@ export class VaultOperations {
   }
 
   async renderFileToHtml(file: TFile, content?: string): Promise<string> {
+    this.assertContained(file.path);
     const markdown = content ?? (await this.app.vault.cachedRead(file));
     const el = activeDocument.createElement("div");
     const component = new Component();
@@ -402,6 +551,27 @@ export class VaultOperations {
         : rawSegments;
     if (segments.length === 0) return null;
 
+    // The joined address is checked first so an escaping or refused address is
+    // a no-match before anything is statted. That check does *not* cover the
+    // prefixes the walk below stats: "notes/cfg/README.md/comments/../../../safe"
+    // resolves to "notes/safe" and passes, while the walk would stat
+    // "notes/cfg/README.md" -- a protected file if "cfg" is a symlink into the
+    // config dir. So every stat goes through the gate (statPath), and a refused
+    // candidate is a miss. A refusal is a no-match, not an error: both callers
+    // (the REST GET and the sub-resource dispatcher) read null as "not a file
+    // here", and the REST boundary has already sent its own 403 for anything
+    // the joined check would refuse. Only a refusal is a miss, though: anything
+    // else thrown while deciding is a fault, and swallowing it would hide it
+    // behind a 404.
+    try {
+      this.assertContained(segments.join("/"));
+    } catch (error) {
+      if (error instanceof PathTraversalError || error instanceof ConfigDirAccessError) {
+        return null;
+      }
+      throw error;
+    }
+
     // A file or folder name cannot contain `/`, so a candidate file path is only
     // valid when none of its segments do. This is what keeps a decoded `%2F`
     // from re-forming a path separator: `folder%2Fnote.md` is a single segment
@@ -413,7 +583,7 @@ export class VaultOperations {
     if (isFilePath(segments)) {
       let exactStat = null;
       try {
-        exactStat = await this.app.vault.adapter.stat(segments.join("/"));
+        exactStat = await this.statPath(segments.join("/"));
       } catch {
         // ENOTDIR: a path component is a file, not a directory;
         // fall through to the backward walk which will find the actual file.
@@ -429,8 +599,9 @@ export class VaultOperations {
       const candidate = prefix.join("/");
       let s = null;
       try {
-        s = await this.app.vault.adapter.stat(candidate);
+        s = await this.statPath(candidate);
       } catch {
+        // ENOTDIR, or a candidate the gate refused: either way not a file here.
         continue;
       }
       if (s?.type === "file") {
@@ -450,6 +621,7 @@ export class VaultOperations {
   }
 
   async listVaultDirectory(dirPath: string): Promise<string[]> {
+    this.assertContained(dirPath, "Directory path");
     const normalizedPath = dirPath.endsWith("/")
       ? dirPath.slice(0, -1)
       : dirPath;
@@ -474,6 +646,7 @@ export class VaultOperations {
   }
 
   async readFileContent(filePath: string): Promise<string> {
+    this.assertContained(filePath);
     const file = this.app.vault.getAbstractFileByPath(filePath);
     if (!(file instanceof TFile)) {
       throw new Error(`File not found: ${filePath}`);
@@ -486,6 +659,7 @@ export class VaultOperations {
   // REST layer reaches for `adapter.readBinary` directly; MCP goes through here so the
   // "does this file exist" answer is the same one `vault_read` gives.
   async readBinaryFileContent(filePath: string): Promise<ArrayBuffer> {
+    this.assertContained(filePath);
     const file = this.app.vault.getAbstractFileByPath(filePath);
     if (!(file instanceof TFile)) {
       throw new Error(`File not found: ${filePath}`);
@@ -493,51 +667,157 @@ export class VaultOperations {
     return this.app.vault.adapter.readBinary(filePath);
   }
 
+  /**
+   * Run `write` once every write already queued on any of `paths` has finished,
+   * holding those paths until it does.
+   *
+   * Without this, a conditional write is a check and a write separated by an
+   * `await`, and another request's write can land in between: two clients that
+   * both read version A and both send `If-Match: A` could each pass the check
+   * before either writes, and the second would silently discard the first --
+   * the exact lost update the precondition exists to prevent. Every mutating
+   * operation in this class queues here, conditional or not, because an
+   * unconditional write slipping between a check and its write breaks the
+   * guarantee just as surely.
+   *
+   * This orders writes made through this API only. Obsidian's own editor, sync
+   * plugins and other programs touching the files are outside it, as they are
+   * outside any lock a plugin could take.
+   *
+   * Every path's tail is replaced synchronously, before any waiting starts, so
+   * the queue order is the call order and two writes over overlapping path sets
+   * cannot wait on each other in a cycle.
+   */
+  private async withPathLocks<T>(
+    paths: string[],
+    write: () => Promise<T>,
+  ): Promise<T> {
+    const keys = [...new Set(paths)];
+    const predecessors = keys.map((key) => this.pathLocks.get(key));
+    let release!: () => void;
+    const tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    for (const key of keys) this.pathLocks.set(key, tail);
+    try {
+      await Promise.all(predecessors);
+      return await write();
+    } finally {
+      release();
+      for (const key of keys) {
+        if (this.pathLocks.get(key) === tail) this.pathLocks.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Whether anything exists at `filePath`, and if it is a file, its version
+   * token: markdown-patch's `versionOf` over the file's bytes. That is the value
+   * served as the file's `ETag`, the document map's `version`, and what a PATCH
+   * instruction's `ifMatch` is checked against.
+   */
+  async getFileState(filePath: string): Promise<CurrentFileState> {
+    this.assertEntryContained(filePath);
+    const stat = await this.app.vault.adapter.stat(filePath);
+    if (!stat) return { exists: false, version: null };
+    if (stat.type !== "file") return { exists: true, version: null };
+    const bytes = await this.app.vault.adapter.readBinary(filePath);
+    return { exists: true, version: versionOf(new Uint8Array(bytes)) };
+  }
+
+  /** Throw {@link PreconditionFailedError} unless `preconditions` hold for the
+   *  file at `filePath` as it stands now. Callers hold the path's lock. */
+  private async enforcePreconditions(
+    filePath: string,
+    preconditions: WritePreconditions | undefined,
+  ): Promise<void> {
+    if (!preconditions || !hasPreconditions(preconditions)) return;
+    const failure = preconditionFailure(await this.getFileState(filePath), preconditions);
+    if (failure !== null) {
+      throw new PreconditionFailedError(failure);
+    }
+  }
+
+  /**
+   * Create or overwrite a file. Returns the version token of what was written,
+   * for the caller to hand back as the new `ETag`.
+   */
   async writeFileContent(
     filePath: string,
     content: string | Buffer,
-  ): Promise<void> {
-    try {
-      await this.app.vault.createFolder(path.dirname(filePath));
-    } catch {
-      // folder already exists
-    }
-    if (typeof content === "string") {
-      const existing = this.app.vault.getAbstractFileByPath(filePath);
-      if (existing instanceof TFile) {
-        await this.app.vault.modify(existing, content);
-      } else {
-        await this.app.vault.create(filePath, content);
+    preconditions?: WritePreconditions,
+  ): Promise<string> {
+    this.assertContained(filePath);
+    return this.withPathLocks([filePath], async () => {
+      await this.enforcePreconditions(filePath, preconditions);
+      try {
+        await this.app.vault.createFolder(path.dirname(filePath));
+      } catch {
+        // folder already exists
       }
-    } else {
+      if (typeof content === "string") {
+        const existing = this.app.vault.getAbstractFileByPath(filePath);
+        if (existing instanceof TFile) {
+          await this.app.vault.modify(existing, content);
+        } else {
+          await this.app.vault.create(filePath, content);
+        }
+        return versionOf(content);
+      }
       await this.app.vault.adapter.writeBinary(
         filePath,
         toArrayBuffer(content),
       );
-    }
+      return versionOf(content);
+    });
   }
 
-  async appendFileContent(filePath: string, content: string): Promise<void> {
-    try {
-      await this.app.vault.createFolder(path.dirname(filePath));
-    } catch {
-      // folder already exists
-    }
-    let fileContents = "";
-    const file = this.app.vault.getAbstractFileByPath(filePath);
-    if (file instanceof TFile) {
-      fileContents = await this.app.vault.read(file);
-      if (!fileContents.endsWith("\n")) {
-        fileContents += "\n";
+  /**
+   * Append to a file, creating it if it does not exist. Returns the version
+   * token of the file's resulting content.
+   */
+  async appendFileContent(
+    filePath: string,
+    content: string,
+    preconditions?: WritePreconditions,
+  ): Promise<string> {
+    this.assertContained(filePath);
+    return this.withPathLocks([filePath], async () => {
+      await this.enforcePreconditions(filePath, preconditions);
+      try {
+        await this.app.vault.createFolder(path.dirname(filePath));
+      } catch {
+        // folder already exists
       }
-      fileContents += content;
-      await this.app.vault.modify(file, fileContents);
-      return;
-    }
-    await this.app.vault.create(filePath, content);
+      let fileContents = "";
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (file instanceof TFile) {
+        fileContents = await this.app.vault.read(file);
+        if (!fileContents.endsWith("\n")) {
+          fileContents += "\n";
+        }
+        fileContents += content;
+        await this.app.vault.modify(file, fileContents);
+        return versionOf(fileContents);
+      }
+      await this.app.vault.create(filePath, content);
+      return versionOf(content);
+    });
   }
 
-  async deleteVaultFile(filePath: string, permanent = false): Promise<void> {
+  async deleteVaultFile(
+    filePath: string,
+    permanent = false,
+    preconditions?: WritePreconditions,
+  ): Promise<void> {
+    this.assertEntryContained(filePath);
+    return this.withPathLocks([filePath], async () => {
+      await this.enforcePreconditions(filePath, preconditions);
+      return this.deleteUnlocked(filePath, permanent);
+    });
+  }
+
+  private async deleteUnlocked(filePath: string, permanent: boolean): Promise<void> {
     if (permanent) {
       const pathExists = await this.app.vault.adapter.exists(filePath);
       if (!pathExists) {
@@ -554,15 +834,33 @@ export class VaultOperations {
     await this.app.fileManager.trashFile(file);
   }
 
+  /**
+   * Move a file. `preconditions` apply to the source: the file being moved is
+   * the one the client read. Whether the destination may be replaced is
+   * `allowOverwrite`'s call.
+   */
   async moveVaultFile(
     sourcePath: string,
     destinationPath: string,
     allowOverwrite = false,
+    preconditions?: WritePreconditions,
   ): Promise<string> {
+    this.assertEntryContained(sourcePath, "Source path");
+    this.assertEntryContained(destinationPath, "Destination path");
     if (!destinationPath) {
       throw new Error("Destination path must not be empty.");
     }
+    return this.withPathLocks([sourcePath, destinationPath], async () => {
+      await this.enforcePreconditions(sourcePath, preconditions);
+      return this.moveUnlocked(sourcePath, destinationPath, allowOverwrite);
+    });
+  }
 
+  private async moveUnlocked(
+    sourcePath: string,
+    destinationPath: string,
+    allowOverwrite: boolean,
+  ): Promise<string> {
     if (sourcePath === destinationPath) {
       return sourcePath;
     }
@@ -595,15 +893,32 @@ export class VaultOperations {
     return sourceFile.path;
   }
 
+  /**
+   * Copy a file. As with {@link moveVaultFile}, `preconditions` apply to the
+   * source, so a client can copy exactly the version it read.
+   */
   async copyVaultFile(
     sourcePath: string,
     destinationPath: string,
     allowOverwrite = false,
+    preconditions?: WritePreconditions,
   ): Promise<string> {
+    this.assertEntryContained(sourcePath, "Source path");
+    this.assertEntryContained(destinationPath, "Destination path");
     if (!destinationPath) {
       throw new Error("Destination path must not be empty.");
     }
+    return this.withPathLocks([sourcePath, destinationPath], async () => {
+      await this.enforcePreconditions(sourcePath, preconditions);
+      return this.copyUnlocked(sourcePath, destinationPath, allowOverwrite);
+    });
+  }
 
+  private async copyUnlocked(
+    sourcePath: string,
+    destinationPath: string,
+    allowOverwrite: boolean,
+  ): Promise<string> {
     const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
     if (!(sourceFile instanceof TFile)) {
       throw new FileNotFoundError(`File not found: ${sourcePath}`);
@@ -653,6 +968,31 @@ export class VaultOperations {
       targetDelimiter?: string;
       targetScope?: string;
     },
+    preconditions?: WritePreconditions,
+  ): Promise<string> {
+    this.assertContained(filePath);
+    return this.withPathLocks([filePath], async () => {
+      await this.enforcePreconditions(filePath, preconditions);
+      return this.patchFileSectionUnlocked(
+        filePath, targetType, target, operation, content, contentType, options,
+      );
+    });
+  }
+
+  private async patchFileSectionUnlocked(
+    filePath: string,
+    targetType: PatchTargetType,
+    target: string,
+    operation: PatchOperation,
+    content: unknown,
+    contentType: string,
+    options?: {
+      createTargetIfMissing?: boolean;
+      rejectIfContentPreexists?: boolean;
+      trimTargetWhitespace?: boolean;
+      targetDelimiter?: string;
+      targetScope?: string;
+    },
   ): Promise<string> {
     const file = this.app.vault.getAbstractFileByPath(filePath);
     if (!(file instanceof TFile)) {
@@ -687,28 +1027,41 @@ export class VaultOperations {
   // typed errors (TargetNotFoundError, PreconditionFailedError, …) propagate for
   // the caller to map to HTTP responses. Returns the patched document alongside
   // any advisory warnings the engine surfaced (e.g. heading-depth overflow).
+  //
+  // `preconditions` are the request's If-Match/If-None-Match headers, checked
+  // against the file's bytes; an instruction's own `ifMatch` is the engine's to
+  // check, against the text it patches. Both must hold.
   async patchFileSectionMdp2(
     filePath: string,
     instruction: InstructionInput,
+    preconditions?: WritePreconditions,
   ): Promise<PatchResult> {
-    const file = this.app.vault.getAbstractFileByPath(filePath);
-    if (!(file instanceof TFile)) {
-      throw new FileNotFoundError(`File not found: ${filePath}`);
-    }
-    const fileContents = await this.app.vault.read(file);
-    const result = patchV2(fileContents, instruction);
-    await this.app.vault.modify(file, result.document);
-    return result;
+    this.assertContained(filePath);
+    return this.withPathLocks([filePath], async () => {
+      await this.enforcePreconditions(filePath, preconditions);
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (!(file instanceof TFile)) {
+        throw new FileNotFoundError(`File not found: ${filePath}`);
+      }
+      const fileContents = await this.app.vault.read(file);
+      const result = patchV2(fileContents, instruction);
+      await this.app.vault.modify(file, result.document);
+      return result;
+    });
   }
 
   async simpleSearch(
     query: string,
-    contextLength = 100,
-  ): Promise<SearchResponseItem[]> {
+    {
+      contextLength = 100,
+      maxResults = Infinity,
+      maxMatchesPerFile = Infinity,
+    }: SimpleSearchOptions = {},
+  ): Promise<SimpleSearchResult> {
     const results: SearchResponseItem[] = [];
     const search = prepareSimpleSearch(query);
 
-    for (const file of this.app.vault.getMarkdownFiles()) {
+    for (const file of this.readableMarkdownFiles()) {
       const cachedContents = await this.app.vault.cachedRead(file);
 
       const filenamePrefix = file.basename + "\n\n";
@@ -717,8 +1070,16 @@ export class VaultOperations {
 
       if (result) {
         const contextMatches: SearchContext[] = [];
+        let totalMatches = 0;
         for (const match of result.matches) {
-          if (match[0] < positionOffset && match[1] <= positionOffset) {
+          const inFilename = match[0] < positionOffset && match[1] <= positionOffset;
+          const inContent = match[0] >= positionOffset;
+          if (!inFilename && !inContent) continue;
+          totalMatches += 1;
+          // Matches past the cap are still counted, so the caller can say how many
+          // were left out, but their context is never sliced.
+          if (contextMatches.length >= maxMatchesPerFile) continue;
+          if (inFilename) {
             contextMatches.push({
               match: {
                 start: match[0],
@@ -727,7 +1088,7 @@ export class VaultOperations {
               },
               context: file.basename,
             });
-          } else if (match[0] >= positionOffset) {
+          } else {
             contextMatches.push({
               match: {
                 start: match[0] - positionOffset,
@@ -749,12 +1110,13 @@ export class VaultOperations {
           filename: file.path,
           score: result.score,
           matches: contextMatches,
+          totalMatches,
         });
       }
     }
 
     results.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-    return results;
+    return { results: results.slice(0, maxResults), totalResults: results.length };
   }
 
   async searchJsonLogic(
@@ -764,8 +1126,8 @@ export class VaultOperations {
     const backlinksIndex = this.getBacklinksIndex();
     const includeContent = JSON.stringify(query).includes('"content"');
 
-    for (const file of this.app.vault.getMarkdownFiles()) {
-      const fileContext = await this.getFileMetadataObject(file, backlinksIndex, includeContent);
+    for (const file of this.readableMarkdownFiles()) {
+      const fileContext = await this.metadataObjectFor(file, backlinksIndex, includeContent);
 
       try {
         const fileResult = jsonLogic.apply(query, fileContext);
@@ -839,7 +1201,7 @@ export class VaultOperations {
 
   getAllTags(): Array<{ name: string; count: number }> {
     const tagCounts: Record<string, number> = {};
-    for (const file of this.app.vault.getMarkdownFiles()) {
+    for (const file of this.readableMarkdownFiles()) {
       const cache = this.app.metadataCache.getFileCache(file);
       if (!cache) continue;
       const fileTags = getAllTags(cache);
@@ -882,6 +1244,16 @@ export class VaultOperations {
   }
 
   openVaultFile(filePath: string, newLeaf = false): void {
-    void this.app.workspace.openLinkText(filePath, "/", newLeaf);
+    this.assertContained(filePath);
+    // Intentionally fire-and-forget: the caller (POST /open/) has already
+    // responded by the time this settles, since a client asking Obsidian to
+    // focus a file has no reason to wait on that UI action finishing. The
+    // rejection still needs a home, though -- an un-awaited promise with no
+    // .catch is an unhandled rejection the moment openLinkText throws (e.g.
+    // an invalid path), and while that's non-fatal in Obsidian's renderer
+    // process, it's still an unexplained error with nothing to explain it.
+    this.app.workspace.openLinkText(filePath, "/", newLeaf).catch((error) => {
+      console.error(`[REST API] Failed to open "${filePath}":`, error);
+    });
   }
 }

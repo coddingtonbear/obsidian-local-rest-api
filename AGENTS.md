@@ -34,6 +34,17 @@ variable, because each needs something of the person running them:
 - `OBSIDIAN_TEST_OPEN_FILE=1` — enables the `open_file` test. It is off by default
   because opening a file pulls Obsidian to the foreground and takes keyboard focus
   mid-run, so keystrokes meant for another window can land in the opened note.
+- `OBSIDIAN_VAULT_PATH=<absolute path to the vault>` — enables the configuration-directory
+  symlink test, which plants a symlink to `.obsidian` under the integration fixture
+  directory (and removes it afterwards) to check the guard follows a path to where it
+  lands on disk.
+
+One group runs by default and opts *out* instead, because the feature it needs is on by
+default:
+
+- `OBSIDIAN_SIGNED_URLS=0` — skips the signed-URL upload/download round trip. Without it,
+  that test *fails* (naming the setting) when the running plugin has "Enable signed URLs"
+  turned off, rather than passing with nothing exercised.
 
 ### Commit message format
 
@@ -135,13 +146,25 @@ Releases are performed on the `main` branch after all feature branches have been
 
    Before proceeding, read the current version from `package.json`. Ask the user whether this is a **major**, **minor**, or **patch** bump and calculate the new version number from their answer — do not ask them to supply the version number directly.
 
-2. Delete `package-lock.json` and regenerate it:
+2. Edit the `version` field in `package.json` to the new version number.
+
+3. Delete `node_modules` **and** `package-lock.json`, then regenerate the lockfile:
    ```
-   rm package-lock.json
+   rm -rf node_modules package-lock.json
    npm i
    ```
 
-3. Edit the `version` field in `package.json` to the new version number.
+   Obsidian's post-release source review rejects a release whose lockfile it cannot install from with "The npm lockfile is out of date". Two mistakes have caused that:
+
+   - **Leaving `node_modules` in place.** npm then builds the new lockfile from what is already installed, and records only the optional platform-specific packages for *this* machine — e.g. one `@esbuild/*` binary instead of all of them. npm 10 tolerates the gap, but npm 11's `npm ci` rejects it with `Missing: @esbuild/... from lock file` (5.5.0 and 5.5.1 shipped that way).
+   - **Regenerating before the version bump in step 2.** `package-lock.json` records the package's own version and nothing else in this process updates it (5.4.0 and 5.5.0 shipped naming the previous version).
+
+   Before moving on, confirm the lockfile agrees with `package.json`, then do a clean install with npm 11 specifically, since a passing `npm ci` under npm 10 does not prove the lockfile is complete:
+   ```
+   node -e 'const p=require("./package.json"),l=require("./package-lock.json");if(p.version!==l.version||p.version!==l.packages[""].version)throw new Error(`lockfile is ${l.version}, package.json is ${p.version}`)'
+   rm -rf node_modules
+   npx -y npm@11 ci
+   ```
 
 4. Run the version script to update `manifest.json` and `versions.json` (this also stages those two files automatically):
    ```

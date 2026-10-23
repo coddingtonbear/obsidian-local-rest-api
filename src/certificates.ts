@@ -61,10 +61,12 @@ function addDays(date: Date, days: number): Date {
 }
 
 // X.509 serial numbers are DER INTEGERs, so a leading byte with the high bit
-// set would encode a negative number, which verifiers reject. Clear it.
+// set would encode a negative number, which verifiers reject; and a leading
+// zero byte is not minimal DER, which strict parsers also reject. Pin the first
+// byte to 0x40-0x7f, leaving 126 random bits.
 function randomSerialNumber(): string {
   const bytes = forge.random.getBytesSync(16);
-  const first = bytes.charCodeAt(0) & 0x7f;
+  const first = (bytes.charCodeAt(0) & 0x3f) | 0x40;
   return forge.util.bytesToHex(String.fromCharCode(first) + bytes.slice(1));
 }
 
@@ -296,7 +298,7 @@ function subjectKeyIdentifierOf(certificate: pki.Certificate): string {
 }
 
 function generateServerCertificate(
-  ca: { certificate: pki.Certificate; privateKey: pki.PrivateKey },
+  ca: { certificate: pki.Certificate; privateKey: pki.rsa.PrivateKey },
   options: GenerateOptions,
 ): GeneratedCertificate {
   const now = options.now ?? new Date();
@@ -374,7 +376,7 @@ export function renewServerCertificateIfNeeded(
   const now = options.now ?? new Date();
 
   let caCertificate: pki.Certificate;
-  let caPrivateKey: pki.PrivateKey;
+  let caPrivateKey: pki.rsa.PrivateKey;
   let leaf: pki.Certificate;
   try {
     caCertificate = pki.certificateFromPem(crypto.caCert);

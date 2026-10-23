@@ -32,6 +32,18 @@ import {
   renewServerCertificateIfNeeded,
 } from "./certificates";
 import type { LocalRestApiPublicApi } from "./publicApi";
+import {
+  DefaultSignedUrlTtlSeconds,
+  MaximumSignedUrlTtlSeconds,
+  MinimumSignedUrlTtlSeconds,
+  clampSignedUrlTtl,
+} from "./signedUrls";
+import {
+  DefaultStateReadTimeoutMs,
+  MaximumStateReadTimeoutMs,
+  MinimumStateReadTimeoutMs,
+  clampStateReadTimeout,
+} from "./serverState";
 // The extension API is defined in ./publicApi, which is what the generated
 // publicApi.d.ts ships to extension authors. Re-exported here so that anything
 // importing the plugin entry point keeps seeing the same names it always has.
@@ -184,8 +196,7 @@ export default class LocalRestApi extends Plugin {
   }
 
   onunload() {
-    this.requestHandler?.mcpHandler.close();
-    this.requestHandler?.operations.dispose();
+    this.requestHandler?.dispose();
     if (this.secureServer) {
       this.secureServer.closeAllConnections();
       this.secureServer.close();
@@ -862,6 +873,36 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
         desc: t("setting.verboseLoggingDesc"),
         control: { type: "toggle", key: "enableVerboseLogging" },
       },
+      {
+        name: "Enable signed URLs",
+        desc: "Lets the MCP tools hand out expiring links to individual vault files (vault_get_download_url, vault_get_upload_url, and vault_read_binary's link mode) that work without the API key, so a browser or a shell can fetch or upload a file directly. Anyone holding such a link can read (or, for an upload link, write once to) that one file until it expires. The signing secret is regenerated every time the plugin loads, so links never outlive a restart.",
+        control: { type: "toggle", key: "enableSignedUrls" },
+      },
+      {
+        name: "Signed URL lifetime (seconds)",
+        desc: `How long a signed URL stays valid. Between ${MinimumSignedUrlTtlSeconds} and ${MaximumSignedUrlTtlSeconds} seconds; the default is ${DefaultSignedUrlTtlSeconds}.`,
+        control: {
+          type: "number",
+          key: "signedUrlTtlSeconds",
+          min: MinimumSignedUrlTtlSeconds,
+          max: MaximumSignedUrlTtlSeconds,
+        },
+      },
+      {
+        name: "Extension state read budget (milliseconds)",
+        desc: `How long GET / waits for an extension plugin to report its state before serving null for that plugin. Extensions are read concurrently, so this bounds the whole wait. Between ${MinimumStateReadTimeoutMs} and ${MaximumStateReadTimeoutMs} milliseconds; the default is ${DefaultStateReadTimeoutMs}.`,
+        control: {
+          type: "number",
+          key: "stateReadTimeoutMs",
+          min: MinimumStateReadTimeoutMs,
+          max: MaximumStateReadTimeoutMs,
+        },
+      },
+      {
+        name: "Allow access to the configuration directory",
+        desc: `When off (the default), the API refuses to read or write any file inside Obsidian's configuration directory (currently '${this.app.vault.configDir}'). That directory holds plugin code and each plugin's data.json — including this plugin's own, where your API key lives — so writing there is effectively arbitrary code execution and reading there leaks secrets. Leave this off unless you specifically need to manage your Obsidian configuration through the API, and understand that turning it on grants every holder of your API key that power.`,
+        control: { type: "toggle", key: "enableConfigDirAccess" },
+      },
     ];
   }
 
@@ -953,6 +994,14 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
         return this.plugin.settings.bindingHost ?? DefaultBindingHost;
       case "enableVerboseLogging":
         return this.plugin.settings.enableVerboseLogging ?? false;
+      case "enableSignedUrls":
+        return this.plugin.settings.enableSignedUrls ?? true;
+      case "enableConfigDirAccess":
+        return this.plugin.settings.enableConfigDirAccess ?? false;
+      case "signedUrlTtlSeconds":
+        return clampSignedUrlTtl(this.plugin.settings.signedUrlTtlSeconds);
+      case "stateReadTimeoutMs":
+        return clampStateReadTimeout(this.plugin.settings.stateReadTimeoutMs);
       default:
         return undefined;
     }
@@ -1050,6 +1099,37 @@ export class LocalRestApiSettingTab extends PluginSettingTab {
           (value as boolean) || undefined;
         await this.plugin.saveSettings();
         break;
+      case "enableConfigDirAccess":
+        // Stored only when on: the default is off, so an absent key means off and the
+        // REST and MCP layers read it as false. Both read the setting live, so no
+        // server restart is needed.
+        this.plugin.settings.enableConfigDirAccess = (value as boolean) || undefined;
+        await this.plugin.saveSettings();
+        break;
+      case "enableSignedUrls":
+        // Stored both ways: the default is on, so an absent key means on and only an
+        // explicit false turns it off.
+        this.plugin.settings.enableSignedUrls = value as boolean;
+        await this.plugin.saveSettings();
+        // The REST side reads the setting per request; the MCP side registers or
+        // removes its signed-URL tools to match, so connected clients see the change.
+        this.plugin.requestHandler.mcpHandler.setSignedUrlsEnabled(value as boolean);
+        break;
+      case "signedUrlTtlSeconds": {
+        const clamped = clampSignedUrlTtl(value as number);
+        this.plugin.settings.signedUrlTtlSeconds =
+          clamped === DefaultSignedUrlTtlSeconds ? undefined : clamped;
+        await this.plugin.saveSettings();
+        break;
+      }
+      case "stateReadTimeoutMs": {
+        // Read per request by GET /, so no server restart is needed.
+        const clamped = clampStateReadTimeout(value as number);
+        this.plugin.settings.stateReadTimeoutMs =
+          clamped === DefaultStateReadTimeoutMs ? undefined : clamped;
+        await this.plugin.saveSettings();
+        break;
+      }
     }
   }
 }

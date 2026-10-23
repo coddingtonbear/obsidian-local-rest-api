@@ -1,4 +1,16 @@
 components:
+  responses:
+    TooManyAuthenticationFailures:
+      content:
+        application/json:
+          schema:
+            "$ref": "#/components/schemas/Error"
+      description: "This source has presented too many wrong credentials -- incorrect API keys, or invalid, expired or spent signed URLs -- within the current window, and this request presented another. `Retry-After` says how many seconds remain. Any route the plugin authenticates can answer this way; a request carrying the correct API key or a valid signed URL never does."
+      headers:
+        Retry-After:
+          description: "Seconds until the window ends and wrong credentials are answered `401` again."
+          schema:
+            type: "integer"
   schemas:
     Error:
       properties:
@@ -45,9 +57,10 @@ components:
           Details: {}
       type: "object"
     NoteJson:
+      description: "A note's content and metadata. `links`, `backlinks`, and `unresolvedLinks` reflect Obsidian's metadata cache as it stands when the note is read, and may be incomplete while Obsidian is still indexing the vault after startup. To tell indexing from idle, watch the `metadataCache` event stream (`resolve` fires per file, `resolved` on each drain of the resolver queue) or read `state.metadataCache` from `GET /`, which reports when the plugin last heard either."
       properties:
         backlinks:
-          description: "Vault-relative paths of files that link to this file."
+          description: "Vault-relative paths of files that link to this file, as Obsidian's cache currently has them; see the schema description."
           items:
             type: "string"
           type: "array"
@@ -56,7 +69,7 @@ components:
         frontmatter:
           type: "object"
         links:
-          description: "Vault-relative paths of files this file links to."
+          description: "Vault-relative paths of files this file links to, as Obsidian's cache currently has them; see the schema description."
           items:
             type: "string"
           type: "array"
@@ -80,10 +93,14 @@ components:
             type: "string"
           type: "array"
         unresolvedLinks:
-          description: "Link text found in this file that does not resolve to an existing vault file."
+          description: "Link text found in this file that does not resolve to an existing vault file, as Obsidian's cache currently has it; see the schema description."
           items:
             type: "string"
           type: "array"
+        version:
+          description: "The file's version token, computed from the `content` returned beside it: the same value as its `ETag` and its document map's `version`. Send it as `If-Match` (quoted or bare) on a write to make the write fail, rather than overwrite a change made in between, if the file has changed."
+          example: "a1b2c3"
+          type: "string"
       required:
         - "tags"
         - "frontmatter"
@@ -205,6 +222,8 @@ components:
       description: |
         Find your API Key in your Obsidian settings
         in the "Local REST API" section under "Plugins".
+        
+        Failed authentication is throttled. A source that presents a wrong credential -- an incorrect API key, or an invalid, expired or spent signed URL -- ten times within a minute has its further wrong credentials refused with `429` (error code `42901`) and a `Retry-After` header until the minute is up. Requests that carry the correct key or a valid signed URL are never counted or delayed, and neither are requests that present no credential at all; they are answered `401` (or, on the routes that need no authentication, served) exactly as before. The count is kept in memory per source address and does not survive a plugin reload.
       scheme: "bearer"
       type: "http"
 info:
@@ -214,11 +233,15 @@ info:
     - **REST API** — standard HTTP endpoints for reading and writing notes, searching vault contents, and more. Useful from scripts, applications, or any HTTP client.
     - **MCP server** — exposes the same capabilities as structured tools for AI assistants (Claude, Cursor, and other MCP-compatible clients). See the `POST /mcp/` endpoint for connection details.
     
+    ## Conditional writes
+    
+    Every write to a file accepts an `If-Match` header, so two clients editing the same note cannot silently overwrite each other. Read the file, keep the `ETag` it answers with, and send it back as `If-Match` on the write: if the file has changed in between, the write fails with `412` and nothing is written. `If-None-Match: *` makes a `PUT` create-only. The document map's `version` and note JSON's `version` are the same token as the `ETag`, and every write that changes a file answers with its new one.
+    
     ## Testing with this interface
     
     Select any operation in the sidebar, then open the **Try It** tab to send a live request to your running Obsidian instance.
     
-    **Authentication** — all requests require a Bearer token. In the **Try It** panel, expand the **Security** section and paste the API key shown in Obsidian under **Settings → Local REST API with MCP**.
+    **Authentication** — all requests require a Bearer token. In the **Try It** panel, expand the **Security** section and paste the API key shown in Obsidian under **Settings → Local REST API with MCP**. Failed authentication is throttled: ten wrong keys from one source within a minute and further wrong keys are refused with `429` until the minute is up, so if you paste the wrong key, correct it rather than retrying. Requests with the correct key are never delayed.
     
     **Certificate warning** — the plugin generates its own certificate authority on first run and serves a TLS certificate signed by it. Most browsers will block requests to an untrusted certificate, so you may need to download the certificate authority from `/obsidian-local-rest-api.crt` and add it as a trusted authority in your OS or browser settings before requests will go through. The steps vary by environment — search for "trust self-signed certificate" plus your OS or browser name if you're unsure. If that proves too cumbersome, you can enable the insecure HTTP server in your plugin settings instead and select "HTTP (insecure mode)" from the **Try It** section.
   title: "Local REST API for Obsidian"
@@ -230,21 +253,122 @@ paths:
       description: |
         Returns basic details about the server as well as your authentication status.
         
-        This is the only API request that does *not* require authentication.
+        This is the only API request that does *not* require authentication. An authenticated request additionally receives `certificateInfo`, `apiExtensions`, and `state`.
+        
+        A request that sends an API key still has that key checked: `authenticated` reports whether it was correct, and a wrong one counts towards the failed-authentication throttle like a wrong key anywhere else, so once a source is throttled this route answers `429` to wrong keys too. A request with no key at all is not counted and always answers `200` with `authenticated: false`.
+        
+        ## State
+        
+        `state` carries observations, by namespace, that a client reads to decide whether to proceed. The server attaches no verdict: it reports what it has heard and when, and the client applies its own tolerance.
+        
+        `state.metadataCache` is the plugin's own namespace. It answers the question issue #327 raised: a note's `links`, `backlinks`, and `unresolvedLinks` come from Obsidian's vault-wide link graph, and while Obsidian is still indexing after startup they can be incomplete with no sign in the note itself. Obsidian gives no documented signal for the end of that indexing, so instead of a `ready` flag the plugin reports when it started listening, when it last heard the cache's `resolved` event, and when it last heard any indexing activity. Indexing in progress looks like recent activity; done looks like silence. A client that would rather not poll can watch the `metadataCache` event stream, where `resolve` fires per file and `resolved` on each drain.
+        
+        Every other key of `state` is an extension plugin's id, holding whatever that extension publishes through the extension API's `addState`, or `null` when its state could not be read within the budget set in the plugin's advanced settings. An extension that documents its state has it listed under `state` in this specification, served from `/openapi.yaml`.
+        
+        The same document is available to MCP clients as the `obsidian://local-rest-api/status` resource.
       responses:
         "200":
           content:
             application/json:
               schema:
                 properties:
+                  apiExtensions:
+                    description: "Authenticated requests only. Every plugin registered with the extension API: its manifest, plus the routes and MCP tools it has added."
+                    items:
+                      properties:
+                        id:
+                          type: "string"
+                        mcpTools:
+                          items:
+                            type: "string"
+                          type: "array"
+                        name:
+                          type: "string"
+                        routes:
+                          items:
+                            properties:
+                              authenticated:
+                                description: "Whether the route requires the API key."
+                                type: "boolean"
+                              path:
+                                type: "string"
+                            required:
+                              - "path"
+                              - "authenticated"
+                            type: "object"
+                          type: "array"
+                        version:
+                          type: "string"
+                      required:
+                        - "id"
+                        - "name"
+                        - "version"
+                        - "routes"
+                        - "mcpTools"
+                      type: "object"
+                    type: "array"
                   authenticated:
                     description: "Is your current request authenticated?"
                     type: "boolean"
-                  ok:
-                    description: "'OK'"
-                    type: "string"
+                  certificateInfo:
+                    description: "Authenticated requests only. Facts about the certificate the HTTPS server presents."
+                    properties:
+                      regenerateReason:
+                        description: "Why regeneration is recommended, or null when it is not. `ca-used-as-leaf` means the installation still serves a single self-signed certificate generated before the plugin began issuing a separate certificate authority."
+                        type:
+                          - "string"
+                          - "null"
+                      regenerateRecommended:
+                        description: "Whether the certificate material predates a standard the plugin now follows and should be regenerated from the settings tab."
+                        type: "boolean"
+                      validityDays:
+                        description: "Days until the certificate expires."
+                        type: "number"
+                    required:
+                      - "validityDays"
+                      - "regenerateRecommended"
+                      - "regenerateReason"
+                    type: "object"
                   service:
                     description: "'Obsidian Local REST API'"
+                    type: "string"
+                  state:
+                    additionalProperties:
+                      description: "An extension plugin's state, under its plugin id, or null when it could not be read."
+                      type:
+                        - "object"
+                        - "null"
+                    description: "Authenticated requests only. Observations, by namespace, that a client reads to decide whether to proceed; the server attaches no verdict. `metadataCache` is the plugin's own. Every other key is an extension plugin's id and holds whatever that extension chose to publish, or null when its state could not be read in time (the budget is a plugin setting, 100 ms by default). An extension that documents its state appears here as a named property of this object."
+                    properties:
+                      metadataCache:
+                        description: "What the plugin has heard from Obsidian's metadata cache since it loaded. Obsidian gives no documented signal for the end of startup link resolution, so these are timestamps rather than a `ready` flag: indexing in progress looks like recent activity, and done looks like silence. A plugin enabled into an already-indexed vault hears nothing at all, which is why `listeningSince` is reported alongside. A client's rule might be: wait while `lastResolvedAt` is null and `listeningSince` is recent, or while `lastActivityAt` is recent."
+                        properties:
+                          lastActivityAt:
+                            description: "When the plugin last heard any indexing activity from the metadata cache (`changed`, `resolve`, or `resolved`), or null if none since `listeningSince`."
+                            format: "date-time"
+                            type:
+                              - "string"
+                              - "null"
+                          lastResolvedAt:
+                            description: "When the plugin last heard the metadata cache's `resolved` event, which Obsidian fires each time its link resolver queue drains, or null if it has not since `listeningSince`."
+                            format: "date-time"
+                            type:
+                              - "string"
+                              - "null"
+                          listeningSince:
+                            description: "When the plugin attached its listeners, which is when it loaded. The other two fields describe the window starting here."
+                            format: "date-time"
+                            type: "string"
+                        required:
+                          - "listeningSince"
+                          - "lastResolvedAt"
+                          - "lastActivityAt"
+                        type: "object"
+                    required:
+                      - "metadataCache"
+                    type: "object"
+                  status:
+                    description: "'OK'"
                     type: "string"
                   versions:
                     properties:
@@ -255,8 +379,15 @@ paths:
                         description: "Plugin version."
                         type: "string"
                     type: "object"
+                required:
+                  - "status"
+                  - "versions"
+                  - "service"
+                  - "authenticated"
                 type: "object"
           description: "Success"
+        "429":
+          "$ref": "#/components/responses/TooManyAuthenticationFailures"
       summary: |
         Returns basic details about the server.
       tags:
@@ -275,12 +406,34 @@ paths:
               - "true"
               - "false"
             type: "string"
+        - description: |
+            Write only if the file is still the version you read. Send the `ETag` from
+            a `GET` of the file (or from a previous write), or the `version` from its
+            document map or note JSON -- they are the same token. A comma-separated
+            list matches if any entry does, and `*` matches any file that exists.
+            
+            If the file has changed since, or does not exist, the request fails with
+            `412` (error code `41200`) and nothing is written; read the file again and
+            redo the edit against what is there now. Tags are compared strongly: a
+            weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+            writes it, or bare. A value that is neither `*` nor an entity-tag list is
+            refused with `400` (error code `40024`).
+            
+            Writes made through this API are queued per file, so two requests that
+            hold the same tag cannot both pass the check: the first to arrive writes,
+            and the second fails with `412`.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            example: "\"a1b2c3\""
+            type: "string"
       responses:
         "204":
           description: "Success"
           headers:
             Content-Location:
-              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
                 type: "string"
@@ -297,6 +450,12 @@ paths:
                 "$ref": "#/components/schemas/Error"
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
+        "412":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Precondition Failed: an `If-Match` or `If-None-Match` header did not hold against the file as it is now -- it has changed since the version `If-Match` named, no longer exists, or (under `If-None-Match: *`) already exists. Nothing was written. The message names the file's current version."
       summary: |
         Deletes the currently-active file in Obsidian.
       tags:
@@ -324,6 +483,12 @@ paths:
         
         - A `text/markdown` body is literal markdown. Valid for `heading` and `block` targets. On a `frontmatter` target it is stored as the field's plain string value.
         - An `application/json` body is structured data. On a `block` target that addresses a table, it is a 2-D array of row cells (`[["Chicago", "16"]]`). On a `frontmatter` target it is the field's typed value (a list, dictionary, number, or string). A `heading` target has no structured form — its body is markdown text — so a JSON body there is rejected with `400 InvalidPatchInstruction` rather than being stringified into your note.
+        
+        ## Which file did it act on?
+        
+        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on. Each path component is percent-encoded on its own — non-ASCII characters, and reserved characters like `#`, `?` and `,` that a client would otherwise read as a fragment, a query or a header-list separator — so the value can be pasted straight back into a request URL. A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
+        
+        `/active/` responses carry `Content-Location` for the same reason, whether or not a target is embedded: the file the request acted on is whichever note happened to be open.
         
         ## Deprecated: header-based targeting
         
@@ -434,7 +599,7 @@ paths:
                   headings:
                     "$ref": "#/components/schemas/HeadingTree"
                   version:
-                    description: "Content-hash token for the file; pass it back as a PATCH `ifMatch` to make an edit conditional on the file being unchanged."
+                    description: "Content-hash token for the file, the same value as its `ETag`; pass it back as a PATCH `ifMatch`, or as `If-Match` on any write, to make the write conditional on the file being unchanged."
                     example: "a1b2c3"
                     type: "string"
                 type: "object"
@@ -459,9 +624,14 @@ paths:
           description: "Success"
           headers:
             Content-Location:
-              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
+                type: "string"
+            ETag:
+              description: "The file's version, as a strong entity tag -- the same token as the document map's `version` and note JSON's `version`. Send it as `If-Match` on a write to make that write fail, rather than overwrite a change made in between, if the file has changed. Sent with the file itself, a section of it, and the document map, all of which depend only on the file's bytes; a matching `If-None-Match` on those reads is answered `304 Not Modified`. Not sent as this token with `Accept: text/html` or note JSON, which also depend on other files (embeds, backlinks) -- read note JSON's `version` field instead."
+              schema:
+                example: "\"a1b2c3\""
                 type: "string"
         "400":
           content:
@@ -694,6 +864,8 @@ paths:
         
         Pass `ifMatch` with the `version` token from a document map (see below). If the file changed since, the patch fails with `412` and the file is untouched — refetch and retry.
         
+        The `If-Match` and `If-None-Match` headers work here too, in every mode, exactly as on the other writes: `If-Match` takes the same token (the `ETag` from a `GET` of the file, quoted or bare), a list of them, or `*`. When a JSON instruction carries `ifMatch` and the request also sends `If-Match`, both must hold. A successful patch answers with the patched file's version in `ETag`, ready for the next conditional edit.
+        
         ## Identifying patch targets in a file
         
         Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent) or a block reference ID repeats, only the first occurrence keeps its plain-text/id key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
@@ -707,7 +879,7 @@ paths:
         - **URL path elements**, exactly as GET/PUT/POST use them: `PATCH /vault/note.md/heading/A/B`. No version header needed.
         - **`Target-Type` / `Target` headers**, together with an explicit `Markdown-Patch-Version: 2`. The `Target` encoding is type-dependent, mirroring the instruction's `target` field: a heading Target is **JSON, percent-encoded** — `["A","B"]` sent as `%5B%22A%22%2C%22B%22%5D`, or `null` for the document root — while block and frontmatter Targets are the plain id/key (percent-encoded if non-ASCII). Because `Target` headers on a PATCH are ambiguous with the deprecated 1.x format, omitting the version header fails loudly with `400 PatchHeaderTargetingRequiresExplicitVersion` rather than guessing.
         
-        The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Within` (the instruction's `within` index as a plain integer, e.g. `-1` — splice into one of the section's body blocks instead of adding a new one), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
+        The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Within` (the instruction's `within` index as a plain integer, e.g. `-1` — splice into one of the section's body blocks instead of adding a new one), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (a precondition on the file, as on every write: the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
         
         The body is the payload carrier, chosen by its content type:
         
@@ -887,16 +1059,6 @@ paths:
           required: false
           schema:
             type: "string"
-        - description: |
-            Raw-content mode: the instruction's `ifMatch` optimistic-concurrency
-            token — the `version` from a document map, bare or wrapped in one pair
-            of double quotes (RFC 9110 ETag style). A mismatch fails with `412` and
-            leaves the file untouched.
-          in: "header"
-          name: "If-Match"
-          required: false
-          schema:
-            type: "string"
         - description: "If the specified Target does not exist, create it?"
           in: "header"
           name: "Create-Target-If-Missing"
@@ -916,6 +1078,40 @@ paths:
             enum:
               - "true"
               - "false"
+            type: "string"
+        - description: |
+            Write only if the file is still the version you read. Send the `ETag` from
+            a `GET` of the file (or from a previous write), or the `version` from its
+            document map or note JSON -- they are the same token. A comma-separated
+            list matches if any entry does, and `*` matches any file that exists.
+            
+            If the file has changed since, or does not exist, the request fails with
+            `412` (error code `41200`) and nothing is written; read the file again and
+            redo the edit against what is there now. Tags are compared strongly: a
+            weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+            writes it, or bare. A value that is neither `*` nor an entity-tag list is
+            refused with `400` (error code `40024`).
+            
+            Writes made through this API are queued per file, so two requests that
+            hold the same tag cannot both pass the check: the first to arrive writes,
+            and the second fails with `412`.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            example: "\"a1b2c3\""
+            type: "string"
+        - description: |
+            `*` writes only if nothing exists at the path yet -- a create that will
+            not overwrite. A list of entity tags instead fails the write if the file is
+            currently at any of those versions. A failed precondition is `412` (error
+            code `41200`) and nothing is written; a malformed value is `400` (error
+            code `40024`).
+          in: "header"
+          name: "If-None-Match"
+          required: false
+          schema:
+            example: "*"
             type: "string"
       requestBody:
         content:
@@ -1000,9 +1196,18 @@ paths:
           description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
-              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
+                type: "string"
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
+            Markdown-Patch-Warnings:
+              description: "Present only when the patch produced warnings: a percent-encoded JSON array of `{ code, message }` objects (percent-encoded because a warning message embeds document text verbatim, which may contain non-ASCII characters that are not valid in a raw header value). Decode with `decodeURIComponent` before parsing as JSON."
+              schema:
                 type: "string"
         "400":
           content:
@@ -1034,7 +1239,7 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Precondition Failed: the `ifMatch` token did not match the current document version; the file was not modified."
+          description: "Precondition Failed: an `If-Match` or `If-None-Match` header, or the JSON instruction's own `ifMatch` field, did not hold against the file as it is now. The file was not modified; the message names its current version."
         "422":
           content:
             application/json:
@@ -1068,6 +1273,12 @@ paths:
         
         - A `text/markdown` body is literal markdown. Valid for `heading` and `block` targets. On a `frontmatter` target it is stored as the field's plain string value.
         - An `application/json` body is structured data. On a `block` target that addresses a table, it is a 2-D array of row cells (`[["Chicago", "16"]]`). On a `frontmatter` target it is the field's typed value (a list, dictionary, number, or string). A `heading` target has no structured form — its body is markdown text — so a JSON body there is rejected with `400 InvalidPatchInstruction` rather than being stringified into your note.
+        
+        ## Which file did it act on?
+        
+        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on. Each path component is percent-encoded on its own — non-ASCII characters, and reserved characters like `#`, `?` and `,` that a client would otherwise read as a fragment, a query or a header-list separator — so the value can be pasted straight back into a request URL. A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
+        
+        `/active/` responses carry `Content-Location` for the same reason, whether or not a target is embedded: the file the request acted on is whichever note happened to be open.
         
         ## Deprecated: header-based targeting
         
@@ -1126,6 +1337,40 @@ paths:
               - "true"
               - "false"
             type: "string"
+        - description: |
+            Write only if the file is still the version you read. Send the `ETag` from
+            a `GET` of the file (or from a previous write), or the `version` from its
+            document map or note JSON -- they are the same token. A comma-separated
+            list matches if any entry does, and `*` matches any file that exists.
+            
+            If the file has changed since, or does not exist, the request fails with
+            `412` (error code `41200`) and nothing is written; read the file again and
+            redo the edit against what is there now. Tags are compared strongly: a
+            weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+            writes it, or bare. A value that is neither `*` nor an entity-tag list is
+            refused with `400` (error code `40024`).
+            
+            Writes made through this API are queued per file, so two requests that
+            hold the same tag cannot both pass the check: the first to arrive writes,
+            and the second fails with `412`.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            example: "\"a1b2c3\""
+            type: "string"
+        - description: |
+            `*` writes only if nothing exists at the path yet -- a create that will
+            not overwrite. A list of entity tags instead fails the write if the file is
+            currently at any of those versions. A failed precondition is `412` (error
+            code `41200`) and nothing is written; a malformed value is `400` (error
+            code `40024`).
+          in: "header"
+          name: "If-None-Match"
+          required: false
+          schema:
+            example: "*"
+            type: "string"
       requestBody:
         content:
           text/markdown:
@@ -1146,17 +1391,31 @@ paths:
           description: "Success; content appended to the targeted section (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
-              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
+                type: "string"
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
+            Markdown-Patch-Warnings:
+              description: "Present only when the write produced warnings: a percent-encoded JSON array of `{ code, message }` objects. Decode with `decodeURIComponent` before parsing as JSON."
+              schema:
                 type: "string"
         "204":
           description: "Success; content appended to end of file."
           headers:
             Content-Location:
-              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
+                type: "string"
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
                 type: "string"
         "400":
           content:
@@ -1177,6 +1436,12 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "`Reject-If-Content-Preexists` was set and the content already appears in the targeted section."
+        "412":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Precondition Failed: an `If-Match` or `If-None-Match` header did not hold against the file as it is now -- it has changed since the version `If-Match` named, no longer exists, or (under `If-None-Match: *`) already exists. Nothing was written. The message names the file's current version."
       summary: |
         Append content to the active file open in Obsidian.
       tags:
@@ -1202,6 +1467,12 @@ paths:
         
         - A `text/markdown` body is literal markdown. Valid for `heading` and `block` targets. On a `frontmatter` target it is stored as the field's plain string value.
         - An `application/json` body is structured data. On a `block` target that addresses a table, it is a 2-D array of row cells (`[["Chicago", "16"]]`). On a `frontmatter` target it is the field's typed value (a list, dictionary, number, or string). A `heading` target has no structured form — its body is markdown text — so a JSON body there is rejected with `400 InvalidPatchInstruction` rather than being stringified into your note.
+        
+        ## Which file did it act on?
+        
+        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on. Each path component is percent-encoded on its own — non-ASCII characters, and reserved characters like `#`, `?` and `,` that a client would otherwise read as a fragment, a query or a header-list separator — so the value can be pasted straight back into a request URL. A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
+        
+        `/active/` responses carry `Content-Location` for the same reason, whether or not a target is embedded: the file the request acted on is whichever note happened to be open.
         
         ## Deprecated: header-based targeting
         
@@ -1248,6 +1519,40 @@ paths:
               - "true"
               - "false"
             type: "string"
+        - description: |
+            Write only if the file is still the version you read. Send the `ETag` from
+            a `GET` of the file (or from a previous write), or the `version` from its
+            document map or note JSON -- they are the same token. A comma-separated
+            list matches if any entry does, and `*` matches any file that exists.
+            
+            If the file has changed since, or does not exist, the request fails with
+            `412` (error code `41200`) and nothing is written; read the file again and
+            redo the edit against what is there now. Tags are compared strongly: a
+            weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+            writes it, or bare. A value that is neither `*` nor an entity-tag list is
+            refused with `400` (error code `40024`).
+            
+            Writes made through this API are queued per file, so two requests that
+            hold the same tag cannot both pass the check: the first to arrive writes,
+            and the second fails with `412`.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            example: "\"a1b2c3\""
+            type: "string"
+        - description: |
+            `*` writes only if nothing exists at the path yet -- a create that will
+            not overwrite. A list of entity tags instead fails the write if the file is
+            currently at any of those versions. A failed precondition is `412` (error
+            code `41200`) and nothing is written; a malformed value is `400` (error
+            code `40024`).
+          in: "header"
+          name: "If-None-Match"
+          required: false
+          schema:
+            example: "*"
+            type: "string"
       requestBody:
         content:
           "*/*":
@@ -1271,17 +1576,31 @@ paths:
           description: "Success; targeted section replaced (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
             Content-Location:
-              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
+                type: "string"
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
+            Markdown-Patch-Warnings:
+              description: "Present only when the write produced warnings: a percent-encoded JSON array of `{ code, message }` objects. Decode with `decodeURIComponent` before parsing as JSON."
+              schema:
                 type: "string"
         "204":
           description: "Success; entire file replaced."
           headers:
             Content-Location:
-              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Non-ASCII characters are percent-encoded."
+              description: "Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL."
               schema:
                 example: "notes/file.md"
+                type: "string"
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
                 type: "string"
         "400":
           content:
@@ -1303,6 +1622,12 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "`Reject-If-Content-Preexists` was set and the content already appears in the targeted section."
+        "412":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Precondition Failed: an `If-Match` or `If-None-Match` header did not hold against the file as it is now -- it has changed since the version `If-Match` named, no longer exists, or (under `If-None-Match: *`) already exists. Nothing was written. The message names the file's current version."
       summary: |
         Update the content of the active file open in Obsidian.
       tags:
@@ -1358,6 +1683,225 @@ paths:
         Execute a command.
       tags:
         - "Commands"
+  "/events/{emitter}/{event}/":
+    parameters:
+      - description: "The Obsidian object whose event to follow (`vault`, `metadataCache`, `workspace`), or the plugin id of an extension that registered events."
+        in: "path"
+        name: "emitter"
+        required: true
+        schema:
+          type: "string"
+      - description: "The event's name, one of those listed for the emitter: Obsidian's own name for a built-in emitter, or the name the extension registered it under."
+        in: "path"
+        name: "event"
+        required: true
+        schema:
+          type: "string"
+    post:
+      description: |
+        Registers a subscription to one Obsidian event and returns the URL of a [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html) stream that delivers each matching occurrence as it happens.
+        
+        Streaming is two steps because a browser's `EventSource` can only make `GET` requests, and a `GET` has no body to carry a filter. So the filter is registered here, and the stream is opened with `GET /events/{emitter}/{event}/{subscriptionId}/`, using the returned `url`.
+        
+        #### Events
+        
+        `{emitter}` and `{event}` are Obsidian's own names. Only these can be streamed:
+        
+        | Emitter | Events |
+        |---|---|
+        | `vault` | `create`, `modify`, `delete`, `rename` |
+        | `metadataCache` | `changed`, `deleted`, `resolve`, `resolved` |
+        | `workspace` | `file-open`, `active-leaf-change`, `layout-change` |
+        
+        Plugins extending this server can add their own events, with their plugin id as `{emitter}`. The payload of an extension's event is whatever that extension's serializer returns, plus `emitter` and `event`. Anything else gets a `404` whose `supportedEvents` field lists everything currently available. Some events are left out on purpose. `quick-preview` and `editor-change` fire on every keystroke and carry the note's text, `editor-paste` and `editor-drop` carry clipboard and drag data, and the menu and window events carry UI objects. `/events/` and `/events/{emitter}/` return `400`, because Obsidian has no way to listen for every event at once.
+        
+        To react to a note's frontmatter changing, use `metadataCache` `changed` rather than `vault` `modify`. `modify` fires before Obsidian has re-read the file's metadata, so its frontmatter can be stale.
+        
+        #### What each event carries
+        
+        Every message's `event:` field is the event name. Its `data:` is a JSON object:
+        
+        - `emitter`, `event`: what fired.
+        - `path`: the file or folder the event is about, or `null`.
+        - `file`: that file's NoteJson (the same shape `/search/` evaluates), or `null` for a folder, a deleted file, or an event with no file. `content` is included only when the filter reads `file.content`: a `var`, `missing`, or `missing_some` path naming it. A string that merely says "content", such as a path compared against it, doesn't count.
+        - `isFolder` (`vault` events): whether `path` names a folder.
+        - `oldPath` (`vault` `rename`): the path before the rename.
+        - `previous` (`metadataCache` `deleted`): the `frontmatter` and `tags` the file had.
+        - `viewType` (`workspace` `active-leaf-change`): the type of the newly active view.
+        
+        Obsidian passes some events more than this, such as `changed`'s full note text or `active-leaf-change`'s live view. None of it is sent.
+        
+        The `id:` of each message is `<epoch>-<counter>`. The epoch changes whenever the plugin reloads. A client that reconnects and sees a new epoch, or a gap in the counter, has missed events. Nothing is replayed, so search to catch up.
+        
+        #### The filter
+        
+        The request body is an optional JsonLogic expression, evaluated against the `data` object above. It supports the same extra `glob` and `regexp` operators as `/search/`. Only events for which it is truthy are sent. With no body, or `{}`, every occurrence is sent. A filter JsonLogic can't evaluate, or one whose `regexp` pattern won't compile, is refused with `400`.
+        
+        #### The stream URL
+        
+        When signed URLs are enabled, `url` is signed and opens the stream without an `Authorization` header, so it can be handed to an `EventSource`, `curl -N`, or another process. Otherwise it needs the API key like any other request. The URL expires after `ttl` seconds (default: the signed-URL lifetime in settings). A stream opened before then stays open. A reconnect after that is refused, and the client needs a new subscription. Subscriptions are held in memory, so a plugin reload ends them all.
+        
+        Anyone holding a signed stream URL sees the path and metadata of every event its filter matches, and note content if the filter reads `file.content`, for as long as the stream stays open. The filter is part of the subscription, so the URL can't be used to widen it.
+        
+        At most 16 streams may be open at once, and at most 256 subscriptions may exist. Beyond that, requests get `503`.
+      parameters:
+        - description: "How long the stream URL stays valid, in seconds; clamped to 10-86400. Defaults to the plugin's signed-URL lifetime."
+          in: "query"
+          name: "ttl"
+          required: false
+          schema:
+            type: "integer"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: "object"
+          "application/vnd.olrapi.jsonlogic+json":
+            examples:
+              frontmatter_value:
+                summary: "Only notes whose status is done (use with metadataCache/changed)."
+                value: |
+                  {"==": [{"var": "file.frontmatter.status"}, "done"]}
+              notes_in_folder:
+                summary: "Only files under journal/."
+                value: |
+                  {"glob": ["journal/*", {"var": "path"}]}
+            schema:
+              externalDocs:
+                url: "https://jsonlogic.com/operations.html"
+              type: "object"
+        required: false
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                properties:
+                  emitter:
+                    type: "string"
+                  event:
+                    type: "string"
+                  expiresAt:
+                    description: "After this, the stream can no longer be opened; one already open stays open."
+                    format: "date-time"
+                    type: "string"
+                  id:
+                    description: "The subscription id."
+                    type: "string"
+                  signed:
+                    description: "Whether `url` carries a signature, or needs the API key."
+                    type: "boolean"
+                  url:
+                    description: "The stream to open with GET. Signed when signed URLs are enabled."
+                    type: "string"
+                required:
+                  - "id"
+                  - "emitter"
+                  - "event"
+                  - "url"
+                  - "signed"
+                  - "expiresAt"
+                type: "object"
+          description: "Subscription registered."
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "No event named (`/events/` or `/events/{emitter}/`), a filter JsonLogic cannot evaluate, or a body that is not JSON."
+        "404":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "The emitter or event cannot be streamed. The body lists what can, as `supportedEvents`."
+        "503":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Too many subscriptions exist."
+      summary: |
+        Subscribe to an Obsidian event as a Server-Sent Events stream
+      tags:
+        - "Events"
+  "/events/{emitter}/{event}/{subscriptionId}/":
+    get:
+      description: |
+        Streams the subscription's events as `text/event-stream`, with a keep-alive comment every 15 seconds, until the client disconnects or the plugin reloads. See `POST /events/{emitter}/{event}/` for what each message carries.
+        
+        Authenticates with the API key, or with the `sig`, `exp` and `n` parameters of the URL that registering the subscription returned. A stream opened before the subscription expires stays open after it.
+      parameters:
+        - in: "path"
+          name: "emitter"
+          required: true
+          schema:
+            type: "string"
+        - in: "path"
+          name: "event"
+          required: true
+          schema:
+            type: "string"
+        - description: "The `id` returned when the subscription was registered."
+          in: "path"
+          name: "subscriptionId"
+          required: true
+          schema:
+            type: "string"
+        - description: "Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` / `events_get_listener_url` tools or by `POST /events/{emitter}/{event}/`. Together with `exp` and `n`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings."
+          in: "query"
+          name: "sig"
+          required: false
+          schema:
+            type: "string"
+        - description: "Expiry of a signed URL as Unix seconds; part of what `sig` signs."
+          in: "query"
+          name: "exp"
+          required: false
+          schema:
+            type: "integer"
+        - description: "Random per-link nonce, minted with the URL and part of what `sig` signs. Required whenever `sig` and `exp` are given: a signed request without it cannot verify. It exists so that two links minted for the same path within the same second are distinct -- `exp` has one-second granularity, so without it they would be byte-identical, and spending one would spend the other."
+          in: "query"
+          name: "n"
+          required: false
+          schema:
+            type: "string"
+      responses:
+        "200":
+          content:
+            text/event-stream:
+              example: |
+                event: modify
+                id: 3f9a1c2e-7
+                data: {"emitter":"vault","event":"modify","path":"journal/today.md","isFolder":false,"file":{"path":"journal/today.md","tags":[],"frontmatter":{},"stat":{"ctime":1705276800000,"mtime":1705363200000,"size":1024},"links":[],"backlinks":[],"unresolvedLinks":[]}}
+                
+              schema:
+                type: "string"
+          description: "The event stream."
+        "401":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "No API key, and no valid signature for this subscription."
+        "404":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "No such subscription for this emitter and event, or it has expired."
+        "429":
+          "$ref": "#/components/responses/TooManyAuthenticationFailures"
+        "503":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Too many streams are open."
+      summary: |
+        Open the Server-Sent Events stream of a subscription
+      tags:
+        - "Events"
   /mcp/:
     get:
       description: |
@@ -1400,6 +1944,8 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "Session not found."
+        "429":
+          "$ref": "#/components/responses/TooManyAuthenticationFailures"
       summary: |
         Open a server-sent events stream for an existing sessionful MCP session.
       tags:
@@ -1440,9 +1986,11 @@ paths:
         |---|---|
         | `vault_list` | List files and subdirectories inside a vault directory |
         | `vault_read` | Read a text file's full content, frontmatter, tags, and stat; refuses anything that is not valid UTF-8 |
-        | `vault_read_binary` | Read a file as raw bytes, base64-encoded, for attachments `vault_read` would corrupt |
-        | `vault_write` | Create or overwrite a vault file |
-        | `vault_write_binary` | Create or overwrite a vault file from base64-encoded raw bytes |
+        | `vault_read_binary` | Read an attachment: images as an image block, anything else as a signed download link or embedded bytes |
+        | `vault_get_download_url` | Mint a signed, expiring link to a file that works without the API key (only when signed URLs are enabled) |
+        | `vault_get_upload_url` | Mint a signed, single-use link for uploading a file over `PUT` (only when signed URLs are enabled) |
+        | `events_get_listener_url` | Subscribe to an Obsidian event and mint a signed link to its Server-Sent Events stream, as `POST /events/{emitter}/{event}/` does (only when signed URLs are enabled) |
+        | `vault_write` | Create or overwrite a text file; refuses paths whose extension names a binary type |
         | `vault_append` | Append content to the end of a vault file |
         | `vault_patch` | Patch a specific heading, block reference, or frontmatter field |
         | `vault_delete` | Delete a vault file (moves to trash by default) |
@@ -1457,19 +2005,41 @@ paths:
         | `command_execute` | Execute an Obsidian command by ID |
         | `open_file` | Open a file in the Obsidian UI |
         
+        `search_simple` returns at most the 20 highest-scoring files and the first 10 matches in each unless the call sets `maxResults` or `maxMatchesPerFile`. Obsidian's simple search matches each word of a query separately, so an unbounded search containing a common word can return megabytes, and an MCP result usually goes straight into the model's context. When anything was left out, a second text block beginning `[Search results limited:` says how much and how to see more. Its `contextLength` is at most 500 characters. `POST /search/simple/` takes the same two parameters but has no limit by default, and does not bound `contextLength`.
+        
         ### Binary files
         
-        `vault_read` and `vault_write` are text tools: they decode and encode UTF-8, which is lossy for anything that is not text, so reading an attachment through `vault_read` and writing the result back destroys the file. Use `vault_read_binary` and `vault_write_binary` for attachments instead. Both carry the file base64-encoded.
+        `vault_read` and `vault_write` are text tools: they decode and encode UTF-8, which is lossy for anything that is not text. `vault_read` refuses a file whose bytes are not valid UTF-8, and `vault_write` and `vault_append` refuse a path whose extension names a binary type (image other than SVG, audio, video, font, PDF, archive), so the read-as-text-then-write-back mistake that destroys attachments is refused at both ends.
         
-        `vault_write_binary` refuses a payload it cannot decode cleanly rather than writing the bytes it managed to salvage.
+        `vault_read_binary` reads attachments. A raster image is returned as an MCP `image` content block, downscaled to fit 1568px on its long side, with a text block giving its path, MIME type, size, and dimensions. An SVG is returned unchanged, as its source text in a `resource` block. An image still larger than 512 KiB once downscaled is returned as a `resource_link` instead, the same as any other oversized file -- or refused, with a pointer at the REST endpoint, when signed URLs are off and there is no link to give. Any other file is returned as a `resource_link` to a signed download URL when signed URLs are enabled, or embedded as base64 in a `resource` block when they are not and the file is under 512 KiB. `as: "bytes"` forces embedding; `as: "link"` forces a link.
         
-        Base64 in a tool argument or result passes through the model's context at roughly 0.35-0.45 tokens per byte, so both tools refuse files over 1 MiB. That is a context guard rather than a storage limit: `GET` and `PUT /vault/{filename}` carry raw bytes of any size at no context cost, and are the right way to move a large attachment.
+        The 512 KiB ceiling guards the renderer as well as the model's context: a tool result carrying roughly a megabyte or more of base64 crashes Obsidian's Electron renderer, taking this plugin's HTTP server down with it.
+        
+        Clients vary in how much of a tool result they show. Some do not surface a `resource_link` to the person at all, and some render a text block's markdown as raw characters, so the tool descriptions tell the agent not to leave the person with nothing when the file is for them rather than for the agent.
+        
+        The preferred route is for the agent to fetch the signed URL to scratch space and hand that local file to whatever its host uses to show a file. The picture then travels from the vault to the person's screen without its bytes passing through the agent's context -- no base64, no token cost for the pixels -- and it goes over `GET /vault/<path>`, which streams a large file happily, rather than through a tool result. Agents are told explicitly not to read the download back in, since that would pay exactly the cost the link exists to avoid. Where a host cannot do that, the fallback is to repeat the markdown link in the reply, which yields something clickable rather than a visible picture.
+        
+        There is no upload tool that carries bytes through the model. Upload a file with `PUT /vault/{filename}` — with the API key, or with a signed upload URL from `vault_get_upload_url`.
+        
+        ### Signed URLs
+        
+        On by default; can be turned off under Advanced settings, where the lifetime is also set (default 300 seconds). While enabled, `vault_get_download_url`, `vault_get_upload_url` and `events_get_listener_url` are registered, and `vault_read_binary` links to non-image files instead of embedding them.
+        
+        A signed URL authorizes a **whole-file** write to exactly the path it names. The signature covers the method, the normalized path, the expiry and a random per-link nonce (`n`), and nothing else — so a request that also carries `Target-Type`/`Target` headers, or whose path continues into `/heading`, `/block` or `/frontmatter`, is refused with `40102` rather than quietly becoming a targeted edit of a document the link never named. Targeted writes need the API key.
+        
+        A signed `PUT` stores exactly the bytes it is sent, whatever `Content-Type` it declares: it bypasses the JSON and text parsers, which would otherwise reparse and re-serialize the body and silently reformat a pretty-printed `.json`.
+        
+        A `PUT` link's single use is claimed when the request is authorized, not when it finishes, so concurrent redemptions cannot all pass the check; a request that does not end in a 2xx gives the claim back, so a rejected or aborted attempt never spends the link.
+        
+        A signed request whose path carries a backslash is refused. Verification treats `\` as a separator and dispatch does not, so the two layers would disagree about which file `a%5Cb` names; no legitimate link needs one, since the separator is normalized away before signing. With verbose logging on, `sig` and `n` are redacted from the logged URL: they are a bearer capability, and console output gets pasted into bug reports.
+        
+        A signed URL is `GET` or `PUT /vault/{filename}?sig=…&exp=…&n=…`. The signature is an HMAC-SHA256 over the method, the normalized vault path, the expiry, and the random per-link nonce `n`, under a secret generated at plugin load and held only in memory; it stands in for the `Authorization` header on that one request. Download links can be used repeatedly until they expire and are served with `Content-Disposition: inline` (`download=1` asks for an attachment). Upload links are consumed by the first request that succeeds. Links do not survive an Obsidian restart.
         
         ## Available resources
         
         | URI | Description |
         |---|---|
-        | `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API |
+        | `obsidian://local-rest-api/openapi.yaml` | Full OpenAPI specification for this REST API, including routes that extensions describe |
       parameters:
         - description: "Session ID returned by the server on initialization. A session operation of the sessionful protocol revisions (`2024-10-07` through `2025-11-25`): omit it for the initial `initialize` request, send it on every later request of that session, and expect 404 if the session has ended. The `2026-07-28` revision has no sessions — the header is neither issued nor read there."
           in: "header"
@@ -1619,6 +2189,8 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "Session not found. The `Mcp-Session-Id` header names a session that has ended; hand-shake again with `initialize`."
+        "429":
+          "$ref": "#/components/responses/TooManyAuthenticationFailures"
       summary: |
         Send a JSON-RPC 2.0 message to the MCP server.
       tags:
@@ -1665,8 +2237,25 @@ paths:
         Open the specified document in the Obsidian user interface.
       tags:
         - "Open"
+  /openapi.json:
+    get:
+      description: |
+        The same document as `/openapi.yaml`, including the routes that extension plugins describe.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: "object"
+          description: "Success"
+      summary: |
+        Returns the OpenAPI document describing the capabilities of this API, as JSON.
+      tags:
+        - "System"
   /openapi.yaml:
     get:
+      description: |
+        Includes the routes of any installed extension plugin that describes them. Each path an extension contributes carries an `x-obsidian-extension` field naming that extension's plugin ID.
       responses:
         "200":
           description: "Success"
@@ -1692,9 +2281,12 @@ paths:
         
         - `false`
         - `null` or `undefined`
-        - `0`
+        - `0` (and `NaN`)
+        - `""`
         - `[]`
         - `{}`
+        
+        This matters most for a query that selects a value rather than testing a condition. `{"var": "frontmatter.aliases"}` returns the notes whose `aliases` field has something in it; a note with `aliases: []` is left out exactly as a note with no `aliases` field at all is, so a file's absence from the results does not mean it lacks the field. To test whether a field is present, use JsonLogic's `missing` operator: `{"!": {"missing": ["frontmatter.aliases"]}}` matches every note that has the field, including those where it is `[]`, `false`, or `0`. Note that `missing` treats a field whose value is `""` or `null` (as from a frontmatter key left blank, like `aliases:`) as missing too.
         
         Files are represented as an object having the schema described
         in the Schema named 'NoteJson' at the bottom of this page.
@@ -1735,6 +2327,12 @@ paths:
                       "myTag",
                       {"var": "tags"}
                     ]
+                  }
+              find_missing_frontmatter_field:
+                summary: "Find notes that do not have a certain frontmatter field (a field that is blank or an empty string counts as not present)"
+                value: |
+                  {
+                    "missing": ["frontmatter.myField"]
                   }
             schema:
               externalDocs:
@@ -1793,6 +2391,20 @@ paths:
           schema:
             default: 100
             type: "number"
+        - description: "The most files to return. The highest-scoring files are kept, and the `Total-Results` header gives how many matched in all. Unlimited when absent."
+          in: "query"
+          name: "maxResults"
+          required: false
+          schema:
+            minimum: 1
+            type: "integer"
+        - description: "The most matches to return for each file, in document order. Each file's `totalMatches` gives how many it had in all. Unlimited when absent. Obsidian's simple search matches each word of the query separately, so a query containing a common word can match thousands of times in a single file; this is what keeps such a result a manageable size."
+          in: "query"
+          name: "maxMatchesPerFile"
+          required: false
+          schema:
+            minimum: 1
+            type: "integer"
       responses:
         "200":
           content:
@@ -1825,9 +2437,23 @@ paths:
                       type: "array"
                     score:
                       type: "number"
+                    totalMatches:
+                      description: "How many matches the file had in all. Larger than the length of `matches` when `maxMatchesPerFile` left some out."
+                      type: "number"
                   type: "object"
                 type: "array"
           description: "Success"
+          headers:
+            Total-Results:
+              description: "How many files matched in all. Larger than the number of items returned when `maxResults` left some out."
+              schema:
+                type: "integer"
+        "400":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "No `query` parameter, or a `maxResults` or `maxMatchesPerFile` that is not a single positive integer."
       summary: |
         Search for documents matching a specified text query
       tags:
@@ -1933,6 +2559,28 @@ paths:
             schema:
               format: "path"
               type: "string"
+          - description: |
+              Write only if the file is still the version you read. Send the `ETag` from
+              a `GET` of the file (or from a previous write), or the `version` from its
+              document map or note JSON -- they are the same token. A comma-separated
+              list matches if any entry does, and `*` matches any file that exists.
+              
+              If the file has changed since, or does not exist, the request fails with
+              `412` (error code `41200`) and nothing is written; read the file again and
+              redo the edit against what is there now. Tags are compared strongly: a
+              weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+              writes it, or bare. A value that is neither `*` nor an entity-tag list is
+              refused with `400` (error code `40024`).
+              
+              Writes made through this API are queued per file, so two requests that
+              hold the same tag cannot both pass the check: the first to arrive writes,
+              and the second fails with `412`.
+            in: "header"
+            name: "If-Match"
+            required: false
+            schema:
+              example: "\"a1b2c3\""
+              type: "string"
         responses:
           "204":
             description: "File successfully copied."
@@ -1948,6 +2596,12 @@ paths:
                   "$ref": "#/components/schemas/Error"
             description: |
               Bad request - Missing Destination header, malformed percent-encoding, or path escapes the vault root (e.g. starts with "/").
+          "403":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). The check is against where the path lands on disk, so a Windows 8.3 short name, a differently cased spelling, or a symlink into that directory is refused the same way. Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it."
           "404":
             content:
               application/json:
@@ -1967,6 +2621,12 @@ paths:
                 schema:
                   "$ref": "#/components/schemas/Error"
             description: "Destination file already exists."
+          "412":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: "Precondition Failed: an `If-Match` or `If-None-Match` header did not hold against the file as it is now -- it has changed since the version `If-Match` named, no longer exists, or (under `If-None-Match: *`) already exists. Nothing was written. The message names the file's current version."
         summary: |
           Copy a file to a new location in your vault.
         tags:
@@ -2001,6 +2661,28 @@ paths:
             schema:
               format: "path"
               type: "string"
+          - description: |
+              Write only if the file is still the version you read. Send the `ETag` from
+              a `GET` of the file (or from a previous write), or the `version` from its
+              document map or note JSON -- they are the same token. A comma-separated
+              list matches if any entry does, and `*` matches any file that exists.
+              
+              If the file has changed since, or does not exist, the request fails with
+              `412` (error code `41200`) and nothing is written; read the file again and
+              redo the edit against what is there now. Tags are compared strongly: a
+              weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+              writes it, or bare. A value that is neither `*` nor an entity-tag list is
+              refused with `400` (error code `40024`).
+              
+              Writes made through this API are queued per file, so two requests that
+              hold the same tag cannot both pass the check: the first to arrive writes,
+              and the second fails with `412`.
+            in: "header"
+            name: "If-Match"
+            required: false
+            schema:
+              example: "\"a1b2c3\""
+              type: "string"
         responses:
           "204":
             description: "File successfully moved."
@@ -2016,6 +2698,12 @@ paths:
                   "$ref": "#/components/schemas/Error"
             description: |
               Bad request - Missing Destination header, malformed percent-encoding, or path escapes the vault root (e.g. starts with "/").
+          "403":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). The check is against where the path lands on disk, so a Windows 8.3 short name, a differently cased spelling, or a symlink into that directory is refused the same way. Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it."
           "404":
             content:
               application/json:
@@ -2035,6 +2723,12 @@ paths:
                 schema:
                   "$ref": "#/components/schemas/Error"
             description: "Destination file already exists."
+          "412":
+            content:
+              application/json:
+                schema:
+                  "$ref": "#/components/schemas/Error"
+            description: "Precondition Failed: an `If-Match` or `If-None-Match` header did not hold against the file as it is now -- it has changed since the version `If-Match` named, no longer exists, or (under `If-None-Match: *`) already exists. Nothing was written. The message names the file's current version."
         summary: |
           Move a file to a new location in your vault.
         tags:
@@ -2059,9 +2753,37 @@ paths:
           schema:
             format: "path"
             type: "string"
+        - description: |
+            Write only if the file is still the version you read. Send the `ETag` from
+            a `GET` of the file (or from a previous write), or the `version` from its
+            document map or note JSON -- they are the same token. A comma-separated
+            list matches if any entry does, and `*` matches any file that exists.
+            
+            If the file has changed since, or does not exist, the request fails with
+            `412` (error code `41200`) and nothing is written; read the file again and
+            redo the edit against what is there now. Tags are compared strongly: a
+            weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+            writes it, or bare. A value that is neither `*` nor an entity-tag list is
+            refused with `400` (error code `40024`).
+            
+            Writes made through this API are queued per file, so two requests that
+            hold the same tag cannot both pass the check: the first to arrive writes,
+            and the second fails with `412`.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            example: "\"a1b2c3\""
+            type: "string"
       responses:
         "204":
           description: "Success"
+        "403":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). The check is against where the path lands on disk, so a Windows 8.3 short name, a differently cased spelling, or a symlink into that directory is refused the same way. Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it."
         "404":
           content:
             application/json:
@@ -2075,6 +2797,12 @@ paths:
                 "$ref": "#/components/schemas/Error"
           description: |
             Your path references a directory instead of a file; this request method is valid only for updating files.
+        "412":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Precondition Failed: an `If-Match` or `If-None-Match` header did not hold against the file as it is now -- it has changed since the version `If-Match` named, no longer exists, or (under `If-None-Match: *`) already exists. Nothing was written. The message names the file's current version."
       summary: |
         Delete a particular file in your vault.
       tags:
@@ -2084,6 +2812,8 @@ paths:
         Returns the content of the file at the specified path in your vault should the file exist.
         
         Binary files are served as raw bytes, with a `Content-Type` derived from the file extension, so this endpoint reads attachments — images, PDFs, audio — as well as notes. There is no size limit on the response.
+        
+        A signed download URL (`?sig=…&exp=…&n=…`, from the MCP `vault_get_download_url` tool) authenticates the request in place of the `Authorization` header while signed URLs are enabled in the plugin settings. Such a request is served `inline` rather than as an attachment unless `download=1` is also given.
         
         # Targeting a Sub-part of your Document
         
@@ -2104,6 +2834,12 @@ paths:
         
         - A `text/markdown` body is literal markdown. Valid for `heading` and `block` targets. On a `frontmatter` target it is stored as the field's plain string value.
         - An `application/json` body is structured data. On a `block` target that addresses a table, it is a 2-D array of row cells (`[["Chicago", "16"]]`). On a `frontmatter` target it is the field's typed value (a list, dictionary, number, or string). A `heading` target has no structured form — its body is markdown text — so a JSON body there is rejected with `400 InvalidPatchInstruction` rather than being stringified into your note.
+        
+        ## Which file did it act on?
+        
+        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on. Each path component is percent-encoded on its own — non-ASCII characters, and reserved characters like `#`, `?` and `,` that a client would otherwise read as a fragment, a query or a header-list separator — so the value can be pasted straight back into a request URL. A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
+        
+        `/active/` responses carry `Content-Location` for the same reason, whether or not a target is embedded: the file the request acted on is whichever note happened to be open.
         
         ## Deprecated: header-based targeting
         
@@ -2189,6 +2925,32 @@ paths:
               - "marker"
               - "markerAndContent"
             type: "string"
+        - description: "Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` / `events_get_listener_url` tools or by `POST /events/{emitter}/{event}/`. Together with `exp` and `n`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings."
+          in: "query"
+          name: "sig"
+          required: false
+          schema:
+            type: "string"
+        - description: "Expiry of a signed URL as Unix seconds; part of what `sig` signs."
+          in: "query"
+          name: "exp"
+          required: false
+          schema:
+            type: "integer"
+        - description: "Random per-link nonce, minted with the URL and part of what `sig` signs. Required whenever `sig` and `exp` are given: a signed request without it cannot verify. It exists so that two links minted for the same path within the same second are distinct -- `exp` has one-second granularity, so without it they would be byte-identical, and spending one would spend the other."
+          in: "query"
+          name: "n"
+          required: false
+          schema:
+            type: "string"
+        - description: "On a signed-URL request, `1` asks for `Content-Disposition: attachment` (a download) instead of the `inline` disposition signed links are otherwise served with. Ignored on API-key requests, which are always served as attachments."
+          in: "query"
+          name: "download"
+          required: false
+          schema:
+            enum:
+              - "1"
+            type: "string"
       responses:
         "200":
           content:
@@ -2221,7 +2983,7 @@ paths:
                   headings:
                     "$ref": "#/components/schemas/HeadingTree"
                   version:
-                    description: "Content-hash token for the file; pass it back as a PATCH `ifMatch` to make an edit conditional on the file being unchanged."
+                    description: "Content-hash token for the file, the same value as its `ETag`; pass it back as a PATCH `ifMatch`, or as `If-Match` on any write, to make the write conditional on the file being unchanged."
                     example: "a1b2c3"
                     type: "string"
                 type: "object"
@@ -2244,6 +3006,18 @@ paths:
                   something else here
                 type: "string"
           description: "Success"
+          headers:
+            Content-Location:
+              description: "Vault-relative path of the file the URL resolved to, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL. Sent only when the URL embedded a target (`/heading/...`, `/block/...`, `/frontmatter/...`), since that is the case where the file the request acted on is not evident from the URL alone; absent on a whole-file request."
+              required: false
+              schema:
+                example: "notes/file.md"
+                type: "string"
+            ETag:
+              description: "The file's version, as a strong entity tag -- the same token as the document map's `version` and note JSON's `version`. Send it as `If-Match` on a write to make that write fail, rather than overwrite a change made in between, if the file has changed. Sent with the file itself, a section of it, and the document map, all of which depend only on the file's bytes; a matching `If-None-Match` on those reads is answered `304 Not Modified`. Not sent as this token with `Accept: text/html` or note JSON, which also depend on other files (embeds, backlinks) -- read note JSON's `version` field instead."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
         "400":
           content:
             application/json:
@@ -2251,6 +3025,12 @@ paths:
                 "$ref": "#/components/schemas/Error"
           description: |
             The `Markdown-Patch-Version` header was invalid (not `1` or `2`), the deprecated `Target-Type`/`Target` headers were invalid, the `Target-Scope` header was not a readable scope (`content`, `marker`, `markerAndContent`), or a frontmatter target was combined with `Accept: text/html` (frontmatter has no HTML rendering).
+        "403":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). The check is against where the path lands on disk, so a Windows 8.3 short name, a differently cased spelling, or a symlink into that directory is refused the same way. Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it."
         "404":
           description: "File or target section does not exist"
       summary: |
@@ -2475,6 +3255,8 @@ paths:
         
         Pass `ifMatch` with the `version` token from a document map (see below). If the file changed since, the patch fails with `412` and the file is untouched — refetch and retry.
         
+        The `If-Match` and `If-None-Match` headers work here too, in every mode, exactly as on the other writes: `If-Match` takes the same token (the `ETag` from a `GET` of the file, quoted or bare), a list of them, or `*`. When a JSON instruction carries `ifMatch` and the request also sends `If-Match`, both must hold. A successful patch answers with the patched file's version in `ETag`, ready for the next conditional edit.
+        
         ## Identifying patch targets in a file
         
         Issue a GET request to `/vault/{path}` with an `Accept` header of `application/vnd.olrapi.document-map+json` to get the headings, block references, and frontmatter fields present in the file (and its `version` token). If a heading has a duplicate sibling (same text, same parent) or a block reference ID repeats, only the first occurrence keeps its plain-text/id key — each later occurrence's key carries a non-printable marker suffix; copy it verbatim from the map into `target` rather than typing it by hand. See "Targeting a Sub-part of your Document" for details.
@@ -2488,7 +3270,7 @@ paths:
         - **URL path elements**, exactly as GET/PUT/POST use them: `PATCH /vault/note.md/heading/A/B`. No version header needed.
         - **`Target-Type` / `Target` headers**, together with an explicit `Markdown-Patch-Version: 2`. The `Target` encoding is type-dependent, mirroring the instruction's `target` field: a heading Target is **JSON, percent-encoded** — `["A","B"]` sent as `%5B%22A%22%2C%22B%22%5D`, or `null` for the document root — while block and frontmatter Targets are the plain id/key (percent-encoded if non-ASCII). Because `Target` headers on a PATCH are ambiguous with the deprecated 1.x format, omitting the version header fails loudly with `400 PatchHeaderTargetingRequiresExplicitVersion` rather than guessing.
         
-        The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Within` (the instruction's `within` index as a plain integer, e.g. `-1` — splice into one of the section's body blocks instead of adding a new one), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
+        The remaining fields map to headers: `Operation` (required), `Target-Scope` (all four scopes, including `parent`), `Within` (the instruction's `within` index as a plain integer, e.g. `-1` — splice into one of the section's body blocks instead of adding a new one), `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, `If-Match` (a precondition on the file, as on every write: the document-map `version` token, bare or ETag-quoted), and `Destination` (a move's destination object as percent-encoded JSON). The 1.x-only `Target-Delimiter` and `Trim-Target-Whitespace` headers are rejected.
         
         The body is the payload carrier, chosen by its content type:
         
@@ -2675,16 +3457,6 @@ paths:
           required: false
           schema:
             type: "string"
-        - description: |
-            Raw-content mode: the instruction's `ifMatch` optimistic-concurrency
-            token — the `version` from a document map, bare or wrapped in one pair
-            of double quotes (RFC 9110 ETag style). A mismatch fails with `412` and
-            leaves the file untouched.
-          in: "header"
-          name: "If-Match"
-          required: false
-          schema:
-            type: "string"
         - description: "If the specified Target does not exist, create it?"
           in: "header"
           name: "Create-Target-If-Missing"
@@ -2704,6 +3476,40 @@ paths:
             enum:
               - "true"
               - "false"
+            type: "string"
+        - description: |
+            Write only if the file is still the version you read. Send the `ETag` from
+            a `GET` of the file (or from a previous write), or the `version` from its
+            document map or note JSON -- they are the same token. A comma-separated
+            list matches if any entry does, and `*` matches any file that exists.
+            
+            If the file has changed since, or does not exist, the request fails with
+            `412` (error code `41200`) and nothing is written; read the file again and
+            redo the edit against what is there now. Tags are compared strongly: a
+            weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+            writes it, or bare. A value that is neither `*` nor an entity-tag list is
+            refused with `400` (error code `40024`).
+            
+            Writes made through this API are queued per file, so two requests that
+            hold the same tag cannot both pass the check: the first to arrive writes,
+            and the second fails with `412`.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            example: "\"a1b2c3\""
+            type: "string"
+        - description: |
+            `*` writes only if nothing exists at the path yet -- a create that will
+            not overwrite. A list of entity tags instead fails the write if the file is
+            currently at any of those versions. A failed precondition is `412` (error
+            code `41200`) and nothing is written; a malformed value is `400` (error
+            code `40024`).
+          in: "header"
+          name: "If-None-Match"
+          required: false
+          schema:
+            example: "*"
             type: "string"
       requestBody:
         content:
@@ -2787,6 +3593,17 @@ paths:
         "200":
           description: "Success. The body is the patched document. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
+            Content-Location:
+              description: "Vault-relative path of the file the URL resolved to, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL. Sent only when the URL embedded a target (`/heading/...`, `/block/...`, `/frontmatter/...`), since that is the case where the file the request acted on is not evident from the URL alone; absent on a whole-file request."
+              required: false
+              schema:
+                example: "notes/file.md"
+                type: "string"
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
             Markdown-Patch-Warnings:
               description: "Present only when the patch produced warnings: a percent-encoded JSON array of `{ code, message }` objects (percent-encoded because a warning message embeds document text verbatim, which may contain non-ASCII characters that are not valid in a raw header value). Decode with `decodeURIComponent` before parsing as JSON."
               schema:
@@ -2797,6 +3614,12 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "Bad Request; the instruction was malformed, the operation×scope×targetType combination is not part of the algebra, the `Markdown-Patch-Version` header was invalid, an instruction-mode request had a non-object body, or a raw-content-mode header could not be decoded (a heading `Target` that is not percent-encoded JSON, a malformed `Destination`, an unsupported body content type). Header-based targeting without an explicit `Markdown-Patch-Version` returns `PatchHeaderTargetingRequiresExplicitVersion` here. See response message for details."
+        "403":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). The check is against where the path lands on disk, so a Windows 8.3 short name, a differently cased spelling, or a symlink into that directory is refused the same way. Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it."
         "404":
           content:
             application/json:
@@ -2821,7 +3644,7 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-          description: "Precondition Failed: the `ifMatch` token did not match the current document version; the file was not modified."
+          description: "Precondition Failed: an `If-Match` or `If-None-Match` header, or the JSON instruction's own `ifMatch` field, did not hold against the file as it is now. The file was not modified; the message names its current version."
         "422":
           content:
             application/json:
@@ -2855,6 +3678,12 @@ paths:
         
         - A `text/markdown` body is literal markdown. Valid for `heading` and `block` targets. On a `frontmatter` target it is stored as the field's plain string value.
         - An `application/json` body is structured data. On a `block` target that addresses a table, it is a 2-D array of row cells (`[["Chicago", "16"]]`). On a `frontmatter` target it is the field's typed value (a list, dictionary, number, or string). A `heading` target has no structured form — its body is markdown text — so a JSON body there is rejected with `400 InvalidPatchInstruction` rather than being stringified into your note.
+        
+        ## Which file did it act on?
+        
+        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on. Each path component is percent-encoded on its own — non-ASCII characters, and reserved characters like `#`, `?` and `,` that a client would otherwise read as a fragment, a query or a header-list separator — so the value can be pasted straight back into a request URL. A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
+        
+        `/active/` responses carry `Content-Location` for the same reason, whether or not a target is embedded: the file the request acted on is whichever note happened to be open.
         
         ## Deprecated: header-based targeting
         
@@ -2920,6 +3749,40 @@ paths:
               - "true"
               - "false"
             type: "string"
+        - description: |
+            Write only if the file is still the version you read. Send the `ETag` from
+            a `GET` of the file (or from a previous write), or the `version` from its
+            document map or note JSON -- they are the same token. A comma-separated
+            list matches if any entry does, and `*` matches any file that exists.
+            
+            If the file has changed since, or does not exist, the request fails with
+            `412` (error code `41200`) and nothing is written; read the file again and
+            redo the edit against what is there now. Tags are compared strongly: a
+            weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+            writes it, or bare. A value that is neither `*` nor an entity-tag list is
+            refused with `400` (error code `40024`).
+            
+            Writes made through this API are queued per file, so two requests that
+            hold the same tag cannot both pass the check: the first to arrive writes,
+            and the second fails with `412`.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            example: "\"a1b2c3\""
+            type: "string"
+        - description: |
+            `*` writes only if nothing exists at the path yet -- a create that will
+            not overwrite. A list of entity tags instead fails the write if the file is
+            currently at any of those versions. A failed precondition is `412` (error
+            code `41200`) and nothing is written; a malformed value is `400` (error
+            code `40024`).
+          in: "header"
+          name: "If-None-Match"
+          required: false
+          schema:
+            example: "*"
+            type: "string"
       requestBody:
         content:
           text/markdown:
@@ -2939,18 +3802,41 @@ paths:
                 type: "string"
           description: "Success; content appended to the targeted section (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
+            Content-Location:
+              description: "Vault-relative path of the file the URL resolved to, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL. Sent only when the URL embedded a target (`/heading/...`, `/block/...`, `/frontmatter/...`), since that is the case where the file the request acted on is not evident from the URL alone; absent on a whole-file request."
+              required: false
+              schema:
+                example: "notes/file.md"
+                type: "string"
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
             Markdown-Patch-Warnings:
               description: "Present only when the write produced warnings: a percent-encoded JSON array of `{ code, message }` objects. Decode with `decodeURIComponent` before parsing as JSON."
               schema:
                 type: "string"
         "204":
           description: "Success; content appended to end of file."
+          headers:
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
         "400":
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "Bad Request"
+        "403":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). The check is against where the path lands on disk, so a Windows 8.3 short name, a differently cased spelling, or a symlink into that directory is refused the same way. Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it."
         "405":
           content:
             application/json:
@@ -2964,6 +3850,12 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "`Reject-If-Content-Preexists` was set and the content already appears in the targeted section."
+        "412":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Precondition Failed: an `If-Match` or `If-None-Match` header did not hold against the file as it is now -- it has changed since the version `If-Match` named, no longer exists, or (under `If-None-Match: *`) already exists. Nothing was written. The message names the file's current version."
       summary: |
         Append content to a new or existing file.
       tags:
@@ -2972,7 +3864,9 @@ paths:
       description: |
         Creates a new file in your vault or updates the content of an existing one if the specified file already exists.
         
-        Any content type is accepted: a request body that is not text or JSON is stored as raw bytes, so attachments -- images, PDFs, audio -- can be uploaded here as well as notes. There is no size limit beyond the request-size cap.
+        Any content type is accepted: a request body that is not text or JSON is stored as raw bytes, so attachments -- images, PDFs, audio -- can be uploaded here as well as notes. A body sent with no `Content-Type` at all is treated as `application/octet-stream` and stored as raw bytes, which is what RFC 9110 allows. There is no size limit beyond the request-size cap.
+        
+        A signed upload URL (`?sig=…&exp=…&n=…`, from the MCP `vault_get_upload_url` tool) authenticates a single whole-file `PUT` in place of the `Authorization` header; the link is consumed by the request that succeeds. A signed `PUT` stores exactly the bytes sent, whatever `Content-Type` it declares -- it is not routed through the JSON or text parsers, which would otherwise reparse and re-serialize the body. It authorizes a whole-file write only: a request that also targets part of the document, through `Target-Type`/`Target` headers or through `/heading`, `/block` or `/frontmatter` path elements, is refused.
         
         # Targeting a Sub-part of your Document
         
@@ -2993,6 +3887,12 @@ paths:
         
         - A `text/markdown` body is literal markdown. Valid for `heading` and `block` targets. On a `frontmatter` target it is stored as the field's plain string value.
         - An `application/json` body is structured data. On a `block` target that addresses a table, it is a 2-D array of row cells (`[["Chicago", "16"]]`). On a `frontmatter` target it is the field's typed value (a list, dictionary, number, or string). A `heading` target has no structured form — its body is markdown text — so a JSON body there is rejected with `400 InvalidPatchInstruction` rather than being stringified into your note.
+        
+        ## Which file did it act on?
+        
+        A URL that embeds a target is ambiguous on its face: `/vault/notes/log.md/heading/Today` could address the `Today` section of `notes/log.md`, or a file literally named `notes/log.md/heading/Today`. The server resolves it by walking backwards down the path until it finds a real file, and reports the answer in a `Content-Location` response header holding the vault-relative path it settled on. Each path component is percent-encoded on its own — non-ASCII characters, and reserved characters like `#`, `?` and `,` that a client would otherwise read as a fragment, a query or a header-list separator — so the value can be pasted straight back into a request URL. A request whose URL names the file outright gets no such header — there is nothing it could tell you that the URL does not.
+        
+        `/active/` responses carry `Content-Location` for the same reason, whether or not a target is embedded: the file the request acted on is whichever note happened to be open.
         
         ## Deprecated: header-based targeting
         
@@ -3046,6 +3946,58 @@ paths:
               - "true"
               - "false"
             type: "string"
+        - description: "Signature of a signed URL, minted by the MCP `vault_get_download_url` / `vault_get_upload_url` / `events_get_listener_url` tools or by `POST /events/{emitter}/{event}/`. Together with `exp` and `n`, authenticates this one request without an `Authorization` header. Only honoured while signed URLs are enabled in the plugin settings."
+          in: "query"
+          name: "sig"
+          required: false
+          schema:
+            type: "string"
+        - description: "Expiry of a signed URL as Unix seconds; part of what `sig` signs."
+          in: "query"
+          name: "exp"
+          required: false
+          schema:
+            type: "integer"
+        - description: "Random per-link nonce, minted with the URL and part of what `sig` signs. Required whenever `sig` and `exp` are given: a signed request without it cannot verify. It exists so that two links minted for the same path within the same second are distinct -- `exp` has one-second granularity, so without it they would be byte-identical, and spending one would spend the other."
+          in: "query"
+          name: "n"
+          required: false
+          schema:
+            type: "string"
+        - description: |
+            Write only if the file is still the version you read. Send the `ETag` from
+            a `GET` of the file (or from a previous write), or the `version` from its
+            document map or note JSON -- they are the same token. A comma-separated
+            list matches if any entry does, and `*` matches any file that exists.
+            
+            If the file has changed since, or does not exist, the request fails with
+            `412` (error code `41200`) and nothing is written; read the file again and
+            redo the edit against what is there now. Tags are compared strongly: a
+            weak `W/"…"` tag never matches. The tag may be sent quoted, as RFC 9110
+            writes it, or bare. A value that is neither `*` nor an entity-tag list is
+            refused with `400` (error code `40024`).
+            
+            Writes made through this API are queued per file, so two requests that
+            hold the same tag cannot both pass the check: the first to arrive writes,
+            and the second fails with `412`.
+          in: "header"
+          name: "If-Match"
+          required: false
+          schema:
+            example: "\"a1b2c3\""
+            type: "string"
+        - description: |
+            `*` writes only if nothing exists at the path yet -- a create that will
+            not overwrite. A list of entity tags instead fails the write if the file is
+            currently at any of those versions. A failed precondition is `412` (error
+            code `41200`) and nothing is written; a malformed value is `400` (error
+            code `40024`).
+          in: "header"
+          name: "If-None-Match"
+          required: false
+          schema:
+            example: "*"
+            type: "string"
       requestBody:
         content:
           "*/*":
@@ -3068,12 +4020,29 @@ paths:
                 type: "string"
           description: "Success; targeted section replaced (via URL path elements). The full updated file content is returned. Any advisory warnings (e.g. a heading rebased past level 6) are JSON-encoded, then percent-encoded, in the `Markdown-Patch-Warnings` response header."
           headers:
+            Content-Location:
+              description: "Vault-relative path of the file the URL resolved to, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL. Sent only when the URL embedded a target (`/heading/...`, `/block/...`, `/frontmatter/...`), since that is the case where the file the request acted on is not evident from the URL alone; absent on a whole-file request."
+              required: false
+              schema:
+                example: "notes/file.md"
+                type: "string"
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
             Markdown-Patch-Warnings:
               description: "Present only when the write produced warnings: a percent-encoded JSON array of `{ code, message }` objects. Decode with `decodeURIComponent` before parsing as JSON."
               schema:
                 type: "string"
         "204":
           description: "Success; entire file replaced."
+          headers:
+            ETag:
+              description: "The file's version after this write, as a strong entity tag: send it as `If-Match` on your next write to make that one conditional too, without reading the file again."
+              schema:
+                example: "\"a1b2c3\""
+                type: "string"
         "400":
           content:
             application/json:
@@ -3081,6 +4050,12 @@ paths:
                 "$ref": "#/components/schemas/Error"
           description: |
             Incoming file could not be processed.  Make sure you have specified a reasonable file name, and make sure you have set a reasonable 'Content-Type' header; if you are uploading a note, 'text/markdown' is likely the right choice.
+        "403":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "The path is inside Obsidian's configuration directory (`app.vault.configDir`, normally `.obsidian`), which this API refuses to read or write. That directory holds plugin code and each plugin's `data.json` -- including this plugin's own, where the API key lives -- so writing there is effectively remote code execution and reading there leaks secrets (GHSA-66m9-r757-qvq7). The check is against where the path lands on disk, so a Windows 8.3 short name, a differently cased spelling, or a symlink into that directory is refused the same way. Enable 'Allow access to the configuration directory' in the plugin's Advanced settings to permit it."
         "405":
           content:
             application/json:
@@ -3094,6 +4069,12 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
           description: "`Reject-If-Content-Preexists` was set and the content already appears in the targeted section."
+        "412":
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+          description: "Precondition Failed: an `If-Match` or `If-None-Match` header did not hold against the file as it is now -- it has changed since the version `If-Match` named, no longer exists, or (under `If-None-Match: *`) already exists. Nothing was written. The message names the file's current version."
       summary: |
         Create a new file in your vault or update the content of an existing one.
       tags:
@@ -3162,8 +4143,10 @@ tags:
   - name: "Vault Files"
   - name: "Active File"
   - name: "Vault Directories"
+  - name: "Tags"
   - name: "Search"
   - name: "Commands"
+  - name: "Events"
   - name: "Open"
   - name: "System"
   - name: "MCP"
@@ -3189,7 +4172,7 @@ x-topics:
       
       You are **not** affected if you only read and write whole files, search, or use the active-file endpoints without section targeting.
       
-      # Nothing fails silently
+      # Old request shapes fail loudly
       
       Old-style requests sent without a version header are rejected loudly rather than reinterpreted:
       
@@ -3201,6 +4184,8 @@ x-topics:
       | Any `Markdown-Patch-Version` other than `1` or `2` | `400 InvalidPatchVersionHeader` |
       
       (The PATCH header case is ambiguous by design: `Target-Type`/`Target` on a PATCH mean the deprecated 1.x format under version `1`, but [raw-content mode](#raw-content-mode-the-low-effort-migration) under an explicit version `2` — so the server refuses to guess.)
+      
+      That covers the *shape* of a request, not its payload. A 2.x request carrying heading `content` written the 1.x way is accepted, and its headings are re-leveled — see [heading levels](#heading-levels-in-content-are-now-relative) below before migrating any client that writes headings.
       
       **The stopgap:** add `Markdown-Patch-Version: 1` to every affected request and everything behaves exactly as before — including the `::`-joined document map on GET. That buys you until plugin 6.0, no other changes required.
       
@@ -3250,6 +4235,24 @@ x-topics:
       - **Heading targets are arrays.** `"target": ["A", "B"]` replaces `A::B`. A heading whose text contains `::` (or any other would-be delimiter) needs no escaping, and `Target-Delimiter` is gone. For a block, `target` is the bare id without `^`; for frontmatter, the key name.
       - **Renaming a heading no longer takes `#` characters.** Under 1.x you supplied the full heading line (`## New Name`); under 2.x, `scope: "marker"` with `"content": "New Name"` renames the heading while preserving its level. The `#`s are *not* stripped anymore — if you keep sending them, they become literal text in the heading. If you are migrating, drop them.
       - **Frontmatter values are typed JSON.** Send them in `"value"` (a list, dict, number, or string), not as a serialized string body.
+      - **Heading levels in `content` are relative to the target.** 1.x wrote your `#`s literally; 2.x rebases them. This one doesn't fail — see the next section.
+      
+      ## Heading levels in `content` are now relative
+      
+      Under 1.x, a heading in your `content` was written exactly as you sent it. Under 2.x, heading levels are relative to where the content lands, and the engine adds the target's depth for you:
+      
+      - with `scope: "content"` (the default), `#` means a direct child of the target, so under a `##` target a `#` is written as `###`;
+      - with `scope: "markerAndContent"`, levels are relative to the target's *parent* heading instead, so the heading line you send for a `##` under a `#` is `# Title`.
+      
+      A 1.x client that keeps sending the same body gets a `200` and a different document. Replacing the content of `## A` with its current text, `### B` and all, writes `##### B`: the `###` is taken as relative and pushed down by the target's two levels. Under a deep enough target, a heading is pushed past h6 and stops being a heading at all; the write still succeeds, and the only sign is a `heading-depth-overflow` warning in the `Markdown-Patch-Warnings` response header.
+      
+      If your client sends headings in `content`, do one of these when you migrate:
+      
+      - **Read the section through the API** and send back what you read. A GET returns the same relative levels a PATCH expects, so read-modify-write round-trips unchanged.
+      - **Subtract the baseline** from every heading in content you took from the raw file, or wrote with absolute levels in mind: the target's level under `content` scope (`###` under a `##` target becomes `#`), its parent's level under `markerAndContent`.
+      - **Stay on `Markdown-Patch-Version: 1`** for those requests until you can do either of the above.
+      
+      Content with no headings in it is unaffected.
       
       See the PATCH operation documentation for the full instruction algebra — scopes, moves (`scope: "parent"` with a `destination`), deletes, and table-row writes.
       
@@ -3266,7 +4269,7 @@ x-topics:
         "https://127.0.0.1:27124/vault/note.md/heading/Heading%201/Subheading%201:1"
       ```
       
-      For many 1.x clients this migration is just "delete the `Target-Type`/`Target`/`Target-Delimiter` headers and append the target to the URL, one path segment per heading level." `Operation`, `Target-Scope` (all four scopes), `Create-Target-If-Missing`, and `Reject-If-Content-Preexists` headers all still work here; `Target-Delimiter` and `Trim-Target-Whitespace` are rejected. A `text/*` body carries `content`, an `application/json` body carries `value`, and no body carries nothing (a `delete`, or a move via a `Destination` header).
+      For many 1.x clients this migration is just "delete the `Target-Type`/`Target`/`Target-Delimiter` headers and append the target to the URL, one path segment per heading level." The exception is a body containing headings: raw-content mode is the 2.x format, so those are [re-leveled](#heading-levels-in-content-are-now-relative) too. `Operation`, `Target-Scope` (all four scopes), `Create-Target-If-Missing`, and `Reject-If-Content-Preexists` headers all still work here; `Target-Delimiter` and `Trim-Target-Whitespace` are rejected. A `text/*` body carries `content`, an `application/json` body carries `value`, and no body carries nothing (a `delete`, or a move via a `Destination` header).
       
       Header-based targeting (`Target-Type`/`Target` instead of URL elements) also exists in raw-content mode, but requires an explicit `Markdown-Patch-Version: 2` and encodes a heading `Target` as percent-encoded JSON — see the PATCH operation documentation.
       
@@ -3331,7 +4334,7 @@ x-topics:
       # Behavior changes to watch for
       
       - **Whitespace is library-owned.** The 2.x engine reduces your `content` to trimmed, canonical form (leading and trailing blank lines are meaningless) and itself supplies the blank line wherever inserted content faces body text, so a naive `append` or `prepend` always lands as its own block and can never merge into an existing paragraph; `Trim-Target-Whitespace` is gone because there is nothing left for it to fix. If your 1.x client added `\n` padding to manage spacing, it is now ignored — and a `content`-scope `append` can no longer continue an existing list or paragraph (use a `^id` block target for inline edits).
-      - **Heading levels in `content` are relative.** A leading `#` becomes a direct child of the target regardless of the target's own depth — you never count `#`s. A level rebased past h6 still writes, but adds a `heading-depth-overflow` warning.
+      - **Heading levels in `content` are relative.** A leading `#` becomes a direct child of the target regardless of the target's own depth — you never count `#`s. A 1.x body sent unchanged is re-leveled rather than rejected; see [heading levels](#heading-levels-in-content-are-now-relative).
       - **The warnings header was renamed** from `MD-Patch-Warnings` to `Markdown-Patch-Warnings`, and its JSON value is now percent-encoded so warnings can embed non-ASCII document text. Run it through `decodeURIComponent` before parsing.
       - **URL targets on `/active/` PATCH now work.** Previously a suffix like `/active/heading/Log` was silently ignored on PATCH and the whole file was patched; it now targets the addressed section, matching PUT/POST.
       - **Cleaner error mapping.** Unparseable frontmatter YAML is a `400`, a frontmatter key collision is a `409`, a mismatched table row or a cell containing a line break is a `400`, and an `ifMatch`/`If-Match` mismatch is a `412` — cases that previously surfaced as generic errors or `500`s.

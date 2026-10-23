@@ -2,7 +2,23 @@ import { ErrorCode, LocalRestApiSettings } from "./types";
 
 export const CERT_NAME = "obsidian-local-rest-api.crt";
 
-export const BUILT_IN_ROUTES = ["/", "/openapi.yaml", `/${CERT_NAME}`];
+export const BUILT_IN_ROUTES = ["/", "/openapi.yaml", "/openapi.json", `/${CERT_NAME}`];
+
+/**
+ * First path segments the host serves routes under. An extension's public route below
+ * one of these would be answered ahead of the authentication middleware, so
+ * `addPublicRoute` refuses them. Matched case-insensitively, as Express matches routes.
+ */
+export const BUILT_IN_ROUTE_PREFIXES = [
+  "vault",
+  "active",
+  "search",
+  "commands",
+  "events",
+  "mcp",
+  "open",
+  "tags",
+];
 
 /**
  * The MCP protocol revision served by the `/mcp/` endpoint's sessionless leg.
@@ -17,6 +33,7 @@ export const DEFAULT_SETTINGS: LocalRestApiSettings = {
   port: 27124,
   insecurePort: 27123,
   enableInsecureServer: false,
+  enableSignedUrls: true,
 };
 
 export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
@@ -24,6 +41,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "Document frontmatter could not be parsed.",
   [ErrorCode.ApiKeyAuthorizationRequired]:
     "Authorization required.  Find your API Key in the 'Local REST API with MCP' section of your Obsidian settings.",
+  [ErrorCode.TooManyAuthenticationFailures]:
+    "Too many failed authentication attempts.  Requests presenting an incorrect API key or signed URL are refused until the window ends; see the Retry-After header.  Requests with the correct API key are unaffected.",
   [ErrorCode.ContentTypeSpecificationRequired]:
     "Content-Type header required; this API accepts data in multiple content-types and you must indicate the content-type of your request body via the Content-Type header.",
   [ErrorCode.InvalidContentType]:
@@ -62,6 +81,8 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.InvalidPatchInstruction]:
     "The patch instruction you provided was malformed or outside the supported algebra.",
   [ErrorCode.InvalidSearch]: "The search query you provided is not valid.",
+  [ErrorCode.SignedUrlIsWholeFileOnly]:
+    "A signed URL authorizes a whole-file write to exactly the path it names. This request targets part of a document instead -- through URL path elements such as /heading/, or through Target-Type/Target headers -- and the signature covers neither, so the link would not be doing what it was issued for. Use the API key for a targeted write, or request a signed URL for the file itself.",
   [ErrorCode.ConflictingTargetSpecification]:
     "Conflicting target specifications: supply the target via URL path elements, via Target-Type/Target headers, or (for PATCH) as an 'application/vnd.olrapi.patch-instruction+json' instruction body — never more than one of these.",
   [ErrorCode.ErrorPreparingSimpleSearch]:
@@ -72,12 +93,26 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
     "The 'Destination' header you provided could not be parsed.",
   [ErrorCode.InvalidWithinHeader]:
     "The 'Within' header must be a single integer, e.g. 0 or -1.",
+  [ErrorCode.InvalidPreconditionHeader]:
+    "An 'If-Match' or 'If-None-Match' header must be '*' or a comma-separated list of entity tags, e.g. \"a1b2c3\" or \"a1b2c3\", \"d4e5f6\".",
+  [ErrorCode.PreconditionFailed]:
+    "A precondition on this write did not hold, so nothing was written: the file has changed since the version If-Match named, or If-None-Match ruled out what is there now. Read the file again for its current ETag, and retry against that.",
   [ErrorCode.PathTraversalNotAllowed]:
-    "Path traversal is not allowed. Paths must be relative and within the vault.",
+    "Path traversal is not allowed. Paths must be relative, within the vault, and free of ':' and control characters.",
+  [ErrorCode.ConfigDirAccessNotAllowed]:
+    "Access to the Obsidian configuration directory is not allowed. Enable 'Allow access to the configuration directory' under Settings → Local REST API → Advanced settings to permit it.",
   [ErrorCode.DestinationAlreadyExists]:
     "Destination file already exists.",
   [ErrorCode.FileOperationFailed]:
     "File operation failed. Check the error message for details.",
+  [ErrorCode.EventNameRequired]:
+    "Name the emitter and the event to subscribe to: /events/<emitter>/<event>/. Obsidian has no way to listen for every event at once. `supportedEvents` lists what can be streamed.",
+  [ErrorCode.UnknownEvent]:
+    "That emitter or event cannot be streamed. `supportedEvents` lists what can.",
+  [ErrorCode.EventSubscriptionNotFound]:
+    "No such event subscription. It may have expired, or the plugin may have reloaded since it was created; register a new one with POST /events/<emitter>/<event>/.",
+  [ErrorCode.EventCapacityReached]:
+    "Too many event streams or subscriptions are open. Close one and try again.",
 };
 
 export enum ContentTypes {
@@ -93,15 +128,48 @@ export enum ContentTypes {
 export const DefaultBearerTokenHeaderName = "Authorization";
 export const DefaultBindingHost = "127.0.0.1";
 
+// Failed-authentication throttle: a source that presents this many wrong credentials
+// inside one window has its further wrong credentials refused with 429 until the window
+// ends. Requests carrying the correct key, a valid signed URL, or no credential at all
+// are never counted or refused. The numbers turn an unbounded guessing oracle into one
+// that allows a few hundred guesses an hour; against a key of any reasonable strength
+// that is as good as none, without getting in the way of a client whose key is merely
+// stale.
+export const AuthenticationFailureLimit = 10;
+export const AuthenticationFailureWindowMs = 60_000;
+
 export const LicenseUrl =
   "https://raw.githubusercontent.com/coddingtonbear/obsidian-local-rest-api/main/LICENSE";
 
 export const MaximumRequestSize = "1024mb";
 
-// Ceiling on the bytes `vault_read_binary` and `vault_write_binary` will carry. This is a
-// context guard, not a storage limit: base64 in a tool argument or result passes through
-// the model's context at roughly 0.35-0.45 tokens per byte, so a file a REST client would
-// not think twice about is a five-figure token bill for an agent. Anything larger belongs
-// on `GET`/`PUT /vault/<path>`, which carry raw bytes and are bounded only by
-// `MaximumRequestSize` above.
-export const MaximumMcpBinaryBytes = 1024 * 1024;
+// Ceiling on the bytes an MCP *result* will carry -- `vault_read_binary`, whether it
+// embeds them itself or falls back through `embeddedBytesResult`. There is no longer a
+// binary tool that takes bytes as an argument: `vault_write_binary` was replaced by
+// `vault_get_upload_url`, which hands back a URL to PUT the file to, precisely so bytes
+// travel over HTTP instead of through the model. Two separate reasons for the cap, and
+// the second one is the binding constraint:
+//
+// 1. A context guard. base64 in a result passes through the model's context at roughly
+//    0.35-0.45 tokens per byte, so a file a REST client would not think twice about is
+//    a five-figure token bill for an agent.
+//
+// 2. Renderer stability. A tool result carrying roughly a megabyte or more of base64
+//    kills Obsidian's Electron renderer outright -- the process dies, taking this
+//    plugin's HTTP listener with it, and the window goes blank. It is not specific to
+//    images: a 979KB file reproduced it through `embeddedBytesResult` with no image
+//    decoding involved at all. 512KiB was verified safe by hand against a 512899-byte
+//    file (a 683865-char base64 payload); 979295 bytes crashed reproducibly. The cap is
+//    deliberately set well under the observed failure point rather than next to it,
+//    because the true threshold has not been bisected and may move with Obsidian's own
+//    renderer memory use.
+//
+//    It is the base64 specifically, not the size of the response. `vault_read` was made
+//    to return a 6MB text block and the renderer did not blink -- five times the payload
+//    that kills it as base64. So this ceiling belongs on the tools that embed bytes, and
+//    the text tools need no equivalent; an oversized *note* is a context problem, not a
+//    stability one.
+//
+// Anything larger belongs on `GET`/`PUT /vault/<path>`, which carry raw bytes and are
+// bounded only by `MaximumRequestSize` above, or on a signed URL.
+export const MaximumMcpBinaryBytes = 512 * 1024;

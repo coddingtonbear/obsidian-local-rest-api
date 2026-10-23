@@ -8,6 +8,19 @@ const activeFilePath = process.env.OBSIDIAN_ACTIVE_FILE ?? "";
 const run = activeFilePath.length > 0;
 const maybeTest = run ? test : test.skip;
 
+/**
+ * Mirrors `encodeVaultPath` in `src/requestHandler.ts`, which is what the server
+ * runs a vault path through before putting it in a `Content-Location` header.
+ * Duplicated rather than imported because importing the handler would drag the
+ * `obsidian` module into a suite that only speaks HTTP to a live plugin.
+ *
+ * Asserting against the raw path passes only for filenames that happen to contain
+ * nothing `encodeURIComponent` escapes; a space or a parenthesis is enough to
+ * break it, which is exactly how this drifted unnoticed.
+ */
+const expectedContentLocation = (path: string): string =>
+  path.split("/").map(encodeURIComponent).join("/");
+
 beforeAll(async () => {
   await ensureServerReachable();
 });
@@ -16,7 +29,9 @@ describe("GET /active/", () => {
   maybeTest("returns 200 with content-location header pointing to the active file", async () => {
     const res = await authedFetch("/active/");
     expect(res.status).toBe(200);
-    expect(res.headers.get("content-location")).toBe(activeFilePath);
+    expect(res.headers.get("content-location")).toBe(
+      expectedContentLocation(activeFilePath)
+    );
   });
 
   test("returns 401 without auth", async () => {
@@ -97,7 +112,9 @@ describe("PATCH /active/", () => {
       body: "Raw-content suffix append.\n",
     });
     expect(res.status).toBe(200);
-    expect(res.headers.get("content-location")).toBe(activeFilePath);
+    expect(res.headers.get("content-location")).toBe(
+      expectedContentLocation(activeFilePath)
+    );
     expect(await res.text()).toContain("Raw-content suffix append.");
   });
 

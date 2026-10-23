@@ -1,15 +1,26 @@
 import express from "express";
 import { z } from "zod";
 import type { ToolAnnotations } from "@modelcontextprotocol/server";
-import { BUILT_IN_ROUTES } from "./constants";
+import { BUILT_IN_ROUTE_PREFIXES, BUILT_IN_ROUTES } from "./constants";
 import { McpHandler } from "./mcpHandler";
-import type { LocalRestApiPublicApi } from "./publicApi";
+import type { OpenApiSpec } from "./openApiSpec";
+import type {
+  LocalRestApiPublicApi,
+  McpPromptDefinition,
+  McpResourceDefinition,
+  McpResourceTemplateDefinition,
+  McpToolDefinition,
+  OpenApiDescription,
+  StateDefinition,
+  StreamableEventDefinition,
+} from "./publicApi";
+import type { VaultSubresourceRegistry } from "./vaultSubresources";
 
 // The public surface — the interface and ApiVersionUnsupportedError — lives in
 // ./publicApi, which is what the generated publicApi.d.ts is emitted from. Re-exported
 // here so internal callers keep importing them from the module that implements them.
 export { ApiVersionUnsupportedError } from "./publicApi";
-export type { LocalRestApiPublicApi } from "./publicApi";
+export type { LocalRestApiPublicApi, StreamableEventDefinition } from "./publicApi";
 
 /**
  * A route an extension has registered, as reported by {@link
@@ -24,22 +35,78 @@ export interface RegisteredRoute {
   authenticated: boolean;
 }
 
+/**
+ * Whether a string route path has a "|" outside any group. Express 4 compiles the path
+ * into a regular expression without wrapping it, so such a "|" splits the whole pattern
+ * and leaves the alternative after it unanchored. A character class or a backslash
+ * makes the "(" or ")" it contains literal, so neither opens nor closes a group.
+ */
+function hasUngroupedAlternation(path: string): boolean {
+  let depth = 0;
+  let inClass = false;
+  for (let i = 0; i < path.length; i++) {
+    const c = path[i];
+    if (c === "\\") {
+      i++;
+    } else if (inClass) {
+      if (c === "]") inClass = false;
+    } else if (c === "[") {
+      inClass = true;
+    } else if (c === "(") {
+      depth++;
+    } else if (c === ")") {
+      depth--;
+    } else if (c === "|" && depth <= 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi {
-  public readonly apiVersion = 2;
+  public readonly apiVersion = 4;
   private router: express.Router;
   private publicRouter: express.Router;
   private mcpHandler: McpHandler;
+  private vaultSubresources: VaultSubresourceRegistry;
+  private openApiSpec: OpenApiSpec;
+  private pluginId: string;
   private onUnregister: () => void;
+  private addEvent: (event: string, definition: StreamableEventDefinition) => void;
+  private addStateProvider: (definition: StateDefinition) => () => void;
   private unregistered = false;
   private registeredRoutes: RegisteredRoute[] = [];
-  private mcpToolCleanups: (() => void)[] = [];
+  // One per MCP tool, resource, resource template, and prompt, all undone by unregister().
+  private mcpCleanups: (() => void)[] = [];
   private registeredMcpTools: string[] = [];
+  private registeredSubresources: { name: string; router: express.Router }[] = [];
+  private openApiCleanups: (() => void)[] = [];
+  private stateCleanups: (() => void)[] = [];
 
-  constructor(router: express.Router, publicRouter: express.Router, mcpHandler: McpHandler, onUnregister: () => void) {
+  constructor(
+    router: express.Router,
+    publicRouter: express.Router,
+    mcpHandler: McpHandler,
+    vaultSubresources: VaultSubresourceRegistry,
+    openApiSpec: OpenApiSpec,
+    pluginId: string,
+    onUnregister: () => void,
+    addEvent: (event: string, definition: StreamableEventDefinition) => void = () => {
+      throw new Error("Streamable events are not available.");
+    },
+    addStateProvider: (definition: StateDefinition) => () => void = () => {
+      throw new Error("State is not available.");
+    },
+  ) {
     this.router = router;
     this.publicRouter = publicRouter;
     this.mcpHandler = mcpHandler;
+    this.vaultSubresources = vaultSubresources;
+    this.openApiSpec = openApiSpec;
+    this.pluginId = pluginId;
     this.onUnregister = onUnregister;
+    this.addEvent = addEvent;
+    this.addStateProvider = addStateProvider;
     this.unregistered = false;
   }
 
@@ -72,13 +139,49 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
   /** Adds an unauthenticated route to the request handler. */
   public addPublicRoute(path: string): express.IRoute {
     this.assertRegistered();
-    if (BUILT_IN_ROUTES.includes(path)) {
+    // Compare the way Express matches: case-insensitively, with a trailing slash
+    // optional, and with "" standing for the root.
+    const normalize = (p: string) => p.toLowerCase().replace(/\/+$/, "");
+    if (BUILT_IN_ROUTES.map(normalize).includes(normalize(path))) {
       throw new Error(
         `Cannot register a public route at "${path}" — this path is reserved by Obsidian Local REST API.`
       );
     }
+    // Public routes are answered before authentication, so one under a built-in prefix
+    // would serve that prefix's requests with no API key. A first segment that is a
+    // pattern could match any prefix, so it is refused too; the error is thrown here
+    // rather than surfacing as a silent shadow at request time. Express 4 escapes only
+    // "/" and "." in a string path, so besides its own syntax (a parameter, wildcard, or
+    // group) any regular-expression syntax counts as a pattern.
+    if (hasUngroupedAlternation(path)) {
+      throw new Error(
+        `Cannot register a public route at "${path}" — a "|" outside a group lets it match paths reserved by Obsidian Local REST API. Wrap alternatives in a group, such as "(a|b)".`
+      );
+    }
+    const firstSegment = path.replace(/^\//, "").split("/")[0];
+    if (/[:*?()+[\]{}|\\^$]/.test(firstSegment)) {
+      throw new Error(
+        `Cannot register a public route at "${path}" — its first segment "${firstSegment}" is a pattern that could match paths reserved by Obsidian Local REST API. Start public routes with a literal segment, such as your plugin's id.`
+      );
+    }
+    const prefix = firstSegment.toLowerCase();
+    if (BUILT_IN_ROUTE_PREFIXES.includes(prefix)) {
+      throw new Error(
+        `Cannot register a public route at "${path}" — paths under "/${prefix}/" are reserved by Obsidian Local REST API.`
+      );
+    }
     this.registeredRoutes.push({ path, authenticated: false });
     return this.publicRouter.route(path);
+  }
+
+  /** Adds a sub-resource under every note; see ./publicApi for the contract. */
+  public addVaultSubresource(name: string): express.Router {
+    this.assertRegistered();
+    const router = express.Router();
+    this.vaultSubresources.register(name, router);
+    this.registeredSubresources.push({ name, router });
+    this.registeredRoutes.push({ path: `/vault/{path}/${name}/`, authenticated: true });
+    return router;
   }
 
   /** Registers an MCP tool that will be available to MCP clients. */
@@ -88,11 +191,55 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     schema: Record<string, z.ZodTypeAny>,
     callback: (args: Record<string, unknown>) => Promise<unknown>,
     annotations?: ToolAnnotations,
+  ): void;
+  public addMcpTool(definition: McpToolDefinition): void;
+  public addMcpTool(
+    nameOrDefinition: string | McpToolDefinition,
+    description?: string,
+    schema?: Record<string, z.ZodTypeAny>,
+    callback?: (args: Record<string, unknown>) => Promise<unknown>,
+    annotations?: ToolAnnotations,
   ): void {
     this.assertRegistered();
-    const cleanup = this.mcpHandler.registerTool(name, description, schema, callback, annotations);
-    this.mcpToolCleanups.push(cleanup);
-    this.registeredMcpTools.push(name);
+    if (typeof nameOrDefinition !== "string") {
+      this.mcpCleanups.push(this.mcpHandler.registerToolDefinition(nameOrDefinition));
+      this.registeredMcpTools.push(nameOrDefinition.name);
+      return;
+    }
+    // Only reachable from plain JavaScript: the overloads make these required.
+    if (description === undefined || schema === undefined || callback === undefined) {
+      throw new TypeError(
+        "addMcpTool(name, description, schema, callback) requires all four arguments.",
+      );
+    }
+    this.mcpCleanups.push(
+      this.mcpHandler.registerTool(nameOrDefinition, description, schema, callback, annotations),
+    );
+    this.registeredMcpTools.push(nameOrDefinition);
+  }
+
+  /** Registers an MCP resource at a fixed URI. */
+  public addMcpResource(definition: McpResourceDefinition): void {
+    this.assertRegistered();
+    this.mcpCleanups.push(this.mcpHandler.registerResource(definition));
+  }
+
+  /** Registers a family of MCP resources addressed by a URI template. */
+  public addMcpResourceTemplate(definition: McpResourceTemplateDefinition): void {
+    this.assertRegistered();
+    this.mcpCleanups.push(this.mcpHandler.registerResourceTemplate(definition));
+  }
+
+  /** Registers an MCP prompt. */
+  public addMcpPrompt(definition: McpPromptDefinition): void {
+    this.assertRegistered();
+    this.mcpCleanups.push(this.mcpHandler.registerPrompt(definition));
+  }
+
+  /** Makes one of the extension's events streamable; see the interface for the contract. */
+  public addStreamableEvent(event: string, definition: StreamableEventDefinition): void {
+    this.assertRegistered();
+    this.addEvent(event, definition);
   }
 
   /** Host-only counterpart to {@link getRoutes}, returning a copy for the same reason. */
@@ -100,10 +247,39 @@ export default class LocalRestApiPublicApiImpl implements LocalRestApiPublicApi 
     return [...this.registeredMcpTools];
   }
 
+  /** Documents this extension's routes in the published OpenAPI spec. */
+  public addOpenApiDescription(description: OpenApiDescription): void {
+    this.assertRegistered();
+    this.openApiCleanups.push(this.openApiSpec.add(this.pluginId, description));
+  }
+
+  /** Publishes this extension's state on `GET /`; see ./publicApi for the contract. */
+  public addState(definition: StateDefinition): void {
+    this.assertRegistered();
+    // The registry checks the whole definition, schema included, and refuses a reserved
+    // or duplicate namespace, so documenting it afterwards has nothing left to refuse
+    // and nothing is ever half-published.
+    this.stateCleanups.push(
+      this.addStateProvider(definition),
+      this.openApiSpec.addStateSchema(this.pluginId, definition),
+    );
+  }
+
   public unregister(): void {
-    for (const cleanup of this.mcpToolCleanups) {
+    for (const cleanup of this.mcpCleanups) {
       cleanup();
     }
+    for (const { name, router } of this.registeredSubresources) {
+      this.vaultSubresources.unregister(name, router);
+    }
+    for (const cleanup of this.openApiCleanups) {
+      cleanup();
+    }
+    this.openApiCleanups = [];
+    for (const cleanup of this.stateCleanups) {
+      cleanup();
+    }
+    this.stateCleanups = [];
     this.onUnregister();
     this.unregistered = true;
   }

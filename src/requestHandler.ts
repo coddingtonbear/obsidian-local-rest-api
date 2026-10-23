@@ -4,12 +4,12 @@ import {
   PluginManifest,
   TFile,
 } from "obsidian";
-import { posix } from "path";
 import forge from "node-forge";
 
 import express from "express";
 import http from "http";
 import cors, { CorsOptions } from "cors";
+import rateLimit, { MemoryStore, type RateLimitInfo } from "express-rate-limit";
 import mime from "mime-types";
 import responseTime from "response-time";
 import queryString from "query-string";
@@ -31,6 +31,7 @@ import {
   ReservedDuplicateMarkerError,
   InstructionInputSchema,
   readTarget,
+  versionOf,
 } from "markdown-patch-2";
 import type {
   InstructionInput,
@@ -51,6 +52,11 @@ import {
 import {
 } from "./utils";
 import {
+  formatEntityTag,
+  parseEntityTagCondition,
+  WritePreconditions,
+} from "./conditionalRequests";
+import {
   getCertificateStandardsIssue,
   getCertificateValidityDays,
 } from "./certificates";
@@ -60,6 +66,8 @@ import {
   ERROR_CODE_MESSAGES,
   MCP_SESSIONLESS_PROTOCOL_VERSION,
   MaximumRequestSize,
+  AuthenticationFailureLimit,
+  AuthenticationFailureWindowMs,
 } from "./constants";
 import {
   isContentType,
@@ -72,6 +80,7 @@ import {
   isV2TargetType,
 } from "./typeGuards";
 import LocalRestApiPublicApiImpl from "./api";
+import { OpenApiSpec } from "./openApiSpec";
 import type { LocalRestApiPublicApi } from "./publicApi";
 import {
   CommandNotFoundError,
@@ -79,7 +88,31 @@ import {
   FileNotFoundError,
   VaultOperations,
 } from "./vaultOperations";
+import {
+  PathTraversalError,
+  ConfigDirAccessError,
+  vaultPathIsContained,
+  onDiskAccessFor,
+  vaultPathIsInConfigDir,
+} from "./vaultPath";
 import { McpHandler } from "./mcpHandler";
+import { MetadataCacheObserver, StateRegistry, clampStateReadTimeout } from "./serverState";
+import { VaultSubresourceRegistry } from "./vaultSubresources";
+import {
+  UrlSigner,
+  clampSignedUrlTtl,
+  eventStreamResource,
+  isSignableMethod,
+  normalizeVaultFilePath,
+  requestBaseUrl,
+  type SignatureVerdict,
+} from "./signedUrls";
+import {
+  EventStreams,
+  InvalidEventFilterError,
+  TooManyStreamsError,
+  TooManySubscriptionsError,
+} from "./events";
 
 // Import openapi.yaml as a string
 import openapiYaml from "../docs/openapi.yaml";
@@ -87,16 +120,61 @@ import openapiYaml from "../docs/openapi.yaml";
 /** The header that selects which markdown-patch format a request speaks. */
 export const MARKDOWN_PATCH_VERSION_HEADER = "Markdown-Patch-Version";
 
+// Per-request state this handler attaches to the request. Kept off `res.locals` and on
+// the request itself so the handlers, which receive the request, can read it without a
+// cast at every site.
+interface RequestState {
+  signedUrl?: boolean;
+  /** The signer's verdict on this request, computed once; `null` when it carries no signature. */
+  signedUrlVerdict?: SignatureVerdict | null;
+}
+/**
+ * Blank the credential-bearing parts of a URL for logging.
+ *
+ * `sig` and `n` are a bearer capability: anyone holding them can redeem the link until
+ * it expires, without the API key. Verbose logging wrote the whole URL to the developer
+ * console, and console output is the sort of thing that ends up pasted into a bug report.
+ * The expiry is left legible because it is useful when reading a log and grants nothing
+ * on its own.
+ */
+export function redactSignedUrl(url: string): string {
+  return url.replace(/([?&](?:sig|n)=)[^&#]*/gi, "$1<redacted>");
+}
+
+function res_locals(req: express.Request): RequestState {
+  const carrier = req as express.Request & { localRestApi?: RequestState };
+  carrier.localRestApi ??= {};
+  return carrier.localRestApi;
+}
+
 /** The `sunset-version` advertised for the deprecated 1.x format (RFC 8594). */
 export const MARKDOWN_PATCH_V1_SUNSET = "6.0";
+
+/**
+ * Percent-encodes a vault-relative path for a `Content-Location` response header.
+ *
+ * `encodeURI` is not enough: it deliberately leaves URI delimiters alone, so a
+ * perfectly legal vault filename containing `#`, `?` or `,` would come back
+ * verbatim. `Content-Location: notes/a#b.md` parses as the path `notes/a` plus
+ * the fragment `b.md`, and a comma is a header-list separator -- in both cases
+ * the client reads a different filename than the one the request acted on.
+ *
+ * Each segment is encoded on its own and the separators are re-joined, which is
+ * exactly the rule the request side documents for URL path targeting: a real `/`
+ * separates path components, and anything else inside a component is encoded.
+ * That makes the header safe to paste straight back into a request URL.
+ */
+export function encodeVaultPath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
 
 /**
  * CORS options shared by the main API router and the MCP router.
  *
  * `exposedHeaders: "*"` is what lets a browser client read any of the response
  * headers this API sets to tell it something -- `Content-Location`, `Deprecation`,
- * `Markdown-Patch-Warnings`, `Content-Disposition`, `ETag`, `X-Response-Time`, and
- * `Mcp-Session-Id`. Without it the `cors` package omits Access-Control-Expose-Headers
+ * `Markdown-Patch-Warnings`, `Content-Disposition`, `ETag`, `Total-Results`,
+ * `X-Response-Time`, and `Mcp-Session-Id`. Without it the `cors` package omits Access-Control-Expose-Headers
  * altogether and only the seven CORS-safelisted headers are readable from JavaScript.
  *
  * The wildcard is used rather than an enumerated list so a header added later cannot
@@ -145,6 +223,13 @@ export default class RequestHandler {
 
   apiExtensionRouter: express.Router;
   publicApiExtensionRouter: express.Router;
+  /**
+   * The failed-authentication throttle's counter. The library's store sweeps expired
+   * windows on an interval, which `dispose` stops so a plugin reload leaves nothing
+   * behind.
+   */
+  private authenticationFailureStore: MemoryStore | null = null;
+  vaultSubresources = new VaultSubresourceRegistry();
   // Holds the implementation type rather than LocalRestApiPublicApi: the `GET /`
   // handler reads getRoutes()/getMcpTools(), which are host-only and therefore
   // absent from the published interface. registerApiExtension still hands
@@ -152,22 +237,45 @@ export default class RequestHandler {
   apiExtensions: Map<string, { manifest: PluginManifest; api: LocalRestApiPublicApiImpl }> = new Map();
 
   operations: VaultOperations;
+  events: EventStreams;
   mcpHandler: McpHandler;
+  // The host's own contribution to the `state` section of `GET /`, and the extensions'.
+  readonly metadataCacheObserver: MetadataCacheObserver;
+  readonly stateRegistry = new StateRegistry();
+  // One signer per handler, so the MCP tools that mint links and the REST middleware
+  // that redeems them share a secret — and that secret lives exactly as long as this
+  // handler does.
+  readonly urlSigner: UrlSigner;
+  // The spec served at /openapi.yaml, /openapi.json, and the MCP openapi-spec resource:
+  // the host's compiled spec plus whatever registered extensions have described.
+  readonly openApiSpec: OpenApiSpec;
 
   constructor(
     app: App,
     manifest: PluginManifest,
     settings: LocalRestApiSettings,
+    urlSigner: UrlSigner = new UrlSigner(),
   ) {
     this.app = app;
     this.manifest = manifest;
     this.api = express();
     this.settings = settings;
+    this.urlSigner = urlSigner;
+    this.openApiSpec = new OpenApiSpec(openapiYaml);
 
     this.apiExtensionRouter = express.Router();
     this.publicApiExtensionRouter = express.Router();
     this.operations = new VaultOperations(this.app, this.settings);
-    this.mcpHandler = new McpHandler(this.operations, this.settings);
+    this.events = new EventStreams(this.app, this.operations);
+    this.metadataCacheObserver = new MetadataCacheObserver(this.app.metadataCache);
+    this.mcpHandler = new McpHandler(this.operations, this.settings, {
+      signer: this.urlSigner,
+      events: this.events,
+      openApiSpec: this.openApiSpec,
+      // Not called until a client reads the resource, by which time this handler is
+      // fully constructed.
+      serverStatus: () => this.serverStatus(true),
+    });
 
     this.api.set("json spaces", 2);
   }
@@ -188,26 +296,152 @@ export default class RequestHandler {
         parent.stack.splice(idx, 1);
       }
     };
-    const api = new LocalRestApiPublicApiImpl(router, publicRouter, this.mcpHandler, () => {
-      if (this.apiExtensions.delete(manifest.id)) {
+    const api = new LocalRestApiPublicApiImpl(
+      router,
+      publicRouter,
+      this.mcpHandler,
+      this.vaultSubresources,
+      this.openApiSpec,
+      manifest.id,
+      () => {
+        // A handle unregistered a second time, after a new one was registered for the
+        // same plugin, must not take the new one's routes and events down with it.
+        if (this.apiExtensions.get(manifest.id)?.api !== api) return;
+        this.apiExtensions.delete(manifest.id);
         removeRouter(this.apiExtensionRouter, router);
         removeRouter(this.publicApiExtensionRouter, publicRouter);
-      }
-    });
+        this.events.removeExtensionEvents(manifest.id);
+      },
+      (event, definition) => this.events.addExtensionEvent(manifest.id, event, definition),
+      (definition) => this.stateRegistry.add(manifest.id, definition),
+    );
     this.apiExtensions.set(manifest.id, { manifest, api });
 
     return api;
   }
 
-  requestIsAuthenticated(req: express.Request): boolean {
-    const authorizationHeader = req.get(
-      this.settings.authorizationHeaderName ?? "Authorization",
-    );
-    if (authorizationHeader === `Bearer ${this.settings.apiKey}`) {
-      return true;
-    }
+  /** The header this server reads its bearer token from, as the request sent it. */
+  private authorizationHeader(req: express.Request): string | undefined {
+    return req.get(this.settings.authorizationHeaderName ?? "Authorization");
+  }
 
-    return false;
+  requestIsAuthenticated(req: express.Request): boolean {
+    return this.authorizationHeader(req) === `Bearer ${this.settings.apiKey}`;
+  }
+
+  /**
+   * Whether a request carries a valid signed-URL signature for its own path.
+   *
+   * Only `GET` and `PUT` on `/vault/<file>`, and `GET` on an event stream
+   * (`/events/<emitter>/<event>/<id>/`), are signable, and only while the setting is
+   * on. A vault path is decoded the way {@link extractVaultPath} decodes it and normalized
+   * the way the signer normalized it, so the signature covers exactly the file the
+   * request resolves to. Returns null when the request carries no signature at all;
+   * otherwise the signer's verdict.
+   */
+  private signedUrlVerdict(req: express.Request): SignatureVerdict | null {
+    // Verifying is an HMAC, and the throttle asks the question before the
+    // authentication middleware does, so the answer is computed once per request.
+    const state = res_locals(req);
+    if (state.signedUrlVerdict === undefined) {
+      state.signedUrlVerdict = this.computeSignedUrlVerdict(req);
+    }
+    return state.signedUrlVerdict;
+  }
+
+  private computeSignedUrlVerdict(req: express.Request): SignatureVerdict | null {
+    const { sig, exp, n } = req.query;
+    // `sig` and `exp` together are what makes this *look* like a signed request; without
+    // them it is an ordinary one and falls through to API-key auth, so the absence of
+    // either returns null rather than a rejection. A missing or malformed `n` is a
+    // different thing -- the request claims to be signed and cannot be -- so it is left
+    // to `verify`, which rejects it as invalid along with every other bad signature.
+    if (typeof sig !== "string" || typeof exp !== "string") return null;
+    const nonce = typeof n === "string" ? n : "";
+    if (!this.settings.enableSignedUrls) return "invalid";
+    // An event stream's URL is signed over its whole path; the subscription it names
+    // carries the filter, so nothing else about the request needs covering.
+    const stream = /^\/events\/([^/]+)\/([^/]+)\/([^/]+)\/?$/.exec(req.path);
+    if (stream) {
+      if (req.method !== "GET") return "invalid";
+      const [, emitter, event, id] = stream;
+      return this.urlSigner.verifyEventStream(
+        eventStreamResource(emitter, event, id),
+        exp,
+        sig,
+        nonce,
+      );
+    }
+    if (!isSignableMethod(req.method) || !req.path.startsWith("/vault/")) return "invalid";
+    let decoded: string;
+    try {
+      decoded = req.path
+        .slice("/vault/".length)
+        .split("/")
+        .map((segment) => decodeURIComponent(segment))
+        .join("/");
+    } catch {
+      return "invalid";
+    }
+    if (normalizeVaultFilePath(decoded) === null) return "invalid";
+    // Verification folds `\` into `/` (normalizeVaultFilePath treats it as a separator,
+    // for Windows-shaped input); dispatch does not -- `wholeFilePath` only rejects a
+    // segment containing `/` and joins the rest verbatim. So a signature minted for `a/b`
+    // also verifies for `a%5Cb`, and the two layers disagree about which file that names.
+    //
+    // In practice Obsidian normalizes the separator again before the write lands, which
+    // is why a redeemed `a%5Cb` was observed writing to `a/b` rather than to a distinct
+    // file. That is somebody else's implementation detail to change, though, and a signed
+    // URL should not depend on it to name the right file. A signed request carrying a
+    // backslash is refused instead: no legitimate link needs one, because `sign`
+    // normalized the separator away before signing.
+    if (decoded.includes("\\")) return "invalid";
+    return this.urlSigner.verify(req.method, decoded, exp, sig, nonce);
+  }
+
+  /** True when the request was authenticated by a signed URL rather than the API key. */
+  requestIsSigned(req: express.Request): boolean {
+    return res_locals(req).signedUrl === true;
+  }
+
+  /**
+   * Whether the request presents a credential that does not check out.
+   *
+   * This is what the failed-authentication throttle counts and, past the limit,
+   * refuses. A request with the correct API key or a valid signed URL is not a failure;
+   * neither is one that presents nothing at all, because it has made no guess -- it is
+   * answered 401 (or, on the exempt routes, served) exactly as before, however many of
+   * them arrive. Only a request that offers a key or a signature, and offers a wrong one,
+   * counts. That includes a wrong key sent to `GET /`, which answers 200 either way and
+   * would otherwise be the cheapest oracle on the server.
+   *
+   * The answer only means anything on a route that would check the credential, which is
+   * why the limiter sits exactly where those checks sit (see `setupRouter`) and not in
+   * front of an extension's public routes, where a header or `sig`/`exp` pair belongs to
+   * the extension and is no guess against this key.
+   */
+  private credentialIsRejected(req: express.Request): boolean {
+    if (this.requestIsAuthenticated(req)) return false;
+    const verdict = this.signedUrlVerdict(req);
+    if (verdict === "ok") return false;
+    if (verdict !== null) return true;
+    return this.authorizationHeader(req) !== undefined;
+  }
+
+  /**
+   * Release everything the handler keeps running in the background: open MCP
+   * transports, the vault listeners behind the backlinks cache, every event stream and
+   * its listeners, the metadata-cache observer behind `GET /`'s `state`, and the
+   * throttle store's sweep interval. The plugin calls this once on unload, so that a
+   * reload leaves nothing behind; the handler is not reusable after.
+   */
+  dispose(): void {
+    this.mcpHandler.close();
+    this.operations.dispose();
+    this.events.dispose();
+    this.metadataCacheObserver.dispose();
+    this.authenticationFailureStore?.shutdown();
+    this.authenticationFailureStore = null;
   }
 
   async authenticationMiddleware(
@@ -219,19 +453,61 @@ export default class RequestHandler {
       "/",
       `/${CERT_NAME}`,
       "/openapi.yaml",
+      "/openapi.json",
     ];
 
-    if (
-      !authenticationExemptRoutes.includes(req.path) &&
-      !this.requestIsAuthenticated(req)
-    ) {
+    if (authenticationExemptRoutes.includes(req.path) || this.requestIsAuthenticated(req)) {
+      next();
+      return;
+    }
+
+    // A signed URL stands in for the bearer header on the one request it names. A PUT
+    // link is spent by the first request that succeeds with it, so the same link
+    // cannot overwrite the file twice.
+    const verdict = this.signedUrlVerdict(req);
+    if (verdict === "ok") {
+      const { sig, exp } = req.query as { sig: string; exp: string };
+      // Claim the link here, before dispatch, rather than recording it as spent once the
+      // response finishes. The old ordering left the whole request between the check and
+      // the record, so concurrent PUTs each verified against a link none of them had yet
+      // taken: six at once produced four successful writes of a link documented as
+      // single-use. Claiming is atomic because nothing awaits between `verify` above and
+      // this call.
+      if (!this.urlSigner.claim(req.method, exp, sig)) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ApiKeyAuthorizationRequired,
+          message: "The signed upload URL has already been used.",
+        });
+        return;
+      }
+      res_locals(req).signedUrl = true;
+      // Give it back unless the request actually succeeded. `close` rather than `finish`
+      // so an aborted connection -- which never fires `finish` -- releases too, instead
+      // of stranding a link that was never redeemed.
+      res.on("close", () => {
+        const succeeded =
+          res.writableEnded && res.statusCode >= 200 && res.statusCode < 300;
+        if (!succeeded) this.urlSigner.release(req.method, sig);
+      });
+      next();
+      return;
+    }
+    if (verdict !== null) {
+      const reason = {
+        expired: "The signed URL has expired.",
+        consumed: "The signed upload URL has already been used.",
+        invalid: "The signed URL is not valid for this request.",
+      }[verdict];
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.ApiKeyAuthorizationRequired,
+        message: reason,
       });
       return;
     }
 
-    next();
+    this.returnCannedResponse(res, {
+      errorCode: ErrorCode.ApiKeyAuthorizationRequired,
+    });
   }
 
   async getDocumentMapObject(file: TFile): Promise<DocumentMapObject> {
@@ -294,7 +570,19 @@ export default class RequestHandler {
     res.status(this.getStatusCode({ statusCode, errorCode })).json(response);
   }
 
-  root(req: express.Request, res: express.Response): void {
+  async root(req: express.Request, res: express.Response): Promise<void> {
+    res.status(200).json(await this.serverStatus(this.requestIsAuthenticated(req)));
+  }
+
+  /**
+   * The `GET /` document, which the MCP `server-status` resource also serves.
+   *
+   * `certificateInfo`, `apiExtensions`, and `state` are withheld from an
+   * unauthenticated caller: `GET /` is the one route that answers without the API key,
+   * and these three describe the installation, the plugins in it, and when its owner
+   * was last active. An extension that wants a public signal has `addPublicRoute`.
+   */
+  async serverStatus(authenticated: boolean): Promise<Record<string, unknown>> {
     let certificate: forge.pki.Certificate | undefined;
     try {
       if (this.settings.crypto?.cert) {
@@ -308,7 +596,7 @@ export default class RequestHandler {
       ? getCertificateStandardsIssue(certificate)
       : null;
 
-    res.status(200).json({
+    return {
       status: "OK",
       manifest: this.manifest,
       versions: {
@@ -316,23 +604,31 @@ export default class RequestHandler {
         self: this.manifest.version,
       },
       service: "Obsidian Local REST API",
-      authenticated: this.requestIsAuthenticated(req),
+      authenticated,
       certificateInfo:
-        this.requestIsAuthenticated(req) && certificate
+        authenticated && certificate
           ? {
             validityDays: getCertificateValidityDays(certificate),
             regenerateRecommended: standardsIssue !== null,
             regenerateReason: standardsIssue,
           }
           : undefined,
-      apiExtensions: this.requestIsAuthenticated(req)
+      apiExtensions: authenticated
         ? [...this.apiExtensions.values()].map(({ manifest, api }) => ({
           ...manifest,
           routes: api.getRoutes(),
           mcpTools: api.getMcpTools(),
         }))
         : undefined,
-    });
+      state: authenticated
+        ? {
+          metadataCache: this.metadataCacheObserver.snapshot(),
+          ...(await this.stateRegistry.collect(
+            clampStateReadTimeout(this.settings.stateReadTimeoutMs),
+          )),
+        }
+        : undefined,
+    };
   }
 
   /** The vault path from the request, split into decoded segments.
@@ -355,17 +651,95 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { errorCode: ErrorCode.PathTraversalNotAllowed });
       return null;
     }
-    // Traversal guard: resolve the decoded path against the synthetic vault root
-    // and reject anything that escapes it. Applied to the joined form so an
-    // encoded `..%2F..%2F…` — which arrives as a single segment — is still
-    // caught after decoding.
-    const syntheticRoot = "/vault";
-    const resolved = posix.resolve(syntheticRoot, segments.join("/"));
-    if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
+    // Traversal guard: resolve the decoded path against the vault root and reject
+    // anything that escapes it. Applied to the joined form so an encoded
+    // `..%2F..%2F…` — which arrives as a single segment — is still caught after
+    // decoding. See ./vaultPath for the containment rule itself.
+    if (!vaultPathIsContained(segments.join("/"))) {
       this.returnCannedResponse(res, { errorCode: ErrorCode.PathTraversalNotAllowed });
       return null;
     }
+    // Config-directory guard: a path inside Obsidian's config dir is refused unless
+    // the operator opted in. Writing there is code execution and reading there leaks
+    // secrets (GHSA-66m9-r757-qvq7). VaultOperations enforces this again before any
+    // filesystem access; this is the early, well-shaped rejection at the boundary.
+    if (
+      !this.settings.enableConfigDirAccess &&
+      this.pathIsInConfigDir(segments.join("/"))
+    ) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.ConfigDirAccessNotAllowed,
+      });
+      return null;
+    }
     return segments;
+  }
+
+  /** Let a refusal from the authorization gate out of an endpoint-local catch.
+   *
+   *  Those catches map the errors their operation is known to throw -- not
+   *  found, patch failed -- and answer anything else with a 500 or a coarse
+   *  client error. A PathTraversalError or ConfigDirAccessError is neither: it
+   *  is the gate in VaultOperations refusing a path the boundary never saw
+   *  (`/active/` takes its path from the workspace, not the client), and it has
+   *  to reach `errorHandler`, which answers it with the policy's own status and
+   *  error code. Called first in any catch that would otherwise swallow it. */
+  private rethrowIfRefused(error: unknown): void {
+    if (error instanceof PathTraversalError || error instanceof ConfigDirAccessError) {
+      throw error;
+    }
+  }
+
+  /**
+   * The request's `If-Match`/`If-None-Match` headers, for a write to check
+   * against the file's current version. Returns null -- having already sent a
+   * 400 -- when either header is malformed, since guessing at a precondition a
+   * client meant to protect itself with would defeat the point of sending one.
+   */
+  private requestPreconditions(
+    req: express.Request,
+    res: express.Response,
+  ): WritePreconditions | null {
+    const preconditions: WritePreconditions = {};
+    for (const [header, key] of [
+      ["If-Match", "ifMatch"],
+      ["If-None-Match", "ifNoneMatch"],
+    ] as const) {
+      const raw = req.get(header);
+      if (raw === undefined) continue;
+      const condition = parseEntityTagCondition(raw);
+      if (condition === null) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidPreconditionHeader,
+          message: `It was supplied in the '${header}' header.`,
+        });
+        return null;
+      }
+      preconditions[key] = condition;
+    }
+    return preconditions;
+  }
+
+  /** Answer 412 for a write whose precondition did not hold. */
+  private returnPreconditionFailed(
+    res: express.Response,
+    error: PreconditionFailedError,
+  ): void {
+    this.returnCannedResponse(res, {
+      errorCode: ErrorCode.PreconditionFailed,
+      message: error.message,
+    });
+  }
+
+  /** Whether a contained, vault-relative path is Obsidian's configuration
+   *  directory or inside it -- by spelling, and by where it lands on disk, so an
+   *  NTFS 8.3 short name or a symlink cannot reach it under another name. */
+  private pathIsInConfigDir(candidate: string): boolean {
+    return vaultPathIsInConfigDir(
+      candidate,
+      this.app.vault.configDir,
+      onDiskAccessFor(this.app.vault.adapter),
+    );
   }
 
   /** Join decoded segments into a whole-file path, or null when a segment holds
@@ -435,10 +809,16 @@ export default class RequestHandler {
     if (normalizedPath !== null) {
       try {
         exactStat = normalizedPath
-          ? await this.app.vault.adapter.stat(normalizedPath)
+          ? await this.operations.statPath(normalizedPath)
           : null;
-      } catch {
-        // ENOTDIR: a path segment is a file, not a directory — treat as no match.
+      } catch (e) {
+        // A path the gate refuses (traversal, config dir) must fail closed, not be
+        // read as "no match" and fall through to a listing or a 404. Everything
+        // else here is ENOTDIR — a path segment is a file, not a directory — which
+        // is a genuine no-match.
+        if (e instanceof PathTraversalError || e instanceof ConfigDirAccessError) {
+          throw e;
+        }
       }
     }
 
@@ -473,15 +853,35 @@ export default class RequestHandler {
       urlTargetType = resolved.targetType;
       urlTarget = resolved.target;
       urlTargetSegments = resolved.targetSegments;
+      // The URL did not name the file outright -- the resolver split it into a
+      // file plus a target. Say which file that turned out to be.
+      res.set("Content-Location", encodeVaultPath(filePath));
     }
 
-    const content = await this.app.vault.adapter.readBinary(filePath);
+    const content = await this.operations.readBinaryPath(filePath);
     const mimeType = mime.lookup(filePath);
 
+    // The file's version, as a strong entity tag. It is set only on the
+    // representations computed from the file's bytes alone -- the bytes
+    // themselves, a section of them, the document map -- because Express answers
+    // a matching If-None-Match with 304 on its own, and a note-JSON or HTML
+    // response also carries things that change while the bytes do not (backlinks,
+    // embeds). Those keep Express's default body-hash ETag; note JSON carries the
+    // version in its body instead.
+    const etag = formatEntityTag(versionOf(new Uint8Array(content)));
+
+    // A signed link is made to be opened — in a browser tab, in an <img> — so it is
+    // served inline unless the link asked for a download. API-key requests keep the
+    // attachment disposition they have always had.
+    const disposition =
+      this.requestIsSigned(req) && req.query.download !== "1" ? "inline" : "attachment";
     res.set({
-      "Content-Disposition": `attachment; filename="${encodeURI(
+      // Every comma, not just the first: a comma is a header-list separator, so one left
+      // unescaped splits the value. `replace` with a string argument replaces a single
+      // occurrence, which is what CodeQL's incomplete-sanitization rule caught here.
+      "Content-Disposition": `${disposition}; filename="${encodeURI(
         filePath,
-      ).replace(",", "%2C")}"`,
+      ).replaceAll(",", "%2C")}"`,
       "Content-Type":
         `${mimeType}` +
         (mimeType == ContentTypes.markdown ? "; charset=utf-8" : ""),
@@ -539,6 +939,7 @@ export default class RequestHandler {
       if (version === 1) {
         res.setHeader("Deprecation", `true; sunset-version="${MARKDOWN_PATCH_V1_SUNSET}"`);
       }
+      res.setHeader("ETag", etag);
       res.send(mapJson);
       return;
     }
@@ -678,6 +1079,7 @@ export default class RequestHandler {
           return;
         }
 
+        res.setHeader("ETag", etag);
         if (result.kind === "frontmatter") {
           res.setHeader("Content-Type", ContentTypes.json);
           res.json(result.value);
@@ -745,6 +1147,7 @@ export default class RequestHandler {
       return;
     }
 
+    res.setHeader("ETag", etag);
     if (resolvedTarget) {
       if (resolvedTarget.targetType === "frontmatter") {
         res.setHeader("Content-Type", ContentTypes.json);
@@ -911,7 +1314,22 @@ export default class RequestHandler {
       });
       return;
     }
-    await this.operations.writeFileContent(filepath, req.body as string | Buffer);
+    const preconditions = this.requestPreconditions(req, res);
+    if (preconditions === null) return;
+    try {
+      const version = await this.operations.writeFileContent(
+        filepath,
+        req.body as string | Buffer,
+        preconditions,
+      );
+      res.setHeader("ETag", formatEntityTag(version));
+    } catch (e) {
+      if (e instanceof PreconditionFailedError) {
+        this.returnPreconditionFailed(res, e);
+        return;
+      }
+      throw e;
+    }
     this.returnCannedResponse(res, { statusCode: 204 });
     return;
   }
@@ -934,6 +1352,16 @@ export default class RequestHandler {
         });
         return;
       }
+      // A signed URL names a file and authorizes writing that file. These path elements
+      // turn the same request into a patch of a *different* file -- an upload URL for
+      // `note.md/heading/Title` edits `note.md` rather than creating anything -- and the
+      // signature says nothing about the distinction. Refuse rather than silently do the
+      // other thing.
+      if (this.requestIsSigned(req)) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.SignedUrlIsWholeFileOnly });
+        return;
+      }
+      res.set("Content-Location", encodeVaultPath(resolved.filePath));
       return this._vaultPatchTargeted(
         resolved.filePath,
         resolved.targetType,
@@ -954,6 +1382,13 @@ export default class RequestHandler {
     const headerTarget = this._getHeaderTarget(req, res);
     if (headerTarget !== undefined) {
       if (!headerTarget) return; // error already sent
+      // Same reasoning as the path-element case above, by the other route: these headers
+      // are not part of the signed material, so anyone holding the link can redirect a
+      // whole-file upload into a section edit.
+      if (this.requestIsSigned(req)) {
+        this.returnCannedResponse(res, { errorCode: ErrorCode.SignedUrlIsWholeFileOnly });
+        return;
+      }
       return this._vaultPatchTargeted(
         filePath,
         headerTarget.targetType,
@@ -987,6 +1422,12 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { errorCode: ErrorCode.InvalidPatchVersionHeader });
       return;
     }
+
+    // If-Match/If-None-Match apply in every PATCH mode, checked against the
+    // file's bytes. A JSON instruction's own `ifMatch` field is separate, checked
+    // by the engine; when both are sent, both must hold.
+    const preconditions = this.requestPreconditions(req, res);
+    if (preconditions === null) return;
 
     // Three targeting signals exist: URL path elements, Target-Type/Target
     // headers, and the explicit instruction-body content type. They are
@@ -1023,6 +1464,7 @@ export default class RequestHandler {
           },
           req,
           res,
+          preconditions,
         );
       }
       if (headerTargeting) {
@@ -1039,7 +1481,7 @@ export default class RequestHandler {
         }
         const parsed = this._getPatchHeaderTarget(req, res);
         if (!parsed) return;
-        return this._vaultPatchRawContent(path, parsed, req, res);
+        return this._vaultPatchRawContent(path, parsed, req, res, preconditions);
       }
       const body: unknown = req.body;
       if (typeof body !== "object" || body === null || Array.isArray(body)) {
@@ -1050,7 +1492,12 @@ export default class RequestHandler {
         });
         return;
       }
-      return this._vaultPatchMdp2(path, body as Record<string, unknown>, res);
+      return this._vaultPatchMdp2(
+        path,
+        body as Record<string, unknown>,
+        res,
+        preconditions,
+      );
     }
 
     // version === 1 with a URL-element target: URL targeting is purely a 2.0
@@ -1119,10 +1566,15 @@ export default class RequestHandler {
       const patched = await this.operations.patchFileSection(
         path, targetType, rawTarget, operation, req.body, contentType,
         { createTargetIfMissing, rejectIfContentPreexists, trimTargetWhitespace, targetDelimiter, targetScope },
+        preconditions,
       );
+      res.setHeader("ETag", formatEntityTag(versionOf(patched)));
       res.status(200).send(patched);
     } catch (e) {
-      if (e instanceof FileNotFoundError) {
+      this.rethrowIfRefused(e);
+      if (e instanceof PreconditionFailedError) {
+        this.returnPreconditionFailed(res, e);
+      } else if (e instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else if (e instanceof PatchFailed) {
         this.returnCannedResponse(res, { errorCode: ErrorCode.PatchFailed, message: e.reason });
@@ -1146,6 +1598,7 @@ export default class RequestHandler {
         return;
       }
     } else if (resolved.targetType) {
+      res.set("Content-Location", encodeVaultPath(resolved.filePath));
       return this._vaultPatch(resolved.filePath, req, res, {
         targetType: resolved.targetType,
         target: resolved.target,
@@ -1171,6 +1624,7 @@ export default class RequestHandler {
     path: string,
     candidate: Record<string, unknown>,
     res: express.Response,
+    preconditions: WritePreconditions,
   ): Promise<void> {
     // Validate the whole instruction up front, against the same schema the
     // engine validates with, so malformed input gets a clean 400 before the
@@ -1195,7 +1649,12 @@ export default class RequestHandler {
       return;
     }
 
-    return this._respondMdp2(path, candidate as unknown as InstructionInput, res);
+    return this._respondMdp2(
+      path,
+      candidate as unknown as InstructionInput,
+      res,
+      preconditions,
+    );
   }
 
   /** Assemble a 2.0 instruction for a raw-content-mode PATCH: the target comes
@@ -1213,6 +1672,7 @@ export default class RequestHandler {
     target: { targetType: string; target: string[] | string | null },
     req: express.Request,
     res: express.Response,
+    preconditions: WritePreconditions,
   ): Promise<void> {
     // These headers only mean something to the deprecated 1.x engine
     // (delimiter-joined targets, 1.x whitespace trimming). Silently ignoring
@@ -1274,17 +1734,10 @@ export default class RequestHandler {
       within = Number(rawWithin.trim());
     }
 
-    // Standard If-Match carries a quoted ETag (RFC 9110); the engine's token
-    // is bare — accept either by stripping one pair of surrounding quotes.
-    const rawIfMatch = req.get("If-Match");
-    const ifMatch =
-      rawIfMatch !== undefined &&
-      rawIfMatch.length >= 2 &&
-      rawIfMatch.startsWith('"') &&
-      rawIfMatch.endsWith('"')
-        ? rawIfMatch.slice(1, -1)
-        : rawIfMatch;
-
+    // If-Match is not copied into the instruction's `ifMatch`: the caller has
+    // already parsed it, with If-None-Match, into `preconditions`, which the
+    // write checks against the file's bytes. That gives raw-content mode the same
+    // `*`, list, and quoted-or-bare handling as every other write.
     const candidate: Record<string, unknown> = {
       targetType: target.targetType,
       target: target.target,
@@ -1293,7 +1746,6 @@ export default class RequestHandler {
     if (within !== undefined) candidate.within = within;
     if (scope !== undefined) candidate.scope = scope;
     if (destination !== undefined) candidate.destination = destination;
-    if (ifMatch !== undefined) candidate.ifMatch = ifMatch;
     if (req.get("Create-Target-If-Missing") === "true") {
       candidate.createTargetIfMissing = true;
     }
@@ -1336,7 +1788,7 @@ export default class RequestHandler {
       }
     }
 
-    return this._vaultPatchMdp2(path, candidate, res);
+    return this._vaultPatchMdp2(path, candidate, res, preconditions);
   }
 
   /** Apply a single markdown-patch 2.0 instruction and write the standard 2.0
@@ -1348,11 +1800,13 @@ export default class RequestHandler {
     filePath: string,
     instruction: InstructionInput,
     res: express.Response,
+    preconditions: WritePreconditions,
   ): Promise<void> {
     try {
       const result = await this.operations.patchFileSectionMdp2(
         filePath,
         instruction,
+        preconditions,
       );
       if (result.warnings.length > 0) {
         // Percent-encoded, like Target/Destination on the request side: a
@@ -1367,12 +1821,14 @@ export default class RequestHandler {
         );
       }
       res.setHeader("Content-Type", ContentTypes.markdown + "; charset=utf-8");
+      res.setHeader("ETag", formatEntityTag(versionOf(result.document)));
       res.status(200).send(result.document);
     } catch (e) {
+      this.rethrowIfRefused(e);
       if (e instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else if (e instanceof PreconditionFailedError) {
-        this.returnCannedResponse(res, { statusCode: 412, message: e.message });
+        this.returnPreconditionFailed(res, e);
       } else if (e instanceof TargetNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404, message: e.message });
       } else if (
@@ -1452,6 +1908,8 @@ export default class RequestHandler {
       req.get("Create-Target-If-Missing") == "true";
     const rejectIfContentPreexists =
       req.get("Reject-If-Content-Preexists") == "true";
+    const preconditions = this.requestPreconditions(req, res);
+    if (preconditions === null) return;
 
     if (version === 1) {
       res.setHeader("Deprecation", `true; sunset-version="${MARKDOWN_PATCH_V1_SUNSET}"`);
@@ -1482,10 +1940,15 @@ export default class RequestHandler {
         const patched = await this.operations.patchFileSection(
           filePath, targetType, target, operation, req.body, contentType,
           { createTargetIfMissing, rejectIfContentPreexists, trimTargetWhitespace, targetDelimiter, targetScope },
+          preconditions,
         );
+        res.setHeader("ETag", formatEntityTag(versionOf(patched)));
         res.status(200).send(patched);
       } catch (e) {
-        if (e instanceof FileNotFoundError) {
+        this.rethrowIfRefused(e);
+        if (e instanceof PreconditionFailedError) {
+          this.returnPreconditionFailed(res, e);
+        } else if (e instanceof FileNotFoundError) {
           this.returnCannedResponse(res, { statusCode: 404 });
         } else if (e instanceof PatchFailed) {
           this.returnCannedResponse(res, { errorCode: ErrorCode.PatchFailed, message: (e).reason });
@@ -1579,7 +2042,7 @@ export default class RequestHandler {
             }
     ) as InstructionInput;
 
-    return this._respondMdp2(filePath, instruction, res);
+    return this._respondMdp2(filePath, instruction, res, preconditions);
   }
 
   async _vaultPost(
@@ -1599,7 +2062,22 @@ export default class RequestHandler {
       });
       return;
     }
-    await this.operations.appendFileContent(filepath, req.body);
+    const preconditions = this.requestPreconditions(req, res);
+    if (preconditions === null) return;
+    try {
+      const version = await this.operations.appendFileContent(
+        filepath,
+        req.body,
+        preconditions,
+      );
+      res.setHeader("ETag", formatEntityTag(version));
+    } catch (e) {
+      if (e instanceof PreconditionFailedError) {
+        this.returnPreconditionFailed(res, e);
+        return;
+      }
+      throw e;
+    }
     this.returnCannedResponse(res, { statusCode: 204 });
     return;
   }
@@ -1622,6 +2100,7 @@ export default class RequestHandler {
         });
         return;
       }
+      res.set("Content-Location", encodeVaultPath(resolved.filePath));
       return this._vaultPatchTargeted(
         resolved.filePath,
         resolved.targetType,
@@ -1665,10 +2144,15 @@ export default class RequestHandler {
       return;
     }
     const permanent = req.query.permanent === "true";
+    const preconditions = this.requestPreconditions(req, res);
+    if (preconditions === null) return;
     try {
-      await this.operations.deleteVaultFile(path, permanent);
+      await this.operations.deleteVaultFile(path, permanent, preconditions);
     } catch (e) {
-      if (e instanceof FileNotFoundError) {
+      this.rethrowIfRefused(e);
+      if (e instanceof PreconditionFailedError) {
+        this.returnPreconditionFailed(res, e);
+      } else if (e instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else {
         this.returnCannedResponse(res, { statusCode: 500 });
@@ -1740,18 +2224,19 @@ export default class RequestHandler {
       return;
     }
 
-    if (normalized.startsWith("/")) {
+    if (!vaultPathIsContained(normalized)) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.PathTraversalNotAllowed,
       });
       return;
     }
 
-    const syntheticRoot = "/vault";
-    const resolved = posix.resolve(syntheticRoot, normalized);
-    if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
+    if (
+      !this.settings.enableConfigDirAccess &&
+      this.pathIsInConfigDir(normalized)
+    ) {
       this.returnCannedResponse(res, {
-        errorCode: ErrorCode.PathTraversalNotAllowed,
+        errorCode: ErrorCode.ConfigDirAccessNotAllowed,
       });
       return;
     }
@@ -1760,16 +2245,30 @@ export default class RequestHandler {
       ? normalized + sourceFilename
       : normalized;
 
+    const preconditions = this.requestPreconditions(req, res);
+    if (preconditions === null) return;
+
     try {
-      const actualPath = await this.operations.moveVaultFile(path, newPath, allowOverwrite);
-      res.set("Content-Location", encodeURI(actualPath));
+      const actualPath = await this.operations.moveVaultFile(
+        path,
+        newPath,
+        allowOverwrite,
+        preconditions,
+      );
+      res.set("Content-Location", encodeVaultPath(actualPath));
       this.returnCannedResponse(res, { statusCode: 204 });
     } catch (error) {
-      if (error instanceof FileNotFoundError) {
+      if (error instanceof PreconditionFailedError) {
+        this.returnPreconditionFailed(res, error);
+      } else if (error instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else if (error instanceof DestinationAlreadyExistsError) {
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.DestinationAlreadyExists,
+        });
+      } else if (error instanceof ConfigDirAccessError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ConfigDirAccessNotAllowed,
         });
       } else {
         const msg = error instanceof Error ? error.message : String(error);
@@ -1831,18 +2330,19 @@ export default class RequestHandler {
       return;
     }
 
-    if (normalized.startsWith("/")) {
+    if (!vaultPathIsContained(normalized)) {
       this.returnCannedResponse(res, {
         errorCode: ErrorCode.PathTraversalNotAllowed,
       });
       return;
     }
 
-    const syntheticRoot = "/vault";
-    const resolved = posix.resolve(syntheticRoot, normalized);
-    if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
+    if (
+      !this.settings.enableConfigDirAccess &&
+      this.pathIsInConfigDir(normalized)
+    ) {
       this.returnCannedResponse(res, {
-        errorCode: ErrorCode.PathTraversalNotAllowed,
+        errorCode: ErrorCode.ConfigDirAccessNotAllowed,
       });
       return;
     }
@@ -1851,16 +2351,30 @@ export default class RequestHandler {
       ? normalized + sourceFilename
       : normalized;
 
+    const preconditions = this.requestPreconditions(req, res);
+    if (preconditions === null) return;
+
     try {
-      const actualPath = await this.operations.copyVaultFile(path, newPath, allowOverwrite);
-      res.set("Content-Location", encodeURI(actualPath));
+      const actualPath = await this.operations.copyVaultFile(
+        path,
+        newPath,
+        allowOverwrite,
+        preconditions,
+      );
+      res.set("Content-Location", encodeVaultPath(actualPath));
       this.returnCannedResponse(res, { statusCode: 204 });
     } catch (error) {
-      if (error instanceof FileNotFoundError) {
+      if (error instanceof PreconditionFailedError) {
+        this.returnPreconditionFailed(res, error);
+      } else if (error instanceof FileNotFoundError) {
         this.returnCannedResponse(res, { statusCode: 404 });
       } else if (error instanceof DestinationAlreadyExistsError) {
         this.returnCannedResponse(res, {
           errorCode: ErrorCode.DestinationAlreadyExists,
+        });
+      } else if (error instanceof ConfigDirAccessError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.ConfigDirAccessNotAllowed,
         });
       } else {
         const msg = error instanceof Error ? error.message : String(error);
@@ -1884,7 +2398,22 @@ export default class RequestHandler {
     return this._vaultCopy(filePath, req, res);
   }
 
-  redirectToVaultPath(
+  /**
+   * Delegates an `/active/` request to the corresponding `/vault/<path>`
+   * handler once the active file is known, tagging the response with the
+   * resolved path first.
+   *
+   * `handler` must be returned, not fired-and-forgotten (a bare call
+   * discards its promise, and with it any rejection -- the request would
+   * then hang forever, since the same failure a `/vault/` request routes to
+   * `errorHandler` via the `handle()` wrapper would here just vanish as an
+   * unhandled rejection with no response ever sent). Returning it lets this
+   * function's own promise adopt the handler's, so `handle()`'s `.catch(next)`
+   * still sees a failure that occurs inside it. This exact shape
+   * (`void this._vaultPut(...)`) previously caused unresponsive `/active/`
+   * requests whenever the underlying write threw.
+   */
+  async redirectToVaultPath(
     file: TFile,
     req: express.Request,
     res: express.Response,
@@ -1892,10 +2421,10 @@ export default class RequestHandler {
       path: string,
       req: express.Request,
       res: express.Response,
-    ) => void,
-  ): void {
+    ) => Promise<void>,
+  ): Promise<void> {
     const path = file.path;
-    res.set("Content-Location", encodeURI(path));
+    res.set("Content-Location", encodeVaultPath(path));
 
     return handler(path, req, res);
   }
@@ -1912,7 +2441,7 @@ export default class RequestHandler {
 
     const suffixSegments = this.rawSuffixSegments(req, res);
     if (suffixSegments === null) return;
-    res.set("Content-Location", encodeURI(file.path));
+    res.set("Content-Location", encodeVaultPath(file.path));
     return this._vaultGet(
       [...file.path.split("/"), ...suffixSegments],
       req,
@@ -1943,7 +2472,7 @@ export default class RequestHandler {
           });
           return;
         }
-        res.set("Content-Location", encodeURI(file.path));
+        res.set("Content-Location", encodeVaultPath(file.path));
         return this._vaultPatchTargeted(
           resolved.filePath,
           resolved.targetType,
@@ -1958,7 +2487,7 @@ export default class RequestHandler {
     const headerTarget = this._getHeaderTarget(req, res);
     if (headerTarget !== undefined) {
       if (!headerTarget) return; // error already sent
-      res.set("Content-Location", encodeURI(file.path));
+      res.set("Content-Location", encodeVaultPath(file.path));
       return this._vaultPatchTargeted(
         file.path,
         headerTarget.targetType,
@@ -1969,7 +2498,7 @@ export default class RequestHandler {
         { createTargetIfMissing: true, source: "header" },
       );
     }
-    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPut(p, rq, rs); });
+    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => this._vaultPut(p, rq, rs));
   }
 
   async activeFilePost(
@@ -1995,7 +2524,7 @@ export default class RequestHandler {
           });
           return;
         }
-        res.set("Content-Location", encodeURI(file.path));
+        res.set("Content-Location", encodeVaultPath(file.path));
         return this._vaultPatchTargeted(
           resolved.filePath,
           resolved.targetType,
@@ -2010,7 +2539,7 @@ export default class RequestHandler {
     const headerTarget = this._getHeaderTarget(req, res);
     if (headerTarget !== undefined) {
       if (!headerTarget) return; // error already sent
-      res.set("Content-Location", encodeURI(file.path));
+      res.set("Content-Location", encodeVaultPath(file.path));
       return this._vaultPatchTargeted(
         file.path,
         headerTarget.targetType,
@@ -2021,7 +2550,7 @@ export default class RequestHandler {
         { source: "header" },
       );
     }
-    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => { void this._vaultPost(p, rq, rs); });
+    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => this._vaultPost(p, rq, rs));
   }
 
   async activeFilePatch(
@@ -2041,7 +2570,7 @@ export default class RequestHandler {
         ...suffixSegments,
       ]);
       if (resolved?.targetType) {
-        res.set("Content-Location", encodeURI(file.path));
+        res.set("Content-Location", encodeVaultPath(file.path));
         return this._vaultPatch(resolved.filePath, req, res, {
           targetType: resolved.targetType,
           target: resolved.target,
@@ -2053,7 +2582,7 @@ export default class RequestHandler {
       file,
       req,
       res,
-      (p, rq, rs) => { void this._vaultPatch(p, rq, rs); },
+      (p, rq, rs) => this._vaultPatch(p, rq, rs),
     );
   }
 
@@ -2080,7 +2609,7 @@ export default class RequestHandler {
       file,
       req,
       res,
-      (p, rq, rs) => { void this._vaultDelete(p, rq, rs); },
+      (p, rq, rs) => this._vaultDelete(p, rq, rs),
     );
   }
 
@@ -2127,8 +2656,29 @@ export default class RequestHandler {
     const contextLength = Number.isNaN(contextLengthRaw)
       ? 100
       : contextLengthRaw;
+
+    // Unlike contextLength, which has always fallen back to its default on bad
+    // input, the limits are strict: a typo that silently returned every match is
+    // exactly the oversized response they exist to prevent.
+    const limits: { maxResults?: number; maxMatchesPerFile?: number } = {};
+    for (const name of ["maxResults", "maxMatchesPerFile"] as const) {
+      const raw = req.query[name];
+      if (raw === undefined) continue;
+      if (typeof raw !== "string" || !/^\d+$/.test(raw) || Number(raw) < 1) {
+        return this.returnCannedResponse(res, {
+          message: `'?${name}=' must be a single positive integer.`,
+          errorCode: ErrorCode.InvalidSearch,
+        });
+      }
+      limits[name] = Number(raw);
+    }
+
     try {
-      const results = await this.operations.simpleSearch(query, contextLength);
+      const { results, totalResults } = await this.operations.simpleSearch(query, {
+        contextLength,
+        ...limits,
+      });
+      res.set("Total-Results", String(totalResults));
       res.json(results);
     } catch (e) {
       console.error("Could not prepare simple search: ", e);
@@ -2221,7 +2771,14 @@ export default class RequestHandler {
     res: express.Response,
   ): Promise<void> {
     res.setHeader("Content-Type", "application/yaml; charset=utf-8");
-    res.status(200).send(openapiYaml);
+    res.status(200).send(this.openApiSpec.yaml());
+  }
+
+  async openapiJsonGet(
+    _req: express.Request,
+    res: express.Response,
+  ): Promise<void> {
+    res.status(200).json(this.openApiSpec.json());
   }
 
   async notFoundHandler(
@@ -2252,11 +2809,139 @@ export default class RequestHandler {
       });
       return;
     }
+    // Every route that takes a vault path checks it before calling through, so
+    // this is the backstop for one that does not: VaultOperations refuses, and the
+    // client still gets 40021 rather than a 500 naming an internal error.
+    if (err instanceof PathTraversalError) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.PathTraversalNotAllowed,
+      });
+      return;
+    }
+    if (err instanceof ConfigDirAccessError) {
+      this.returnCannedResponse(res, {
+        errorCode: ErrorCode.ConfigDirAccessNotAllowed,
+      });
+      return;
+    }
+    // Every conditional write maps this itself; this is the backstop for one
+    // that does not, so a failed precondition never reads as a server fault.
+    if (err instanceof PreconditionFailedError) {
+      this.returnPreconditionFailed(res, err);
+      return;
+    }
     this.returnCannedResponse(res, {
       statusCode: 500,
       message: err.message,
     });
     return;
+  }
+
+  /** An error body that also lists what can be streamed. */
+  private returnEventError(res: express.Response, errorCode: ErrorCode): void {
+    res.status(Math.floor(errorCode / 100)).json({
+      message: ERROR_CODE_MESSAGES[errorCode],
+      errorCode,
+      supportedEvents: this.events.supportedEvents(),
+    });
+  }
+
+  /** `/events/` and `/events/<emitter>/`: there is no wildcard to stream. */
+  async eventsWithoutName(_req: express.Request, res: express.Response): Promise<void> {
+    this.returnEventError(res, ErrorCode.EventNameRequired);
+  }
+
+  /**
+   * `POST /events/<emitter>/<event>/`: register a subscription. The body is an optional
+   * JSONLogic filter; the response names the stream to open.
+   */
+  async eventsSubscribePost(req: express.Request, res: express.Response): Promise<void> {
+    const { emitter, event } = req.params;
+    if (!this.events.isStreamable(emitter, event)) {
+      this.returnEventError(res, ErrorCode.UnknownEvent);
+      return;
+    }
+
+    // No body, an empty one, or `{}` (which is what Express leaves behind for an empty
+    // JSON body) means every event. A literal `{}` filter could never match anything,
+    // so reading it as "no filter" loses nothing.
+    let filter: unknown = null;
+    const body: unknown = req.body;
+    const bodyIsEmpty =
+      body === undefined ||
+      ((Buffer.isBuffer(body) || typeof body === "string") && body.length === 0) ||
+      (typeof body === "object" &&
+        body !== null &&
+        !Array.isArray(body) &&
+        !Buffer.isBuffer(body) &&
+        Object.keys(body).length === 0);
+    if (!bodyIsEmpty) {
+      if (!req.is([ContentTypes.jsonLogic, ContentTypes.json])) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidContentType,
+          message: `Send the filter as ${ContentTypes.jsonLogic} or ${ContentTypes.json}.`,
+        });
+        return;
+      }
+      filter = body;
+    }
+
+    const rawTtl = typeof req.query.ttl === "string" ? Number(req.query.ttl) : undefined;
+    const ttlSeconds = clampSignedUrlTtl(rawTtl ?? this.settings.signedUrlTtlSeconds);
+
+    try {
+      const grant = this.events.createListener(
+        emitter,
+        event,
+        filter,
+        ttlSeconds,
+        requestBaseUrl(req),
+        this.settings.enableSignedUrls ? this.urlSigner : null,
+      );
+      res.status(201).json(grant);
+    } catch (e) {
+      if (e instanceof InvalidEventFilterError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.InvalidFilterQuery,
+          message: e.message,
+        });
+        return;
+      }
+      if (e instanceof TooManySubscriptionsError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.EventCapacityReached,
+          message: e.message,
+        });
+        return;
+      }
+      throw e;
+    }
+  }
+
+  /** `GET /events/<emitter>/<event>/<id>/`: open the subscription's stream. */
+  async eventsStreamGet(req: express.Request, res: express.Response): Promise<void> {
+    const { emitter, event, id } = req.params;
+    if (!this.events.isStreamable(emitter, event)) {
+      this.returnEventError(res, ErrorCode.UnknownEvent);
+      return;
+    }
+    const subscription = this.events.get(emitter, event, id);
+    if (!subscription) {
+      this.returnCannedResponse(res, { errorCode: ErrorCode.EventSubscriptionNotFound });
+      return;
+    }
+    try {
+      await this.events.open(subscription, req, res);
+    } catch (e) {
+      if (e instanceof TooManyStreamsError) {
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.EventCapacityReached,
+          message: e.message,
+        });
+        return;
+      }
+      throw e;
+    }
   }
 
   private handle(
@@ -2272,7 +2957,7 @@ export default class RequestHandler {
       if (this.settings.enableVerboseLogging) {
         const originalSend = res.send;
         res.send = function (body, ...args) {
-          console.debug(`[REST API] ${req.method} ${req.url} => ${res.statusCode}`);
+          console.debug(`[REST API] ${req.method} ${redactSignedUrl(req.url)} => ${res.statusCode}`);
           return originalSend.apply(res, [body, ...args]) as ReturnType<typeof res.send>;
         };
       }
@@ -2281,8 +2966,47 @@ export default class RequestHandler {
     this.api.use(responseTime());
     this.api.use(cors(corsOptions));
 
+    // Failed-authentication throttle. One limiter, installed in the two places a
+    // credential is actually checked: at the top of the MCP router, and immediately ahead
+    // of the authentication middleware that guards everything else (including `GET /`
+    // and the other exempt routes, which still look at a key they are sent). It is *not*
+    // in front of the public extension router: an extension's public route never
+    // consults this server's credentials, so a header or `sig`/`exp` pair sent there is
+    // the extension's business and must not be counted or refused on its behalf. Both
+    // mounts are after `cors`, so a 429 carries the same CORS headers as any other answer
+    // and a preflight never reaches it. `skip` keeps everything but a wrong credential
+    // out of the counter entirely: a request with the right key costs one string
+    // comparison here and is never delayed.
+    this.authenticationFailureStore?.shutdown();
+    this.authenticationFailureStore = new MemoryStore();
+    const authenticationFailureLimiter = rateLimit({
+      windowMs: AuthenticationFailureWindowMs,
+      limit: AuthenticationFailureLimit,
+      store: this.authenticationFailureStore,
+      skip: (req) => !this.credentialIsRejected(req),
+      // Neither family of quota headers: they would ride along on every counted 401 and
+      // tell a guesser how many free attempts remain. `Retry-After` is the one header the
+      // contract promises, and the library only sets it alongside the quota headers, so
+      // the refusal sets it itself from the window the store reports.
+      standardHeaders: false,
+      legacyHeaders: false,
+      handler: (req, res) => {
+        const info = (req as express.Request & { rateLimit?: RateLimitInfo }).rateLimit;
+        const resetTime = info?.resetTime?.getTime() ?? Date.now() + AuthenticationFailureWindowMs;
+        res.setHeader("Retry-After", String(Math.max(1, Math.ceil((resetTime - Date.now()) / 1000))));
+        this.returnCannedResponse(res, {
+          errorCode: ErrorCode.TooManyAuthenticationFailures,
+        });
+      },
+      // The plugin never sits behind a proxy it trusts, so a forwarded-for header is
+      // just a header; the library's warning about ignoring it would only be noise in
+      // the developer console.
+      validate: { xForwardedForHeader: false },
+    });
+
     const mcpRouter = express.Router();
     mcpRouter.use(cors(corsOptions));
+    mcpRouter.use(authenticationFailureLimiter);
     mcpRouter.use((req, res, next) => {
       if (!this.requestIsAuthenticated(req)) {
         this.returnCannedResponse(res, {
@@ -2329,7 +3053,36 @@ export default class RequestHandler {
     this.api.use("/mcp", mcpRouter);
 
     this.api.use(this.publicApiExtensionRouter);
+    this.api.use(authenticationFailureLimiter);
     this.api.use(this.authenticationMiddleware.bind(this));
+
+    // A body with no Content-Type matched none of the parsers below, so `req.body` kept
+    // Express's default `{}` and a PUT wrote the two bytes "{}" over the caller's file --
+    // answering 204, so nothing looked wrong until the attachment was opened. RFC 9110
+    // says a payload with no declared type may be treated as application/octet-stream, so
+    // that is what it becomes, and the raw parser takes it from there.
+    //
+    // A *signed* PUT is routed the same way for a different reason. The upload tool
+    // advertises the destination's real media type, which for `data.json` is
+    // application/json -- so the JSON parser turned the upload into a JavaScript value
+    // and `writeFileContent` re-serialized it, storing `{"b":2,"a":1}` for a
+    // pretty-printed file and answering 204. Whitespace, key formatting and the trailing
+    // newline were simply gone. `text/*` is the same shape of problem, decoding and
+    // re-encoding bytes that were never promised to be text.
+    //
+    // A signed URL authorizes a whole-file write of exactly the bytes sent, so it does
+    // not go through a parser that can rewrite them. Doing it here rather than by
+    // changing the advertised Content-Type means the guarantee holds whatever the caller
+    // sends, instead of only when they follow the suggested command.
+    this.api.use((req, _res, next) => {
+      const hasBody =
+        req.headers["content-length"] !== undefined ||
+        req.headers["transfer-encoding"] !== undefined;
+      if (hasBody && (!req.headers["content-type"] || this.requestIsSigned(req))) {
+        req.headers["content-type"] = "application/octet-stream";
+      }
+      next();
+    });
     this.api.use(
       express.json({
         type: ContentTypes.json,
@@ -2363,6 +3116,22 @@ export default class RequestHandler {
     );
     this.api.use(express.raw({ type: "*/*", limit: MaximumRequestSize }));
 
+    // Extension sub-resources under a note (`/vault/<note>/<name>/...`). Mounted ahead
+    // of the built-in routes because `/vault/*` would otherwise match them first and 404;
+    // the dispatcher only claims a request that resolves to an existing note followed by
+    // a registered name, so every other request reaches the built-ins unchanged.
+    this.api.use(
+      this.vaultSubresources.middleware({
+        resolvePathAndTarget: (segments) => this._resolvePathAndTarget(segments),
+        getFile: (path) => {
+          const file = this.app.vault.getAbstractFileByPath(path);
+          return file instanceof TFile ? file : null;
+        },
+        getActiveFile: () => this.app.workspace.getActiveFile(),
+        isSigned: (req) => this.requestIsSigned(req),
+      }),
+    );
+
     this.api
       .route("/active/*")
       .get(this.handle((rq, rs) => this.activeFileGet(rq, rs)))
@@ -2394,13 +3163,22 @@ export default class RequestHandler {
     this.api.route("/commands/:commandId/").post(this.handle((rq, rs) => this.commandPost(rq, rs)));
 
     this.api.route("/search/").post(this.handle((rq, rs) => this.searchQueryPost(rq, rs)));
+
+    this.api.all(["/events/", "/events/:emitter/"], this.handle((rq, rs) => this.eventsWithoutName(rq, rs)));
+    this.api
+      .route("/events/:emitter/:event/")
+      .post(this.handle((rq, rs) => this.eventsSubscribePost(rq, rs)));
+    this.api
+      .route("/events/:emitter/:event/:id/")
+      .get(this.handle((rq, rs) => this.eventsStreamGet(rq, rs)));
     this.api.route("/search/simple/").post(this.handle((rq, rs) => this.searchSimplePost(rq, rs)));
 
     this.api.route("/open/*").post(this.handle((rq, rs) => this.openPost(rq, rs)));
 
     this.api.get(`/${CERT_NAME}`, this.handle((rq, rs) => this.certificateGet(rq, rs)));
     this.api.get("/openapi.yaml", this.handle((rq, rs) => this.openapiYamlGet(rq, rs)));
-    this.api.get("/", (rq, rs) => { this.root(rq, rs); });
+    this.api.get("/openapi.json", this.handle((rq, rs) => this.openapiJsonGet(rq, rs)));
+    this.api.get("/", this.handle((rq, rs) => this.root(rq, rs)));
 
     this.api.use(this.apiExtensionRouter);
 

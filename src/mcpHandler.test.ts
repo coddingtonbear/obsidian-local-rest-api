@@ -8,13 +8,27 @@ jest.mock("./vaultOperations", () => ({
   VaultOperations: jest.fn(),
 }));
 
+import { execFileSync } from "child_process";
+import { existsSync } from "fs";
+
 import express from "express";
 import request from "supertest";
 import { McpServer } from "@modelcontextprotocol/server";
+import { z } from "zod";
 
-import { McpHandler } from "./mcpHandler";
+import openapiYaml from "../docs/openapi.yaml";
+import { McpHandler, markdownLink } from "./mcpHandler";
+import { OpenApiSpec } from "./openApiSpec";
 import { DEFAULT_SETTINGS, MaximumMcpBinaryBytes } from "./constants";
-import { TFile } from "../mocks/obsidian";
+import { UrlSigner } from "./signedUrls";
+import type { EventStreams } from "./events";
+import { ImageScaler, MaximumImageEdge } from "./imageScaling";
+import { LocalRestApiSettings } from "./types";
+import { versionOf } from "markdown-patch-2";
+import { PreconditionFailedError } from "./conditionalRequests";
+import { DataAdapter, FileSystemAdapter, TFile } from "../mocks/obsidian";
+import { fakeRealpath } from "../mocks/disk";
+import * as fs from "fs";
 
 const MODERN_VERSION = "2026-07-28";
 const LEGACY_VERSION = "2025-06-18";
@@ -61,6 +75,8 @@ function makeMockOps() {
   return {
     app: {
       vault: {
+        configDir: ".obsidian",
+        adapter: new DataAdapter(),
         getAbstractFileByPath: jest.fn().mockReturnValue(mockFile),
       },
       workspace: {
@@ -106,7 +122,10 @@ function makeMockOps() {
       .mockResolvedValue([{ filename: "a.md", result: true }]),
     simpleSearch: jest
       .fn()
-      .mockResolvedValue([{ filename: "a.md", score: 1, matches: [] }]),
+      .mockResolvedValue({
+        results: [{ filename: "a.md", score: 1, matches: [], totalMatches: 0 }],
+        totalResults: 1,
+      }),
     getAllTags: jest.fn().mockReturnValue([{ name: "todo", count: 3 }]),
     listCommands: jest
       .fn()
@@ -186,6 +205,30 @@ function sessionlessRequest(
 // Tests
 // ---------------------------------------------------------------------------
 
+describe("markdownLink", () => {
+  test.each([
+    // The label is a vault filename, and the tool descriptions ask an agent to repeat
+    // this link in its reply -- so an unescaped `]` would choose where a reader is sent.
+    ["report](https://example.invalid/).pdf", "[report\\](https://example.invalid/).pdf]"],
+    ["a[b].png", "[a\\[b\\].png]"],
+    ["*bold*_it_`code`.png", "[\\*bold\\*\\_it\\_\\`code\\`.png]"],
+    ["<tag>.png", "[\\<tag\\>.png]"],
+    ["plain.png", "[plain.png]"],
+  ])("escapes %s in the label", (label, expectedPrefix) => {
+    expect(markdownLink(label, "http://h/v/x")).toBe(`${expectedPrefix}(http://h/v/x)`);
+  });
+
+  test("encodes parentheses in the destination, which would otherwise end it early", () => {
+    expect(markdownLink("a.png", "http://h/v/a(1).png?sig=x")).toBe(
+      "[a.png](http://h/v/a%281%29.png?sig=x)",
+    );
+  });
+
+  test("folds newlines, since a label cannot span lines", () => {
+    expect(markdownLink("two\nlines.png", "http://h")).toBe("[two lines.png](http://h)");
+  });
+});
+
 describe("McpHandler", () => {
    
   let ops: any;
@@ -218,18 +261,57 @@ describe("McpHandler", () => {
     expect(uri).toBe("obsidian://local-rest-api/openapi.yaml");
   });
 
+  test("the openapi-spec resource serves the spec as extensions have extended it", async () => {
+    const spec = new OpenApiSpec(openapiYaml);
+    registerResource.mockClear();
+    buildServer(new McpHandler(ops, DEFAULT_SETTINGS, { openApiSpec: spec }));
+    const read = registerResource.mock.calls[0][3] as (uri: URL) => Promise<{ contents: { text: string }[] }>;
+    const uri = new URL("obsidian://local-rest-api/openapi.yaml");
+
+    expect((await read(uri)).contents[0].text).toBe(openapiYaml);
+
+    spec.add("widget-plugin", { paths: { "/widgets/": { get: { responses: {} } } } });
+    const extended = (await read(uri)).contents[0].text;
+    expect(extended).toContain("/widgets/:");
+    expect(extended).toContain("x-obsidian-extension: widget-plugin");
+  });
+
+  test("registers the server-status resource when given a way to read the server's status", async () => {
+    registerResource.mockClear();
+    const status = { status: "OK", authenticated: true, state: { metadataCache: { lastResolvedAt: null } } };
+    const serverStatus = jest.fn(async () => status);
+    buildServer(new McpHandler(ops, DEFAULT_SETTINGS, { serverStatus }));
+
+    const call = registerResource.mock.calls.find(([name]) => name === "server-status") as
+      | [string, string, { mimeType?: string; description?: string }, (uri: URL) => Promise<{ contents: { mimeType?: string; text: string }[]; ttlMs?: number }>]
+      | undefined;
+    expect(call).toBeDefined();
+    const [, uri, meta, read] = call;
+    expect(uri).toBe("obsidian://local-rest-api/status");
+    expect(meta.mimeType).toBe("application/json");
+    expect(meta.description).toMatch(/GET \//);
+
+    const result = await read(new URL(uri));
+    expect(serverStatus).toHaveBeenCalledTimes(1);
+    expect(result.contents[0].mimeType).toBe("application/json");
+    expect(JSON.parse(result.contents[0].text)).toEqual(status);
+    // Status is read to be acted on now; a cached copy would defeat polling it.
+    expect(result.ttlMs).toBe(0);
+  });
+
   // ---- tool registration --------------------------------------------------
 
-  test("registers all 18 tools", () => {
-    expect(registerTool).toHaveBeenCalledTimes(18);
+  test("registers all 19 tools (the two signed-URL tools are there because that setting is on by default)", () => {
+    expect(registerTool).toHaveBeenCalledTimes(19);
     const names = registerTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
+        "vault_get_download_url",
+        "vault_get_upload_url",
         "vault_list",
         "vault_read",
         "vault_read_binary",
         "vault_write",
-        "vault_write_binary",
         "vault_append",
         "vault_patch",
         "vault_delete",
@@ -627,18 +709,106 @@ describe("McpHandler", () => {
   test("vault_write calls writeFileContent and returns OK", async () => {
     const cb = getToolCallback("vault_write");
     const result = await cb({ path: "out.md", content: "hello" });
-    expect(ops.writeFileContent).toHaveBeenCalledWith("out.md", "hello");
+    expect(ops.writeFileContent).toHaveBeenCalledWith("out.md", "hello", undefined);
     expect(parseText(result).message).toBe("OK");
   });
 
-  // ---- vault_read_binary / vault_write_binary ------------------------------
+  // ---- conditional writes --------------------------------------------------
 
-  describe("binary tools", () => {
+  describe("conditional writes", () => {
+    const TOKEN = [{ opaque: "a1b2c3", weak: false }];
+
+    test("vault_write passes ifMatch and ifNoneMatch through, parsed, and returns the new version", async () => {
+      ops.writeFileContent.mockResolvedValue("d4e5f6");
+      const result = await getToolCallback("vault_write")({
+        path: "out.md",
+        content: "hello",
+        ifMatch: "a1b2c3",
+        ifNoneMatch: "*",
+      });
+      expect(ops.writeFileContent).toHaveBeenCalledWith("out.md", "hello", {
+        ifMatch: TOKEN,
+        ifNoneMatch: "*",
+      });
+      expect(parseText(result)).toEqual({ message: "OK", version: "d4e5f6" });
+    });
+
+    test.each([['"a1b2c3"'], ["a1b2c3"]])(
+      "vault_write accepts ifMatch %s quoted or bare",
+      async (ifMatch) => {
+        await getToolCallback("vault_write")({ path: "out.md", content: "x", ifMatch });
+        expect(ops.writeFileContent).toHaveBeenCalledWith("out.md", "x", { ifMatch: TOKEN });
+      },
+    );
+
+    test("vault_write accepts ifMatch '*'", async () => {
+      await getToolCallback("vault_write")({ path: "out.md", content: "x", ifMatch: "*" });
+      expect(ops.writeFileContent).toHaveBeenCalledWith("out.md", "x", { ifMatch: "*" });
+    });
+
+    test("a malformed ifMatch is refused before anything is written", async () => {
+      await expect(
+        getToolCallback("vault_write")({ path: "out.md", content: "x", ifMatch: 'W/unquoted' }),
+      ).rejects.toThrow(/ifMatch must be a version token/);
+      expect(ops.writeFileContent).not.toHaveBeenCalled();
+    });
+
+    test("vault_append passes preconditions through and returns the new version", async () => {
+      ops.appendFileContent.mockResolvedValue("d4e5f6");
+      const result = await getToolCallback("vault_append")({
+        path: "out.md",
+        content: "more",
+        ifMatch: "a1b2c3",
+      });
+      expect(ops.appendFileContent).toHaveBeenCalledWith("out.md", "more", { ifMatch: TOKEN });
+      expect(parseText(result).version).toBe("d4e5f6");
+    });
+
+    test("vault_delete passes ifMatch through", async () => {
+      await getToolCallback("vault_delete")({ path: "old.md", ifMatch: "a1b2c3" });
+      expect(ops.deleteVaultFile).toHaveBeenCalledWith("old.md", false, { ifMatch: TOKEN });
+    });
+
+    test.each([
+      ["vault_move", "moveVaultFile"],
+      ["vault_copy", "copyVaultFile"],
+    ] as const)("%s passes ifMatch through for the source", async (tool, method) => {
+      ops[method].mockResolvedValue("b.md");
+      await getToolCallback(tool)({ path: "a.md", destination: "b.md", ifMatch: "a1b2c3" });
+      expect(ops[method]).toHaveBeenCalledWith("a.md", "b.md", false, { ifMatch: TOKEN });
+    });
+
+    test("a failed precondition surfaces as a tool error", async () => {
+      ops.writeFileContent.mockRejectedValue(
+        new PreconditionFailedError('If-Match named "a1b2c3", but the file is now at version "d4e5f6".'),
+      );
+      await expect(
+        getToolCallback("vault_write")({ path: "out.md", content: "x", ifMatch: "a1b2c3" }),
+      ).rejects.toThrow(/now at version "d4e5f6"/);
+    });
+
+    test("vault_patch returns the patched document's version", async () => {
+      ops.patchFileSectionMdp2.mockResolvedValueOnce({ document: "# A\n\nx\n", warnings: [] });
+      const result = await getToolCallback("vault_patch")({
+        path: "out.md",
+        targetType: "heading",
+        target: ["A"],
+        operation: "append",
+        content: "x\n",
+      });
+      expect(parseText(result)).toEqual({ message: "OK", version: versionOf("# A\n\nx\n") });
+    });
+  });
+
+  // ---- vault_read_binary and the signed-URL tools --------------------------
+
+  describe("binary files and signed URLs", () => {
     // A one-pixel PNG: real bytes, with a 0x89 lead byte that is not valid UTF-8, so a
     // round trip through the text tools could not produce it.
     const PNG_BASE64 =
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
     const PNG_BYTES = Buffer.from(PNG_BASE64, "base64");
+    const PNG_PATH = "attachments/pixel.png";
 
     function arrayBufferOf(buffer: Buffer): ArrayBuffer {
       return buffer.buffer.slice(
@@ -647,101 +817,789 @@ describe("McpHandler", () => {
       ) as ArrayBuffer;
     }
 
-    test("vault_read_binary returns the bytes base64-encoded with a mime type and size", async () => {
+    // A scaler standing in for the renderer's canvas: records the request, answers with
+    // a fixed payload so the test can tell scaled bytes from the originals.
+    function fakeScaler() {
+      return {
+        scale: jest.fn(async () => ({
+          data: Buffer.from("scaled-bytes"),
+          mimeType: "image/png",
+          width: 10,
+          height: 5,
+          transformed: true,
+        })),
+      };
+    }
+
+    // Build a handler (recording its registrations afresh), optionally with signed URLs on.
+    function build(
+      settings: LocalRestApiSettings = DEFAULT_SETTINGS,
+      options: { signer?: UrlSigner; imageScaler?: ImageScaler | null; events?: EventStreams } = {},
+    ): McpHandler {
+      registerTool.mockClear();
+      const mcp = new McpHandler(ops, settings, { imageScaler: null, ...options });
+      buildServer(mcp);
+      return mcp;
+    }
+
+    // Signed URLs are on in DEFAULT_SETTINGS; these name the two states explicitly.
+    const SIGNED: LocalRestApiSettings = { ...DEFAULT_SETTINGS, enableSignedUrls: true };
+    const UNSIGNED: LocalRestApiSettings = { ...DEFAULT_SETTINGS, enableSignedUrls: false };
+
+    // Run a callback as though its tool call had arrived on an HTTP request: the
+    // signed-URL tools read the request's scheme and Host to build their links.
+    function overHttp<T>(
+      mcp: McpHandler,
+      fn: () => Promise<T>,
+      request: { headers?: Record<string, string>; encrypted?: boolean } = {},
+    ): Promise<T> {
+      const headers: Record<string, string> = { host: "127.0.0.1:27123", ...request.headers };
+      const req = {
+        get: (name: string) => headers[name.toLowerCase()],
+        socket: { encrypted: request.encrypted ?? false },
+      } as unknown as express.Request;
+      // @ts-ignore: requestContext is private — the test stands in for handleRequest.
+      return mcp.requestContext.run(req, fn);
+    }
+
+    function registeredNames(): string[] {
+      return registerTool.mock.calls.map((c: unknown[]) => c[0] as string);
+    }
+
+    beforeEach(() => {
+      const png = makeMockFile(PNG_PATH);
+      png.stat.size = PNG_BYTES.byteLength;
+      ops.app.vault.getAbstractFileByPath.mockImplementation((path: string) =>
+        path === PNG_PATH || path === "data.bin" ? png : null,
+      );
       ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(PNG_BYTES));
-      const cb = getToolCallback("vault_read_binary");
-      const result = await cb({ path: "attachments/pixel.png" });
-      expect(ops.readBinaryFileContent).toHaveBeenCalledWith("attachments/pixel.png");
-      expect(parseText(result)).toEqual({
-        path: "attachments/pixel.png",
+    });
+
+    // ---- registration ------------------------------------------------------
+
+    test("the signed-URL tools are registered only while the setting is on, which it is by default", () => {
+      build(UNSIGNED);
+      expect(registeredNames()).not.toContain("vault_get_download_url");
+      expect(registeredNames()).not.toContain("vault_get_upload_url");
+      expect(registerTool).toHaveBeenCalledTimes(17);
+      build();
+      expect(registeredNames()).toEqual(
+        expect.arrayContaining(["vault_get_download_url", "vault_get_upload_url"]),
+      );
+      expect(registerTool).toHaveBeenCalledTimes(19);
+    });
+
+    test("setSignedUrlsEnabled adds and removes the tools without rebuilding the handler", () => {
+      const mcp = build(UNSIGNED);
+      mcp.setSignedUrlsEnabled(true);
+      registerTool.mockClear();
+      buildServer(mcp);
+      expect(registeredNames()).toContain("vault_get_upload_url");
+      mcp.setSignedUrlsEnabled(false);
+      registerTool.mockClear();
+      buildServer(mcp);
+      expect(registeredNames()).not.toContain("vault_get_upload_url");
+      // Idempotent in both directions.
+      mcp.setSignedUrlsEnabled(false);
+      mcp.setSignedUrlsEnabled(true);
+      mcp.setSignedUrlsEnabled(true);
+      registerTool.mockClear();
+      buildServer(mcp);
+      expect(registeredNames().filter((n) => n === "vault_get_upload_url")).toHaveLength(1);
+    });
+
+    test("an extension can't take a signed-URL tool's name while the setting is off", () => {
+      const { events } = fakeEvents();
+      build(SIGNED, { events });
+      const withSignedUrls = registeredNames();
+      const mcp = build(UNSIGNED, { events });
+      // Derived from what the setting actually toggles, so a signed-URL tool added later
+      // without being reserved fails here.
+      const toggled = withSignedUrls.filter((name) => !registeredNames().includes(name));
+      expect(toggled).toEqual(
+        expect.arrayContaining(["vault_get_download_url", "vault_get_upload_url", "events_get_listener_url"]),
+      );
+      for (const name of toggled) {
+        expect(() => mcp.registerTool(name, "Squatter", {}, async () => "")).toThrow(/reserved/);
+        expect(() =>
+          mcp.registerToolDefinition({
+            name,
+            description: "Squatter",
+            callback: async () => ({ content: [] }),
+          }),
+        ).toThrow(/reserved/);
+      }
+    });
+
+    test("an extension's refused tool leaves turning signed URLs on intact", () => {
+      const mcp = build(UNSIGNED);
+      expect(() =>
+        mcp.registerTool("vault_get_upload_url", "Squatter", {}, async () => ""),
+      ).toThrow();
+      expect(() => mcp.setSignedUrlsEnabled(true)).not.toThrow();
+      registerTool.mockClear();
+      buildServer(mcp);
+      const upload = registerTool.mock.calls.filter(([name]) => name === "vault_get_upload_url");
+      expect(upload).toHaveLength(1);
+      expect(upload[0][1]).toEqual(
+        expect.objectContaining({ description: expect.not.stringContaining("Squatter") }),
+      );
+    });
+
+    // ---- vault_read_binary: images ------------------------------------------
+
+    test("returns an image as a downscaled image block plus a text block describing it", async () => {
+      const scaler = fakeScaler();
+      build(DEFAULT_SETTINGS, { imageScaler: scaler });
+      const result = await getToolCallback("vault_read_binary")({ path: PNG_PATH });
+      expect(scaler.scale).toHaveBeenCalledTimes(1);
+      const [bytes, mimeType, maxEdge] = scaler.scale.mock.calls[0] as unknown as [ArrayBuffer, string, number];
+      expect(Buffer.from(bytes).equals(PNG_BYTES)).toBe(true);
+      expect(mimeType).toBe("image/png");
+      expect(maxEdge).toBe(MaximumImageEdge);
+      expect(result.content).toHaveLength(2);
+      expect(result.content[0]).toEqual({
+        type: "image",
+        data: Buffer.from("scaled-bytes").toString("base64"),
+        mimeType: "image/png",
+        annotations: { audience: ["user", "assistant"], priority: 0.9 },
+      });
+      expect(result.content[1].type).toBe("text");
+      expect(JSON.parse(result.content[1].text)).toEqual({
+        path: PNG_PATH,
         mimeType: "image/png",
         size: PNG_BYTES.byteLength,
-        encoding: "base64",
-        content: PNG_BASE64,
+        width: 10,
+        height: 5,
       });
     });
 
-    test("vault_read_binary falls back to application/octet-stream for an unknown extension", async () => {
-      ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(Buffer.from([0, 1, 2])));
-      const cb = getToolCallback("vault_read_binary");
-      expect(parseText(await cb({ path: "data.zzz" })).mimeType).toBe(
-        "application/octet-stream",
+    test("with no scaler in the runtime, a small model-readable image goes through as-is without dimensions", async () => {
+      build(DEFAULT_SETTINGS, { imageScaler: null });
+      const result = await getToolCallback("vault_read_binary")({ path: PNG_PATH });
+      expect(result.content[0]).toMatchObject({ type: "image", data: PNG_BASE64, mimeType: "image/png" });
+      expect(JSON.parse(result.content[1].text)).toEqual({
+        path: PNG_PATH,
+        mimeType: "image/png",
+        size: PNG_BYTES.byteLength,
+      });
+    });
+
+    test("an image the renderer cannot decode falls through to the non-image path", async () => {
+      const scaler = { scale: jest.fn().mockRejectedValue(new Error("not an image")) };
+      build(UNSIGNED, { imageScaler: scaler });
+      const result = await getToolCallback("vault_read_binary")({ path: PNG_PATH });
+      expect(result.content[0].type).toBe("resource");
+    });
+
+    test("as: 'bytes' embeds an image's raw bytes without scaling", async () => {
+      const scaler = fakeScaler();
+      build(DEFAULT_SETTINGS, { imageScaler: scaler });
+      const result = await getToolCallback("vault_read_binary")({ path: PNG_PATH, as: "bytes" });
+      expect(scaler.scale).not.toHaveBeenCalled();
+      expect(result.content).toEqual([
+        {
+          type: "resource",
+          resource: {
+            uri: "obsidian://local-rest-api/vault/attachments/pixel.png",
+            mimeType: "image/png",
+            blob: PNG_BASE64,
+          },
+        },
+      ]);
+    });
+
+    // A scaler that mirrors CanvasImageScaler's early return: an image already inside
+    // `MaximumImageEdge` is handed straight back, original bytes and all, with nothing
+    // resized or re-encoded.
+    function passthroughScaler() {
+      return {
+        scale: jest.fn(async (bytes: ArrayBuffer, mimeType: string) => ({
+          data: Buffer.from(bytes),
+          mimeType,
+          width: 1536,
+          height: 864,
+          transformed: false,
+        })),
+      };
+    }
+
+    test("an image too large to inline comes back as a link rather than an image block", async () => {
+      // The regression this guards: a large-but-not-wide image (1536x864, well inside
+      // MaximumImageEdge) is never resized, so the scaler returns its original bytes and
+      // the result used to carry the whole file as base64 -- which killed Obsidian's
+      // renderer outright. It has to degrade to a link instead.
+      const scaler = passthroughScaler();
+      const mcp = build(SIGNED, { imageScaler: scaler });
+      ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
+      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: PNG_PATH }));
+      expect(scaler.scale).toHaveBeenCalledTimes(1);
+      expect(result.content[0].type).toBe("resource_link");
+      expect(result.content.some((c: { type: string }) => c.type === "image")).toBe(false);
+    });
+
+    test("an image still over the ceiling after downscaling comes back as a link", async () => {
+      const scaler = {
+        scale: jest.fn(async () => ({
+          data: Buffer.alloc(MaximumMcpBinaryBytes + 1),
+          mimeType: "image/png",
+          width: MaximumImageEdge,
+          height: MaximumImageEdge,
+          transformed: true,
+        })),
+      };
+      const mcp = build(SIGNED, { imageScaler: scaler });
+      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: PNG_PATH }));
+      expect(result.content[0].type).toBe("resource_link");
+    });
+
+    test("an oversized image with signed URLs off refuses rather than inlining it", async () => {
+      const scaler = passthroughScaler();
+      build(UNSIGNED, { imageScaler: scaler });
+      ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
+      await expect(getToolCallback("vault_read_binary")({ path: PNG_PATH })).rejects.toThrow(
+        /limit is .* GET \/vault\/<path>/s,
       );
     });
 
-    test("vault_read_binary refuses a file over the ceiling instead of returning it", async () => {
-      ops.readBinaryFileContent.mockResolvedValue(
-        new ArrayBuffer(MaximumMcpBinaryBytes + 1),
-      );
-      const cb = getToolCallback("vault_read_binary");
-      await expect(cb({ path: "big.bin" })).rejects.toThrow(
-        /Refusing to read .* GET or PUT \/vault/s,
-      );
+    test("an image exactly at the ceiling is still inlined", async () => {
+      const scaler = {
+        scale: jest.fn(async () => ({
+          data: Buffer.alloc(MaximumMcpBinaryBytes),
+          mimeType: "image/png",
+          width: 10,
+          height: 5,
+          transformed: true,
+        })),
+      };
+      build(SIGNED, { imageScaler: scaler });
+      const result = await getToolCallback("vault_read_binary")({ path: PNG_PATH });
+      expect(result.content[0].type).toBe("image");
     });
 
-    test("vault_write_binary decodes base64 and hands writeFileContent a Buffer", async () => {
-      const cb = getToolCallback("vault_write_binary");
-      const result = await cb({ path: "attachments/pixel.png", content: PNG_BASE64 });
-      expect(ops.writeFileContent).toHaveBeenCalledTimes(1);
-      const [writtenPath, writtenContent] = ops.writeFileContent.mock.calls[0];
-      expect(writtenPath).toBe("attachments/pixel.png");
-      expect(Buffer.isBuffer(writtenContent)).toBe(true);
-      // The bytes must survive intact — this is the whole point of the tool.
-      expect((writtenContent as Buffer).equals(PNG_BYTES)).toBe(true);
-      expect(parseText(result)).toEqual({ message: "OK", size: PNG_BYTES.byteLength });
-    });
-
-    test("vault_write_binary tolerates whitespace-wrapped base64", async () => {
-      const cb = getToolCallback("vault_write_binary");
-      const wrapped = PNG_BASE64.replace(/(.{40})/g, "$1\n");
-      await cb({ path: "attachments/pixel.png", content: wrapped });
-      const [, writtenContent] = ops.writeFileContent.mock.calls[0];
-      expect((writtenContent as Buffer).equals(PNG_BYTES)).toBe(true);
+    test("an oversized file is refused from its stat, without being read", async () => {
+      build(UNSIGNED, { imageScaler: null });
+      const big = makeMockFile("attachments/huge.bin");
+      big.stat = { ctime: 0, mtime: 0, size: MaximumMcpBinaryBytes + 1 };
+      ops.app.vault.getAbstractFileByPath.mockReturnValue(big);
+      ops.readBinaryFileContent.mockClear();
+      await expect(
+        getToolCallback("vault_read_binary")({ path: "attachments/huge.bin", as: "bytes" }),
+      ).rejects.toThrow(/Refusing to embed/);
+      // The point of the fix: the refusal comes from the stat, so a multi-gigabyte file
+      // is never pulled into the renderer only to be rejected afterwards.
+      expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
     });
 
     test.each([
-      ["a bad length", "iVBOR"],
-      ["a character outside the alphabet", "iVBO*w0KGgo="],
-      ["base64url input", "-_-_"],
-      ["a non-canonical encoding", "QR=="],
-    ])(
-      "vault_write_binary rejects %s rather than writing mangled bytes",
-      async (_label: string, content: string) => {
-        const cb = getToolCallback("vault_write_binary");
-        await expect(cb({ path: "attachments/pixel.png", content })).rejects.toThrow(
-          /must be base64-encoded bytes/,
-        );
-        expect(ops.writeFileContent).not.toHaveBeenCalled();
+      ["diagrams/flow.svg", null],
+      ["diagrams/flow.SVG", null],
+      ["diagrams/flow.svgz", "image/svg+xml"],
+      ["diagrams/flow.SVGZ", "image/svg+xml"],
+    ])("vault_write treats %s correctly", async (path, refusedAs) => {
+      build(DEFAULT_SETTINGS, { imageScaler: null });
+      const call = getToolCallback("vault_write")({ path, content: "<svg/>" });
+      if (refusedAs === null) {
+        await expect(call).resolves.toBeDefined();
+      } else {
+        // `mime-types` maps .svgz to image/svg+xml as well, but it is a gzip stream --
+        // exempting by MIME type alone let a text write destroy the attachment.
+        await expect(call).rejects.toThrow(/Refusing to write .* as text/);
+      }
+    });
+
+    test.each([
+      "archives/a.bz2",
+      "archives/a.xz",
+      "archives/a.7z",
+      "archives/a.rar",
+      "archives/a.tar",
+      "archives/a.epub",
+      "archives/a.cab",
+      "archives/a.iso",
+      "archives/a.zip",
+      "archives/a.gz",
+    ])("vault_write refuses %s as text", async (path) => {
+      build(DEFAULT_SETTINGS, { imageScaler: null });
+      // The explicit list missed .bz2 and .xz outright; matching +zip/+gzip and
+      // -compressed by shape covers the vendor containers mime-db knows about too.
+      await expect(getToolCallback("vault_write")({ path, content: "x" })).rejects.toThrow(
+        /Refusing to write .* as text/,
+      );
+    });
+
+    test.each(["notes/a.md", "notes/a.txt", "data/a.json", "diagrams/a.svg"])(
+      "vault_write still accepts %s",
+      async (path) => {
+        build(DEFAULT_SETTINGS, { imageScaler: null });
+        await expect(getToolCallback("vault_write")({ path, content: "x" })).resolves.toBeDefined();
       },
     );
 
-    // The base64url hint is worth its space only for a caller who actually used base64url;
-    // on every other failure it is a paragraph about an encoding nobody reached for.
-    test("vault_write_binary names base64url only when the payload looks like it", async () => {
-      const cb = getToolCallback("vault_write_binary");
-      await expect(
-        cb({ path: "attachments/pixel.png", content: "-_-_" }),
-      ).rejects.toThrow(/base64url/);
-      await expect(
-        cb({ path: "attachments/pixel.png", content: "iVBOR" }),
-      ).rejects.not.toThrow(/base64url/);
+    // ---- vault_read_binary: SVG -----------------------------------------------
+
+    const SVG_PATH = "diagrams/flow.svg";
+    const SVG_SOURCE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
+
+    // An SVG is never reduced, so its size is now decided from the stat before any read
+    // -- which means these tests need the file to exist in the mock vault, not just in
+    // `readBinaryFileContent`.
+    function svgFileExists(size = SVG_SOURCE.length): void {
+      const f = makeMockFile(SVG_PATH);
+      f.stat = { ctime: 0, mtime: 0, size };
+      ops.app.vault.getAbstractFileByPath.mockReturnValue(f);
+    }
+
+    test("an SVG goes through unchanged as its source text, and never touches the scaler", async () => {
+      const scaler = fakeScaler();
+      build(DEFAULT_SETTINGS, { imageScaler: scaler });
+      svgFileExists();
+      ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(Buffer.from(SVG_SOURCE, "utf-8")));
+      const result = await getToolCallback("vault_read_binary")({ path: SVG_PATH });
+      expect(scaler.scale).not.toHaveBeenCalled();
+      expect(result.content).toEqual([
+        {
+          type: "resource",
+          resource: {
+            uri: "obsidian://local-rest-api/vault/diagrams/flow.svg",
+            mimeType: "image/svg+xml",
+            text: SVG_SOURCE,
+          },
+        },
+        {
+          type: "text",
+          text: JSON.stringify({
+            path: SVG_PATH,
+            mimeType: "image/svg+xml",
+            size: Buffer.byteLength(SVG_SOURCE, "utf-8"),
+          }),
+        },
+      ]);
     });
 
-    test("vault_write_binary refuses a payload over the ceiling", async () => {
-      const cb = getToolCallback("vault_write_binary");
-      const oversized = Buffer.alloc(MaximumMcpBinaryBytes + 3).toString("base64");
+    test("an SVG over the embedding ceiling falls through to the non-image path", async () => {
+      const mcp = build(SIGNED);
+      const svg = makeMockFile(SVG_PATH);
+      ops.app.vault.getAbstractFileByPath.mockImplementation((path: string) => (path === SVG_PATH ? svg : null));
+      ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
+      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: SVG_PATH }));
+      expect(result.content[0]).toMatchObject({ type: "resource_link", mimeType: "image/svg+xml" });
+    });
+
+    test("an SVG whose bytes are not UTF-8 falls through to the non-image path", async () => {
+      build(UNSIGNED);
+      svgFileExists(3);
+      ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(Buffer.from([0xff, 0xfe, 0x00])));
+      const result = await getToolCallback("vault_read_binary")({ path: SVG_PATH });
+      expect(result.content[0]).toMatchObject({
+        type: "resource",
+        resource: { mimeType: "image/svg+xml", blob: Buffer.from([0xff, 0xfe, 0x00]).toString("base64") },
+      });
+    });
+
+    test("an oversized SVG is decided from its stat, without being read", async () => {
+      const mcp = build(SIGNED, { imageScaler: null });
+      svgFileExists(MaximumMcpBinaryBytes + 1);
+      ops.readBinaryFileContent.mockClear();
+      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: SVG_PATH }));
+      // An SVG is returned as its own source and is never reduced, so the stat decides.
+      // Previously it was read in full, `svgTextResult` returned null at the cap, and the
+      // bytes were discarded in favour of exactly this link.
+      expect(result.content[0].type).toBe("resource_link");
+      expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
+    });
+
+    test("an oversized image with no scaler in the runtime is also decided from its stat", async () => {
+      const mcp = build(SIGNED, { imageScaler: null });
+      const f = makeMockFile(PNG_PATH);
+      f.stat = { ctime: 0, mtime: 0, size: MaximumMcpBinaryBytes + 1 };
+      ops.app.vault.getAbstractFileByPath.mockReturnValue(f);
+      ops.readBinaryFileContent.mockClear();
+      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: PNG_PATH }));
+      // Nothing can shrink it without a scaler, so there is no reason to read it first.
+      expect(result.content[0].type).toBe("resource_link");
+      expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
+    });
+
+    // ---- vault_read_binary: everything else ----------------------------------
+
+    test("embeds a small non-image file as a resource block when signed URLs are off", async () => {
+      build(UNSIGNED);
+      ops.readBinaryFileContent.mockResolvedValue(arrayBufferOf(Buffer.from([0, 1, 2])));
+      const result = await getToolCallback("vault_read_binary")({ path: "data.bin" });
+      expect(result.content).toEqual([
+        {
+          type: "resource",
+          resource: {
+            uri: "obsidian://local-rest-api/vault/data.bin",
+            mimeType: "application/octet-stream",
+            blob: Buffer.from([0, 1, 2]).toString("base64"),
+          },
+        },
+      ]);
+    });
+
+    test("refuses to embed a file over the ceiling, pointing at REST and the setting when signed URLs are off", async () => {
+      build(UNSIGNED);
+      ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
+      await expect(getToolCallback("vault_read_binary")({ path: "data.bin" })).rejects.toThrow(
+        /limit is .* GET \/vault\/<path>.*Enable signed URLs/s,
+      );
+    });
+
+    test("returns a signed link for a non-image file when signed URLs are on, whatever its size", async () => {
+      const mcp = build(SIGNED);
+      ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
+      const result = await overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: "data.bin" }));
+      expect(result.content[0]).toMatchObject({
+        type: "resource_link",
+        name: "data.bin",
+        mimeType: "application/octet-stream",
+        size: PNG_BYTES.byteLength,
+        annotations: {
+          audience: ["user", "assistant"],
+          priority: 0.9,
+          lastModified: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+        },
+      });
+      // The prose fallback restates the link, so it is ranked below it: a client with
+      // room for only one block should keep the structured link.
+      expect(result.content[1]).toMatchObject({
+        type: "text",
+        annotations: { audience: ["user", "assistant"], priority: 0.3 },
+      });
+      expect((result.content[0] as { uri: string }).uri).toMatch(
+        /^http:\/\/127\.0\.0\.1:27123\/vault\/data\.bin\?sig=[0-9a-f]{64}&exp=\d+&n=[A-Za-z0-9_-]+$/,
+      );
+      expect(result.content[1].type).toBe("text");
+      expect(result.content[1].text).toContain("[data.bin](http://127.0.0.1:27123/vault/data.bin?sig=");
+      // Deliberately thin: mimeType and size are structured fields on the resource_link
+      // block above, so the text block carries only the pasteable link and the expiry.
+      expect(result.content[1].text).toContain("link valid until");
+      expect(result.content[1].text).not.toContain("application/octet-stream");
+      expect(result.content[1].text).not.toMatch(/\d+ bytes/);
+    });
+
+    test("as: 'link' returns a signed link even for an image, and never reads the file", async () => {
+      const scaler = fakeScaler();
+      const mcp = build(SIGNED, { imageScaler: scaler });
+      const result = await overHttp(mcp, () =>
+        getToolCallback("vault_read_binary")({ path: PNG_PATH, as: "link" }),
+      );
+      expect(result.content[0].type).toBe("resource_link");
+      expect(scaler.scale).not.toHaveBeenCalled();
+      expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
+    });
+
+    test("as: 'link' with signed URLs off fails naming the setting", async () => {
+      build(UNSIGNED);
       await expect(
-        cb({ path: "big.bin", content: oversized }),
-      ).rejects.toThrow(/Refusing to write/);
+        getToolCallback("vault_read_binary")({ path: PNG_PATH, as: "link" }),
+      ).rejects.toThrow(/Enable signed URLs/);
+    });
+
+    test("as: 'bytes' over the ceiling suggests a link when signed URLs are on", async () => {
+      const mcp = build(SIGNED);
+      ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
+      await expect(
+        overHttp(mcp, () => getToolCallback("vault_read_binary")({ path: "data.bin", as: "bytes" })),
+      ).rejects.toThrow(/as: "link"/);
+    });
+
+    test("normalizes the path before reading, so a traversal-shaped path names the same file", async () => {
+      build();
+      await getToolCallback("vault_read_binary")({ path: "notes/../attachments/pixel.png" });
+      expect(ops.readBinaryFileContent).toHaveBeenCalledWith(PNG_PATH);
+      await expect(getToolCallback("vault_read_binary")({ path: "../outside.png" })).rejects.toThrow(
+        /Not a file path inside the vault/,
+      );
+    });
+
+    // ---- vault_get_download_url ---------------------------------------------
+
+    test("vault_get_download_url builds the link from the request's scheme and host", async () => {
+      const mcp = build(SIGNED);
+      const cb = getToolCallback("vault_get_download_url");
+      const plain = await overHttp(mcp, () => cb({ path: PNG_PATH }));
+      expect((plain.content[0] as { uri: string }).uri).toMatch(
+        /^http:\/\/127\.0\.0\.1:27123\/vault\/attachments\/pixel\.png\?sig=/,
+      );
+      const tls = await overHttp(mcp, () => cb({ path: PNG_PATH }), {
+        encrypted: true,
+        headers: { host: "vault.example.com:27124" },
+      });
+      expect((tls.content[0] as { uri: string }).uri).toMatch(
+        /^https:\/\/vault\.example\.com:27124\/vault\//,
+      );
+      const proxied = await overHttp(mcp, () => cb({ path: PNG_PATH }), {
+        headers: { "x-forwarded-proto": "https, http" },
+      });
+      expect((proxied.content[0] as { uri: string }).uri).toMatch(/^https:\/\/127\.0\.0\.1:27123\//);
+    });
+
+    test("the minted link verifies against the signer the REST side shares", async () => {
+      const signer = new UrlSigner();
+      const mcp = build(SIGNED, { signer });
+      const result = await overHttp(mcp, () => getToolCallback("vault_get_download_url")({ path: PNG_PATH }));
+      const url = new URL((result.content[0] as { uri: string }).uri);
+      expect(
+        signer.verify("GET", PNG_PATH, url.searchParams.get("exp") ?? "", url.searchParams.get("sig") ?? "", url.searchParams.get("n") ?? ""),
+      ).toBe("ok");
+      expect(
+        signer.verify("PUT", PNG_PATH, url.searchParams.get("exp") ?? "", url.searchParams.get("sig") ?? "", url.searchParams.get("n") ?? ""),
+      ).toBe("invalid");
+    });
+
+    test("vault_get_download_url refuses a file that does not exist", async () => {
+      const mcp = build(SIGNED);
+      await expect(
+        overHttp(mcp, () => getToolCallback("vault_get_download_url")({ path: "missing.png" })),
+      ).rejects.toThrow(/File not found/);
+    });
+
+    test("the signed-URL tools fail clearly when called outside an HTTP request", async () => {
+      build(SIGNED);
+      await expect(getToolCallback("vault_get_download_url")({ path: PNG_PATH })).rejects.toThrow(
+        /did not arrive over HTTP/,
+      );
+    });
+
+    // ---- events_get_listener_url --------------------------------------------
+
+    // The subscription and URL machinery is exercised end to end in events.test.ts; here
+    // it is a stand-in, so these check only what the tool itself decides.
+    function fakeEvents() {
+      const createListener = jest.fn(
+        (emitter: string, event: string, _filter: unknown, _ttl: number, baseUrl: string) => ({
+          id: "sub1",
+          emitter,
+          event,
+          url: `${baseUrl}/events/${emitter}/${event}/sub1/?sig=s&exp=1&n=n`,
+          signed: true,
+          expiresAt: "2026-01-01T00:00:00.000Z",
+        }),
+      );
+      const supported: Record<string, string[]> = {
+        vault: ["modify"],
+        workspace: ["file-open"],
+        "some-extension": ["thing-happened"],
+      };
+      const fake = {
+        createListener,
+        isStreamable: (emitter: string, event: string) => supported[emitter]?.includes(event) ?? false,
+        supportedEvents: () => supported,
+      };
+      return { events: fake as unknown as EventStreams, createListener };
+    }
+
+    test("events_get_listener_url accepts an event an extension registered", async () => {
+      const { events, createListener } = fakeEvents();
+      const mcp = build(SIGNED, { events });
+      await overHttp(mcp, () =>
+        getToolCallback("events_get_listener_url")({
+          emitter: "some-extension",
+          event: "thing-happened",
+        }),
+      );
+      expect(createListener.mock.calls[0].slice(0, 3)).toEqual([
+        "some-extension",
+        "thing-happened",
+        null,
+      ]);
+    });
+
+    test("events_get_listener_url is registered only with signed URLs on and an event source", () => {
+      const { events } = fakeEvents();
+      build(UNSIGNED, { events });
+      expect(registeredNames()).not.toContain("events_get_listener_url");
+      build(SIGNED);
+      expect(registeredNames()).not.toContain("events_get_listener_url");
+      build(SIGNED, { events });
+      expect(registeredNames()).toContain("events_get_listener_url");
+    });
+
+    test("events_get_listener_url registers a subscription and returns its URL and a curl command", async () => {
+      const { events, createListener } = fakeEvents();
+      const signer = new UrlSigner();
+      const mcp = build({ ...SIGNED, signedUrlTtlSeconds: 120 }, { events, signer });
+      const filter = { glob: ["notes/*", { var: "path" }] };
+      const result = await overHttp(mcp, () =>
+        getToolCallback("events_get_listener_url")({ emitter: "vault", event: "modify", filter }),
+      );
+      expect(createListener).toHaveBeenCalledWith(
+        "vault",
+        "modify",
+        filter,
+        120,
+        "http://127.0.0.1:27123",
+        signer,
+      );
+      const body = JSON.parse((result.content[0] as { text: string }).text) as Record<string, string>;
+      expect(body.url).toBe("http://127.0.0.1:27123/events/vault/modify/sub1/?sig=s&exp=1&n=n");
+      expect(body.command).toBe(`curl -N '${body.url}'`);
+      expect(body.expiresAt).toBe("2026-01-01T00:00:00.000Z");
+    });
+
+    test("events_get_listener_url treats an empty filter as no filter", async () => {
+      const { events, createListener } = fakeEvents();
+      const mcp = build(SIGNED, { events });
+      await overHttp(mcp, () =>
+        getToolCallback("events_get_listener_url")({ emitter: "workspace", event: "file-open", filter: {} }),
+      );
+      expect(createListener.mock.calls[0][2]).toBeNull();
+    });
+
+    test("events_get_listener_url refuses an event that is not streamable", async () => {
+      const { events, createListener } = fakeEvents();
+      const mcp = build(SIGNED, { events });
+      await expect(
+        overHttp(mcp, () =>
+          getToolCallback("events_get_listener_url")({ emitter: "workspace", event: "quick-preview" }),
+        ),
+      ).rejects.toThrow(/not a streamable workspace event.*file-open.*some-extension: thing-happened/);
+      expect(createListener).not.toHaveBeenCalled();
+    });
+
+    // ---- vault_get_upload_url -----------------------------------------------
+
+    test.each([
+      ["$(echo PWNED).png", "'$(echo PWNED).png'"],
+      ["`id`.png", "'`id`.png'"],
+      ["a b;rm -rf x.png", "'a b;rm -rf x.png'"],
+      ["it's.png", "'it'\\''s.png'"],
+      ["$HOME.png", "'$HOME.png'"],
+    ])("the advertised curl command quotes %s so a shell cannot expand it", async (name, quoted) => {
+      const mcp = build(SIGNED, { signer: new UrlSigner() });
+      const result = await overHttp(mcp, () =>
+        getToolCallback("vault_get_upload_url")({ path: `attachments/${name}` }),
+      );
+      // JSON.stringify would double-quote these, and a shell expands $, ` and $() inside
+      // double quotes -- so the ready-to-run command became code execution on paste.
+      expect(parseText(result).command).toContain(`--data-binary @${quoted} `);
+      expect(parseText(result).command).not.toContain(`--data-binary @"`);
+    });
+
+    describe("minting refuses a configuration-directory path", () => {
+      // A signed URL lets its holder read or write the path with no API key, so
+      // the config-dir rule has to hold at mint time, by spelling and by where
+      // the path lands on disk.
+      afterEach(() => {
+        jest.restoreAllMocks();
+      });
+
+      test.each(["vault_get_upload_url", "vault_get_download_url"])(
+        "%s refuses .obsidian/plugins/pwn/main.js",
+        async (tool) => {
+          const mcp = build(SIGNED, { signer: new UrlSigner() });
+          await expect(
+            overHttp(mcp, () => getToolCallback(tool)({ path: ".obsidian/plugins/pwn/main.js" })),
+          ).rejects.toThrow(/configuration directory/i);
+        },
+      );
+
+      test.each(["vault_get_upload_url", "vault_get_download_url"])(
+        "%s refuses an 8.3 short name for the config dir",
+        async (tool) => {
+          ops.app.vault.adapter = new FileSystemAdapter("/vault");
+          jest.spyOn(fs.realpathSync, "native").mockImplementation(
+            fakeRealpath({ "/vault/OBSIDI~1": "/vault/.obsidian" }, [
+              "/vault",
+              "/vault/.obsidian",
+            ]),
+          );
+          const mcp = build(SIGNED, { signer: new UrlSigner() });
+          await expect(
+            overHttp(mcp, () => getToolCallback(tool)({ path: "OBSIDI~1/plugins/pwn/main.js" })),
+          ).rejects.toThrow(/configuration directory/i);
+        },
+      );
+    });
+
+    test("a hostile Host header cannot break out of the advertised command", async () => {
+      const mcp = build(SIGNED, { signer: new UrlSigner() });
+      const result = await overHttp(
+        mcp,
+        () => getToolCallback("vault_get_upload_url")({ path: "attachments/a.png" }),
+        { headers: { host: '127.0.0.1:27123"; touch /tmp/pwned; echo "' } },
+      );
+      const { command, url } = parseText(result) as { command: string; url: string };
+      // The URL is built from the request's Host, so it is attacker-influenced. Quoting
+      // the filename alone left this half of the command exposed. Double quotes may still
+      // appear -- inside the single-quoted URL, where they are inert -- so the assertion
+      // that matters is what a shell actually parses the command into.
+      const argv = execFileSync(
+        "/bin/sh",
+        ["-c", `printf '%s\\n' ${command.replace(/^curl /, "")}`],
+        { encoding: "utf-8" },
+      )
+        .split("\n")
+        .filter(Boolean);
+      expect(argv).toContain(url);
+      expect(argv).toContain("Content-Type: image/png");
+      expect(argv.some((a) => a.includes("touch /tmp/pwned"))).toBe(true);
+      expect(existsSync("/tmp/pwned")).toBe(false);
+    });
+
+    test("vault_get_upload_url returns a single-use PUT link with a ready-to-run curl command", async () => {
+      const signer = new UrlSigner();
+      const mcp = build(SIGNED, { signer });
+      const result = await overHttp(mcp, () =>
+        getToolCallback("vault_get_upload_url")({ path: "attachments/new photo.jpg" }),
+      );
+      const body = parseText(result);
+      // `path` is the normalized target, not an echo: this tool overwrites without
+      // warning, so what the argument resolved to is worth stating.
+      expect(body).toMatchObject({
+        path: "attachments/new photo.jpg",
+        contentType: "image/jpeg",
+      });
+      // `method` and `singleUse` are constants the tool description already states, so
+      // they are deliberately absent rather than restated on every call.
+      expect(body).not.toHaveProperty("method");
+      expect(body).not.toHaveProperty("singleUse");
+      expect(body.url).toMatch(/^http:\/\/127\.0\.0\.1:27123\/vault\/attachments\/new%20photo\.jpg\?sig=/);
+      expect(body.command).toBe(
+        `curl -X PUT -H 'Content-Type: image/jpeg' --data-binary @'new photo.jpg' '${body.url}'`,
+      );
+      expect(new Date(body.expiresAt).getTime()).toBeGreaterThan(Date.now());
+      const url = new URL(body.url);
+      expect(
+        signer.verify("PUT", "attachments/new photo.jpg", url.searchParams.get("exp") ?? "", url.searchParams.get("sig") ?? "", url.searchParams.get("n") ?? ""),
+      ).toBe("ok");
+    });
+
+    test("vault_get_upload_url honours the configured lifetime", async () => {
+      const mcp = build({ ...SIGNED, signedUrlTtlSeconds: 60 });
+      const before = Date.now();
+      const body = parseText(
+        await overHttp(mcp, () => getToolCallback("vault_get_upload_url")({ path: "a.bin" })),
+      );
+      const expiresIn = (new Date(body.expiresAt).getTime() - before) / 1000;
+      expect(expiresIn).toBeGreaterThan(55);
+      expect(expiresIn).toBeLessThanOrEqual(61);
+    });
+
+    // ---- the text tools refuse binary targets ---------------------------------
+
+    test.each([
+      ["a PNG path", "attachments/pixel.png", "hello", /image\/png.*vault_get_upload_url/s],
+      ["a PDF path", "docs/paper.pdf", "hello", /application\/pdf/],
+      ["content with a NUL byte", "notes/odd.md", "text\0more", /NUL byte/],
+    ])("vault_write and vault_append refuse %s", async (_label, path, content, pattern) => {
+      build();
+      await expect(getToolCallback("vault_write")({ path, content })).rejects.toThrow(pattern);
+      await expect(getToolCallback("vault_append")({ path, content })).rejects.toThrow(pattern);
       expect(ops.writeFileContent).not.toHaveBeenCalled();
+      expect(ops.appendFileContent).not.toHaveBeenCalled();
     });
 
-    test("vault_write_binary writes an empty file for an empty payload", async () => {
-      const cb = getToolCallback("vault_write_binary");
-      const result = await cb({ path: "empty.bin", content: "" });
-      const [, writtenContent] = ops.writeFileContent.mock.calls[0];
-      expect((writtenContent as Buffer).byteLength).toBe(0);
-      expect(parseText(result).size).toBe(0);
+    test("vault_write still writes text types, unknown extensions, and SVG (an image type that is text)", async () => {
+      build();
+      await getToolCallback("vault_write")({ path: "notes/a.md", content: "# hi" });
+      await getToolCallback("vault_write")({ path: "data/config.json", content: "{}" });
+      await getToolCallback("vault_write")({ path: "no-extension", content: "x" });
+      await getToolCallback("vault_write")({ path: "diagrams/flow.svg", content: "<svg/>" });
+      expect(ops.writeFileContent).toHaveBeenCalledTimes(4);
     });
   });
 
@@ -750,7 +1608,7 @@ describe("McpHandler", () => {
   test("vault_append calls appendFileContent and returns OK", async () => {
     const cb = getToolCallback("vault_append");
     const result = await cb({ path: "out.md", content: "\nmore" });
-    expect(ops.appendFileContent).toHaveBeenCalledWith("out.md", "\nmore");
+    expect(ops.appendFileContent).toHaveBeenCalledWith("out.md", "\nmore", undefined);
     expect(parseText(result).message).toBe("OK");
   });
 
@@ -1038,14 +1896,14 @@ describe("McpHandler", () => {
   test("vault_delete calls deleteVaultFile and returns OK, defaulting to trash", async () => {
     const cb = getToolCallback("vault_delete");
     const result = await cb({ path: "old.md" });
-    expect(ops.deleteVaultFile).toHaveBeenCalledWith("old.md", false);
+    expect(ops.deleteVaultFile).toHaveBeenCalledWith("old.md", false, undefined);
     expect(parseText(result).message).toBe("OK");
   });
 
   test("vault_delete passes permanent flag through", async () => {
     const cb = getToolCallback("vault_delete");
     await cb({ path: "old.md", permanent: true });
-    expect(ops.deleteVaultFile).toHaveBeenCalledWith("old.md", true);
+    expect(ops.deleteVaultFile).toHaveBeenCalledWith("old.md", true, undefined);
   });
 
   // ---- vault_move ---------------------------------------------------------
@@ -1055,7 +1913,7 @@ describe("McpHandler", () => {
       ops.moveVaultFile.mockResolvedValue("archive/file.md");
       const cb = getToolCallback("vault_move");
       const result = await cb({ path: "folder/file.md", destination: "archive/file.md" });
-      expect(ops.moveVaultFile).toHaveBeenCalledWith("folder/file.md", "archive/file.md", false);
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("folder/file.md", "archive/file.md", false, undefined);
       const parsed = parseText(result);
       expect(parsed.message).toBe("OK");
       expect(parsed.oldPath).toBe("folder/file.md");
@@ -1066,21 +1924,21 @@ describe("McpHandler", () => {
       ops.moveVaultFile.mockResolvedValue("archive/todo.md");
       const cb = getToolCallback("vault_move");
       const result = await cb({ path: "notes/todo.md", destination: "archive/" });
-      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "archive/todo.md", false);
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "archive/todo.md", false, undefined);
       expect(parseText(result).newPath).toBe("archive/todo.md");
     });
 
     test("passes allowOverwrite flag", async () => {
       const cb = getToolCallback("vault_move");
       await cb({ path: "a.md", destination: "b.md", allowOverwrite: true });
-      expect(ops.moveVaultFile).toHaveBeenCalledWith("a.md", "b.md", true);
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("a.md", "b.md", true, undefined);
     });
 
     test("empty destination moves to vault root preserving source filename", async () => {
       ops.moveVaultFile.mockResolvedValue("todo.md");
       const cb = getToolCallback("vault_move");
       const result = await cb({ path: "notes/todo.md", destination: "" });
-      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false);
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false, undefined);
       expect(parseText(result).newPath).toBe("todo.md");
     });
 
@@ -1088,7 +1946,7 @@ describe("McpHandler", () => {
       ops.moveVaultFile.mockResolvedValue("todo.md");
       const cb = getToolCallback("vault_move");
       await cb({ path: "notes/todo.md", destination: "   " });
-      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false);
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false, undefined);
     });
 
     test("rejects path traversal in destination", async () => {
@@ -1119,7 +1977,7 @@ describe("McpHandler", () => {
       ops.moveVaultFile.mockResolvedValue("archive/notes..md");
       const cb = getToolCallback("vault_move");
       const result = await cb({ path: "a.md", destination: "archive/notes..md" });
-      expect(ops.moveVaultFile).toHaveBeenCalledWith("a.md", "archive/notes..md", false);
+      expect(ops.moveVaultFile).toHaveBeenCalledWith("a.md", "archive/notes..md", false, undefined);
       expect(parseText(result).newPath).toBe("archive/notes..md");
     });
 
@@ -1139,7 +1997,7 @@ describe("McpHandler", () => {
       ops.copyVaultFile.mockResolvedValue("archive/file.md");
       const cb = getToolCallback("vault_copy");
       const result = await cb({ path: "folder/file.md", destination: "archive/file.md" });
-      expect(ops.copyVaultFile).toHaveBeenCalledWith("folder/file.md", "archive/file.md", false);
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("folder/file.md", "archive/file.md", false, undefined);
       const parsed = parseText(result);
       expect(parsed.message).toBe("OK");
       expect(parsed.sourcePath).toBe("folder/file.md");
@@ -1150,21 +2008,21 @@ describe("McpHandler", () => {
       ops.copyVaultFile.mockResolvedValue("archive/todo.md");
       const cb = getToolCallback("vault_copy");
       const result = await cb({ path: "notes/todo.md", destination: "archive/" });
-      expect(ops.copyVaultFile).toHaveBeenCalledWith("notes/todo.md", "archive/todo.md", false);
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("notes/todo.md", "archive/todo.md", false, undefined);
       expect(parseText(result).newPath).toBe("archive/todo.md");
     });
 
     test("passes allowOverwrite flag", async () => {
       const cb = getToolCallback("vault_copy");
       await cb({ path: "a.md", destination: "b.md", allowOverwrite: true });
-      expect(ops.copyVaultFile).toHaveBeenCalledWith("a.md", "b.md", true);
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("a.md", "b.md", true, undefined);
     });
 
     test("empty destination copies to vault root preserving source filename", async () => {
       ops.copyVaultFile.mockResolvedValue("todo.md");
       const cb = getToolCallback("vault_copy");
       const result = await cb({ path: "notes/todo.md", destination: "" });
-      expect(ops.copyVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false);
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("notes/todo.md", "todo.md", false, undefined);
       expect(parseText(result).newPath).toBe("todo.md");
     });
 
@@ -1188,7 +2046,7 @@ describe("McpHandler", () => {
       ops.copyVaultFile.mockResolvedValue("archive/notes..md");
       const cb = getToolCallback("vault_copy");
       const result = await cb({ path: "a.md", destination: "archive/notes..md" });
-      expect(ops.copyVaultFile).toHaveBeenCalledWith("a.md", "archive/notes..md", false);
+      expect(ops.copyVaultFile).toHaveBeenCalledWith("a.md", "archive/notes..md", false, undefined);
       expect(parseText(result).newPath).toBe("archive/notes..md");
     });
 
@@ -1198,6 +2056,117 @@ describe("McpHandler", () => {
       await expect(cb({ path: "missing.md", destination: "dest.md" })).rejects.toThrow(
         "File not found",
       );
+    });
+  });
+
+  // ---- configuration directory access -------------------------------------
+
+  describe("configuration directory access (GHSA-66m9-r757-qvq7)", () => {
+    const CONFIG_PATHS = [
+      ".obsidian",
+      ".obsidian/community-plugins.json",
+      ".obsidian/plugins/pwn/main.js",
+    ];
+
+    describe("is refused by default", () => {
+      beforeEach(() => {
+        registerTool.mockClear();
+        buildServer(new McpHandler(ops, DEFAULT_SETTINGS));
+      });
+
+      test.each(CONFIG_PATHS)("vault_write refuses %s", async (path) => {
+        await expect(
+          getToolCallback("vault_write")({ path, content: "x" }),
+        ).rejects.toThrow(/configuration directory/i);
+        expect(ops.writeFileContent).not.toHaveBeenCalled();
+      });
+
+      test.each(CONFIG_PATHS)("vault_append refuses %s", async (path) => {
+        await expect(
+          getToolCallback("vault_append")({ path, content: "x" }),
+        ).rejects.toThrow(/configuration directory/i);
+        expect(ops.appendFileContent).not.toHaveBeenCalled();
+      });
+
+      test("vault_delete refuses a config path", async () => {
+        await expect(
+          getToolCallback("vault_delete")({ path: ".obsidian/app.json" }),
+        ).rejects.toThrow(/configuration directory/i);
+        expect(ops.deleteVaultFile).not.toHaveBeenCalled();
+      });
+
+      test("open_file refuses a config path", async () => {
+        await expect(
+          getToolCallback("open_file")({ path: ".obsidian/app.json" }),
+        ).rejects.toThrow(/configuration directory/i);
+        expect(ops.openVaultFile).not.toHaveBeenCalled();
+      });
+
+      test("a sibling directory that merely shares the prefix is allowed", async () => {
+        await getToolCallback("vault_write")({
+          path: ".obsidian-backup/note.md",
+          content: "x",
+        });
+        expect(ops.writeFileContent).toHaveBeenCalled();
+      });
+    });
+
+    describe("is refused through a spelling only the filesystem resolves", () => {
+      // An NTFS 8.3 short name ("OBSIDI~1") or a symlink reaches the config dir
+      // without containing ".obsidian"; the tools ask the disk where it lands.
+      beforeEach(() => {
+        registerTool.mockClear();
+        ops.app.vault.adapter = new FileSystemAdapter("/vault");
+        jest.spyOn(fs.realpathSync, "native").mockImplementation(
+          fakeRealpath({ "/vault/OBSIDI~1": "/vault/.obsidian" }, [
+            "/vault",
+            "/vault/.obsidian",
+          ]),
+        );
+        buildServer(new McpHandler(ops, DEFAULT_SETTINGS));
+      });
+
+      afterEach(() => {
+        jest.restoreAllMocks();
+      });
+
+      test("vault_write refuses an 8.3 short name", async () => {
+        await expect(
+          getToolCallback("vault_write")({ path: "OBSIDI~1/plugins/pwn/main.js", content: "x" }),
+        ).rejects.toThrow(/configuration directory/i);
+        expect(ops.writeFileContent).not.toHaveBeenCalled();
+      });
+
+      test("vault_read refuses an 8.3 short name", async () => {
+        await expect(
+          getToolCallback("vault_read")({ path: "OBSIDI~1/plugins/pwn/data.json" }),
+        ).rejects.toThrow(/configuration directory/i);
+      });
+
+      test("an ordinary path is still written", async () => {
+        await getToolCallback("vault_write")({ path: "notes/a.md", content: "x" });
+        expect(ops.writeFileContent).toHaveBeenCalled();
+      });
+    });
+
+    describe("is permitted when the setting is on", () => {
+      beforeEach(() => {
+        registerTool.mockClear();
+        buildServer(
+          new McpHandler(ops, {
+            ...DEFAULT_SETTINGS,
+            enableConfigDirAccess: true,
+          }),
+        );
+      });
+
+      test("vault_write writes into the config directory", async () => {
+        await getToolCallback("vault_write")({
+          path: ".obsidian/plugins/pwn/main.js",
+          content: "x",
+        });
+        expect(ops.writeFileContent).toHaveBeenCalled();
+      });
     });
   });
 
@@ -1232,13 +2201,78 @@ describe("McpHandler", () => {
 
   // ---- search_simple ------------------------------------------------------
 
-  test("search_simple calls simpleSearch and returns results", async () => {
+  test("search_simple calls simpleSearch with the default limits and returns results", async () => {
     const cb = getToolCallback("search_simple");
     const result = await cb({ query: "hello", contextLength: 50 });
-    expect(ops.simpleSearch).toHaveBeenCalledWith("hello", 50);
+    expect(ops.simpleSearch).toHaveBeenCalledWith("hello", {
+      contextLength: 50,
+      maxResults: 20,
+      maxMatchesPerFile: 10,
+    });
+    // Nothing was left out, so there is no second block.
     expect(parseText(result)).toEqual(
       expect.arrayContaining([expect.objectContaining({ filename: "a.md" })]),
     );
+  });
+
+  test("search_simple passes explicit limits through", async () => {
+    const cb = getToolCallback("search_simple");
+    await cb({ query: "hello", maxResults: 3, maxMatchesPerFile: 500 });
+    expect(ops.simpleSearch).toHaveBeenCalledWith("hello", {
+      contextLength: undefined,
+      maxResults: 3,
+      maxMatchesPerFile: 500,
+    });
+  });
+
+  test("search_simple's limits must be positive integers", async () => {
+    const call = registerTool.mock.calls.find((c: unknown[]) => c[0] === "search_simple");
+    const { inputSchema } = call?.[1] as {
+      inputSchema: { "~standard": { validate: (value: unknown) => Promise<{ issues?: unknown }> } };
+    };
+    const accepts = async (args: Record<string, unknown>) =>
+      !(await inputSchema["~standard"].validate({ query: "q", ...args })).issues;
+
+    for (const name of ["maxResults", "maxMatchesPerFile"]) {
+      expect(await accepts({ [name]: 5 })).toBe(true);
+      expect(await accepts({})).toBe(true);
+      expect(await accepts({ [name]: 0 })).toBe(false);
+      expect(await accepts({ [name]: 1.5 })).toBe(false);
+    }
+  });
+
+  test("search_simple's contextLength is a bounded, non-negative integer", async () => {
+    const call = registerTool.mock.calls.find((c: unknown[]) => c[0] === "search_simple");
+    const { inputSchema } = call?.[1] as {
+      inputSchema: { "~standard": { validate: (value: unknown) => Promise<{ issues?: unknown }> } };
+    };
+    const accepts = async (args: Record<string, unknown>) =>
+      !(await inputSchema["~standard"].validate({ query: "q", ...args })).issues;
+
+    expect(await accepts({ contextLength: 0 })).toBe(true);
+    expect(await accepts({ contextLength: 500 })).toBe(true);
+    expect(await accepts({ contextLength: 501 })).toBe(false);
+    expect(await accepts({ contextLength: -1 })).toBe(false);
+    expect(await accepts({ contextLength: 1.5 })).toBe(false);
+  });
+
+  test("search_simple says what was left out in a second block", async () => {
+    ops.simpleSearch.mockResolvedValueOnce({
+      results: [
+        { filename: "a.md", score: 2, matches: [], totalMatches: 40 },
+        { filename: "b.md", score: 1, matches: [], totalMatches: 0 },
+      ],
+      totalResults: 7,
+    });
+    const cb = getToolCallback("search_simple");
+    const result = await cb({ query: "the", maxResults: 2 });
+
+    expect(result.content).toHaveLength(2);
+    expect(JSON.parse(result.content[0].text)).toHaveLength(2);
+    expect(result.content[1].text).toMatch(/^\[Search results limited: /);
+    expect(result.content[1].text).toContain("5 more matching files (7 in all)");
+    expect(result.content[1].text).toContain("maxResults=2");
+    expect(result.content[1].text).toContain("1 of the files shown had more than maxMatchesPerFile=10");
   });
 
   // ---- tag_list ----------------------------------------------------------
@@ -1333,8 +2367,8 @@ describe("McpHandler", () => {
 
       const first = await send(1);
       const second = await send(2);
-      expect(first.body.result.tools).toHaveLength(18);
-      expect(second.body.result.tools).toHaveLength(18);
+      expect(first.body.result.tools).toHaveLength(19);
+      expect(second.body.result.tools).toHaveLength(19);
       expect(first.headers["mcp-session-id"]).toBeUndefined();
       expect(second.headers["mcp-session-id"]).toBeUndefined();
     });
@@ -1388,6 +2422,28 @@ describe("McpHandler", () => {
         .expect(200);
       expect(resources.body.result.ttlMs).toBe(60_000);
       expect(resources.body.result.cacheScope).toBe("private");
+    });
+
+    test("reads the server-status resource with no cache lifetime", async () => {
+      mcp.close();
+      mcp = new McpHandler(ops, DEFAULT_SETTINGS, {
+        serverStatus: async () => ({ status: "OK", state: {} }),
+      });
+      app = makeApp(mcp);
+      const uri = "obsidian://local-rest-api/status";
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", "resources/read")
+        .set("Mcp-Name", uri)
+        .send(sessionlessRequest(1, "resources/read", { uri }))
+        .expect(200);
+
+      expect(res.body.result.contents[0].mimeType).toBe("application/json");
+      expect(JSON.parse(res.body.result.contents[0].text)).toEqual({ status: "OK", state: {} });
+      expect(res.body.result.ttlMs).toBe(0);
+      expect(res.body.result.cacheScope).toBe("private");
     });
 
     test("reads the openapi-spec resource", async () => {
@@ -1474,7 +2530,7 @@ describe("McpHandler", () => {
         .send(sessionlessRequest(1, "tools/list"))
         .expect(200);
 
-      expect(res.body.result.tools).toHaveLength(18);
+      expect(res.body.result.tools).toHaveLength(19);
       expect(res.headers["mcp-session-id"]).toBeUndefined();
     });
 
@@ -1602,7 +2658,7 @@ describe("McpHandler", () => {
         .expect(200);
 
       const message = sseResult(res.text);
-      expect(message.result.tools).toHaveLength(18);
+      expect(message.result.tools).toHaveLength(19);
       const vaultList = (message.result.tools as { name: string; inputSchema: unknown }[]).find(
         (t) => t.name === "vault_list",
       );
@@ -1756,5 +2812,686 @@ describe("McpHandler", () => {
       const removableCalls = registerTool.mock.calls.filter((c: unknown[]) => c[0] === "removable_tool");
       expect(removableCalls).toHaveLength(1);
     });
+  });
+
+  // ---- extension tool definitions, resources, and prompts ------------------
+  //
+  // The richer registrations behind the extension API's object-form `addMcpTool`,
+  // `addMcpResource`, `addMcpResourceTemplate`, and `addMcpPrompt`, exercised end to end
+  // so that what reaches the client is what the extension returned.
+
+  describe("extension registrations over HTTP", () => {
+    let mcp: McpHandler;
+    let app: express.Express;
+
+    beforeEach(() => {
+      mcp = new McpHandler(ops, DEFAULT_SETTINGS);
+      app = makeApp(mcp);
+    });
+
+    afterEach(() => {
+      mcp.close();
+    });
+
+    async function send(method: string, params: Record<string, unknown> = {}, name?: string) {
+      let req = request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", method);
+      if (name !== undefined) req = req.set("Mcp-Name", name);
+      const res = await req.send(sessionlessRequest(1, method, params)).expect(200);
+      return res.body;
+    }
+
+    function sseResult(text: string) {
+      const line = text.split("\n").find((l) => l.startsWith("data: "));
+      if (!line) throw new Error(`No SSE data frame in response: ${text}`);
+      return JSON.parse(line.slice("data: ".length));
+    }
+
+    async function openSession(): Promise<string> {
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .send({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: LEGACY_VERSION,
+            capabilities: {},
+            clientInfo: { name: "sessionful-client", version: "1.0.0" },
+          },
+        })
+        .expect(200);
+      return res.headers["mcp-session-id"];
+    }
+
+    async function sendOnSession(sessionId: string, method: string, params: Record<string, unknown> = {}) {
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({ jsonrpc: "2.0", id: 2, method, params })
+        .expect(200);
+      return sseResult(res.text);
+    }
+
+    describe("tool definitions", () => {
+      test("passes the callback's result through unchanged", async () => {
+        const image = { type: "image", data: "aGk=", mimeType: "image/png" } as const;
+        mcp.registerToolDefinition({
+          name: "picture_tool",
+          description: "Returns a picture",
+          callback: async () => ({ content: [{ type: "text", text: "caption" }, image] }),
+        });
+
+        const body = await send("tools/call", { name: "picture_tool", arguments: {} }, "picture_tool");
+        expect(body.result.content).toEqual([{ type: "text", text: "caption" }, image]);
+        expect(body.result.isError).toBeUndefined();
+      });
+
+      test("passes content annotations through unchanged", async () => {
+        const text = {
+          type: "text",
+          text: "For the reader",
+          annotations: { audience: ["user"], priority: 0.9, lastModified: "2026-09-25T14:00:00Z" },
+        } as const;
+        const link = {
+          type: "resource_link",
+          uri: "tandem://index",
+          name: "tandem-index",
+          annotations: { audience: ["assistant"] },
+        } as const;
+        mcp.registerToolDefinition({
+          name: "annotated_tool",
+          description: "Returns annotated content",
+          callback: async () => ({ content: [text, link] }),
+        });
+
+        const body = await send("tools/call", { name: "annotated_tool", arguments: {} }, "annotated_tool");
+        expect(body.result.content).toEqual([text, link]);
+      });
+
+      test("keeps a deliberate isError result rather than treating it as a failure", async () => {
+        mcp.registerToolDefinition({
+          name: "failing_tool",
+          description: "Reports an error",
+          callback: async () => ({ content: [{ type: "text", text: "No such note" }], isError: true }),
+        });
+
+        const body = await send("tools/call", { name: "failing_tool", arguments: {} }, "failing_tool");
+        expect(body.error).toBeUndefined();
+        expect(body.result.isError).toBe(true);
+        expect(body.result.content).toEqual([{ type: "text", text: "No such note" }]);
+      });
+
+      test("hands the callback its validated arguments", async () => {
+        const callback = jest.fn(async (args: Record<string, unknown>) => ({
+          content: [{ type: "text" as const, text: JSON.stringify(args) }],
+        }));
+        mcp.registerToolDefinition({
+          name: "args_tool",
+          description: "Echoes",
+          inputSchema: { path: z.string() },
+          callback,
+        });
+
+        const body = await send(
+          "tools/call",
+          { name: "args_tool", arguments: { path: "a.md" } },
+          "args_tool",
+        );
+        expect(callback).toHaveBeenCalledWith({ path: "a.md" });
+        expect(JSON.parse(body.result.content[0].text)).toEqual({ path: "a.md" });
+      });
+
+      test("advertises title and outputSchema, and returns structuredContent", async () => {
+        mcp.registerToolDefinition({
+          name: "structured_tool",
+          title: "Structured tool",
+          description: "Counts",
+          outputSchema: { count: z.number() },
+          callback: async () => ({
+            content: [{ type: "text", text: '{"count":3}' }],
+            structuredContent: { count: 3 },
+          }),
+        });
+
+        const listed = await send("tools/list");
+        const tool = (listed.result.tools as { name: string }[]).find((t) => t.name === "structured_tool");
+        expect(tool).toMatchObject({
+          title: "Structured tool",
+          outputSchema: { type: "object", properties: { count: { type: "number" } } },
+        });
+
+        const called = await send("tools/call", { name: "structured_tool", arguments: {} }, "structured_tool");
+        expect(called.result.structuredContent).toEqual({ count: 3 });
+      });
+
+      test("rejects structuredContent that does not match the outputSchema", async () => {
+        mcp.registerToolDefinition({
+          name: "lying_tool",
+          description: "Claims a number, returns a string",
+          outputSchema: { count: z.number() },
+          callback: async () => ({
+            content: [{ type: "text", text: "oops" }],
+            structuredContent: { count: "three" },
+          }),
+        });
+
+        const body = await send("tools/call", { name: "lying_tool", arguments: {} }, "lying_tool");
+        const failed = body.error !== undefined || body.result?.isError === true;
+        expect(failed).toBe(true);
+      });
+
+      test("shares the tool namespace with the positional form", () => {
+        mcp.registerTool("shared_name", "Positional", {}, async () => "");
+        expect(() =>
+          mcp.registerToolDefinition({
+            name: "shared_name",
+            description: "Object form",
+            callback: async () => ({ content: [] }),
+          }),
+        ).toThrow(/already registered/);
+        expect(() =>
+          mcp.registerToolDefinition({
+            name: "vault_list",
+            description: "Shadowing a built-in",
+            callback: async () => ({ content: [] }),
+          }),
+        ).toThrow(/already registered/);
+      });
+    });
+
+    describe("resources", () => {
+      test("lists and reads a fixed-URI resource", async () => {
+        mcp.registerResource({
+          name: "tandem-index",
+          uri: "tandem://index",
+          description: "Every note with comments",
+          mimeType: "application/json",
+          read: async (uri) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: "[]" }] }),
+        });
+
+        const listed = await send("resources/list");
+        expect(listed.result.resources).toContainEqual(
+          expect.objectContaining({
+            uri: "tandem://index",
+            name: "tandem-index",
+            description: "Every note with comments",
+            mimeType: "application/json",
+          }),
+        );
+        // The built-in resource is still there alongside it.
+        expect((listed.result.resources as { uri: string }[]).map((r) => r.uri)).toContain(
+          "obsidian://local-rest-api/openapi.yaml",
+        );
+
+        const read = await send("resources/read", { uri: "tandem://index" }, "tandem://index");
+        expect(read.result.contents).toEqual([
+          { uri: "tandem://index", mimeType: "application/json", text: "[]" },
+        ]);
+      });
+
+      test("passes a read result's _meta through", async () => {
+        mcp.registerResource({
+          name: "meta-resource",
+          uri: "tandem://meta",
+          read: async (uri) => ({
+            contents: [{ uri: uri.href, text: "{}" }],
+            _meta: { "tandem/revision": 7 },
+          }),
+        });
+
+        const read = await send("resources/read", { uri: "tandem://meta" }, "tandem://meta");
+        expect(read.result._meta).toMatchObject({ "tandem/revision": 7 });
+      });
+
+      test("refuses a URI that is already registered, including a built-in one", () => {
+        const read = async (uri: URL) => ({ contents: [{ uri: uri.href, text: "" }] });
+        mcp.registerResource({ name: "one", uri: "tandem://index", read });
+        expect(() => mcp.registerResource({ name: "two", uri: "tandem://index", read })).toThrow(
+          /already registered/,
+        );
+        expect(() =>
+          mcp.registerResource({ name: "spec", uri: "obsidian://local-rest-api/openapi.yaml", read }),
+        ).toThrow(/already registered/);
+      });
+
+      test("removal takes the resource off the list and frees its URI", async () => {
+        const read = async (uri: URL) => ({ contents: [{ uri: uri.href, text: "" }] });
+        const cleanup = mcp.registerResource({ name: "temp", uri: "tandem://temp", read });
+        cleanup();
+
+        const listed = await send("resources/list");
+        expect((listed.result.resources as { uri: string }[]).map((r) => r.uri)).not.toContain(
+          "tandem://temp",
+        );
+        expect(() => mcp.registerResource({ name: "temp", uri: "tandem://temp", read })).not.toThrow();
+      });
+    });
+
+    describe("resource templates", () => {
+      test("advertises the template, lists its resources, and reads with matched variables", async () => {
+        const read = jest.fn(async (uri: URL, variables: Record<string, string | string[]>) => ({
+          contents: [{ uri: uri.href, text: `comments on ${String(variables.path)}` }],
+        }));
+        mcp.registerResourceTemplate({
+          name: "tandem-comments",
+          uriTemplate: "tandem://comments/{path}",
+          description: "Comments on one note",
+          mimeType: "text/plain",
+          list: async () => [{ uri: "tandem://comments/draft.md", name: "draft.md" }],
+          read,
+        });
+
+        const templates = await send("resources/templates/list");
+        expect(templates.result.resourceTemplates).toContainEqual(
+          expect.objectContaining({
+            name: "tandem-comments",
+            uriTemplate: "tandem://comments/{path}",
+            description: "Comments on one note",
+          }),
+        );
+
+        const listed = await send("resources/list");
+        expect(listed.result.resources).toContainEqual(
+          expect.objectContaining({ uri: "tandem://comments/draft.md", name: "draft.md" }),
+        );
+
+        const uri = "tandem://comments/draft.md";
+        const body = await send("resources/read", { uri }, uri);
+        expect(body.result.contents[0].text).toBe("comments on draft.md");
+        expect(read).toHaveBeenCalledWith(expect.any(URL), expect.objectContaining({ path: "draft.md" }));
+      });
+
+      test("a template without a list callback is still readable", async () => {
+        mcp.registerResourceTemplate({
+          name: "unlisted",
+          uriTemplate: "tandem://unlisted/{id}",
+          read: async (uri, variables) => ({ contents: [{ uri: uri.href, text: String(variables.id) }] }),
+        });
+
+        const uri = "tandem://unlisted/a1f3";
+        const body = await send("resources/read", { uri }, uri);
+        expect(body.result.contents[0].text).toBe("a1f3");
+      });
+
+      test("refuses a duplicate template name", () => {
+        const definition = {
+          name: "dup",
+          uriTemplate: "tandem://dup/{id}",
+          read: async (uri: URL) => ({ contents: [{ uri: uri.href, text: "" }] }),
+        };
+        mcp.registerResourceTemplate(definition);
+        expect(() => mcp.registerResourceTemplate(definition)).toThrow(/already registered/);
+      });
+    });
+
+    describe("prompts", () => {
+      test("advertises the prompts capability even with no prompt registered", async () => {
+        const discover = await send("server/discover");
+        expect(discover.result.capabilities.prompts).toBeDefined();
+
+        const listed = await send("prompts/list");
+        expect(listed.result.prompts).toEqual([]);
+      });
+
+      test("lists a prompt with its arguments and renders it", async () => {
+        mcp.registerPrompt({
+          name: "summarize_note",
+          title: "Summarize a note",
+          description: "Asks for a summary of one note",
+          argsSchema: { path: z.string().describe("Note to summarize") },
+          callback: async ({ path }) => ({
+            messages: [{ role: "user", content: { type: "text", text: `Summarize ${path}` } }],
+          }),
+        });
+
+        const listed = await send("prompts/list");
+        expect(listed.result.prompts).toEqual([
+          expect.objectContaining({
+            name: "summarize_note",
+            title: "Summarize a note",
+            description: "Asks for a summary of one note",
+            arguments: [expect.objectContaining({ name: "path", required: true })],
+          }),
+        ]);
+
+        const got = await send(
+          "prompts/get",
+          { name: "summarize_note", arguments: { path: "draft.md" } },
+          "summarize_note",
+        );
+        expect(got.result.messages).toEqual([
+          { role: "user", content: { type: "text", text: "Summarize draft.md" } },
+        ]);
+      });
+
+      test("a prompt without arguments is called with an empty object", async () => {
+        const callback = jest.fn(async () => ({
+          messages: [{ role: "user" as const, content: { type: "text" as const, text: "Hello" } }],
+        }));
+        mcp.registerPrompt({ name: "greeting", callback });
+
+        const got = await send("prompts/get", { name: "greeting" }, "greeting");
+        expect(callback).toHaveBeenCalledWith({});
+        expect(got.result.messages[0].content.text).toBe("Hello");
+      });
+
+      test("an omitted optional argument is absent from the callback's arguments", async () => {
+        const callback = jest.fn(async (args: Record<string, string | undefined>) => ({
+          messages: [
+            {
+              role: "user" as const,
+              content: { type: "text" as const, text: `Tone: ${args.tone ?? "neutral"}` },
+            },
+          ],
+          _meta: { "tandem/rendered": true },
+        }));
+        mcp.registerPrompt({
+          name: "toned_prompt",
+          argsSchema: { path: z.string(), tone: z.string().optional() },
+          callback,
+        });
+
+        const got = await send(
+          "prompts/get",
+          { name: "toned_prompt", arguments: { path: "a.md" } },
+          "toned_prompt",
+        );
+        expect(callback).toHaveBeenCalledWith({ path: "a.md" });
+        expect(got.result.messages[0].content.text).toBe("Tone: neutral");
+        expect(got.result._meta).toMatchObject({ "tandem/rendered": true });
+      });
+
+      test("refuses a duplicate prompt name, and removal frees it", () => {
+        const definition = {
+          name: "dup_prompt",
+          callback: async () => ({ messages: [] }),
+        };
+        const cleanup = mcp.registerPrompt(definition);
+        expect(() => mcp.registerPrompt(definition)).toThrow(/already registered/);
+        cleanup();
+        expect(() => mcp.registerPrompt(definition)).not.toThrow();
+      });
+    });
+
+    describe("on a live sessionful connection", () => {
+      test("a prompt registered after the handshake is listed and served", async () => {
+        const sessionId = await openSession();
+        mcp.registerPrompt({
+          name: "late_prompt",
+          callback: async () => ({
+            messages: [{ role: "user", content: { type: "text", text: "late" } }],
+          }),
+        });
+
+        const listed = await sendOnSession(sessionId, "prompts/list");
+        expect((listed.result.prompts as { name: string }[]).map((p) => p.name)).toContain("late_prompt");
+
+        const got = await sendOnSession(sessionId, "prompts/get", { name: "late_prompt" });
+        expect(got.result.messages[0].content.text).toBe("late");
+      });
+
+      test("resources and templates registered after the handshake are listed, and removal notifies", async () => {
+        const sessionId = await openSession();
+        const session = [...(mcp as unknown as {
+          sessions: Map<string, { server: { sendResourceListChanged: () => void } }>;
+        }).sessions.values()][0];
+        const sendResourceListChanged = jest.spyOn(session.server, "sendResourceListChanged");
+
+        const read = async (uri: URL) => ({ contents: [{ uri: uri.href, text: "x" }] });
+        const removeResource = mcp.registerResource({ name: "late", uri: "tandem://late", read });
+        mcp.registerResourceTemplate({ name: "late-template", uriTemplate: "tandem://late/{id}", read });
+        expect(sendResourceListChanged).toHaveBeenCalled();
+
+        const listed = await sendOnSession(sessionId, "resources/list");
+        expect((listed.result.resources as { uri: string }[]).map((r) => r.uri)).toContain("tandem://late");
+        const templates = await sendOnSession(sessionId, "resources/templates/list");
+        expect((templates.result.resourceTemplates as { name: string }[]).map((t) => t.name)).toContain(
+          "late-template",
+        );
+
+        sendResourceListChanged.mockClear();
+        removeResource();
+        expect(sendResourceListChanged).toHaveBeenCalled();
+        const after = await sendOnSession(sessionId, "resources/list");
+        expect((after.result.resources as { uri: string }[]).map((r) => r.uri)).not.toContain("tandem://late");
+      });
+    });
+
+    test("a stale cleanup does not remove a later registration under the same name", async () => {
+      const first = mcp.registerPrompt({ name: "reused", callback: async () => ({ messages: [] }) });
+      first();
+      mcp.registerPrompt({ name: "reused", callback: async () => ({ messages: [] }) });
+      first();
+
+      const listed = await send("prompts/list");
+      expect((listed.result.prompts as { name: string }[]).map((p) => p.name)).toContain("reused");
+    });
+  });
+
+  // ---- signed-URL tools over HTTP ------------------------------------------
+  //
+  // The signed-URL tools build their links from the request they arrived on, which they
+  // reach through async context rather than anything the SDK passes them. That context
+  // has to survive the SDK's own request handling on both legs, so each is exercised
+  // end to end here: a link comes back carrying the Host header supertest sent.
+
+  describe("signed-URL tools over HTTP", () => {
+    let mcp: McpHandler;
+    let app: express.Express;
+
+    function sseResult(text: string) {
+      const line = text.split("\n").find((l) => l.startsWith("data:"));
+      if (!line) throw new Error(`No SSE data line in:\n${text}`);
+      return JSON.parse(line.slice("data:".length));
+    }
+
+    beforeEach(() => {
+      const png = makeMockFile("attachments/pixel.png");
+      png.stat.size = 70;
+      ops.app.vault.getAbstractFileByPath.mockReturnValue(png);
+      mcp = new McpHandler(ops, { ...DEFAULT_SETTINGS, enableSignedUrls: true }, { imageScaler: null });
+      app = makeApp(mcp);
+    });
+
+    afterEach(() => {
+      mcp.close();
+    });
+
+    test("the sessionless leg hands the tool the request it arrived on", async () => {
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("Host", "vault.local:27123")
+        .set("MCP-Protocol-Version", MODERN_VERSION)
+        .set("Mcp-Method", "tools/call")
+        .set("Mcp-Name", "vault_get_download_url")
+        .send(
+          sessionlessRequest(1, "tools/call", {
+            name: "vault_get_download_url",
+            arguments: { path: "attachments/pixel.png" },
+          }),
+        )
+        .expect(200);
+
+      expect(res.body.error).toBeUndefined();
+      const link = res.body.result.content[0];
+      expect(link.type).toBe("resource_link");
+      expect(link.uri).toMatch(/^http:\/\/vault\.local:27123\/vault\/attachments\/pixel\.png\?sig=/);
+    });
+
+    test("the sessionful leg hands the tool the request it arrived on, not the handshake's", async () => {
+      const init = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("Host", "handshake.local:1")
+        .send({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: LEGACY_VERSION,
+            capabilities: {},
+            clientInfo: { name: "sessionful-client", version: "1.0.0" },
+          },
+        })
+        .expect(200);
+      const sessionId = init.headers["mcp-session-id"];
+
+      const res = await request(app)
+        .post("/mcp/")
+        .set("Accept", "application/json, text/event-stream")
+        .set("Host", "later.local:2")
+        .set("MCP-Protocol-Version", LEGACY_VERSION)
+        .set("Mcp-Session-Id", sessionId)
+        .send({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: { name: "vault_get_upload_url", arguments: { path: "attachments/new.png" } },
+        })
+        .expect(200);
+
+      const body = JSON.parse(sseResult(res.text).result.content[0].text);
+      expect(body.url).toMatch(/^http:\/\/later\.local:2\/vault\/attachments\/new\.png\?sig=/);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Path traversal: every tool that takes a vault path.
+//
+// Obsidian's Vault API is not a sandbox. `getAbstractFileByPath` only ever matches
+// files Obsidian has indexed, so a path holding `../` simply misses and the caller
+// gets "File not found" — which made most of these tools look safe by accident. The
+// write paths do not go through that lookup: `Vault.create`, `Vault.adapter.write*`
+// and `Vault.adapter.remove` hand the path straight to the filesystem, relative to
+// the vault directory, so a `../` there lands outside the vault. Reported against
+// 5.1.0 for vault_write; vault_append and a permanent vault_delete share the hole.
+//
+// The containment check therefore belongs on every vault path a client supplies,
+// not only on vault_move/vault_copy destinations.
+// ---------------------------------------------------------------------------
+
+describe("MCP vault path containment", () => {
+   
+  let ops: any;
+
+  beforeEach(() => {
+    registerTool = jest.spyOn(McpServer.prototype, "registerTool");
+    registerResource = jest.spyOn(McpServer.prototype, "registerResource");
+    ops = makeMockOps();
+    // @ts-ignore: buildServer is private — the test observes what a request would build.
+    new McpHandler(ops, DEFAULT_SETTINGS).buildServer();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  // [tool, extra args needed to reach the path check, the ops method that must not run]
+  const pathTools: Array<[string, Record<string, unknown>, string]> = [
+    ["vault_read", {}, "getFileMetadataObject"],
+    ["vault_write", { content: "pwned" }, "writeFileContent"],
+    ["vault_append", { content: "pwned" }, "appendFileContent"],
+    [
+      "vault_patch",
+      { targetType: "heading", target: ["Hi"], operation: "replace", content: "x" },
+      "patchFileSectionMdp2",
+    ],
+    ["vault_delete", { permanent: true }, "deleteVaultFile"],
+    ["vault_delete", {}, "deleteVaultFile"],
+    ["vault_get_document_map", {}, "getDocumentMapV2Object"],
+    ["vault_list", {}, "listVaultDirectory"],
+    ["open_file", {}, "openVaultFile"],
+    ["vault_move", { destination: "ok.md" }, "moveVaultFile"],
+    ["vault_copy", { destination: "ok.md" }, "copyVaultFile"],
+  ];
+
+  const escapingPaths = [
+    ["relative traversal", "../../Ausserhalb.md"],
+    ["deep relative traversal", "../../../../some/other/writable/path/file.md"],
+    ["absolute path", "/etc/passwd"],
+    ["traversal in the middle", "notes/../../outside.md"],
+    ["windows-style traversal", "..\\..\\outside.md"],
+  ];
+
+  for (const [tool, extraArgs, opsMethod] of pathTools) {
+    describe(`${tool}${extraArgs.permanent ? " (permanent)" : ""}`, () => {
+      for (const [label, escaping] of escapingPaths) {
+        test(`rejects ${label} in path`, async () => {
+          const cb = getToolCallback(tool);
+          await expect(cb({ path: escaping, ...extraArgs })).rejects.toThrow(
+            "must not escape the vault root",
+          );
+          expect(ops[opsMethod]).not.toHaveBeenCalled();
+        });
+      }
+
+      test("allows an ordinary vault path", async () => {
+        const cb = getToolCallback(tool);
+        await expect(cb({ path: "folder/note.md", ...extraArgs })).resolves.toBeDefined();
+      });
+
+      test("allows '..' as a filename substring rather than a segment", async () => {
+        const cb = getToolCallback(tool);
+        await expect(cb({ path: "folder/notes..md", ...extraArgs })).resolves.toBeDefined();
+      });
+    });
+  }
+
+  test("vault_move rejects a traversing source even with a safe destination", async () => {
+    const cb = getToolCallback("vault_move");
+    await expect(cb({ path: "../outside.md", destination: "inside.md" })).rejects.toThrow(
+      "must not escape the vault root",
+    );
+    expect(ops.moveVaultFile).not.toHaveBeenCalled();
+  });
+
+  test("vault_copy rejects a traversing source even with a safe destination", async () => {
+    const cb = getToolCallback("vault_copy");
+    await expect(cb({ path: "../outside.md", destination: "inside.md" })).rejects.toThrow(
+      "must not escape the vault root",
+    );
+    expect(ops.copyVaultFile).not.toHaveBeenCalled();
+  });
+
+  // The binary and signed-URL tools refuse through normalizeVaultFilePath, which is a
+  // canonicaliser rather than a validator: it has to produce the one spelling that
+  // signing and verification both agree on, so it also refuses a directory or an empty
+  // path, and says so in its own words. It now shares this module's containment rule,
+  // and what matters is that the two agree on the part the advisory was about -- neither
+  // lets a path out of the vault.
+  //
+  // The absolute-path case is deliberately absent. A leading slash is refused everywhere
+  // else and stripped here, because a signature minted for "a/b.png" has to verify a
+  // request for "/a//b.png" -- a sloppy spelling of the same file, not an escape. See
+  // signedUrls.test.ts, which pins that on both sides.
+  describe("the binary and signed-URL tools refuse the same traversals", () => {
+    const traversals = escapingPaths.filter(([label]) => label !== "absolute path");
+
+    for (const tool of ["vault_read_binary", "vault_get_download_url", "vault_get_upload_url"]) {
+      for (const [label, escaping] of traversals) {
+        test(`${tool} rejects ${label} in path`, async () => {
+          const cb = getToolCallback(tool);
+          await expect(cb({ path: escaping })).rejects.toThrow(
+            "Not a file path inside the vault",
+          );
+          expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
+        });
+      }
+    }
+  });
+
+  test("vault_list still lists the vault root when path is omitted", async () => {
+    const cb = getToolCallback("vault_list");
+    await expect(cb({})).resolves.toBeDefined();
+    expect(ops.listVaultDirectory).toHaveBeenCalledWith("");
   });
 });

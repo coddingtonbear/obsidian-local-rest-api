@@ -22,11 +22,17 @@ const toJsonSchema = zodToJsonSchema as unknown as (
  * implementation, and the JSON Schema is produced by `zod-to-json-schema` with the same
  * options SDK v1 used, so `tools/list` advertises identical shapes under either SDK.
  *
+ * `direction` says which side of a transforming schema the JSON Schema describes: what a
+ * caller sends (`input`, for tool and prompt arguments) or what validation produces
+ * (`output`, for a tool's `outputSchema`). The two differ only for schemas with
+ * transforms or pipes.
+ *
  * Delete this file once the project's own schemas are zod 4, which implements
  * `~standard.jsonSchema` natively.
  */
 export function toStandardSchema(
   shape: Record<string, z.ZodTypeAny>,
+  direction: "input" | "output" = "input",
 ): StandardSchemaWithJSON<Record<string, unknown>, Record<string, unknown>> {
   // Annotated as the base type rather than the inferred ZodObject: the SDK's Standard
   // Schema surface only needs the base.
@@ -34,7 +40,7 @@ export function toStandardSchema(
   const standard = schema["~standard"];
   const jsonSchema = toJsonSchema(schema, {
     strictUnions: true,
-    pipeStrategy: "input",
+    pipeStrategy: direction,
   });
 
   return {
