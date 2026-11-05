@@ -251,6 +251,7 @@ describe("MCP resources", () => {
     expect(viaMcp.versions).toEqual(viaRest.versions);
     expect(Object.keys(viaMcp).sort()).toEqual(Object.keys(viaRest).sort());
     expect(viaMcp.state.metadataCache.listeningSince).toBe(viaRest.state.metadataCache.listeningSince);
+    expect(viaMcp.vault).toEqual(viaRest.vault);
   });
 
   test("openapi-spec content contains 'openapi:'", async () => {

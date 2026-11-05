@@ -1059,6 +1059,17 @@ std.manifestYamlDoc(
                         type: 'boolean',
                         description: 'Is your current request authenticated?',
                       },
+                      vault: {
+                        type: 'object',
+                        description: 'Authenticated requests only. The vault this server is serving.',
+                        required: ['name'],
+                        properties: {
+                          name: {
+                            type: 'string',
+                            description: "The vault's name, as Obsidian shows it in the vault switcher. Lets a client confirm it reached the vault it meant to before reading or writing. Not guaranteed unique: two vaults in different folders can share a name.",
+                          },
+                        },
+                      },
                       certificateInfo: {
                         type: 'object',
                         description: 'Authenticated requests only. Facts about the certificate the HTTPS server presents.',

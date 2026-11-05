@@ -81,6 +81,7 @@ export class FileSystemAdapter extends DataAdapter {
 
 export class Vault {
   configDir = ".obsidian";
+  _name = "Mock Vault";
   _getAbstractFileByPath: TFile | null = new TFile();
   _read = "";
   _cachedRead = "";
@@ -90,6 +91,10 @@ export class Vault {
   _createdFolders: string[] = [];
 
   adapter = new DataAdapter();
+
+  getName(): string {
+    return this._name;
+  }
 
   async read(file: TFile): Promise<string> {
     return this._read;

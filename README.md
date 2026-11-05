@@ -373,7 +373,7 @@ Each message's `id` is `<epoch>-<counter>`. A new epoch, or a gap in the counter
 
 ## Server state
 
-`GET /` answers without an API key, but an authenticated request gets more: `certificateInfo`, the list of installed [API extensions](#api-extensions), and a `state` section.
+`GET /` answers without an API key, but an authenticated request gets more: the `vault` being served (`vault.name`, so a client can confirm it reached the vault it meant to), `certificateInfo`, the list of installed [API extensions](#api-extensions), and a `state` section.
 
 `state` holds observations, by namespace, that a client reads to decide whether to proceed. The server attaches no verdict. The plugin's own namespace is `metadataCache`:
 

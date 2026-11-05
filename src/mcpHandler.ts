@@ -1120,7 +1120,7 @@ export class McpHandler {
         "obsidian://local-rest-api/status",
         {
           mimeType: "application/json",
-          description: dedent`The same document an authenticated GET / returns: the plugin's version, the installed extensions, and the state section, which carries per-namespace observations with no verdict attached. state.metadataCache reports when the plugin started listening to Obsidian's metadata cache, when it last heard the cache's resolved event, and when it last heard any indexing activity; a vault still indexing after startup shows recent activity and, until the first drain, a null lastResolvedAt. Read it before trusting links, backlinks, or unresolvedLinks from vault_read on a freshly started Obsidian. Extensions add their own namespaces under their plugin id.`,
+          description: dedent`The same document an authenticated GET / returns: the plugin's version, the name of the vault it is serving (vault.name, so a client can confirm it reached the vault it meant to before acting), the installed extensions, and the state section, which carries per-namespace observations with no verdict attached. state.metadataCache reports when the plugin started listening to Obsidian's metadata cache, when it last heard the cache's resolved event, and when it last heard any indexing activity; a vault still indexing after startup shows recent activity and, until the first drain, a null lastResolvedAt. Read it before trusting links, backlinks, or unresolvedLinks from vault_read on a freshly started Obsidian. Extensions add their own namespaces under their plugin id.`,
         },
         async (uri: URL) => ({
           contents: [

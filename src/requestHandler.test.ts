@@ -134,6 +134,22 @@ describe("requestHandler", () => {
     });
   });
 
+  describe("vault", () => {
+    test("is withheld from unauthenticated callers", async () => {
+      const result = await request(server).get("/").expect(200);
+      expect(result.body.vault).toBeUndefined();
+    });
+
+    test("reports the name of the vault the plugin is serving", async () => {
+      app.vault._name = "Project Notes";
+      const result = await request(server)
+        .get("/")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .expect(200);
+      expect(result.body.vault).toEqual({ name: "Project Notes" });
+    });
+  });
+
   describe("state", () => {
     const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
