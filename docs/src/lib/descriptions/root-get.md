@@ -1,6 +1,8 @@
 Returns basic details about the server as well as your authentication status.
 
-This is the only API request that does *not* require authentication. An authenticated request additionally receives `certificateInfo`, `apiExtensions`, and `state`.
+This is the only API request that does *not* require authentication. An authenticated request additionally receives `vault`, `certificateInfo`, `apiExtensions`, and `state`.
+
+`vault.name` is the name of the vault this server is serving, as Obsidian shows it in the vault switcher. A client that may be pointed at more than one vault can check it before reading or writing. It is withheld from unauthenticated requests, and it is not guaranteed to be unique: two vaults in different folders can share a name.
 
 A request that sends an API key still has that key checked: `authenticated` reports whether it was correct, and a wrong one counts towards the failed-authentication throttle like a wrong key anywhere else, so once a source is throttled this route answers `429` to wrong keys too. A request with no key at all is not counted and always answers `200` with `authenticated: false`.
 

@@ -26,6 +26,17 @@ describe("GET /", () => {
     expect(body.authenticated).toBe(true);
   });
 
+  test("authenticated returns the vault name", async () => {
+    const body = await (await authedFetch("/")).json();
+    expect(typeof body.vault?.name).toBe("string");
+    expect(body.vault.name.length).toBeGreaterThan(0);
+  });
+
+  test("unauthenticated withholds the vault name", async () => {
+    const body = await (await unauthFetch("/")).json();
+    expect(body.vault).toBeUndefined();
+  });
+
   test("returns service field", async () => {
     const res = await authedFetch("/");
     const body = await res.json();

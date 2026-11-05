@@ -577,10 +577,10 @@ export default class RequestHandler {
   /**
    * The `GET /` document, which the MCP `server-status` resource also serves.
    *
-   * `certificateInfo`, `apiExtensions`, and `state` are withheld from an
+   * `vault`, `certificateInfo`, `apiExtensions`, and `state` are withheld from an
    * unauthenticated caller: `GET /` is the one route that answers without the API key,
-   * and these three describe the installation, the plugins in it, and when its owner
-   * was last active. An extension that wants a public signal has `addPublicRoute`.
+   * and these describe which vault is open, the installation, the plugins in it, and
+   * when its owner was last active. An extension that wants a public signal has `addPublicRoute`.
    */
   async serverStatus(authenticated: boolean): Promise<Record<string, unknown>> {
     let certificate: forge.pki.Certificate | undefined;
@@ -605,6 +605,7 @@ export default class RequestHandler {
       },
       service: "Obsidian Local REST API",
       authenticated,
+      vault: authenticated ? { name: this.app.vault.getName() } : undefined,
       certificateInfo:
         authenticated && certificate
           ? {
