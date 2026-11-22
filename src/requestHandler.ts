@@ -50,6 +50,7 @@ import {
   SearchJsonResponseItem,
 } from "./types";
 import {
+  constantTimeEquals,
 } from "./utils";
 import {
   formatEntityTag,
@@ -326,7 +327,11 @@ export default class RequestHandler {
   }
 
   requestIsAuthenticated(req: express.Request): boolean {
-    return this.authorizationHeader(req) === `Bearer ${this.settings.apiKey}`;
+    const presented = this.authorizationHeader(req);
+    if (presented === undefined) return false;
+    // Constant-time: `===` would let response timing reveal how much of a
+    // guessed key was right. Whether a header was sent at all is not secret.
+    return constantTimeEquals(presented, `Bearer ${this.settings.apiKey}`);
   }
 
   /**
