@@ -23,6 +23,7 @@ import { App, Notice, PluginManifest } from "obsidian";
 import LocalRestApi from "./main";
 import { DEFAULT_SETTINGS } from "./constants";
 import RequestHandler from "./requestHandler";
+import * as serverBinding from "./serverBinding";
 
 const HOST = "127.0.0.1";
 const NoticeMock = Notice as unknown as jest.Mock;
@@ -109,13 +110,21 @@ describe("server lifecycle", () => {
     await waitFor(() => first.insecureServer?.listening === true, "the first server to bind");
 
     const second = track(createPlugin(port));
+    const failed = jest.fn();
+    second.onServerStatusChange(() => {
+      if (second.getServerStatus("HTTP").state === "failed") failed();
+    });
     await refresh(second);
     await waitFor(() => NoticeMock.mock.calls.length > 0, "a notice");
 
+    expect(failed).toHaveBeenCalledTimes(1);
     expect(NoticeMock).toHaveBeenCalledTimes(1);
     const message = NoticeMock.mock.calls[0][0] as string;
     expect(message).toContain(String(port));
     expect(message).toContain("already in use");
+    expect(second.getServerStatus("HTTP")).toEqual({ state: "failed", reason: message });
+    expect(second.getServerStatus("HTTPS")).toEqual({ state: "off" });
+    expect(first.getServerStatus("HTTP")).toEqual({ state: "listening" });
     expect(second.insecureServer).toBeNull();
     expect(consoleError).toHaveBeenCalledWith(
       expect.stringContaining(String(port)),
@@ -137,12 +146,62 @@ describe("server lifecycle", () => {
     await waitFor(() => NoticeMock.mock.calls.length > 0, "a notice");
 
     const otherPort = await freePort();
+    const observed: string[] = [];
+    const unsubscribe = second.onServerStatusChange(() => {
+      observed.push(second.getServerStatus("HTTP").state);
+    });
     second.settings.insecurePort = otherPort;
+    second.refreshServerState();
+    expect(second.getServerStatus("HTTP")).toEqual({ state: "starting" });
     await refresh(second);
     await waitFor(() => second.insecureServer?.listening === true, "the second server to bind");
 
     await expect(get(otherPort)).resolves.toBe("ok");
     expect(NoticeMock).toHaveBeenCalledTimes(1);
+    expect(observed[0]).toBe("starting");
+    expect(observed[observed.length - 1]).toBe("listening");
+
+    unsubscribe();
+    const count = observed.length;
+    second.settings.enableInsecureServer = false;
+    second.refreshServerState();
+    expect(second.getServerStatus("HTTP")).toEqual({ state: "off" });
+    expect(observed).toHaveLength(count);
+  });
+
+  test("a pending bind result cannot overwrite the status for newly selected settings", async () => {
+    const plugin = track(createPlugin(await freePort()));
+    const listen = jest.spyOn(serverBinding, "listenServer").mockImplementation(() => undefined);
+    try {
+      await refresh(plugin);
+      const callbacks = listen.mock.calls[0][3];
+
+      plugin.settings.insecurePort = await freePort();
+      plugin.refreshServerState();
+
+      callbacks.onListening?.();
+      expect(plugin.getServerStatus("HTTP")).toEqual({ state: "starting" });
+      callbacks.onError(Object.assign(new Error("Port in use"), { code: "EADDRINUSE" }));
+      expect(plugin.getServerStatus("HTTP")).toEqual({ state: "starting" });
+      expect(NoticeMock).not.toHaveBeenCalled();
+    } finally {
+      listen.mockRestore();
+    }
+  });
+
+  test("a synchronous HTTPS startup failure does not leave it starting or block HTTP", async () => {
+    const plugin = track(createPlugin(await freePort()));
+    plugin.settings.enableSecureServer = true;
+    plugin.settings.crypto = { cert: "invalid", privateKey: "invalid", publicKey: "" };
+
+    await refresh(plugin);
+    await waitFor(() => plugin.insecureServer?.listening === true, "HTTP to bind despite the HTTPS failure");
+
+    expect(plugin.getServerStatus("HTTPS")).toEqual({
+      state: "failed",
+      reason: expect.stringContaining("HTTPS server could not start"),
+    });
+    expect(plugin.getServerStatus("HTTP")).toEqual({ state: "listening" });
   });
 
   test("refreshing repeatedly rebinds the same port without a conflict", async () => {
