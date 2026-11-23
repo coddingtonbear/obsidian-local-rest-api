@@ -176,4 +176,40 @@ describe("server lifecycle", () => {
     });
     await new Promise<void>((resolve) => probe.close(() => resolve()));
   });
+
+  test("the servers come back after the plugin is unloaded and loaded again", async () => {
+    // The settings tab calls `plugin.unload(); plugin.load()` on the same instance
+    // for "Reset all crypto", "Restore defaults" and "Re-generate certificates";
+    // Obsidian's Plugin runs onunload and onload for those.
+    const port = await freePort();
+    const plugin = track(createPlugin(port));
+    await refresh(plugin);
+    await waitFor(() => plugin.insecureServer?.listening === true, "the server to bind");
+
+    const reload = plugin as unknown as {
+      loadData: () => Promise<unknown>;
+      saveData: (data: unknown) => Promise<void>;
+      addSettingTab: (tab: unknown) => void;
+      app: { workspace: { trigger?: (name: string) => void } };
+    };
+    // A stored CA-less crypto stub keeps onload from generating a fresh keypair.
+    const stored = { ...plugin.settings, apiKey: "key", crypto: { cert: "", privateKey: "", publicKey: "" } };
+    reload.loadData = async () => stored;
+    reload.saveData = async () => undefined;
+    reload.addSettingTab = () => undefined;
+    reload.app.workspace.trigger = () => undefined;
+    (RequestHandler as unknown as jest.Mock).mockImplementation(() => ({
+      api: (_req: http.IncomingMessage, res: http.ServerResponse) => res.end("ok"),
+      setupRouter: () => undefined,
+      dispose: () => undefined,
+    }));
+
+    plugin.onunload();
+    await plugin.onload();
+    // Run the refresh onload scheduled without waiting out the debounce.
+    await refresh(plugin);
+    await waitFor(() => plugin.insecureServer?.listening === true, "the server to bind again");
+
+    await expect(get(port)).resolves.toBe("ok");
+  });
 });
