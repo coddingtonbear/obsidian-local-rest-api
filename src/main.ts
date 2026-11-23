@@ -56,21 +56,27 @@ import { PluginManifest } from "obsidian";
 import { configureHttpServerTimeouts } from "./serverTimeouts";
 import { closeServer, describeServerError, listenServer } from "./serverBinding";
 
+type ServerProtocol = "HTTP" | "HTTPS";
+type ServerStatus =
+  | { state: "off" | "starting" | "listening" }
+  | { state: "failed"; reason: string };
+
 export default class LocalRestApi extends Plugin {
   declare settings: LocalRestApiSettings;
   secureServer: https.Server | null = null;
   insecureServer: http.Server | null = null;
   private serverRefresh: Promise<void> = Promise.resolve();
+  private refreshTimer: number | undefined;
+  private refreshGeneration = 0;
   private unloaded = false;
+  private serverStatus: Record<ServerProtocol, ServerStatus> = {
+    HTTP: { state: "off" },
+    HTTPS: { state: "off" },
+  };
+  private readonly serverStatusListeners = new Set<() => void>();
   requestHandler: RequestHandler;
-  refreshServerState: () => void;
 
   async onload() {
-    this.refreshServerState = this.debounce(
-      this._refreshServerState.bind(this),
-      1000
-    );
-
     await this.loadSettings();
 
     this.requestHandler = new RequestHandler(
@@ -111,15 +117,11 @@ export default class LocalRestApi extends Plugin {
       }
     }
 
-    this.addSettingTab(new LocalRestApiSettingTab(this.app, this));
-
-    // The settings tab reloads the plugin by calling unload() then load() on
-    // this same instance, so the flag onunload set has to be cleared before
-    // binding again. Cleared here rather than at the top of onload so that a
-    // refresh still in flight from before the unload cannot bind until the new
-    // request handler is in place.
+    // Settings can unload and load this same instance. Enable refreshes only
+    // once the new request handler and settings are ready.
     this.unloaded = false;
     this.refreshServerState();
+    this.addSettingTab(new LocalRestApiSettingTab(this.app, this));
 
     this.app.workspace.trigger("obsidian-local-rest-api:loaded");
   }
@@ -138,88 +140,133 @@ export default class LocalRestApi extends Plugin {
     return this.requestHandler.registerApiExtension(pluginManifest);
   }
 
-  debounce<F extends (...args: unknown[]) => unknown>(
-    func: F,
-    delay: number
-  ): (...args: Parameters<F>) => void {
-    let debounceTimer: number;
-    return (...args: Parameters<F>): void => {
-      window.clearTimeout(debounceTimer);
-      debounceTimer = window.setTimeout(() => func(...args), delay);
-    };
+  getServerStatus(protocol: ServerProtocol): ServerStatus {
+    return this.serverStatus[protocol];
+  }
+
+  onServerStatusChange(listener: () => void): () => void {
+    this.serverStatusListeners.add(listener);
+    return () => { this.serverStatusListeners.delete(listener); };
+  }
+
+  private notifyServerStatusChange() {
+    for (const listener of this.serverStatusListeners) listener();
+  }
+
+  refreshServerState() {
+    this.scheduleServerRefresh(1000);
   }
 
   _refreshServerState() {
-    // Chained so that a refresh never binds while the previous one is still
-    // releasing its ports. The catch keeps one failed refresh from stalling
-    // every later one behind a rejected promise.
-    this.serverRefresh = this.serverRefresh
-      .then(() => this.restartServers())
-      .catch((error) => {
-        console.error("[REST API] Could not restart the servers", error);
-      });
+    this.scheduleServerRefresh(0);
   }
 
-  private async restartServers() {
+  private scheduleServerRefresh(delay: number) {
+    if (this.unloaded) return;
+    window.clearTimeout(this.refreshTimer);
+    const generation = ++this.refreshGeneration;
+    const queue = () => {
+      this.serverRefresh = this.serverRefresh
+        .then(() => this.restartServers(generation))
+        .catch((error) => {
+          console.error("[REST API] Could not restart the servers", error);
+        });
+    };
+    this.serverStatus = {
+      HTTPS: { state: (this.settings.enableSecureServer ?? true) ? "starting" : "off" },
+      HTTP: { state: this.settings.enableInsecureServer ? "starting" : "off" },
+    };
+    if (delay > 0) {
+      this.refreshTimer = window.setTimeout(queue, delay);
+    } else {
+      this.refreshTimer = undefined;
+      queue();
+    }
+    this.notifyServerStatusChange();
+  }
+
+  private isCurrentRefresh(generation: number): boolean {
+    return !this.unloaded && generation === this.refreshGeneration;
+  }
+
+  private async restartServers(generation: number) {
+    if (!this.isCurrentRefresh(generation)) return;
     const previous = [this.secureServer, this.insecureServer];
     this.secureServer = null;
     this.insecureServer = null;
     // Binding again before the old servers have let go of their ports would
     // fail with EADDRINUSE on the port we are about to reuse.
     await Promise.all(previous.map(closeServer));
-    if (this.unloaded) return;
+    if (!this.isCurrentRefresh(generation)) return;
 
     const host = this.settings.bindingHost ?? DefaultBindingHost;
-
-    if ((this.settings.enableSecureServer ?? true) && this.settings.crypto) {
-      const server = https.createServer(
-        {
-          key: this.settings.crypto.privateKey,
-          cert: buildServerCertificateChain(this.settings.crypto),
-        },
-        this.requestHandler.api
-      );
-      configureHttpServerTimeouts(server);
-      this.secureServer = server;
-      this.startServer(server, "HTTPS", host, this.settings.port);
+    if (this.settings.enableSecureServer ?? true) {
+      this.startServer("HTTPS", host, this.settings.port, generation);
     }
-
     if (this.settings.enableInsecureServer) {
-      const server = http.createServer(this.requestHandler.api);
-      configureHttpServerTimeouts(server);
-      this.insecureServer = server;
-      this.startServer(server, "HTTP", host, this.settings.insecurePort);
+      this.startServer("HTTP", host, this.settings.insecurePort, generation);
     }
   }
 
   private startServer(
-    server: http.Server | https.Server,
-    protocol: "HTTPS" | "HTTP",
+    protocol: ServerProtocol,
     host: string,
-    port: number
+    port: number,
+    generation: number,
   ) {
-    listenServer(server, port, host, {
-      onListening: () => {
-        if (this.settings.enableVerboseLogging) {
-          console.debug(
-            `[REST API] Listening on ${protocol.toLowerCase()}://${host}:${port}/`
-          );
-        }
-      },
-      onError: (error) => {
+    let server: https.Server | http.Server | undefined;
+    const onError = (error: NodeJS.ErrnoException) => {
+      // An error accepting one connection does not mean the listener stopped.
+      if (server?.listening) {
         console.error(`[REST API] ${protocol} server error on ${host}:${port}`, error);
-        // A server that is already up (failing to accept one connection, say)
-        // is still serving, and must stay tracked so the next refresh closes it.
-        if (server.listening) return;
-        new Notice(describeServerError(error, protocol, host, port));
-        if (this.secureServer === server) this.secureServer = null;
-        if (this.insecureServer === server) this.insecureServer = null;
-      },
-    });
+        return;
+      }
+      if (server && this.secureServer === server) this.secureServer = null;
+      if (server && this.insecureServer === server) this.insecureServer = null;
+      // An earlier bind can finish during the debounce for the next refresh.
+      if (!this.isCurrentRefresh(generation)) return;
+      console.error(`[REST API] ${protocol} server error on ${host}:${port}`, error);
+      const reason = describeServerError(error, protocol, host, port);
+      this.serverStatus[protocol] = { state: "failed", reason };
+      new Notice(reason);
+      this.notifyServerStatusChange();
+    };
+
+    try {
+      if (protocol === "HTTPS") {
+        const crypto = this.settings.crypto;
+        if (!crypto) throw new Error("No TLS certificate is configured.");
+        server = this.secureServer = https.createServer(
+          { key: crypto.privateKey, cert: buildServerCertificateChain(crypto) },
+          this.requestHandler.api,
+        );
+      } else {
+        server = this.insecureServer = http.createServer(this.requestHandler.api);
+      }
+      configureHttpServerTimeouts(server);
+      listenServer(server, port, host, {
+        onListening: () => {
+          if (!this.isCurrentRefresh(generation)) return;
+          if (this.settings.enableVerboseLogging) {
+            console.debug(
+              `[REST API] Listening on ${protocol.toLowerCase()}://${host}:${port}/`
+            );
+          }
+          this.serverStatus[protocol] = { state: "listening" };
+          this.notifyServerStatusChange();
+        },
+        onError,
+      });
+    } catch (error) {
+      onError(error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   onunload() {
     this.unloaded = true;
+    ++this.refreshGeneration;
+    window.clearTimeout(this.refreshTimer);
+    this.serverStatusListeners.clear();
     this.requestHandler?.dispose();
     void closeServer(this.secureServer);
     void closeServer(this.insecureServer);
@@ -336,27 +383,35 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       includeCertificateNote: boolean;
       disabledHint: string;
     }
-  ): void {
-    const settings = this.plugin.settings;
-    const altNames = this.getSubjectAltNames();
+  ): () => void {
     const table = el.createEl("table", { cls: "api-urls" });
     const tbody = table.createEl("tbody");
 
     const addRow = (row: {
-      enabled: boolean;
+      protocol: ServerProtocol;
       name: string;
       urls: string[];
       note?: (noteEl: HTMLElement) => void;
     }) => {
-      const tr = tbody.createEl(
-        "tr",
-        row.enabled
-          ? { title: "Enabled" }
-          : { cls: "disabled", title: `Disabled.  ${options.disabledHint}` }
-      );
-      tr.createEl("td", { text: row.enabled ? "✅" : "❌" });
+      const status = this.plugin.getServerStatus(row.protocol);
+      const appearance = {
+        off: { icon: "❌", label: "Disabled" },
+        starting: { icon: "⏳", label: "Starting" },
+        listening: { icon: "✅", label: "Listening" },
+        failed: { icon: "⚠️", label: "Could not start" },
+      }[status.state];
+      const tr = tbody.createEl("tr");
+      if (status.state === "off") {
+        tr.addClass("disabled");
+        tr.title = options.disabledHint;
+      }
+      tr.createEl("td", { text: appearance.icon, attr: { "aria-hidden": "true" } });
       const nameTd = tr.createEl("td", { cls: "name" });
       nameTd.createSpan({ text: row.name });
+      nameTd.createDiv({ cls: "server-status-label", text: appearance.label });
+      if (status.state === "failed") {
+        nameTd.createDiv({ cls: "server-status-reason", text: status.reason });
+      }
       if (row.note) {
         nameTd.createEl("br");
         nameTd.createEl("br");
@@ -368,47 +423,63 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       }
     };
 
-    addRow({
-      enabled: settings.enableSecureServer !== false,
-      name: options.secureName,
-      urls: [
-        `https://127.0.0.1:${settings.port}${options.pathSuffix}`,
-        ...altNames.map(
-          (name) => `https://${name}:${settings.port}${options.pathSuffix}`
-        ),
-      ],
-      note: options.includeCertificateNote
-        ? (noteEl) => {
-            noteEl.createSpan({ text: "Requires that " });
-            noteEl.createEl("a", {
-              href: `https://127.0.0.1:${settings.port}/${CERT_NAME}`,
-              text: "this certificate",
-            });
-            noteEl.createSpan({
-              text: " be configured as a trusted certificate authority.  See ",
-            });
-            noteEl.createEl("a", {
-              href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
-              text: "wiki",
-            });
-            noteEl.createSpan({ text: " for more information." });
-          }
-        : undefined,
-    });
+    let rendered = false;
+    let unsubscribe: () => void = () => undefined;
+    const render = () => {
+      if (rendered && !table.isConnected) {
+        unsubscribe();
+        return;
+      }
+      rendered = true;
+      const settings = this.plugin.settings;
+      const altNames = this.getSubjectAltNames();
+      tbody.empty();
+      addRow({
+        protocol: "HTTPS",
+        name: options.secureName,
+        urls: [
+          `https://127.0.0.1:${settings.port}${options.pathSuffix}`,
+          ...altNames.map(
+            (name) => `https://${name}:${settings.port}${options.pathSuffix}`
+          ),
+        ],
+        note: options.includeCertificateNote
+          ? (noteEl) => {
+              noteEl.createSpan({ text: "Requires that " });
+              noteEl.createEl("a", {
+                href: `https://127.0.0.1:${settings.port}/${CERT_NAME}`,
+                text: "this certificate",
+              });
+              noteEl.createSpan({
+                text: " be configured as a trusted certificate authority.  See ",
+              });
+              noteEl.createEl("a", {
+                href: "https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F",
+                text: "wiki",
+              });
+              noteEl.createSpan({ text: " for more information." });
+            }
+          : undefined,
+      });
 
-    addRow({
-      enabled: settings.enableInsecureServer !== false,
-      name: options.insecureName,
-      urls: [
-        `http://127.0.0.1:${settings.insecurePort}${options.pathSuffix}`,
-        ...altNames.map(
-          (name) => `http://${name}:${settings.insecurePort}${options.pathSuffix}`
-        ),
-      ],
-    });
+      addRow({
+        protocol: "HTTP",
+        name: options.insecureName,
+        urls: [
+          `http://127.0.0.1:${settings.insecurePort}${options.pathSuffix}`,
+          ...altNames.map(
+            (name) => `http://${name}:${settings.insecurePort}${options.pathSuffix}`
+          ),
+        ],
+      });
+    };
+
+    render();
+    unsubscribe = this.plugin.onServerStatusChange(render);
+    return unsubscribe;
   }
 
-  private renderConnectionInfo(el: HTMLElement): void {
+  private renderConnectionInfo(el: HTMLElement): () => void {
     const apiKeyDiv = el.createDiv();
     apiKeyDiv.classList.add("api-key-display");
 
@@ -416,7 +487,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       text: "You can access the REST API via the following URLs:",
     });
 
-    this.renderServerUrlTable(apiKeyDiv, {
+    const unsubscribe = this.renderServerUrlTable(apiKeyDiv, {
       pathSuffix: "/",
       secureName: "Encrypted (HTTPS) API URL",
       insecureName: "Non-encrypted (HTTP) API URL",
@@ -460,9 +531,11 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       text: "the online docs",
     });
     seeMore.createSpan({ text: "." });
+
+    return unsubscribe;
   }
 
-  private renderMcpInfo(el: HTMLElement): void {
+  private renderMcpInfo(el: HTMLElement): () => void {
     const mcpDiv = el.createDiv();
     mcpDiv.classList.add("mcp-display");
 
@@ -470,7 +543,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       text: "You can connect to the MCP server via the following endpoints:",
     });
 
-    this.renderServerUrlTable(mcpDiv, {
+    const unsubscribe = this.renderServerUrlTable(mcpDiv, {
       pathSuffix: "/mcp/",
       secureName: "Encrypted (HTTPS) MCP endpoint",
       insecureName: "Non-encrypted (HTTP) MCP endpoint",
@@ -537,6 +610,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       text: "the project readme",
     });
     mcpSeeMore.createSpan({ text: "." });
+
+    return unsubscribe;
   }
 
   private renderCertificateWarnings(el: HTMLElement): void {
@@ -651,7 +726,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
             name: "Server status",
             render: (setting) => {
               const el = this.prepareCustomContent(setting);
-              this.renderServerUrlTable(el, {
+              return this.renderServerUrlTable(el, {
                 pathSuffix: "/",
                 secureName: "Encrypted (HTTPS) server",
                 insecureName: "Non-encrypted (HTTP) server",
@@ -684,7 +759,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
               {
                 name: "How to access via REST",
                 render: (setting) => {
-                  this.renderConnectionInfo(this.prepareCustomContent(setting));
+                  return this.renderConnectionInfo(this.prepareCustomContent(setting));
                 },
               },
             ],
@@ -697,7 +772,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
               {
                 name: "How to access via MCP",
                 render: (setting) => {
-                  this.renderMcpInfo(this.prepareCustomContent(setting));
+                  return this.renderMcpInfo(this.prepareCustomContent(setting));
                 },
               },
             ],
