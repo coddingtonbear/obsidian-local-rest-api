@@ -18,12 +18,12 @@ describe("i18n module", () => {
   describe("basic translation", () => {
     it("returns English text by default", () => {
       setLanguage("en");
-      expect(t("heading.title")).toBe("Local REST API with MCP");
+      expect(t("heading.settings")).toBe("Settings");
     });
 
     it("returns Chinese text when language is set to zh", () => {
       setLanguage("zh");
-      expect(t("heading.title")).toBe("本地 REST API（含 MCP）");
+      expect(t("heading.settings")).toBe("设置");
     });
 
     it("ignores invalid language codes", () => {

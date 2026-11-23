@@ -215,7 +215,7 @@ export default class LocalRestApi extends Plugin {
   }
 }
 
-class LocalRestApiSettingTab extends PluginSettingTab {
+export class LocalRestApiSettingTab extends PluginSettingTab {
   plugin: LocalRestApi;
 
   constructor(app: App, plugin: LocalRestApi) {
@@ -261,7 +261,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     el: HTMLElement,
     value: string,
     label: string,
-    cls = "copyable-value",
+    cls = "copyable-value"
   ): void {
     const wrapper = el.createDiv({ cls });
     wrapper.createEl("pre", { text: value });
@@ -361,7 +361,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
       urls: [
         `https://127.0.0.1:${settings.port}${options.pathSuffix}`,
         ...altNames.map(
-          (name) => `https://${name}:${settings.port}${options.pathSuffix}`,
+          (name) => `https://${name}:${settings.port}${options.pathSuffix}`
         ),
       ],
       note: options.includeCertificateNote
@@ -375,13 +375,11 @@ class LocalRestApiSettingTab extends PluginSettingTab {
                 parent.createEl("a", {
                   href: certUrl,
                   text: certificateLinkLabel,
-                  attr: { target: "_blank" },
                 }),
               wikiLink: (parent) =>
                 parent.createEl("a", {
                   href: wikiUrl,
                   text: wikiLinkLabel,
-                  attr: { target: "_blank" },
                 }),
             });
           }
@@ -441,14 +439,13 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     );
 
     const seeMore = apiKeyDiv.createEl("p");
-    seeMore.createSpan({
-      text: t("rest.seeMore", { docsLink: "" }),
+    renderTemplate(seeMore, t("rest.seeMore"), {
+      docsLink: (parent) =>
+        parent.createEl("a", {
+          href: "https://coddingtonbear.github.io/obsidian-local-rest-api/",
+          text: t("link.docs"),
+        }),
     });
-    seeMore.createEl("a", {
-      href: "https://coddingtonbear.github.io/obsidian-local-rest-api/",
-      text: t("link.docs"),
-    });
-    seeMore.createSpan({ text: "." });
   }
 
   private renderMcpInfo(el: HTMLElement): void {
@@ -507,7 +504,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         },
       },
       null,
-      2,
+      2
     );
 
     mcpDiv.createEl("p", {
@@ -516,34 +513,27 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     mcpDiv.createEl("pre", { text: mcpSampleConfig });
 
     const mcpSeeMore = mcpDiv.createEl("p");
-    mcpSeeMore.createSpan({
-      text: t("mcp.seeMore", { docsLink: "" }),
+    renderTemplate(mcpSeeMore, t("mcp.seeMore"), {
+      docsLink: (parent) =>
+        parent.createEl("a", {
+          href: "https://github.com/coddingtonbear/obsidian-local-rest-api#readme",
+          text: t("link.readme"),
+        }),
     });
-    mcpSeeMore.createEl("a", {
-      href: "https://github.com/coddingtonbear/obsidian-local-rest-api#readme",
-      text: t("link.readme"),
-    });
-    mcpSeeMore.createSpan({ text: "." });
   }
 
   private renderCertificateWarnings(el: HTMLElement): void {
     const { remainingCertificateValidityDays, standardsIssue } =
       this.getCertificateStatus();
 
-    if (
-      remainingCertificateValidityDays !== null &&
-      remainingCertificateValidityDays < 0
-    ) {
+    if (remainingCertificateValidityDays !== null && remainingCertificateValidityDays < 0) {
       const expiredCertDiv = el.createDiv();
       expiredCertDiv.classList.add("certificate-expired");
       expiredCertDiv.createEl("b", { text: t("status.expired") });
       expiredCertDiv.createSpan({
         text: t("status.expiredDesc"),
       });
-    } else if (
-      remainingCertificateValidityDays !== null &&
-      remainingCertificateValidityDays < 30
-    ) {
+    } else if (remainingCertificateValidityDays !== null && remainingCertificateValidityDays < 30) {
       const soonExpiringCertDiv = el.createDiv();
       soonExpiringCertDiv.classList.add("certificate-expiring-soon");
       const daysRemaining = Math.floor(remainingCertificateValidityDays);
@@ -557,7 +547,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     if (standardsIssue === "legacy-ipv4-san") {
       const shouldRegenerateCertificateDiv = el.createDiv();
       shouldRegenerateCertificateDiv.classList.add(
-        "certificate-regeneration-recommended",
+        "certificate-regeneration-recommended"
       );
       shouldRegenerateCertificateDiv.createEl("b", {
         text: t("status.regenerate"),
@@ -608,8 +598,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
     modal.titleEl.setText(options.title);
     modal.contentEl.createEl("p", { text: options.message });
     modal.addButton((btn) => {
-      btn
-        .setButtonText(options.confirmText)
+      btn.setButtonText(options.confirmText)
         .setDestructive()
         .onClick(() => {
           options.onConfirm();
@@ -632,10 +621,8 @@ class LocalRestApiSettingTab extends PluginSettingTab {
         const days = Math.floor(remainingCertificateValidityDays);
         return tPlural("cert.expiresIn", days);
       }
-      if (standardsIssue === "legacy-ipv4-san")
-        return t("cert.shouldRegenerate");
-      if (standardsIssue === "ca-used-as-leaf")
-        return t("cert.updateAvailable");
+      if (standardsIssue === "legacy-ipv4-san") return t("cert.shouldRegenerate");
+      if (standardsIssue === "ca-used-as-leaf") return t("cert.updateAvailable");
       return t("cert.valid");
     };
 
@@ -669,7 +656,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
                 setting.controlEl,
                 this.plugin.settings.apiKey ?? "",
                 t("setting.apiKey"),
-                "inline-copyable-value",
+                "inline-copyable-value"
               );
             },
           },
@@ -755,10 +742,7 @@ class LocalRestApiSettingTab extends PluginSettingTab {
                       message: t("modal.restoreMessage"),
                       confirmText: t("setting.restoreDefaultsBtn"),
                       onConfirm: () => {
-                        this.plugin.settings = Object.assign(
-                          {},
-                          DEFAULT_SETTINGS,
-                        );
+                        this.plugin.settings = Object.assign({}, DEFAULT_SETTINGS);
                         void this.plugin.saveSettings();
                         this.plugin.unload();
                         this.plugin.load();

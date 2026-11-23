@@ -15,11 +15,9 @@ import { getLanguage } from "obsidian";
 
 const en = {
   /* --- headings --- */
-  "heading.title": "Local REST API with MCP",
   "heading.rest": "How to access via REST",
   "heading.mcp": "How to access via MCP",
   "heading.settings": "Settings",
-  "heading.advanced": "Advanced settings",
 
   /* --- REST section --- */
   "rest.intro": "You can access the REST API via the following URLs:",
@@ -33,7 +31,7 @@ const en = {
   "rest.authLabel": "authorization header value",
   "rest.apiKeyHint": "Some tools ask for the API key on its own instead:",
   "rest.seeMore":
-    "Comprehensive documentation of what API endpoints are available can be found in {docsLink}",
+    "Comprehensive documentation of what API endpoints are available can be found in {docsLink}.",
   "rest.serverStatus": "Server status",
   "rest.secureServerName": "Encrypted (HTTPS) server",
   "rest.insecureServerName": "Non-encrypted (HTTP) server",
@@ -60,7 +58,7 @@ const en = {
   "mcp.example":
     "Example Claude code MCP configuration (for .Claude/settings.json):",
   "mcp.seeMore":
-    "Configuration examples for other MCP clients can be found in {docsLink}",
+    "Configuration examples for other MCP clients can be found in {docsLink}.",
   "mcp.howToAccessDesc":
     "MCP endpoints, authentication, and client configuration examples.",
 
@@ -163,7 +161,7 @@ const en = {
     "This regenerates your certificate, private key, public key, and API key, and closes this settings panel. This cannot be undone.",
   "modal.restoreTitle": "Restore default settings?",
   "modal.restoreMessage":
-    "This resets this plugin\u2019s settings to defaults and closes this settings panel. This cannot be undone.",
+    "This resets this plugin's settings to defaults and closes this settings panel. This cannot be undone.",
 
   /* --- advanced page --- */
   "advanced.license": "License",
@@ -205,11 +203,9 @@ export const messageKeys = Object.keys(en) as MessageKey[];
 
 const zh: StrMap = {
   /* --- headings --- */
-  "heading.title": "本地 REST API（含 MCP）",
   "heading.rest": "如何通过 REST 访问",
   "heading.mcp": "如何通过 MCP 访问",
   "heading.settings": "设置",
-  "heading.advanced": "高级设置",
 
   /* --- REST section --- */
   "rest.intro": "您可以通过以下 URL 访问 REST API：",
@@ -221,7 +217,7 @@ const zh: StrMap = {
   "rest.authHeader": "您的 API 密钥应通过 {header} 标头以 Bearer 令牌形式传递：",
   "rest.authLabel": "授权标头值",
   "rest.apiKeyHint": "某些工具需要单独的 API 密钥：",
-  "rest.seeMore": "有关可用 API 端点的完整文档，请参阅 {docsLink}",
+  "rest.seeMore": "有关可用 API 端点的完整文档，请参阅 {docsLink}。",
   "rest.serverStatus": "服务器状态",
   "rest.secureServerName": "加密（HTTPS）服务器",
   "rest.insecureServerName": "非加密（HTTP）服务器",
@@ -242,7 +238,7 @@ const zh: StrMap = {
   "mcp.authLabel": "授权标头值",
   "mcp.apiKeyHint": "某些工具需要单独的 API 密钥：",
   "mcp.example": "Claude Code MCP 配置示例（用于 .Claude/settings.json）：",
-  "mcp.seeMore": "其他 MCP 客户端的配置示例，请参阅 {docsLink}",
+  "mcp.seeMore": "其他 MCP 客户端的配置示例，请参阅 {docsLink}。",
   "mcp.howToAccessDesc": "MCP 端点、身份验证和客户端配置示例。",
 
   /* --- common link labels --- */

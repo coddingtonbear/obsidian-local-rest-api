@@ -20,9 +20,9 @@ export class DataAdapter {
   _exists = true;
   _read = "";
   _readBinary = new ArrayBuffer(0);
-  _write: [string, string] | undefined;
-  _writeBinary: [string, ArrayBuffer] | undefined;
-  _remove: [string] | undefined;
+  _write: [string, string];
+  _writeBinary: [string, ArrayBuffer];
+  _remove: [string];
   _stat = new Stat();
   /** When set, stat() returns _stat only for this exact path and null for all others. */
   _statForPath?: string;
@@ -120,7 +120,7 @@ export class Vault {
     return this._markdownFiles;
   }
 
-  getAbstractFileByPath(path: string): TFile | null {
+  getAbstractFileByPath(path: string): TFile {
     return this._getAbstractFileByPath;
   }
 
@@ -321,7 +321,7 @@ class InternalPluginManager {
 }
 
 export class App {
-  _executeCommandById: [string] | undefined;
+  _executeCommandById: [string];
 
   vault = new Vault();
   workspace = new Workspace();
@@ -367,6 +367,12 @@ export class PluginManifest {
 }
 
 export class SettingTab {
+  /** Stand-in for the element Obsidian gives a settings tab; tests only need
+   *  the `classList.add` call `getSettingDefinitions` makes on it. */
+  containerEl = {
+    classList: { add: (): void => {} },
+  } as unknown as HTMLElement;
+
   constructor(public app?: App, public plugin?: Plugin) {}
 }
 
