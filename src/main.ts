@@ -113,6 +113,12 @@ export default class LocalRestApi extends Plugin {
 
     this.addSettingTab(new LocalRestApiSettingTab(this.app, this));
 
+    // The settings tab reloads the plugin by calling unload() then load() on
+    // this same instance, so the flag onunload set has to be cleared before
+    // binding again. Cleared here rather than at the top of onload so that a
+    // refresh still in flight from before the unload cannot bind until the new
+    // request handler is in place.
+    this.unloaded = false;
     this.refreshServerState();
 
     this.app.workspace.trigger("obsidian-local-rest-api:loaded");
