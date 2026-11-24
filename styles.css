@@ -126,6 +126,18 @@ div.obsidian-local-rest-api-content table.api-urls tr.disabled td.url {
   text-decoration: line-through;
 }
 
+div.obsidian-local-rest-api-content table.api-urls .server-status-label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+div.obsidian-local-rest-api-content table.api-urls .server-status-reason {
+  margin-top: 0.25em;
+  color: var(--text-error);
+  font-size: var(--font-ui-small);
+  overflow-wrap: anywhere;
+}
+
 div.obsidian-local-rest-api-settings div.setting-item-control {
   min-width: 50%;
 }
