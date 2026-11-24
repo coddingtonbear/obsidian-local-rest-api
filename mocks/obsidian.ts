@@ -174,6 +174,11 @@ export class Component {
   unload(): void {}
 }
 
+export class Plugin {
+  app?: App;
+  manifest?: PluginManifest;
+}
+
 export class MarkdownRenderer {
   static _rendered = "<p>rendered</p>";
 
@@ -361,7 +366,25 @@ export class PluginManifest {
   version = "";
 }
 
-export class SettingTab {}
+export class SettingTab {
+  /** Stand-in for the element Obsidian gives a settings tab; tests only need
+   *  the `classList.add` call `getSettingDefinitions` makes on it. */
+  containerEl = {
+    classList: { add: (): void => {} },
+  } as unknown as HTMLElement;
+
+  constructor(public app?: App, public plugin?: Plugin) {}
+}
+
+export class PluginSettingTab extends SettingTab {}
+
+export const _languageMock = {
+  value: "en",
+};
+
+export function getLanguage(): string {
+  return _languageMock.value;
+}
 
 export const apiVersion = "1.0.0";
 
