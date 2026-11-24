@@ -1,10 +1,12 @@
 /**
  * Lightweight i18n module for Obsidian Local REST API.
  *
- * English is the source of truth and is typed `as const`; every other locale
- * must cover exactly the same keys, which makes a typo or a missing entry a
- * compile error. Values are plain text: markup belongs to the caller and is
- * assembled with `renderTemplate` from `./i18nTemplate`.
+ * English is the source of truth and is typed `as const`. Other locales may
+ * leave keys out: an untranslated string falls back to English, so adding a
+ * string never requires translating it. A key English does not define is a
+ * compile error, which catches typos and stale entries. Values are plain text:
+ * markup belongs to the caller and is assembled with `renderTemplate` from
+ * `./i18nTemplate`.
  */
 
 import { getLanguage } from "obsidian";
@@ -187,23 +189,23 @@ const en = {
 } as const;
 
 /* ------------------------------------------------------------------ */
-/*  Compile-time key parity                                            */
+/*  Keys                                                               */
 /* ------------------------------------------------------------------ */
 
 /** Every valid translation key — derived from the English dictionary. */
 export type MessageKey = keyof typeof en;
 
-/** A translation map must have exactly the same keys as English. */
-type StrMap = Record<MessageKey, string>;
+/** A translation map: any subset of the English keys, and nothing else. */
+export type Translations = Partial<Record<MessageKey, string>>;
 
-/** Every key, in dictionary order; used by the parity tests. */
+/** Every key, in dictionary order; used by the dictionary tests. */
 export const messageKeys = Object.keys(en) as MessageKey[];
 
 /* ------------------------------------------------------------------ */
 /*  Chinese (Simplified)                                               */
 /* ------------------------------------------------------------------ */
 
-const zh: StrMap = {
+const zh: Translations = {
   /* --- headings --- */
   "heading.rest": "如何通过 REST 访问",
   "heading.mcp": "如何通过 MCP 访问",
@@ -378,7 +380,7 @@ function detectLanguage(): "en" | "zh" {
 }
 
 let currentLang: "en" | "zh" = detectLanguage();
-const locales: Record<"en" | "zh", StrMap> = { en, zh };
+const locales: Record<"en" | "zh", Translations> = { en, zh };
 
 /**
  * Translate a key, replacing every `{name}` placeholder in the string.
@@ -391,8 +393,19 @@ export function t(
   key: MessageKey,
   vars?: Record<string, string | number>,
 ): string {
-  const map = locales[currentLang];
-  let str = (map && map[key]) ?? locales["en"]?.[key] ?? key;
+  return translate(locales[currentLang], key, vars);
+}
+
+/**
+ * Translate a key from `translations`, falling back to English for a key it
+ * leaves out. `t()` calls this with the active locale.
+ */
+export function translate(
+  translations: Translations,
+  key: MessageKey,
+  vars?: Record<string, string | number>,
+): string {
+  let str: string = translations[key] ?? en[key];
 
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {

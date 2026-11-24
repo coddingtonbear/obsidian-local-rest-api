@@ -6,6 +6,7 @@ import {
   setLanguage,
   t,
   tPlural,
+  translate,
 } from "./i18n";
 import { placeholderNames } from "./i18nTemplate";
 
@@ -92,16 +93,23 @@ describe("i18n module", () => {
   });
 
   describe("translation tables", () => {
-    it("translate every key in both languages", () => {
+    it("define every key in English", () => {
       expect(messageKeys.length).toBeGreaterThan(0);
       setLanguage("en");
       for (const key of messageKeys) {
-        expect(t(key)).not.toBe(key);
+        expect(t(key)).not.toBe("");
       }
-      setLanguage("zh");
-      for (const key of messageKeys) {
-        expect(t(key)).not.toBe(key);
-      }
+    });
+
+    it("fall back to English for a key a locale leaves out", () => {
+      expect(translate({}, "heading.settings")).toBe("Settings");
+      expect(translate({}, "cert.expiresInOther", { days: 3 })).toBe(
+        "Expires in 3 days",
+      );
+    });
+
+    it("use a locale's own string when it has one", () => {
+      expect(translate({ "heading.settings": "设置" }, "heading.settings")).toBe("设置");
     });
 
     it("keep the same placeholders in Chinese as in English", () => {
