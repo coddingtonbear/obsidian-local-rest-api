@@ -8,6 +8,7 @@ import {
   _prepareSimpleSearchMock,
 } from "../mocks/obsidian";
 import { fakeReadlink, fakeRealpath } from "../mocks/disk";
+import { declaredEvents } from "../mocks/obsidianTypings";
 import { ConfigDirAccessError } from "./vaultPath";
 import {
   BACKLINKS_INDEX_MAX_AGE_MS,
@@ -799,21 +800,6 @@ describe("backlinks index caching", () => {
 // ---------------------------------------------------------------------------
 
 describe("Obsidian's declared event surface", () => {
-  function declaredEvents(className: string): string[] {
-    const typings = fs.readFileSync(
-      path.join(__dirname, "..", "node_modules", "obsidian", "obsidian.d.ts"),
-      "utf-8",
-    );
-    const start = typings.indexOf(`export class ${className} extends Events {`);
-    expect(start).toBeGreaterThanOrEqual(0);
-
-    const end = typings.indexOf("\nexport ", start + 1);
-    const body = typings.slice(start, end === -1 ? undefined : end);
-
-    return [...body.matchAll(/\bon\(name: '([^']+)'/g)]
-      .map((match) => match[1])
-      .sort();
-  }
 
   test("the cache is invalidated by every metadataCache event", () => {
     expect([...METADATA_CACHE_EVENTS].sort()).toEqual(
@@ -823,6 +809,43 @@ describe("Obsidian's declared event surface", () => {
 
   test("the cache is invalidated by every vault event", () => {
     expect([...VAULT_EVENTS].sort()).toEqual(declaredEvents("Vault"));
+  });
+
+  test("an event mentioned only in a comment is not counted as declared", () => {
+    // obsidian 1.14's JSDoc on MetadataCache's `changed` event links to
+    // `Vault.on(name: 'rename')`; reading that as a declaration made both
+    // guard suites demand a MetadataCache "rename" event that does not exist.
+    const typings = [
+      "export class Cache extends Events {",
+      "    /**",
+      "     * You must hook the {@link Vault.on | Vault.on(name: 'rename')} event.",
+      "     */",
+      "    on(name: 'changed', callback: () => any): EventRef;",
+      "    // on(name: 'commented-out', callback: () => any): EventRef;",
+      "    on(name: 'deleted', callback: () => any): EventRef;",
+      "}",
+      "export class Other extends Events {",
+      "    on(name: 'elsewhere', callback: () => any): EventRef;",
+      "}",
+    ].join("\n");
+
+    expect(declaredEvents("Cache", typings)).toEqual(["changed", "deleted"]);
+  });
+
+  test("comment markers inside string types do not hide later declarations", () => {
+    // A guard that drops a declaration passes while missing a new event, so a
+    // glob or URL in a type must not swallow the lines after it.
+    const typings = [
+      "export class Cache extends Events {",
+      "    pattern: '**/*.md';",
+      "    homepage: 'https://obsidian.md';",
+      "    on(name: 'changed', callback: () => any): EventRef;",
+      "    /** Ends the comment the glob above did not start. */",
+      "    on(name: 'deleted', callback: () => any): EventRef;",
+      "}",
+    ].join("\n");
+
+    expect(declaredEvents("Cache", typings)).toEqual(["changed", "deleted"]);
   });
 });
 

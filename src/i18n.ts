@@ -74,8 +74,10 @@ const en = {
   "copy.failure": "Could not copy {label} to the clipboard.",
 
   /* --- status --- */
-  "status.disabled": "Disabled.  {hint}",
-  "status.enabled": "Enabled",
+  "status.off": "Disabled",
+  "status.starting": "Starting",
+  "status.listening": "Listening",
+  "status.failed": "Could not start",
 
   /* --- certificate warnings --- */
   "status.expired": "Your certificate has expired!",
@@ -253,8 +255,10 @@ const zh: StrMap = {
   "copy.failure": "无法将{label}复制到剪贴板。",
 
   /* --- status --- */
-  "status.disabled": "已禁用。 {hint}",
-  "status.enabled": "已启用",
+  "status.off": "已禁用",
+  "status.starting": "正在启动",
+  "status.listening": "正在监听",
+  "status.failed": "无法启动",
 
   /* --- certificate warnings --- */
   "status.expired": "您的证书已过期！",

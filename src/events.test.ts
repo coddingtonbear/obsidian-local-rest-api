@@ -1,4 +1,3 @@
-import fs from "fs";
 import http from "http";
 import { AddressInfo, connect } from "net";
 import path from "path";
@@ -26,6 +25,7 @@ import {
 } from "./events";
 import { VaultOperations } from "./vaultOperations";
 import { App, CachedMetadata, PluginManifest, TFile, TFolder } from "../mocks/obsidian";
+import { declaredEvents } from "../mocks/obsidianTypings";
 
 const API_KEY = "my api key";
 const JSONLOGIC = "application/vnd.olrapi.jsonlogic+json";
@@ -756,17 +756,6 @@ describe("EventStreams filters", () => {
 // worse, one that someone later exposes without writing a serializer that decides what
 // it may send.
 describe("Obsidian's declared event surface", () => {
-  function declaredEvents(className: string): string[] {
-    const typings = fs.readFileSync(
-      path.join(__dirname, "..", "node_modules", "obsidian", "obsidian.d.ts"),
-      "utf-8",
-    );
-    const start = typings.indexOf(`export class ${className} extends Events {`);
-    expect(start).toBeGreaterThanOrEqual(0);
-    const end = typings.indexOf("\nexport ", start + 1);
-    const body = typings.slice(start, end === -1 ? undefined : end);
-    return [...body.matchAll(/\bon\(name: '([^']+)'/g)].map((match) => match[1]).sort();
-  }
 
   const classes = { vault: "Vault", metadataCache: "MetadataCache", workspace: "Workspace" };
 

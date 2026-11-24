@@ -113,6 +113,31 @@ describe("requestHandler", () => {
         .set("Authorization", `Bearer ${API_KEY}`)
         .expect(200);
     });
+    test("a key that is a prefix or an extension of the right one", async () => {
+      await request(server)
+        .get(arbitraryAuthenticatedRoute)
+        .set("Authorization", `Bearer ${API_KEY.slice(0, -1)}`)
+        .expect(401);
+      await request(server)
+        .get(arbitraryAuthenticatedRoute)
+        .set("Authorization", `Bearer ${API_KEY}0`)
+        .expect(401);
+    });
+    test("compares the presented key in constant time", async () => {
+      // A plain === stops at the first differing character, so response time
+      // can reveal how much of a guess was right.
+      const nodeCrypto = jest.requireActual<typeof import("crypto")>("crypto");
+      const spy = jest.spyOn(nodeCrypto, "timingSafeEqual");
+      try {
+        await request(server)
+          .get(arbitraryAuthenticatedRoute)
+          .set("Authorization", "Bearer of good tidings")
+          .expect(401);
+        expect(spy).toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+      }
+    });
   });
 
   describe("root", () => {
@@ -5779,13 +5804,16 @@ describe("requestHandler", () => {
   });
 
   describe("active-file write handlers surface failures instead of hanging", () => {
-    // Regression coverage for redirectToVaultPath's callers: they used to
-    // fire the underlying _vaultPut/_vaultPost/_vaultPatch/_vaultDelete call
-    // with `void`, discarding its promise. A thrown error then became an
-    // unhandled rejection instead of reaching errorHandler, and since
-    // nothing ever called res.json/res.status, the request just hung
-    // forever instead of failing fast with a 500. Before the fix, these
-    // tests would time out rather than fail cleanly.
+    // redirectToVaultPath's callers used to fire the underlying _vault* call
+    // with `void`, discarding its promise. A rejection then never reached
+    // errorHandler, and nothing sent a response, so the request hung.
+    //
+    // PUT and POST are the regression tests for that: their handlers let a
+    // write failure propagate, so before the fix these two timed out instead
+    // of answering 500. DELETE is plain coverage: _vaultDelete catches its own
+    // errors and answers 500 itself, so it passed before the fix too. PATCH
+    // is not covered here for the same reason (its patch operations catch
+    // their own errors).
     const activeFilePath = "notes/active.md";
 
     beforeEach(() => {
@@ -5819,7 +5847,7 @@ describe("requestHandler", () => {
         .expect(500);
     });
 
-    test("DELETE still surfaces an unexpected deletion failure as a 500", async () => {
+    test("DELETE surfaces an unexpected deletion failure as a 500 (coverage, not a regression test)", async () => {
       jest
         .spyOn(handler.operations, "deleteVaultFile")
         .mockRejectedValue(new Error("locked"));
