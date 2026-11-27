@@ -25,7 +25,6 @@ describe("vaultPathIsContained", () => {
     ["a trailing slash", "folder/"],
     ["'..' as a filename substring", "folder/notes..md"],
     ["a filename ending in '..'", "folder/notes.."],
-    ["a descent that comes back but stays inside", "folder/../other/note.md"],
     ["a backslash in a filename", "folder/a\\b.md"],
     ["a name that merely starts with '..'", "..hidden.md"],
     // Stripping trailing dots and spaces only ever moves a component toward
@@ -33,10 +32,21 @@ describe("vaultPathIsContained", () => {
     ["a name with a trailing space", "notes /a.md"],
     ["a name with a trailing dot and space", "notes. /a.md"],
     ["a single dot with a trailing space", ". /a.md"],
-    ["a '..' with a trailing space that comes back but stays inside", "notes/.. /a.md"],
   ] as const;
 
   const escaping = [
+    // Any ".." segment is refused, whether or not the path would resolve back
+    // inside: resolving it against a stand-in root is how GHSA-h363-vqpq-479g
+    // got through, since "../vault/x.md" climbs out of "/vault" and walks
+    // back in by name.
+    ["a descent that comes back inside", "folder/../other/note.md"],
+    ["a '..' with a trailing space that comes back inside", "notes/.. /a.md"],
+    ["a climb that re-enters a folder named like the synthetic root", "../vault/x.md"],
+    ["two climbs that re-enter a folder named like the synthetic root", "../../vault/x.md"],
+    ["many climbs that re-enter a folder named like the synthetic root", "../../../../vault/x.md"],
+    ["a descent and climb that re-enter a folder named like the synthetic root", "a/../../vault/x.md"],
+    ["a re-entry by backslash", "..\\vault\\x.md"],
+    ["a re-entry by a Win32 '..' spelling", ".. /vault/x.md"],
     ["a single level up", "../note.md"],
     ["two levels up", "../../Ausserhalb.md"],
     ["many levels up", "../../../../some/other/writable/path/file.md"],

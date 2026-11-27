@@ -1306,13 +1306,14 @@ describe("McpHandler", () => {
       ).rejects.toThrow(/as: "link"/);
     });
 
-    test("normalizes the path before reading, so a traversal-shaped path names the same file", async () => {
+    test("refuses a '..' segment, even one that would resolve back inside", async () => {
       build();
-      await getToolCallback("vault_read_binary")({ path: "notes/../attachments/pixel.png" });
-      expect(ops.readBinaryFileContent).toHaveBeenCalledWith(PNG_PATH);
-      await expect(getToolCallback("vault_read_binary")({ path: "../outside.png" })).rejects.toThrow(
-        /Not a file path inside the vault/,
-      );
+      for (const path of ["notes/../attachments/pixel.png", "../outside.png", "../vault/pixel.png"]) {
+        await expect(getToolCallback("vault_read_binary")({ path })).rejects.toThrow(
+          /Not a file path inside the vault/,
+        );
+      }
+      expect(ops.readBinaryFileContent).not.toHaveBeenCalled();
     });
 
     // ---- vault_get_download_url ---------------------------------------------
@@ -3420,6 +3421,8 @@ describe("MCP vault path containment", () => {
     ["absolute path", "/etc/passwd"],
     ["traversal in the middle", "notes/../../outside.md"],
     ["windows-style traversal", "..\\..\\outside.md"],
+    ["a re-entry into a folder named like the synthetic root", "../vault/x.md"],
+    ["a '..' that resolves back inside", "notes/../x.md"],
   ];
 
   for (const [tool, extraArgs, opsMethod] of pathTools) {

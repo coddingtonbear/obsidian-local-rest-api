@@ -18,7 +18,6 @@ describe("signedUrls", () => {
       ["a//b.png", "a/b.png"],
       ["a\\b.png", "a/b.png"],
       ["a/./b.png", "a/b.png"],
-      ["a/../b.png", "b.png"],
       ["./b.png", "b.png"],
     ])("%s normalizes to %s", (input, expected) => {
       expect(normalizeVaultFilePath(input)).toBe(expected);
@@ -27,6 +26,8 @@ describe("signedUrls", () => {
     test.each([
       ["escapes the root", "../secret.txt"],
       ["escapes the root after descending", "a/../../secret.txt"],
+      ["has a '..' that would resolve back inside", "a/../b.png"],
+      ["re-enters a folder named like the synthetic root", "../vault/b.png"],
       ["is empty", ""],
       ["is the root", "/"],
       ["names a directory", "a/"],
@@ -63,9 +64,16 @@ describe("signedUrls", () => {
     });
 
     test("the path is normalized on both sides, so different spellings of one file share a signature", () => {
-      const { sig, exp, nonce } = signer.sign("GET", "notes/../attachments/pixel.png", 300);
+      const { sig, exp, nonce } = signer.sign("GET", "attachments/./pixel.png", 300);
       expect(signer.verify("GET", "attachments/pixel.png", String(exp), sig, nonce)).toBe("ok");
       expect(signer.verify("GET", "/attachments//pixel.png", String(exp), sig, nonce)).toBe("ok");
+    });
+
+    test("a '..' spelling of a signed file does not verify", () => {
+      const { sig, exp, nonce } = signer.sign("GET", "attachments/pixel.png", 300);
+      expect(signer.verify("GET", "notes/../attachments/pixel.png", String(exp), sig, nonce)).toBe(
+        "invalid",
+      );
     });
 
     test("a signature for one file does not verify for another", () => {

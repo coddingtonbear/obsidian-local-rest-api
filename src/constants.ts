@@ -98,7 +98,7 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.PreconditionFailed]:
     "A precondition on this write did not hold, so nothing was written: the file has changed since the version If-Match named, or If-None-Match ruled out what is there now. Read the file again for its current ETag, and retry against that.",
   [ErrorCode.PathTraversalNotAllowed]:
-    "Path traversal is not allowed. Paths must be relative, within the vault, and free of ':' and control characters.",
+    "Path traversal is not allowed. Paths must be relative, within the vault, and free of '..' segments, ':' and control characters.",
   [ErrorCode.ConfigDirAccessNotAllowed]:
     "Access to the Obsidian configuration directory is not allowed. Enable 'Allow access to the configuration directory' under Settings → Local REST API → Advanced settings to permit it.",
   [ErrorCode.DestinationAlreadyExists]:
