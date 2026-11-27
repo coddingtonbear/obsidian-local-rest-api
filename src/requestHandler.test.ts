@@ -3069,6 +3069,44 @@ describe("requestHandler", () => {
       expect(res.body.errorCode).toBe(40021);
     });
 
+    // "../vault/x.md" climbs out of the synthetic "/vault" root and walks back
+    // in by name, so a check that resolves against that root reads it as
+    // inside. On disk it is a sibling folder of the vault (GHSA-h363-vqpq-479g).
+    test("GET rejects a '..' that re-enters a folder named 'vault' with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .get("/vault/%2E%2E/vault/secret.md")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
+    test("PUT rejects a '..' that re-enters a folder named 'vault' with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .put("/vault/notes/%2E%2E/%2E%2E/vault/poc.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Content-Type", "text/markdown")
+        .send("pwned");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
+    test("MOVE rejects a '..' destination that re-enters a folder named 'vault' with 400 and errorCode 40021", async () => {
+      const res = await request(server)
+        .move("/vault/notes/a.md")
+        .set("Authorization", `Bearer ${API_KEY}`)
+        .set("Destination", "../vault/a.md");
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
+    test("GET rejects a '..' even when it resolves back inside the vault", async () => {
+      const res = await request(server)
+        .get("/vault/notes/%2E%2E/a.md")
+        .set("Authorization", `Bearer ${API_KEY}`);
+      expect(res.status).toBe(400);
+      expect(res.body.errorCode).toBe(40021);
+    });
+
     test("GET rejects ..%2F traversal with 400 and errorCode 40021", async () => {
       const res = await request(server)
         .get(traversal)
