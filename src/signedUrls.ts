@@ -52,10 +52,11 @@ export function clampSignedUrlTtl(seconds: number | undefined): number {
 /**
  * The one canonical spelling of a vault path, shared by signing and verification.
  *
- * Backslashes become slashes, runs of slashes collapse, `.` and `..` segments are
- * resolved, and the leading/trailing slashes go. Returns null for a path that escapes
- * the vault root, is empty, or names a directory (ends in `/`): none of those can be a
- * file that a signature should authorize.
+ * Backslashes become slashes, runs of slashes collapse, `.` segments are dropped,
+ * and the leading/trailing slashes go. A `..` segment is refused, not resolved, so
+ * "a/../b.png" is not another spelling of "b.png". Returns null for a path that
+ * escapes the vault root, contains `..`, is empty, or names a directory (ends in
+ * `/`): none of those can be a file that a signature should authorize.
  *
  * Containment is {@link vaultPathIsContained}, the same rule the REST routes, the MCP
  * tools and VaultOperations all refuse on, so there is one definition of what "escapes

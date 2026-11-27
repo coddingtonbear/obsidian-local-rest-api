@@ -8,7 +8,7 @@
     {
       name: 'Destination',
       'in': 'header',
-      description: 'The new path for the file, relative to your vault root. The path must not escape the vault root (relative segments like `..` are permitted as long as the resolved path remains inside the vault). Absolute paths (starting with `/`) are rejected. If the path ends with a trailing slash, the source filename is preserved and the file is placed in that directory (e.g. "archive/" moves "notes/todo.md" to "archive/todo.md"). If the path contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `r%C3%A9sum%C3%A9.md` for `résumé.md`).\n',
+      description: 'The new path for the file, relative to your vault root. The path must stay inside the vault: `..` segments are rejected, even ones that would resolve back inside the vault, and so are absolute paths (starting with `/`). If the path ends with a trailing slash, the source filename is preserved and the file is placed in that directory (e.g. "archive/" moves "notes/todo.md" to "archive/todo.md"). If the path contains non-ASCII characters (e.g. accented letters), percent-encode the value (e.g. `r%C3%A9sum%C3%A9.md` for `résumé.md`).\n',
       required: true,
       schema: {
         type: 'string',
@@ -40,7 +40,7 @@
       },
     },
     '400': {
-      description: 'Bad request - Missing Destination header, malformed percent-encoding, or path escapes the vault root (e.g. starts with "/").\n',
+      description: 'Bad request - Missing Destination header, malformed percent-encoding, or path escapes the vault root (e.g. starts with "/" or contains a `..` segment).\n',
       content: {
         'application/json': {
           schema: {

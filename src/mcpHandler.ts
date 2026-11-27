@@ -1615,7 +1615,7 @@ export class McpHandler {
         destination: z
           .string()
           .describe(
-            dedent`Destination path relative to vault root; must not escape the vault root. May end with '/' to preserve the source filename in the target directory (e.g. destination 'archive/' moves 'notes/todo.md' to 'archive/todo.md').`,
+            dedent`Destination path relative to vault root; must not escape the vault root or contain '..' segments. May end with '/' to preserve the source filename in the target directory (e.g. destination 'archive/' moves 'notes/todo.md' to 'archive/todo.md').`,
           ),
         allowOverwrite: z
           .boolean()
@@ -1671,7 +1671,7 @@ export class McpHandler {
         destination: z
           .string()
           .describe(
-            dedent`Destination path relative to vault root; must not escape the vault root. May end with '/' to preserve the source filename in the target directory (e.g. destination 'archive/' copies 'notes/todo.md' to 'archive/todo.md').`,
+            dedent`Destination path relative to vault root; must not escape the vault root or contain '..' segments. May end with '/' to preserve the source filename in the target directory (e.g. destination 'archive/' copies 'notes/todo.md' to 'archive/todo.md').`,
           ),
         allowOverwrite: z
           .boolean()

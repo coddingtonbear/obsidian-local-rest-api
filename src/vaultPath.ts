@@ -53,6 +53,17 @@ export const CONFIG_DIR_ACCESS_MESSAGE =
  *  contained; a file legitimately named "notes." on a POSIX system is checked
  *  as "notes", which is still inside.
  *
+ *  Any ".." segment is refused outright, even one that would resolve back
+ *  inside. Resolving ".." against a stand-in root is what let
+ *  GHSA-h363-vqpq-479g through: `posix.resolve` stops climbing at "/", so
+ *  "../vault/x.md" climbs out of "/vault" and walks back in by name, while on
+ *  disk it lands in a sibling folder of the vault. Refusing the segment means
+ *  the guard never has to predict where a climb ends up. No path Obsidian
+ *  produces contains one, and the check runs after folding, so the Win32
+ *  spellings (".. ", "...") are refused with it. A single "." is still
+ *  accepted: it never leaves the folder it is in, and `path.dirname` of a
+ *  top-level file is ".".
+ *
  *  An absolute path is refused outright rather than resolved, because resolving
  *  one would accept "/vault/notes/a.md" -- a path that is inside the *synthetic*
  *  root by coincidence of spelling and has nothing to do with where the vault
@@ -88,6 +99,7 @@ export function vaultPathIsContained(candidate: string): boolean {
   if (candidate.includes("\0") || candidate.includes(":")) return false;
   const normalized = foldForResolution(candidate);
   if (normalized.startsWith("/")) return false;
+  if (normalized.split("/").includes("..")) return false;
   const resolved = posix.resolve(SYNTHETIC_ROOT, normalized);
   if (resolved !== SYNTHETIC_ROOT && !resolved.startsWith(SYNTHETIC_ROOT + "/")) {
     return false;

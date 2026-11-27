@@ -115,3 +115,34 @@ describe("DELETE /vault/{path} — path traversal prevention", () => {
     expect(existsSync(DELETE_CANARY_PATH)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ".." that re-enters a folder named "vault" (GHSA-h363-vqpq-479g)
+// ---------------------------------------------------------------------------
+
+describe("/vault/{path} — '..' segments are refused outright", () => {
+  // The guard used to resolve paths against the stand-in root "/vault", so a
+  // climb that walked back into a folder of that name read as inside. On disk
+  // it is a sibling folder of the vault. "..%2F" keeps the climb inside one
+  // URL segment, so neither fetch nor Express collapses it before the plugin
+  // decodes it. Each request is refused before anything touches the disk.
+  const STAMP_NAME = `olrapi-reentry-${STAMP}.md`;
+
+  test.each([
+    ["GET", `/vault/..%2Fvault%2F${STAMP_NAME}`],
+    ["GET", `/vault/..%2F..%2Fvault%2F${STAMP_NAME}`],
+    ["GET", `/vault/notes%2F..%2F${STAMP_NAME}`],
+    ["PUT", `/vault/..%2Fvault%2F${STAMP_NAME}`],
+    ["DELETE", `/vault/..%2Fvault%2F${STAMP_NAME}`],
+  ])("%s %s is refused with 400 and errorCode 40021", async (method, path) => {
+    const res = await authedFetch(path, {
+      method,
+      ...(method === "PUT"
+        ? { headers: { "Content-Type": "text/markdown" }, body: "pwned" }
+        : {}),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { errorCode?: number };
+    expect(body.errorCode).toBe(40021);
+  });
+});

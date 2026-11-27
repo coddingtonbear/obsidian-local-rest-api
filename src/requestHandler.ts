@@ -651,8 +651,8 @@ export default class RequestHandler {
       this.returnCannedResponse(res, { errorCode: ErrorCode.PathTraversalNotAllowed });
       return null;
     }
-    // Traversal guard: resolve the decoded path against the vault root and reject
-    // anything that escapes it. Applied to the joined form so an encoded
+    // Traversal guard: refuse a ".." segment, an absolute path, and anything else
+    // that could leave the vault. Applied to the joined form so an encoded
     // `..%2F..%2F…` — which arrives as a single segment — is still caught after
     // decoding. See ./vaultPath for the containment rule itself.
     if (!vaultPathIsContained(segments.join("/"))) {

@@ -1361,8 +1361,16 @@ describe("requestHandler", () => {
     test("the signature covers the normalized path, so another spelling of the same file is accepted", async () => {
       const { sig, exp, nonce } = handler.urlSigner.sign("GET", PATH, 300);
       await request(server)
-        .get(`/vault/notes/../attachments/pixel.png?sig=${sig}&exp=${exp}&n=${nonce}`)
+        .get(`/vault/attachments/./pixel.png?sig=${sig}&exp=${exp}&n=${nonce}`)
         .expect(200);
+    });
+
+    test("a '..' spelling of a signed file is refused", async () => {
+      const { sig, exp, nonce } = handler.urlSigner.sign("GET", PATH, 300);
+      const res = await request(server).get(
+        `/vault/notes/%2E%2E/attachments/pixel.png?sig=${sig}&exp=${exp}&n=${nonce}`,
+      );
+      expect(res.status).toBe(401);
     });
 
     test("signatures are refused outright while the setting is off", async () => {
